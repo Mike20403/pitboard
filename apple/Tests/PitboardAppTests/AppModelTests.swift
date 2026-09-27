@@ -715,7 +715,8 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 /// A code field is offered only by a sign-in whose tool reads one, whatever the tool prints,
 /// and what is typed goes to the tool off the main thread.
 @MainActor
-@Test func aCodeIsAskedForOnlyWhereTheToolTakesOne() async throws {
+@Test(.timeLimit(.minutes(1)))
+func aCodeIsAskedForOnlyWhereTheToolTakesOne() async throws {
     for (provider, takes) in [("claude", true), ("codex", false)] {
         let stub = Stub(.success(status([])))
         let session = ScriptedSignIn(
@@ -743,7 +744,8 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 /// sign-in waiting on the browser held the whole app while it did. What the stopped tool
 /// leaves behind is not a failure to report, and nothing is enrolled.
 @MainActor
-@Test func aCancelledSignInStopsTheToolAndReportsNothing() async {
+@Test(.timeLimit(.minutes(1)))
+func aCancelledSignInStopsTheToolAndReportsNothing() async {
     let stub = Stub(.success(status([])))
     let session = ScriptedSignIn(
         saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], takesACode: false,
@@ -767,7 +769,8 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 /// the same way. The sheet has the label alone, and the core is given it with its tool once,
 /// as for a new account.
 @MainActor
-@Test func anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel() async throws {
+@Test(.timeLimit(.minutes(1)))
+func anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel() async throws {
     let stub = Stub(
         .success(
             status([

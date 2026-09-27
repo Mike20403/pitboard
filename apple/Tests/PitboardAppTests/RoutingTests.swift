@@ -73,7 +73,8 @@ private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
 /// window, the tool's sign-in with the code it asks for typed back, and the new account
 /// parked beside the one in use once the sheet has closed by itself.
 @MainActor
-@Test func anAccountIsAddedThroughTheSheetFromStartToFinish() async throws {
+@Test(.timeLimit(.minutes(1)))
+func anAccountIsAddedThroughTheSheetFromStartToFinish() async throws {
     let model = AppModel(testing: FixtureCore(.twoTools))
     await model.refresh()
     model.present(.add(provider: nil))
