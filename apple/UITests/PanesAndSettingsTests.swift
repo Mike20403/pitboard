@@ -35,12 +35,12 @@ final class PanesAndSettingsTests: XCTestCase {
     func testDailyRenewal() {
         let app = XCUIApplication.launched(.oneTool)
         app.openSettings()
-        let renew = app.switches["Renew parked logins daily"]
+        let renew = app.control("settings.renewDaily")
         XCTAssertTrue(renew.waitForExistence(timeout: 5))
         renew.click()
-        XCTAssertTrue(app.staticTexts["Every day"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.text("Every day").waitForExistence(timeout: 5))
         app.buttons["Renew Now"].click()
-        XCTAssertTrue(app.staticTexts["Renewed one."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.text("Renewed one.").waitForExistence(timeout: 5))
     }
 
     /// Opening at login turns on and off without registering the test build.
@@ -48,7 +48,7 @@ final class PanesAndSettingsTests: XCTestCase {
     func testOpenAtLogin() {
         let app = XCUIApplication.launched(.oneTool)
         app.openSettings()
-        let toggle = app.switches["Open pitboard at login"]
+        let toggle = app.control("settings.openAtLogin")
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? Int, 0)
         toggle.click()

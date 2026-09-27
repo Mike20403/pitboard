@@ -47,7 +47,9 @@ private struct GeneralSettings: View {
                     "Open pitboard at login",
                     isOn: Binding(
                         get: { machine.openAtLogin != .disabled },
-                        set: { machine.setOpenAtLogin($0) }))
+                        set: { machine.setOpenAtLogin($0) })
+                )
+                .accessibilityIdentifier("settings.openAtLogin")
                 if machine.openAtLogin == .requiresApproval {
                     LabeledContent {
                         Button("Open Login Items Settings…") { machine.openLoginItemSettings() }
@@ -73,6 +75,7 @@ private struct GeneralSettings: View {
                         get: { machine.scheduling ?? machine.renewsDaily },
                         set: { wanted in Task { await machine.setSchedule(on: wanted) } })
                 )
+                .accessibilityIdentifier("settings.renewDaily")
                 // Only turning it on, so a schedule that cannot work can still be taken away.
                 .disabled(
                     machine.scheduling != nil

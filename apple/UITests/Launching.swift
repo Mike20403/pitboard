@@ -65,6 +65,12 @@ extension XCUIApplication {
         text("==", words)
     }
 
+    /// A control by its identifier, whatever kind macOS draws it as: a toggle in a grouped
+    /// form is a switch on one version and a check box on another.
+    func control(_ identifier: String) -> XCUIElement {
+        descendants(matching: .any)[identifier]
+    }
+
     /// An account's row in the window, by its label with its tool.
     func accountRow(_ qualified: String) -> XCUIElement {
         descendants(matching: .any)["account.\(qualified)"]

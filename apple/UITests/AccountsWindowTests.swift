@@ -37,7 +37,8 @@ final class AccountsWindowTests: XCTestCase {
         let tool = app.popUpButtons["sheet.tool"]
         XCTAssertTrue(tool.waitForExistence(timeout: 5))
         tool.click()
-        app.menuItems["Codex"].click()
+        // Its own item, not the menu bar item's Codex heading.
+        tool.menuItems["Codex"].click()
         let name = app.textFields["sheet.name"]
         name.click()
         name.typeText("third")
