@@ -37,6 +37,8 @@ All notable changes are recorded here. The format follows
   failed. It is a note now, which you dismiss once read.
 - A failure to turn daily renewal on or off was said in the panel rather than beside the
   switch in Settings, and a failure to change "Open at login" was not said at all.
+- Switching one tool's account put away the advice about another tool's account that had
+  run out, and it was not offered again until that account ran out once more.
 - The panel and the window described accounts differently: the window had no way to sign in
   again or forget an account and did not say how long a parked login lasts, and the panel
   did not say how long the account in use lasts at its rate. Both now say the same things,
