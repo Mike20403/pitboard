@@ -95,8 +95,11 @@ private final class Stub: Core, @unchecked Sendable {
         enrolled.append(label)
         return try enrolling.get()
     }
+    /// What the next forget is refused with, if anything.
+    var forgetting: Error?
     func forget(_ label: String) async throws -> Changed {
         forgot.append(label)
+        if let forgetting { throw forgetting }
         return Changed(email: "\(label)@example.com", warnings: [])
     }
     func rename(_ from: String, to: String) async throws -> Changed {
@@ -177,19 +180,6 @@ private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
     return condition()
 }
 
-/// Defaults held in memory, so what a test declines is not what the next one reads, and
-/// nothing is written to the Mac running the tests.
-private final class MemoryDefaults: UserDefaults, @unchecked Sendable {
-    private var values: [String: Any] = [:]
-
-    override func object(forKey key: String) -> Any? { values[key] }
-    override func set(_ value: Any?, forKey key: String) { values[key] = value }
-    override func set(_ value: Bool, forKey key: String) { values[key] = value }
-    override func removeObject(forKey key: String) { values[key] = nil }
-    override func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
-    override func bool(forKey key: String) -> Bool { values[key] as? Bool ?? false }
-}
-
 /// A switch of `provider`'s tool, as the core reports one: `from` and `to` typed the way
 /// the core types them, bare for Claude Code and with the tool for any other.
 private func switched(
@@ -218,7 +208,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aReadFillsInTheTitleAndTheRows() async {
     let model = AppModel(
-        service: Stub(
+        testing: Stub(
             .success(
                 Status(
                     now: 0,
@@ -234,7 +224,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aFailedReadIsShownAsItsOwnMessage() async {
     let model = AppModel(
-        service: Stub(
+        testing: Stub(
             .failure(
                 PitboardError.Failed(
                     code: "state_wrong_machine", cause: nil,
@@ -242,23 +232,34 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                     warnings: []))))
     await model.refresh()
     #expect(model.problem == "was written on another computer")
+    #expect(model.problemCode == "state_wrong_machine")
     #expect(
         model.status?.accounts.isEmpty == true,
         "the panel falls back to what is already known, which here is nothing")
 }
 
-/// A switch that failed must not read as one that worked.
+/// A switch that failed must not read as one that worked. The failure goes back to whoever
+/// asked for the switch rather than where a read's is said, where the next read replaced it
+/// seconds later, before anyone had looked. Asked for from the menu or a notification, which
+/// have nowhere to put a sentence, it is said in the window.
 @MainActor
-@Test func aFailedSwitchSaysSoAndChangesNothing() async {
+@Test func aFailedSwitchSaysSoAndChangesNothing() async throws {
     let stub = Stub(.success(Status(now: 0, accounts: [], warnings: [])))
     stub.switched = .failure(
         PitboardError.Failed(
             code: "nothing_parked", cause: nil, message: "nothing parked", warnings: []))
-    let model = AppModel(watching: false, service: stub)
-    await model.use("work")
+    let model = AppModel(testing: stub)
+    let failure = try #require(await model.use("work"))
     #expect(stub.switchedTo == ["work"])
-    #expect(model.problem == "nothing parked")
+    #expect(failure.title == "Couldn’t switch to work")
+    #expect(failure.message == "nothing parked")
+    #expect(failure.code == "nothing_parked")
+    #expect(model.problem == nil, "a switch is not a read")
     #expect(model.lastSwitches.isEmpty)
+
+    await model.switchAsked(to: "claude/work")
+    #expect(model.presentedFailure?.message == "nothing parked")
+    #expect(model.windowRequests == 1)
 }
 
 /// After a switch the panel counts down to when open sessions follow.
@@ -266,7 +267,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func aSwitchRecordsWhenOpenSessionsFollow() async {
     let stub = Stub(.success(status([account("work", signedIn: true), account("personal")])))
     stub.switched = switched("claude", from: "personal", to: "work")
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("claude/work")
     let left = model.lastSwitches.first?.adopted?.timeIntervalSinceNow ?? 0
     #expect(left > 30 && left <= 33)
@@ -284,7 +285,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         .success(status([account("work", of: "codex", signedIn: true), account("personal")])))
     stub.switched = switched(
         "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     await model.use("codex/work")
 
@@ -306,7 +307,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func aRestartIsExplainedWhenNoSessionsWereCounted() async {
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
     stub.switched = switched("codex", from: "codex/personal", to: "codex/work")
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("codex/work")
     #expect(
         model.lastSwitches.first?.notice
@@ -320,7 +321,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let overridden = Warning(code: "auth_overridden", message: "ANTHROPIC_API_KEY is set")
     let stub = Stub(.success(status([account("b", signedIn: true)], warnings: [overridden])))
     stub.switched = switched("claude", from: "a", to: "b", warnings: [overridden])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("claude/b")
     #expect(model.warnings == [overridden])
     #expect(model.warnings(after: try #require(model.lastSwitches.first)).isEmpty)
@@ -336,7 +337,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
             status([account("b", signedIn: true), account("b", of: "codex", signedIn: true)]))
     )
     stub.switched = switched("codex", from: "codex/a", to: "codex/b", warnings: [stillRunning])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("codex/b")
 
     stub.switched = switched("claude", from: "a", to: "b")
@@ -366,7 +367,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(after))
     stub.switched = switched(
         "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("codex/work")
 
     stub.offline = .success(after)
@@ -408,7 +409,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         account("personal", of: "codex"), account("work", of: "codex", signedIn: true),
     ])
     let stub = Stub(.success(before))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
 
     stub.answer = .failure(
@@ -438,7 +439,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     )
     stub.switched = switched(
         "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("codex/work")
     let before = try #require(model.lastSwitches.first)
 
@@ -448,11 +449,12 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
             code: "parked_login_expired", cause: nil,
             message: "spare's parked login has expired",
             warnings: [overridden]))
-    await model.use("claude/spare")
+    let failure = try #require(await model.use("claude/spare"))
 
     #expect(model.lastSwitches == [before])
-    #expect(model.problem == "spare's parked login has expired")
-    #expect(model.otherWarnings == [overridden])
+    #expect(failure.message == "spare's parked login has expired")
+    #expect(failure.warnings == [overridden])
+    #expect(model.warnings == [overridden], "and the panel says it beside the accounts")
 }
 
 /// A switch to the account already in use moves nothing, so a notification pressed after
@@ -462,7 +464,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
     stub.switched = switched(
         "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("codex/work")
     let before = try #require(model.lastSwitches.first)
 
@@ -472,34 +474,52 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     #expect(model.lastSwitches == [before])
 }
 
+/// `pitboard doctor` looks at everything on this Mac, so its checks are made when somebody
+/// asks to see them and not with every read, and they say when they were made.
 @MainActor
 @Test func doctorIsOnlyReadWhenAskedFor() async {
     let model = AppModel(
-        watching: false, service: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
-    #expect(model.checks.isEmpty)
-    await model.diagnose()
-    #expect(model.checks.map(\.code) == ["state"])
-    model.forgetDiagnosis()
-    #expect(model.checks.isEmpty)
+        testing: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
+    await model.refresh()
+    #expect(model.machine.checks.isEmpty)
+    #expect(model.machine.checkedAt == nil)
+    await model.machine.diagnose()
+    #expect(model.machine.checks.map(\.code) == ["state"])
+    #expect(model.machine.checkedAt != nil)
 }
 
 /// The account signed in but not enrolled is the one the app can record by itself: no
-/// browser, no terminal.
+/// browser, no terminal. The sheet closes once the name is taken, and stays open with the
+/// name in it when it is refused, so it can be corrected rather than typed again.
 @MainActor
-@Test func onlyAnUnenrolledSignedInAccountCanBeNamedHere() async {
+@Test func onlyAnUnenrolledSignedInAccountCanBeNamedHere() async throws {
     let stub = Stub(
         .success(
             Status(
                 now: 0,
                 accounts: [account(nil, signedIn: true, uuid: "a")], warnings: [])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.unenrolled)
 
-    model.naming = .theOneInUse("claude")
-    await model.enrol("work", for: "claude")
-    #expect(stub.enrolled == ["claude/work"])
-    #expect(model.naming == nil, "the form closes once it has been used")
+    let naming = AccountSheet.name(provider: "claude", email: "a@example.com")
+    model.sheet = naming
+    stub.enrolling = .failure(
+        PitboardError.Failed(
+            code: "label_taken", cause: nil,
+            message: "There is already an account called work.",
+            warnings: [Warning(code: "auth_overridden", message: "ANTHROPIC_API_KEY is set")]))
+    let refused = try #require(await model.enrol("work", for: "claude"))
+    #expect(refused.title == "Couldn’t name this account")
+    #expect(refused.message == "There is already an account called work.")
+    #expect(model.sheet == naming, "the sheet stays open to say why")
+    #expect(model.warnings.isEmpty, "said in the sheet, not in the panel")
+
+    stub.enrolling = .success(
+        Enrolled(email: "a@example.com", enrolled: .current, warnings: []))
+    #expect(await model.enrol("work", for: "claude") == nil)
+    #expect(stub.enrolled == ["claude/work", "claude/work"])
+    #expect(model.sheet == nil, "the sheet closes once it has been used")
 }
 
 /// Naming a Codex login enrols it as Codex's. A bare name means Claude Code to the core,
@@ -512,33 +532,48 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 account("work", signedIn: true),
                 account(nil, of: "codex", signedIn: true, uuid: "c"),
             ])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.footing == .unnamed(provider: "codex", email: "c@example.com"))
     await model.enrol("job", for: "codex")
     #expect(stub.enrolled == ["codex/job"])
 }
 
-/// Forgetting is destructive, so what the model does with a refusal matters.
+/// Forgetting is destructive, so what the model does with a refusal matters. The refusal is
+/// said to whoever asked, in the core's own words, and one that went through says nothing.
 @MainActor
-@Test func aRefusedForgetIsReported() async {
+@Test func aRefusedForgetIsReported() async throws {
     let stub = Stub(.success(Status(now: 0, accounts: [], warnings: [])))
-    let model = AppModel(watching: false, service: stub)
-    await model.forget("claude/alpha")
-    #expect(stub.forgot == ["claude/alpha"])
-    #expect(model.problem == nil)
+    let model = AppModel(testing: stub)
+    #expect(await model.forget("claude/alpha") == nil)
+
+    stub.forgetting = PitboardError.Failed(
+        code: "cannot_forget_active_account", cause: nil,
+        message: "beta is the account in use, so it cannot be forgotten.",
+        warnings: [Warning(code: "auth_overridden", message: "ANTHROPIC_API_KEY is set")])
+    let refused = try #require(await model.forget("claude/beta"))
+    #expect(stub.forgot == ["claude/alpha", "claude/beta"])
+    #expect(refused.title == "Couldn’t forget beta")
+    #expect(refused.message == "beta is the account in use, so it cannot be forgotten.")
+    #expect(refused.code == "cannot_forget_active_account")
+    #expect(refused.warnings.map(\.code) == ["auth_overridden"])
+    #expect(model.problem == nil, "a refusal is not a failed read")
+    #expect(model.warnings.isEmpty, "its warnings are said with it, not in the panel")
 }
 
-/// A sign-in that cannot start says why, and leaves nothing half-shown in the panel.
+/// A sign-in that cannot start says why in the sheet that started it, which stays open to
+/// say it, and leaves nothing half-shown.
 @MainActor
-@Test func aSignInThatCannotStartIsReported() async {
+@Test func aSignInThatCannotStartIsReported() async throws {
     let model = AppModel(
-        watching: false, service: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
-    model.naming = .another(nil)
-    await model.signIn("work", for: "claude")
+        testing: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
+    model.sheet = .add(provider: nil)
+    let failure = try #require(await model.signIn("work", for: "claude"))
     #expect(model.signingIn == nil)
-    #expect(model.naming == nil)
-    #expect(model.problem == "`claude` is not on this machine")
+    #expect(model.sheet == .add(provider: nil))
+    #expect(failure.title == "Couldn’t sign in to work")
+    #expect(failure.message == "`claude` is not on this machine")
+    #expect(model.problem == nil)
 }
 
 /// Codex's sign-in prints an address and reads nothing, so the tool is named in the label
@@ -548,12 +583,13 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(status([])))
     let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
-    await model.signIn("work", for: "codex")
+    let model = AppModel(testing: stub)
+    model.sheet = .add(provider: "codex")
+    #expect(await model.signIn("work", for: "codex") == nil)
     #expect(stub.signedIn == ["codex/work"])
     #expect(session.finished)
     #expect(model.signingIn == nil, "finished and enrolled")
-    #expect(model.problem == nil)
+    #expect(model.sheet == nil, "and the sheet that started it is done")
 }
 
 /// Signing in again to the account in use puts its new login in use at once. The panel says
@@ -571,16 +607,15 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     session.enrolls = Enrolled(
         email: "w@example.com", enrolled: .inUse(again: true), warnings: [oldLogin])
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
-    await model.signIn("work", for: "codex")
+    #expect(await model.signIn("work", for: "codex") == nil)
 
     let last = try #require(model.lastSwitches.first)
     #expect(last.to == "codex/work")
     #expect(last.said == "Signed in to work again. Its new login is the one in use now.")
     #expect(last.notice == nil, "nothing switched away from anything")
     #expect(model.warnings(after: last) == [oldLogin])
-    #expect(model.problem == nil)
 }
 
 /// A browser often signs in to the session it already has, so the account signed in now
@@ -593,7 +628,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     session.enrolls = Enrolled(
         email: "w@example.com", enrolled: .inUse(again: false), warnings: [])
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     await model.signIn("work", for: "codex")
 
@@ -618,7 +653,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     session.enrolls = Enrolled(
         email: "w@example.com", enrolled: .inUse(again: true), warnings: [oldLogin, parked])
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     await model.use("codex/work")
     await model.signIn("work", for: "codex")
@@ -640,7 +675,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let session = ScriptedSignIn(saying: [], takesACode: false)
     session.enrolls = Enrolled(email: "w@example.com", enrolled: .renewed, warnings: [untold])
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     await model.signIn("work", for: "codex")
 
@@ -649,18 +684,20 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 }
 
 /// A sign-in refused before it started says what that refusal found on the way, such as a
-/// switch interrupted earlier and finished now, not only why it was refused.
+/// switch interrupted earlier and finished now, not only why it was refused. The panel says
+/// it too, since what was found is about the machine and outlives the sheet.
 @MainActor
-@Test func aRefusedSignInSaysWhatItFoundOnTheWay() async {
+@Test func aRefusedSignInSaysWhatItFoundOnTheWay() async throws {
     let recovered = Warning(
         code: "interrupted_switch_undone", message: "an earlier switch was interrupted")
     let stub = Stub(.success(status([])))
     stub.signInWarnings = [recovered]
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
-    await model.signIn("work", for: "claude")
+    let failure = try #require(await model.signIn("work", for: "claude"))
 
-    #expect(model.problem == "`claude` is not on this machine")
+    #expect(failure.message == "`claude` is not on this machine")
+    #expect(failure.warnings == [recovered])
     #expect(model.warnings == [recovered])
 }
 
@@ -670,7 +707,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
     stub.session = ScriptedSignIn(
         saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.signIn("personal", for: "codex")
     #expect(model.lastSwitches.isEmpty)
 }
@@ -684,7 +721,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         let session = ScriptedSignIn(
             saying: ["Paste code here if prompted > "], takesACode: takes, waits: true)
         stub.session = session
-        let model = AppModel(watching: false, service: stub)
+        let model = AppModel(testing: stub)
         let running = Task { await model.signIn("work", for: provider) }
 
         #expect(await eventually { model.signingIn?.said.contains("Paste code") == true })
@@ -698,7 +735,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         }
 
         session.done.signal()
-        await running.value
+        #expect(await running.value == nil)
     }
 }
 
@@ -712,22 +749,23 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], takesACode: false,
         waits: true)
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     let running = Task { await model.signIn("work", for: "codex") }
     #expect(await eventually { model.signingIn?.url != nil })
 
     model.cancelSignIn()
     #expect(model.signingIn == nil)
-    await running.value
+    #expect(await running.value == nil, "somebody asked for it to stop")
 
     #expect(session.cancelledOnMain == false)
     #expect(!session.finished)
-    #expect(model.problem == nil)
+    #expect(model.warnings.isEmpty)
 }
 
 /// An account whose parked login can no longer be used is signed in to again from its row,
-/// through the sign-in a new account gets, so the address Codex prints shows in the panel
-/// the same way. The core is given the label with its tool once, as for a new account.
+/// through the sign-in a new account gets, so the address Codex prints shows in the sheet
+/// the same way. The sheet has the label alone, and the core is given it with its tool once,
+/// as for a new account.
 @MainActor
 @Test func anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel() async throws {
     let stub = Stub(
@@ -741,22 +779,29 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], takesACode: false,
         waits: true)
     stub.session = session
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     let accounts = try #require(model.status?.accounts)
 
-    let running = Task { await model.signInAgain(to: accounts[1]) }
+    let work = AccountDescription(accounts[1], switching: nil, busy: false).action
+    #expect(work == .signInAgain(provider: "codex", label: "work"))
+    model.sheet = .signInAgain(provider: "codex", label: "work")
+    let running = Task { await model.signIn("work", for: "codex") }
     #expect(await eventually { model.signingIn?.url != nil })
     #expect(stub.signedIn == ["codex/work"])
     #expect(model.signingIn?.tool == "Codex")
     #expect(model.signingIn?.label == "work")
     session.done.signal()
-    await running.value
+    #expect(await running.value == nil)
     #expect(session.finished)
     #expect(model.signingIn == nil)
+    #expect(model.sheet == nil)
 
+    let spare = AccountDescription(accounts[2], switching: nil, busy: false).action
+    #expect(spare == .signInAgain(provider: "claude", label: "spare"))
     stub.session = ScriptedSignIn(saying: [], takesACode: true)
-    await model.signInAgain(to: accounts[2])
+    model.sheet = .signInAgain(provider: "claude", label: "spare")
+    await model.signIn("spare", for: "claude")
     #expect(stub.signedIn == ["codex/work", "claude/spare"])
 }
 
@@ -789,22 +834,27 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 
     let stub = Stub(.success(status([])))
     stub.path = "/nowhere/bin:\(bin.path)"
+    let scripts = Scripts()
     let model = AppModel(
-        watching: false, service: stub,
+        testing: stub,
         commandLineTool: CommandLineTool(
-            bundle: root.appendingPathComponent("Pitboard.app"), home: home.path))
-    #expect(model.commandLine == nil, "not looked for until the settings ask")
-    await model.findCommandLine()
-    #expect(model.commandLine == .bundled(linked), "ahead of the one cargo installed")
+            bundle: root.appendingPathComponent("Pitboard.app"), home: home.path,
+            execute: scripts.run))
+    let machine = model.machine
+    await model.refresh()
+    #expect(machine.commandLine == nil, "not looked for until the settings ask")
+    await machine.findCommandLine()
+    #expect(machine.commandLine == .bundled(linked), "ahead of the one cargo installed")
 
     let other = AppModel(
-        watching: false, service: stub, commandLineTool: CommandLineTool(home: home.path))
-    await other.findCommandLine()
-    #expect(other.commandLine == .another(linked), "these tests are not an app")
+        testing: stub, commandLineTool: CommandLineTool(home: home.path, execute: scripts.run))
+    await other.machine.findCommandLine()
+    #expect(other.machine.commandLine == .another(linked), "these tests are not an app")
 
     stub.path = nil
-    await model.findCommandLine()
-    #expect(model.commandLine == .another(cargo.path), "the login shell could not be asked")
+    await machine.findCommandLine()
+    #expect(machine.commandLine == .another(cargo.path), "the login shell could not be asked")
+    #expect(scripts.ran.isEmpty, "looking links nothing")
 }
 
 /// Why a link could not be made is said beside the button that tried, and a dismissed
@@ -816,52 +866,59 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         .appendingPathComponent("pitboard-link-\(UUID().uuidString)").path
     let scripts = Scripts()
     let model = AppModel(
-        watching: false, service: Stub(.success(status([]))),
+        testing: Stub(.success(status([]))),
         commandLineTool: CommandLineTool(
             bundle: URL(fileURLWithPath: "/Applications/Pitboard.app"), home: root,
             link: "\(root)/bin/pitboard", execute: scripts.run))
 
     scripts.raise(1, "ln: \(root)/bin/pitboard: Permission denied")
-    await model.installCommandLine()
-    #expect(model.linkFailed == "ln: \(root)/bin/pitboard: Permission denied")
+    await model.machine.installCommandLine()
+    #expect(model.machine.linkFailed == "ln: \(root)/bin/pitboard: Permission denied")
+    #expect(model.problem == nil, "said beside the button, not as a failed read")
     scripts.raise(-128, "User canceled.")
-    await model.installCommandLine()
-    #expect(model.linkFailed == nil)
+    await model.machine.installCommandLine()
+    #expect(model.machine.linkFailed == nil)
     #expect(scripts.ran.count == 2)
 }
 
 /// Daily renewal is turned on only from an app with a command line inside it that stays
 /// where it is. The schedule runs it long after the app has quit: a copy macOS runs from a
 /// temporary place is gone by then, and a build with none inside it would schedule the app
-/// itself, which renews nothing. Turning it off is always possible, so a schedule that cannot
+/// itself, which renews nothing. Why it was refused is said beside the switch that tried,
+/// not as a read that failed. Turning it off is always possible, so a schedule that cannot
 /// work can be taken away.
 @MainActor
 @Test func dailyRenewalIsTurnedOnOnlyFromAnAppThatStaysWhereItIs() async {
     func model(_ bundle: String) -> (AppModel, Stub) {
         let stub = Stub(.success(status([])))
         let model = AppModel(
-            watching: false, service: stub,
-            commandLineTool: CommandLineTool(bundle: URL(fileURLWithPath: bundle)))
+            testing: stub,
+            commandLineTool: CommandLineTool(
+                bundle: URL(fileURLWithPath: bundle), execute: Scripts().run))
         return (model, stub)
     }
 
     let (installed, stub) = model("/Applications/Pitboard.app")
-    #expect(installed.cannotSchedule == nil)
-    await installed.setSchedule(on: true)
+    #expect(installed.machine.cannotSchedule == nil)
+    await installed.machine.setSchedule(on: true)
     #expect(stub.scheduleInstalls == 1)
-    #expect(installed.problem == nil)
+    #expect(installed.machine.scheduleFailed == nil)
 
     let (downloaded, temporary) = model(
         "/private/var/folders/xy/abc/T/AppTranslocation/0A1B2C/d/Pitboard.app")
-    #expect(downloaded.cannotSchedule?.hasPrefix("Move pitboard to your Applications") == true)
+    #expect(
+        downloaded.machine.cannotSchedule?.hasPrefix("Move pitboard to your Applications")
+            == true)
     let (built, unbundled) = model("/Users/x/pitboard/apple/.build/debug")
-    #expect(built.cannotSchedule?.contains("no command line inside it") == true)
+    #expect(built.machine.cannotSchedule?.contains("no command line inside it") == true)
     for (refused, stub) in [(downloaded, temporary), (built, unbundled)] {
-        await refused.setSchedule(on: true)
+        await refused.machine.setSchedule(on: true)
         #expect(stub.scheduleInstalls == 0)
-        #expect(refused.problem == refused.cannotSchedule)
-        await refused.setSchedule(on: false)
+        #expect(refused.machine.scheduleFailed == refused.machine.cannotSchedule)
+        #expect(refused.problem == nil)
+        await refused.machine.setSchedule(on: false)
         #expect(stub.scheduleUninstalls == 1)
+        #expect(refused.machine.scheduleFailed == nil)
     }
 }
 
@@ -876,8 +933,8 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(status([])))
     stub.scheduled = installed
     stub.repairs = .success(true)
-    let model = AppModel(service: stub, defaults: MemoryDefaults())
-    #expect(await eventually { model.schedule == installed })
+    let model = AppModel(testing: stub, watching: true)
+    #expect(await eventually { model.machine.schedule == installed })
     #expect(stub.repairAsks == 1)
 
     let refused = PitboardError.Failed(
@@ -887,12 +944,13 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         let quiet = Stub(.success(status([])))
         quiet.scheduled = installed
         quiet.repairs = answer
-        let model = AppModel(watching: false, service: quiet)
+        let model = AppModel(testing: quiet)
         #expect(quiet.repairAsks == 0, "a test drives it itself")
-        await model.repairSchedule()
+        await model.machine.repairSchedule()
         #expect(quiet.repairAsks == 1)
         #expect(quiet.scheduleReads == 0)
-        #expect(model.schedule == .absent)
+        #expect(model.machine.schedule == .absent)
+        #expect(model.machine.scheduleFailed == nil)
         #expect(model.problem == nil)
     }
 }
@@ -923,7 +981,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func onlyAskingForAReadingAsksAnthropicAgain() async {
     let stub = Stub(.success(Status(now: 0, accounts: [], warnings: [])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     await model.refresh()
     #expect(stub.freshAsks == 0, "a poll takes whatever the core already knows")
@@ -940,7 +998,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(Status(now: 0, accounts: [], warnings: [])))
     stub.offline = .success(
         Status(now: 0, accounts: [account("work", signedIn: true, percent: 5)], warnings: []))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     // A read establishes where things stand, and costs one offline read at most.
     await model.refresh()
@@ -962,7 +1020,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func numbersASessionRecordedReachTheMenuBarWithoutAskingAnyone() async {
     let stub = Stub(.success(status([account("work", signedIn: true, percent: 20)])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.title == "work 20%")
 
@@ -989,7 +1047,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 account("b", signedIn: true, percent: 10),
             ])))
     stub.switched = switched("claude", from: "a", to: "b", warnings: [lagging])
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.use("claude/b")
     #expect(model.lastSwitches.first?.warnings == [lagging])
 
@@ -1013,7 +1071,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func theAppsOwnReadCostsOneLookAtTheReadingsAtMost() async {
     let stub = Stub(.success(status([account("work", signedIn: true, percent: 20)])))
     stub.offline = stub.answer
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.noticeOtherChangesForTesting()
     await model.refresh()
     await model.noticeOtherChangesForTesting()
@@ -1030,7 +1088,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func numbersASessionRecordedDuringTheAppsOwnReadAreShownOnTheNextLook() async {
     let stub = Stub(.success(status([account("work", signedIn: true, percent: 21)])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.noticeOtherChangesForTesting()
     stub.offline = .success(status([account("work", signedIn: true, percent: 22)]))
     await model.refresh()
@@ -1049,7 +1107,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     stub.switched = .failure(
         PitboardError.Failed(
             code: "nothing_parked", cause: nil, message: "nothing parked", warnings: []))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     await model.noticeOtherChangesForTesting()
     stub.duringSwitch = {
@@ -1074,7 +1132,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     }
     let personal = account("personal", [window("session", 10, resets: 9_000)])
     let stub = Stub(.success(status([work(90, 7_200), personal])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.advice.isEmpty)
 
@@ -1106,7 +1164,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 account("work", signedIn: true, [window("session", 100, resets: 7_200)]),
                 personal,
             ])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.advice.count == 1)
 
@@ -1129,7 +1187,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     }
     let personal = account("personal", [window("session", 10, resets: 9_000)])
     let stub = Stub(.success(status([work(90), personal])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     stub.offline = .success(status([work(100), personal]))
     stub.readings += 1
@@ -1149,7 +1207,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let work = account("work", signedIn: true, [window("session", 100, resets: 7_200)])
     let personal = account("personal", [window("session", 10, resets: 9_000)])
     let stub = Stub(.success(status([work, personal])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.advice.count == 1)
 
@@ -1169,7 +1227,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     }
     let personal = account("personal", [window("session", 10, resets: 9_000)])
     let stub = Stub(.success(status([work(20), personal])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.advice.isEmpty)
 
@@ -1190,7 +1248,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 warnings: [])))
     stub.offline = .success(
         Status(now: 0, accounts: [account("work", signedIn: true, percent: 5)], warnings: []))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
 
     await model.refresh()
 
@@ -1200,11 +1258,12 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 
 /// Every warning, not only the first. A switch can warn about an overriding environment
 /// variable and a config that did not update, and showing one is how somebody fixes the
-/// wrong thing.
+/// wrong thing. A read that answered did not fail, however much it warns about, so none of
+/// them is said as a read that could not be done.
 @MainActor
 @Test func everyWarningIsKeptNotOnlyTheFirst() async {
     let model = AppModel(
-        service: Stub(
+        testing: Stub(
             .success(
                 Status(
                     now: 0, accounts: [],
@@ -1216,6 +1275,9 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     await model.refresh()
     #expect(model.warnings.count == 2)
     #expect(model.warnings.map(\.code) == ["auth_overridden", "config_write_failed"])
+    #expect(model.problem == nil)
+    #expect(model.problemCode == nil)
+    #expect(model.otherWarnings == model.warnings)
 }
 
 // MARK: - What a machine that is not set up yet is told to do
@@ -1225,7 +1287,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func nothingIsAskedOfAnyoneBeforeTheFirstRead() {
     let model = AppModel(
-        watching: false, service: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
+        testing: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
     #expect(model.footing == .ready)
 }
 
@@ -1234,8 +1296,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aMachineWithoutClaudeCodeIsToldThatFirst() async {
     let model = AppModel(
-        watching: false,
-        service: Stub(
+        testing: Stub(
             .failure(
                 PitboardError.Failed(
                     code: "claude_program_missing", cause: nil,
@@ -1247,31 +1308,32 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func anEmptyMachineIsAskedToSignInOnce() async {
     let model = AppModel(
-        watching: false, service: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
+        testing: Stub(.success(Status(now: 0, accounts: [], warnings: []))))
     await model.refresh()
     #expect(model.footing == .noOneSignedIn)
 }
 
 /// A login with no name cannot be parked, so this is the step between signing in and
-/// pitboard being able to do anything at all.
+/// pitboard being able to do anything at all. Until it has one it is called by its email
+/// address, which is how the person knows it.
 @MainActor
-@Test func anAccountSignedInWithoutANameIsAskedForOne() async {
+@Test func anAccountSignedInWithoutANameIsAskedForOne() async throws {
     let model = AppModel(
-        watching: false,
-        service: Stub(
+        testing: Stub(
             .success(
                 Status(
                     now: 0,
                     accounts: [account(nil, signedIn: true, uuid: "a")], warnings: []))))
     await model.refresh()
     #expect(model.footing == .unnamed(provider: "claude", email: "a@example.com"))
+    let login = try #require(model.unnamed.first)
+    #expect(model.name(of: login) == "a@example.com")
 }
 
 @MainActor
 @Test func oneEnrolledAccountIsToldThereIsNothingToSwitchTo() async {
     let model = AppModel(
-        watching: false,
-        service: Stub(.success(status([account("work", signedIn: true, percent: 10)]))))
+        testing: Stub(.success(status([account("work", signedIn: true, percent: 10)]))))
     await model.refresh()
     #expect(model.footing == .onlyOne(provider: "claude", label: "work"))
 }
@@ -1279,8 +1341,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func twoAccountsAreAskedNothing() async {
     let model = AppModel(
-        watching: false,
-        service: Stub(
+        testing: Stub(
             .success(
                 status([
                     account("work", signedIn: true, percent: 10),
@@ -1296,8 +1357,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func enrolledAccountsWithNobodySignedInAreNotAskedToStartOver() async {
     let model = AppModel(
-        watching: false,
-        service: Stub(.success(status([account("work", signedIn: false, percent: 10)]))))
+        testing: Stub(.success(status([account("work", signedIn: false, percent: 10)]))))
     await model.refresh()
     #expect(model.footing == .ready)
 }
@@ -1315,9 +1375,10 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                         code: "state_on_synced_drive", message: "~/.pitboard is on iCloud Drive"
                     )
                 ])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.warnings.map(\.code) == ["state_on_synced_drive"])
+    #expect(model.problem == nil, "a warning is not a failed read")
 
     stub.answer = .failure(
         PitboardError.Failed(
@@ -1339,8 +1400,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aCodexLoginIsNotAnEmptyMachine() async {
     let model = AppModel(
-        watching: false,
-        service: Stub(.success(status([account("work", of: "codex", signedIn: true)]))))
+        testing: Stub(.success(status([account("work", of: "codex", signedIn: true)]))))
     await model.refresh()
     #expect(model.footing == .onlyOne(provider: "codex", label: "work"))
 }
@@ -1350,8 +1410,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func onlyOneAccountIsCountedPerTool() async {
     let model = AppModel(
-        watching: false,
-        service: Stub(
+        testing: Stub(
             .success(
                 status([
                     account("work", signedIn: true),
@@ -1368,8 +1427,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func anUnplacedLoginIsNeitherUnenrolledNorOfferedAName() async {
     for row in [unplaced(of: "codex"), unplaced(of: "codex", signedIn: true)] {
         let model = AppModel(
-            watching: false,
-            service: Stub(
+            testing: Stub(
                 .success(
                     status([
                         account("work", signedIn: true),
@@ -1397,7 +1455,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 account("work", of: "codex", uuid: "same"),
                 account("spare", of: "codex", signedIn: true),
             ])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
 
     let rows = model.groups.flatMap(\.accounts)
@@ -1419,27 +1477,27 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aNewAccountIsOfferedForToolsThatAreHere() async {
     let stub = Stub(.success(status([])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.addable == [claudeCode])
     #expect(
         model.notOffered == "Codex is not offered: pitboard did not find codex on this Mac.")
 
     stub.found = [codex]
-    let codexOnly = AppModel(watching: false, service: stub)
+    let codexOnly = AppModel(testing: stub)
     await codexOnly.refresh()
     #expect(codexOnly.addable == [codex])
-    #expect(codexOnly.provider(for: .another(nil)) == "codex")
+    #expect(codexOnly.provider(for: .add(provider: nil)) == "codex")
 
     stub.found = bothTools
-    let both = AppModel(watching: false, service: stub)
+    let both = AppModel(testing: stub)
     await both.refresh()
     #expect(both.notOffered == nil)
 
     // A tool with an account here is here, wherever its program is.
     stub.answer = .success(status([account("work", of: "codex", signedIn: true)]))
     stub.found = [claudeCode]
-    let known = AppModel(watching: false, service: stub)
+    let known = AppModel(testing: stub)
     await known.refresh()
     #expect(known.addable == bothTools)
 }
@@ -1451,11 +1509,11 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func nothingFoundOffersClaudeCodeAlone() async {
     let stub = Stub(.success(status([])))
     stub.found = []
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.addable == [claudeCode])
     #expect(model.services == "Anthropic")
-    #expect(model.provider(for: .another(nil)) == "claude")
+    #expect(model.provider(for: .add(provider: nil)) == "claude")
 }
 
 /// What the app found does not change while it runs, so it is asked once and not on every
@@ -1467,7 +1525,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func whatIsInstalledIsAskedOnce() async {
     let stub = Stub(.success(status([])))
     stub.found = bothTools
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     #expect(stub.installedAsks == 0)
     #expect(model.addable == [claudeCode], "nothing is known to be here until a read asks")
     await model.refresh()
@@ -1485,17 +1543,17 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @Test func whatIsInstalledIsAskedAgainWhenTheFormForAnotherAccountOpens() async {
     let stub = Stub(.success(status([])))
     stub.found = [claudeCode]
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.addable == [claudeCode])
 
     stub.found = bothTools
-    model.naming = .another(nil)
+    model.sheet = .add(provider: nil)
     #expect(await eventually { model.addable == bothTools })
     #expect(stub.installedAsks == 2)
 
-    model.naming = nil
-    model.naming = .theOneInUse("claude")
+    model.sheet = nil
+    model.sheet = .name(provider: "claude", email: "a@example.com")
     await model.refresh()
     #expect(stub.installedAsks == 2, "not for naming the account in use, nor for a read")
 }
@@ -1503,10 +1561,12 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 /// The form starts on the tool it was asked about, and otherwise on the first it offers.
 @MainActor
 @Test func theFormStartsOnTheToolItIsAbout() {
-    let model = AppModel(watching: false, service: Stub(.success(status([]))))
-    #expect(model.provider(for: .another(nil)) == "claude")
-    #expect(model.provider(for: .another("codex")) == "codex")
-    #expect(model.provider(for: .theOneInUse("codex")) == "codex")
+    let model = AppModel(testing: Stub(.success(status([]))))
+    #expect(model.provider(for: .add(provider: nil)) == "claude")
+    #expect(model.provider(for: .add(provider: "codex")) == "codex")
+    #expect(model.provider(for: .name(provider: "codex", email: "c@example.com")) == "codex")
+    #expect(model.provider(for: .signInAgain(provider: "codex", label: "work")) == "codex")
+    #expect(model.provider(for: .rename(provider: "codex", label: "work")) == "codex")
 }
 
 /// Keeping one Claude Code account on purpose says nothing about Codex. The prompt for a
@@ -1520,15 +1580,15 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 account("work", signedIn: true), account("job", of: "codex", signedIn: true),
             ])
         ))
-    let defaults = MemoryDefaults(suiteName: nil)!
-    let model = AppModel(watching: false, service: stub, defaults: defaults)
+    let defaults = TestDefaults()
+    let model = AppModel(testing: stub, defaults: defaults)
     await model.refresh()
     #expect(model.footing == .onlyOne(provider: "claude", label: "work"))
 
     model.declineSecondAccount(for: "claude")
     #expect(model.footing == .onlyOne(provider: "codex", label: "job"))
 
-    let later = AppModel(watching: false, service: stub, defaults: defaults)
+    let later = AppModel(testing: stub, defaults: defaults)
     await later.refresh()
     #expect(later.footing == .onlyOne(provider: "codex", label: "job"), "and it is remembered")
     later.declineSecondAccount(for: "codex")
@@ -1545,9 +1605,9 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
                 account("work", signedIn: true), account("job", of: "codex", signedIn: true),
             ])
         ))
-    let defaults = MemoryDefaults(suiteName: nil)!
+    let defaults = TestDefaults()
     defaults.set(true, forKey: "hideSecondAccountNudge")
-    let model = AppModel(watching: false, service: stub, defaults: defaults)
+    let model = AppModel(testing: stub, defaults: defaults)
     await model.refresh()
     #expect(model.footing == .onlyOne(provider: "codex", label: "job"))
     #expect(model.secondAccountDeclined == ["claude"])
@@ -1559,7 +1619,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func theServiceAskedIsNamedForTheToolsShown() async {
     let stub = Stub(.success(status([account("work", signedIn: true)])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     await model.refresh()
     #expect(model.services == "Anthropic")
     #expect(!model.showsTools)
@@ -1576,7 +1636,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func theMenuBarSaysWhichToolItIsAboutOnceThereAreTwo() async {
     let stub = Stub(.success(status([account("work", signedIn: true, percent: 42)])))
-    let model = AppModel(watching: false, service: stub)
+    let model = AppModel(testing: stub)
     #expect(model.spokenTitle == "pitboard")
     await model.refresh()
     #expect(model.spokenTitle == "pitboard, work 42%")

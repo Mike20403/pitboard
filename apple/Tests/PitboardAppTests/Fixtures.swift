@@ -49,6 +49,59 @@ func status(_ accounts: [Account], warnings: [Warning] = []) -> Status {
     Status(now: 0, accounts: accounts, warnings: warnings)
 }
 
+extension AppModel {
+    /// The app's model with nothing of the Mac running the tests behind it: `service` for
+    /// the core, preferences of the test's own, a login item that registers nothing, and a
+    /// command line that links nothing. Nothing runs by itself unless `watching` says so, so
+    /// a test drives every read and knows what set what.
+    convenience init(
+        testing service: any Core, watching: Bool = false,
+        defaults: UserDefaults = TestDefaults(), commandLineTool: CommandLineTool = .nowhere,
+        loginItem: any LoginItem = StandInLoginItem()
+    ) {
+        self.init(
+            watching: watching, service: service, defaults: defaults,
+            commandLineTool: commandLineTool, loginItem: loginItem, notifies: false)
+    }
+}
+
+/// Preferences in a suite named for one test alone, so what one test declines is not what the
+/// next one reads, and nothing reaches the app's own. The suite is removed once nothing holds
+/// it.
+final class TestDefaults: UserDefaults, @unchecked Sendable {
+    private let suite: String
+
+    init() {
+        let suite = "com.usepitboard.tests.\(UUID().uuidString)"
+        self.suite = suite
+        super.init(suiteName: suite)!
+    }
+
+    deinit {
+        removePersistentDomain(forName: suite)
+    }
+}
+
+/// A login item that keeps what it is told and registers nothing, so no test puts itself
+/// among the login items of whoever runs it.
+@MainActor
+final class StandInLoginItem: LoginItem {
+    private(set) var state: LoginItemState = .disabled
+    func register() throws { state = .enabled }
+    func unregister() throws { state = .disabled }
+    func openSystemSettings() {}
+}
+
+extension CommandLineTool {
+    /// A command line that is not there: no app around it, nowhere to look for one, and a
+    /// link that no script is run to make.
+    static let nowhere = CommandLineTool(
+        helper: nil, installPlaces: [],
+        link: FileManager.default.temporaryDirectory
+            .appendingPathComponent("pitboard-nowhere/bin/pitboard").path,
+        execute: { _ in [NSAppleScript.errorMessage: "No script is run in a test."] })
+}
+
 /// Stands in for AppleScript: keeps each script it is handed and raises what it is told to,
 /// so no test runs one that asks for an administrator's password.
 final class Scripts: @unchecked Sendable {

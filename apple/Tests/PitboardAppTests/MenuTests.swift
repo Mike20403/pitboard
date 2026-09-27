@@ -11,6 +11,20 @@ import Testing
     #expect(menuTitle(for: read) == "work 64%")
 }
 
+/// macOS hides the widest menu bar items first when there is no room, and a notched display
+/// has little. The settings can drop the name, and then the figure too, leaving the mark.
+@Test func theMenuBarShowsNoMoreThanTheSettingsAskFor() {
+    let read = status([
+        account("work", signedIn: true, [window("session", 12), window("weekly_all", 64.4)])
+    ])
+    #expect(menuTitle(for: read, showing: .nameAndUsage) == "work 64%")
+    #expect(menuTitle(for: read, showing: .usage) == "64%")
+    #expect(menuTitle(for: read, showing: .icon).isEmpty)
+    #expect(
+        menuTitle(for: status([account("work", signedIn: true)]), showing: .usage).isEmpty,
+        "no figure to show until one is measured")
+}
+
 /// Before the first read there is nothing true to say, and the icon is already there, so
 /// the item shows the mark alone rather than a name it has not checked.
 @Test func theMenuBarSaysNothingBeforeTheFirstRead() {
@@ -202,7 +216,8 @@ import Testing
 }
 
 /// One tool, whichever it is: no headings, the rows in the order the core gave them, and the
-/// bar naming the first account signed in, as it always has.
+/// bar naming the first account signed in, as it always has. A login signed in with no name
+/// yet is called unnamed there, which says what it is and fits where an address would not.
 @Test func oneToolLooksAsItAlwaysDid() {
     for tool in ["claude", "codex"] {
         let accounts = [
@@ -213,7 +228,7 @@ import Testing
         #expect(groups.count == 1)
         #expect(groups.first?.name == nil)
         #expect(groups.first?.accounts == accounts)
-        #expect(menuTitle(for: status(accounts), order: bothTools) == "unenrolled 80%")
+        #expect(menuTitle(for: status(accounts), order: bothTools) == "unnamed 80%")
     }
     #expect(grouped([], by: bothTools).isEmpty)
 }
