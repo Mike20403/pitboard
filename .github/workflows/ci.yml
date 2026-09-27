@@ -78,6 +78,30 @@ jobs:
           for arch in arm64 x86_64; do lipo "$helper" -verify_arch "$arch"; done
           codesign --verify --strict --deep apple/build/Pitboard.app
       - run: swift test --package-path apple
+      # The app driven the way a person drives it: the debug build, started by each test in
+      # a fixture rather than on this runner's own accounts. A UI test needs Automation Mode,
+      # which asks for a password unless the machine allows it without one. GitHub's macOS
+      # images are built to allow it and check that they do, and a runner that did not
+      # would hang until the test timed out, so that is said first and plainly.
+      - id: ui
+        run: |
+          mode=$(automationmodetool)
+          echo "$mode"
+          case "$mode" in
+            *"DOES NOT REQUIRE"*) ;;
+            *) echo "this runner asks for a password before UI tests can run" >&2; exit 1 ;;
+          esac
+          xcodebuild test -project apple/Pitboard.xcodeproj -scheme Pitboard \
+            -destination 'platform=macOS' -derivedDataPath apple/build/UITestData \
+            -clonedSourcePackagesDirPath apple/build/SourcePackages \
+            -resultBundlePath "$RUNNER_TEMP/UITests.xcresult"
+      # The result bundle has what the log cannot: a screenshot and the tree of elements at
+      # the moment a test failed. Nobody needs it when they all pass.
+      - if: failure() && steps.ui.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: UITests.xcresult
+          path: ${{ runner.temp }}/UITests.xcresult
 
   # The floor the manifests promise, built the way someone on an older toolchain builds it.
   msrv:
