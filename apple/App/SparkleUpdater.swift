@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 import Observation
+import PitboardApp
 import Sparkle
-import SwiftUI
 
 /// Updates, when the build was made to receive them. A build from a clone carries no update
 /// key, and Sparkle will not run without one, so such a build has no updater and says
@@ -13,7 +13,7 @@ import SwiftUI
 /// person decides when to stop what they are doing.
 @MainActor
 @Observable
-final class Updater: NSObject, SPUStandardUserDriverDelegate {
+final class SparkleUpdater: NSObject, Updates, SPUStandardUserDriverDelegate {
     /// The version waiting, once one is, for the panel to offer.
     private(set) var waiting: String?
 
@@ -28,21 +28,31 @@ final class Updater: NSObject, SPUStandardUserDriverDelegate {
 
     var available: Bool { controller != nil }
 
-    /// Sparkle's own settings, bound so a Settings pane can show them. An app with no Dock
-    /// icon has no menu bar to put Sparkle's own checkbox in, so these are the only place
-    /// they can be.
-    var checksAutomatically: Binding<Bool> {
-        Binding(
-            get: { self.controller?.updater.automaticallyChecksForUpdates ?? false },
-            set: { self.controller?.updater.automaticallyChecksForUpdates = $0 }
-        )
+    /// Sparkle's own settings, for a Settings pane to show. An app with no Dock icon has no
+    /// menu bar to put Sparkle's own checkbox in, so this is the only place they can be.
+    /// Sparkle keeps them, so a view is told of a change here by hand.
+    var checksAutomatically: Bool {
+        get {
+            access(keyPath: \.checksAutomatically)
+            return controller?.updater.automaticallyChecksForUpdates ?? false
+        }
+        set {
+            withMutation(keyPath: \.checksAutomatically) {
+                controller?.updater.automaticallyChecksForUpdates = newValue
+            }
+        }
     }
 
-    var installsAutomatically: Binding<Bool> {
-        Binding(
-            get: { self.controller?.updater.automaticallyDownloadsUpdates ?? false },
-            set: { self.controller?.updater.automaticallyDownloadsUpdates = $0 }
-        )
+    var installsAutomatically: Bool {
+        get {
+            access(keyPath: \.installsAutomatically)
+            return controller?.updater.automaticallyDownloadsUpdates ?? false
+        }
+        set {
+            withMutation(keyPath: \.installsAutomatically) {
+                controller?.updater.automaticallyDownloadsUpdates = newValue
+            }
+        }
     }
 
     /// Shows Sparkle's own window: what it finds, what changed, and the install button.

@@ -7,21 +7,23 @@
 	<key>CFBundleDisplayName</key>
 	<string>pitboard</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.usepitboard.Pitboard</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<!-- Drawn by scripts/make-icon.swift and put in the bundle by scripts/build-app.sh. -->
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
-	<string>Pitboard</string>
+	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- scripts/build-app.sh sets both from the crate's version. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.0.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<!-- A menu bar app: no Dock icon, no window at launch. -->
