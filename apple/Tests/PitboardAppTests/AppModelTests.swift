@@ -1909,3 +1909,134 @@ func aReadThatStartedBeforeAChangeIsDroppedWhenItLands(_ change: ChangeMidRead) 
     #expect(stub.readings == 2, "older than asked for")
     #expect(stub.freshAsks == 0, "and nobody asked for it")
 }
+
+// MARK: - Advice and renames
+
+/// Advice offers the account of the same tool with the most left, as a menu item and a button
+/// that switch to it, and stays while the account in use is still out. What it offers is
+/// worked out again from every read: the account offered may have been forgotten, may need
+/// signing in again or may have run out itself since, and choosing it then failed. What it
+/// says is left follows the numbers, and with nothing left to offer the advice goes.
+@MainActor
+@Test func adviceOffersWhatCanStillBeUsedAfterEveryRead() async {
+    let work = account("work", signedIn: true, [window("session", 100, resets: 7_200)])
+    let other = { (label: String, percent: Double, switchable: Bool) in
+        account(label, switchable: switchable, [window("session", percent, resets: 9_000)])
+    }
+    let stub = Stub(
+        .success(
+            status([
+                work, other("personal", 10, true), other("side", 40, true),
+                other("extra", 50, true),
+            ])))
+    let model = AppModel(testing: stub)
+    let offered = { model.advice.map { "\($0.switchTo) \($0.left)" } }
+    await model.refresh()
+    #expect(offered() == ["claude/personal 90"])
+
+    stub.answer = .success(
+        status([
+            work, other("personal", 30, true), other("side", 40, true),
+            other("extra", 50, true),
+        ]))
+    await model.refresh()
+    #expect(offered() == ["claude/personal 70"], "what is left follows the numbers")
+
+    stub.answer = .success(status([work, other("side", 40, true), other("extra", 50, true)]))
+    await model.refresh()
+    #expect(offered() == ["claude/side 60"], "personal was forgotten")
+
+    stub.answer = .success(status([work, other("side", 40, false), other("extra", 50, true)]))
+    await model.refresh()
+    #expect(offered() == ["claude/extra 50"], "side needs signing in again")
+
+    stub.answer = .success(status([work, other("side", 40, false), other("extra", 100, true)]))
+    await model.refresh()
+    #expect(model.advice.isEmpty, "extra has run out too")
+    #expect(model.toldForTesting.count == 1, "told once, when work ran out")
+}
+
+/// A rename changes what an account is called and nothing else about it. What its tool's last
+/// switch said is still true of it, and so is advice about it running out, so both are said
+/// under the new name, and one tool's rename says nothing about another tool's accounts.
+/// Keyed by the old name, the read after a rename took the switch for undone and the advice
+/// for new, and told it again.
+@MainActor
+@Test func aRenameCarriesWhatWasSaidAboutTheAccount() async throws {
+    let spent = window("session", 100, resets: 7_200)
+    let room = window("session", 10, resets: 9_000)
+    let stub = Stub(
+        .success(
+            status([
+                account("work", signedIn: true, [spent]), account("personal", [room]),
+                account("work", of: "codex", signedIn: true), account("personal", of: "codex"),
+            ])))
+    let model = AppModel(testing: stub)
+    stub.switched = switched("claude", from: "personal", to: "work")
+    await model.use("claude/work")
+    stub.switched = switched("codex", from: "codex/personal", to: "codex/work")
+    await model.use("codex/work")
+    #expect(model.lastSwitches.map(\.to) == ["work", "codex/work"])
+    #expect(model.lastSwitches.last?.restart?.from == "personal")
+    #expect(model.advice.map(\.switchTo) == ["claude/personal"])
+
+    // Each read after a rename fails here, so what is said is what the rename carried.
+    stub.answer = .failure(
+        PitboardError.Failed(
+            code: "unreachable", cause: nil, message: "could not be reached", warnings: []))
+
+    await model.rename("personal", of: "claude", to: "spare")
+    let offered = try #require(model.advice.first)
+    #expect(offered.use == "spare")
+    #expect(offered.switchTo == "claude/spare")
+    #expect(model.lastSwitches.last?.restart?.from == "personal", "Codex's is another account")
+
+    await model.rename("personal", of: "codex", to: "home")
+    #expect(model.lastSwitches.last?.restart?.from == "home")
+    #expect(model.advice.first?.use == "spare", "Claude Code's is another account")
+
+    await model.rename("work", of: "codex", to: "job")
+    #expect(model.lastSwitches.map(\.to) == ["work", "codex/job"])
+    #expect(model.advice.first?.ran == "work")
+
+    await model.rename("work", of: "claude", to: "office")
+    #expect(model.lastSwitches.map(\.to) == ["office", "codex/job"])
+    #expect(model.advice.first?.ran == "office")
+    let told = [Advice.key("claude", "office", spent): Int64(7_200)]
+    #expect(model.toldForTesting == told)
+
+    stub.answer = .success(
+        status([
+            account("office", signedIn: true, [spent]), account("spare", [room]),
+            account("job", of: "codex", signedIn: true), account("home", of: "codex"),
+        ]))
+    await model.refresh()
+    #expect(model.lastSwitches.map(\.to) == ["office", "codex/job"], "still in use")
+    #expect(model.lastSwitches.last?.notice?.contains("keeps using home") == true)
+    #expect(model.advice.map(\.switchTo) == ["claude/spare"])
+    #expect(model.toldForTesting == told, "and not told again")
+}
+
+/// What has been told is kept per tool and account. A rename moves what was told about that
+/// one account, every window of it, and nothing else: not the same name in another tool, and
+/// not a name that only starts with it.
+@MainActor
+@Test func aRenameMovesWhatWasToldAboutThatAccountAlone() {
+    let notifier = Notifier(delivering: false)
+    for (provider, ran, kind, resets) in [
+        ("claude", "work", "session", Int64(1)), ("claude", "work", "weekly_all", 2),
+        ("codex", "work", "primary", 3), ("claude", "workshop", "session", 4),
+    ] {
+        notifier.tell(
+            Advice(
+                provider: provider, tool: nil, ran: ran,
+                window: window(kind, 100, resets: resets), use: "spare", left: 50,
+                switchTo: "\(provider)/spare"))
+    }
+    notifier.rename("work", of: "claude", to: "office")
+    #expect(
+        notifier.told == [
+            "claude/office/session/": 1, "claude/office/weekly_all/": 2,
+            "codex/work/primary/": 3, "claude/workshop/session/": 4,
+        ])
+}
