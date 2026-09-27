@@ -9,12 +9,12 @@ import Sparkle
 /// nothing about updates.
 ///
 /// An app with no Dock icon has nowhere to put a window nobody asked for, so Sparkle is told
-/// this one handles scheduled updates gently: the panel says a version is ready, and the
+/// this one handles scheduled updates gently: the menu says a version is ready, and the
 /// person decides when to stop what they are doing.
 @MainActor
 @Observable
 final class SparkleUpdater: NSObject, Updates, SPUStandardUserDriverDelegate {
-    /// The version waiting, once one is, for the panel to offer.
+    /// The version waiting, once one is, for the menu to offer.
     private(set) var waiting: String?
 
     @ObservationIgnored private var controller: SPUStandardUpdaterController?
@@ -68,7 +68,7 @@ final class SparkleUpdater: NSObject, Updates, SPUStandardUserDriverDelegate {
         willShowModalAlert alert: NSAlert
     ) {
         // A modal alert from an app with no Dock icon arrives behind everything otherwise.
-        Task { @MainActor in NSApp.activate(ignoringOtherApps: true) }
+        Task { @MainActor in NSApp.activate() }
     }
 
     nonisolated func standardUserDriverWillHandleShowingUpdate(
