@@ -70,6 +70,40 @@ final class MenuBarTests: XCTestCase {
         XCTAssertTrue(app.menuItems["Claude Code isn’t installed"].waitForExistence(timeout: 5))
     }
 
+    /// A read that failed is one item in the menu, and choosing it opens the window, where
+    /// the notice says why above the last numbers measured.
+    @MainActor
+    func testAFailedReadIsSaidInTheMenuAndInTheWindow() {
+        let app = XCUIApplication.launched(.readFailure)
+        app.openMenu()
+        let item = app.menuItems["Couldn’t read usage"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.click()
+        let notice = app.descendants(matching: .any)["notice.read"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertTrue(notice.staticTexts["Couldn’t read usage"].exists)
+        XCTAssertTrue(notice.text("BEGINSWITH", "Anthropic could not be reached").exists)
+        XCTAssertTrue(app.accountRow("claude/work").exists)
+    }
+
+    /// The menu's item for something to look at opens the window on the accounts, where it
+    /// is said, whichever pane the window was left on.
+    @MainActor
+    func testShowingANoticeOpensTheWindowOnTheAccounts() {
+        let app = XCUIApplication.launched(.stuck)
+        app.openWindow()
+        app.descendants(matching: .any)["sidebar.machine"].click()
+        let checks = app.staticTexts["Keychain"]
+        XCTAssertTrue(checks.waitForExistence(timeout: 5))
+
+        app.openMenu()
+        let item = app.menuItems["An interrupted switch is waiting"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.click()
+        XCTAssertTrue(app.buttons["Give Up…"].waitForExistence(timeout: 5))
+        XCTAssertTrue(checks.waitForNonExistence(timeout: 5))
+    }
+
     /// Quit quits.
     @MainActor
     func testQuitQuits() {

@@ -51,3 +51,16 @@ extension XCUIApplication {
         descendants(matching: .any)["account.\(qualified)"]
     }
 }
+
+@MainActor
+extension XCUIElement {
+    /// The first text in this element whose words `comparison` accepts against `words`, a
+    /// string operator such as `BEGINSWITH`. SwiftUI keeps a text's words in its value, and at
+    /// times in its label, so both are looked at. A query for text that only starts with the
+    /// words has to be a predicate: subscripting matches whole strings, and `containing`
+    /// matches an element by what is inside it, which a text has nothing of.
+    func text(_ comparison: String, _ words: String) -> XCUIElement {
+        let format = "value \(comparison) %@ OR label \(comparison) %@"
+        return staticTexts.matching(NSPredicate(format: format, words, words)).firstMatch
+    }
+}

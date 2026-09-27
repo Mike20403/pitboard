@@ -6,14 +6,18 @@ final class PanesAndSettingsTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// Activity lists what pitboard changed, newest first.
+    /// Activity lists what pitboard changed, newest first. The fixture's two switches are
+    /// newer than both its enrolments, so every switch is listed above every enrolment.
     @MainActor
     func testActivityListsChanges() {
         let app = XCUIApplication.launched(.oneTool)
         app.openWindow()
         app.descendants(matching: .any)["sidebar.activity"].click()
-        XCTAssertTrue(app.tables.staticTexts["Switch"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.tables.staticTexts["Enrol"].firstMatch.exists)
+        let switched = app.tables.staticTexts["Switch"].firstMatch
+        let enrolled = app.tables.staticTexts["Enrol"].firstMatch
+        XCTAssertTrue(switched.waitForExistence(timeout: 5))
+        XCTAssertTrue(enrolled.exists)
+        XCTAssertLessThan(switched.frame.minY, enrolled.frame.minY, "newest first")
     }
 
     /// This Mac shows every check and says what is worth looking at.
@@ -49,10 +53,12 @@ final class PanesAndSettingsTests: XCTestCase {
         XCTAssertEqual(toggle.value as? Int, 0)
         toggle.click()
         XCTAssertEqual(toggle.value as? Int, 1)
+        toggle.click()
+        XCTAssertEqual(toggle.value as? Int, 0)
     }
 
     /// With no pitboard found, the command line tab offers to link the one inside the app,
-    /// and then shows where it is.
+    /// and then shows where the link is.
     @MainActor
     func testInstallingTheCommandLine() {
         let app = XCUIApplication.launched(.oneTool)
@@ -62,6 +68,7 @@ final class PanesAndSettingsTests: XCTestCase {
         XCTAssertTrue(install.waitForExistence(timeout: 5))
         install.click()
         XCTAssertTrue(install.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.text("ENDSWITH", "/bin/pitboard").waitForExistence(timeout: 5))
     }
 
     /// A debug build carries no update key, and the Updates tab says so.
@@ -70,10 +77,10 @@ final class PanesAndSettingsTests: XCTestCase {
         let app = XCUIApplication.launched(.oneTool)
         app.openSettings()
         app.toolbars.buttons["Updates"].click()
-        XCTAssertTrue(
-            app.staticTexts.containing(
-                NSPredicate(format: "label BEGINSWITH %@", "This copy of pitboard can")
-            )
-            .firstMatch.waitForExistence(timeout: 5))
+        let prefix = "This copy of pitboard can"
+        let note = app.staticTexts.matching(
+            NSPredicate(format: "value BEGINSWITH %@ OR label BEGINSWITH %@", prefix, prefix)
+        ).firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
     }
 }

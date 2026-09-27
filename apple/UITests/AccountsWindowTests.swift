@@ -45,7 +45,9 @@ final class AccountsWindowTests: XCTestCase {
         XCTAssertTrue(app.accountRow("codex/third").waitForExistence(timeout: 10))
     }
 
-    /// Cancelling a sign-in stops it and adds nothing.
+    /// Cancelling a sign-in closes its sheet, stops it and adds nothing. Sign In stays
+    /// disabled while a sign-in runs, so another sign-in that can be started and finished
+    /// afterwards is what shows the first one was stopped.
     @MainActor
     func testCancellingASignInAddsNothing() {
         let app = XCUIApplication.launched(.oneTool)
@@ -58,7 +60,21 @@ final class AccountsWindowTests: XCTestCase {
         app.buttons["Sign In"].click()
         XCTAssertTrue(app.textFields["sheet.code"].waitForExistence(timeout: 10))
         app.sheets.firstMatch.buttons["Cancel"].click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
         XCTAssertFalse(app.accountRow("claude/third").waitForExistence(timeout: 2))
+
+        app.toolbars.buttons["Add Account"].click()
+        let again = app.textFields["sheet.name"]
+        XCTAssertTrue(again.waitForExistence(timeout: 5))
+        again.click()
+        again.typeText("third")
+        app.buttons["Sign In"].click()
+        let code = app.textFields["sheet.code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 10))
+        code.click()
+        code.typeText("fixture-code")
+        app.buttons["Submit Code"].click()
+        XCTAssertTrue(app.accountRow("claude/third").waitForExistence(timeout: 10))
     }
 
     /// A rename to a name another account has is refused in the sheet, with the name still
@@ -126,6 +142,8 @@ final class AccountsWindowTests: XCTestCase {
         spare.buttons["Use spare"].click()
         let notice = app.descendants(matching: .any)["notice.switch/codex"]
         XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        let restart = "Any codex session started before this switch keeps using main"
+        XCTAssertTrue(notice.text("BEGINSWITH", restart).exists)
         notice.buttons["Dismiss"].click()
         XCTAssertTrue(notice.waitForNonExistence(timeout: 5))
     }
@@ -164,8 +182,41 @@ final class AccountsWindowTests: XCTestCase {
         XCTAssertTrue(giveUp.waitForExistence(timeout: 5))
         giveUp.click()
         app.buttons["Give Up"].click()
-        XCTAssertTrue(
-            app.staticTexts["Gave up on the interrupted switch"].waitForExistence(timeout: 5))
+        let notice = app.descendants(matching: .any)["notice.abandoned"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertTrue(notice.staticTexts["Gave up on the interrupted switch"].exists)
+        XCTAssertTrue(notice.text("CONTAINS", "2 logins kept").exists)
+    }
+
+    /// With one account there is nothing to switch to, so the window suggests adding a second,
+    /// and Not Now puts the suggestion away.
+    @MainActor
+    func testOneAccountIsOfferedASecondUntilNotNow() {
+        let app = XCUIApplication.launched(.onlyOne)
+        app.openWindow()
+        let tip = app.staticTexts["Add a second account"]
+        XCTAssertTrue(tip.waitForExistence(timeout: 5))
+        app.buttons["Not Now"].click()
+        XCTAssertTrue(tip.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.accountRow("claude/work").exists)
+    }
+
+    /// Command-N adds an account from any pane, and the window goes to the accounts, which
+    /// is what the sheet is about and where the new one is listed.
+    @MainActor
+    func testCommandNAddsAnAccountFromAnyPane() {
+        let app = XCUIApplication.launched(.oneTool)
+        app.openWindow()
+        app.descendants(matching: .any)["sidebar.activity"].click()
+        let activity = app.tables.staticTexts["Switch"].firstMatch
+        XCTAssertTrue(activity.waitForExistence(timeout: 5))
+        app.typeKey("n", modifierFlags: .command)
+        XCTAssertTrue(app.textFields["sheet.name"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Add Account"].exists)
+        app.sheets.firstMatch.buttons["Cancel"].click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.accountRow("claude/work").waitForExistence(timeout: 5))
+        XCTAssertFalse(activity.exists)
     }
 
     /// The first launch ever opens the window by itself.
