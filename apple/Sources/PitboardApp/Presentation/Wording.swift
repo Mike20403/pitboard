@@ -132,13 +132,50 @@ func typed(_ account: Account) -> String? {
     account.provider == defaultProvider ? account.label : account.qualified
 }
 
-extension Account {
-    /// What a row is headed with: its label, "unenrolled" for a login nobody has named yet,
-    /// and for a login with no account pitboard can name, what is wrong with it, which is
-    /// all there is to say about it. The panel and the window both say it, so it is written
-    /// once.
-    var heading: String {
-        if unplaced { return staleExplanation ?? "a login pitboard cannot use" }
-        return label ?? "unenrolled"
+/// How long until a moment, short enough for the column beside a bar: "in 3h", "in 2d 4h",
+/// "in 12m". Nil once it has passed: the next reading is what says whether a limit actually
+/// reset.
+func resetsIn(_ seconds: TimeInterval) -> String? {
+    guard seconds > 0 else { return nil }
+    let hours = Int(seconds / 3600)
+    if hours >= 24 { return "in \(hours / 24)d \(hours % 24)h" }
+    if hours >= 1 { return "in \(hours)h \(Int(seconds / 60) % 60)m" }
+    return "in \(max(1, Int(seconds / 60)))m"
+}
+
+/// A change as the activity list names it: what was done, by the verb the log keeps.
+func changeVerb(_ verb: String) -> String {
+    switch verb {
+    case "switch": "Switch"
+    case "enroll": "Enrol"
+    case "forget": "Forget"
+    case "rename": "Rename"
+    case "renew": "Renew"
+    case "abandon": "Give up on a switch"
+    case "repair": "Repair"
+    case "adopt": "Adopt"
+    case "uninstall": "Uninstall"
+    default: verb.replacingOccurrences(of: "_", with: " ").capitalizedFirst
     }
+}
+
+/// How a change ended: "Done", or what stopped it, from the code the log keeps.
+func changeOutcome(_ outcome: String) -> String {
+    outcome == "ok" ? "Done" : outcome.replacingOccurrences(of: "_", with: " ").capitalizedFirst
+}
+
+/// Who asked for a change.
+func changeCaller(_ caller: String) -> String {
+    switch caller {
+    case "app": "pitboard app"
+    case "cli": "Command line"
+    case "unknown": "Unknown"
+    default: caller.capitalizedFirst
+    }
+}
+
+/// When a change was made, from the local time the log keeps. The log's own text when it
+/// does not parse, rather than nothing.
+func changeDate(_ at: String) -> Date? {
+    try? Date(at, strategy: .iso8601)
 }

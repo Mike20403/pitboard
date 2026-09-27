@@ -21,22 +21,6 @@ public struct Dependencies {
     /// notices a change made elsewhere, and the one repair of an older app's schedule.
     let watching: Bool
 
-    init(
-        core: any Core,
-        defaults: UserDefaults,
-        loginItem: any LoginItem,
-        commandLineTool: CommandLineTool,
-        notifies: Bool,
-        watching: Bool
-    ) {
-        self.core = core
-        self.defaults = defaults
-        self.loginItem = loginItem
-        self.commandLineTool = commandLineTool
-        self.notifies = notifies
-        self.watching = watching
-    }
-
     /// This machine, as the person running the app has it.
     public static func live() -> Dependencies {
         Dependencies(

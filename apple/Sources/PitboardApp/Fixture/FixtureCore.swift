@@ -74,7 +74,8 @@
                     Check(
                         code: "schedule", name: "Daily renewal", level: .warn,
                         detail: "not scheduled",
-                        advice: "Turn on daily renewal in pitboard's settings, so parked logins "
+                        advice:
+                            "Turn on daily renewal in pitboard's settings, so parked logins "
                             + "you leave alone do not expire."),
                 ],
                 healthy: true)
@@ -97,7 +98,7 @@
                         accounts[index], signedIn: index == target,
                         switchable: index != target)
                 }
-                record("switch", label)
+                record("switch", Self.typed(label))
                 return Switched(
                     outcome: .switched(
                         provider: provider, from: from?.qualified ?? "",
@@ -118,7 +119,7 @@
                 else { throw Self.failed("nothing_signed_in", "Nobody is signed in to name.") }
                 try requireUnused(name, of: provider)
                 accounts[index] = with(accounts[index], label: name)
-                record("enroll", label)
+                record("enroll", Self.typed(label))
                 return Enrolled(email: accounts[index].email, enrolled: .current, warnings: [])
             }
         }
@@ -135,7 +136,7 @@
                             + "cannot be forgotten. Switch to another account first.")
                 }
                 let email = accounts.remove(at: index).email
-                record("forget", label)
+                record("forget", Self.typed(label))
                 return Changed(email: email, warnings: [])
             }
         }
@@ -147,7 +148,7 @@
                 }
                 try requireUnused(to, of: accounts[index].provider)
                 accounts[index] = with(accounts[index], label: to)
-                record("rename", "\(from) -> \(to)")
+                record("rename", "\(Self.typed(from)) -> \(to)")
                 return Changed(email: accounts[index].email, warnings: [])
             }
         }
@@ -160,8 +161,9 @@
                 }
             }
             return FixtureSignIn(provider: provider) { [weak self] in
-                self?.signedIn(name, of: provider) ?? Enrolled(
-                    email: "", enrolled: .signedIn, warnings: [])
+                self?.signedIn(name, of: provider)
+                    ?? Enrolled(
+                        email: "", enrolled: .signedIn, warnings: [])
             }
         }
 
@@ -218,7 +220,7 @@
         /// and one that was enrolled already has its parked login renewed.
         private func signedIn(_ name: String, of provider: String) -> Enrolled {
             lock.withLock {
-                record("enroll", "\(provider)/\(name)")
+                record("enroll", Self.typed("\(provider)/\(name)"))
                 if let index = accounts.firstIndex(where: {
                     $0.provider == provider && $0.label == name
                 }) {
@@ -248,6 +250,11 @@
                 Change(
                     at: Date().formatted(.iso8601), caller: "app", verb: verb,
                     subject: subject, outcome: "ok"))
+        }
+
+        /// A label as the log writes it: bare for Claude Code, with its tool for any other.
+        private static func typed(_ label: String) -> String {
+            label.hasPrefix("claude/") ? String(label.dropFirst("claude/".count)) : label
         }
 
         private func currentStatus() -> Status {
@@ -304,12 +311,13 @@
 
         private static func history(now: Date) -> [Change] {
             [
-                ("enroll", "work", 86_400 * 3), ("enroll", "personal", 86_400 * 2),
-                ("switch", "claude/personal", 7_200), ("switch", "claude/work", 3_600),
-            ].map { verb, subject, ago in
+                ("enroll", "work", "cli", 86_400 * 3),
+                ("enroll", "personal", "app", 86_400 * 2),
+                ("switch", "personal", "cli", 7_200), ("switch", "work", "app", 3_600),
+            ].map { verb, subject, caller, ago in
                 Change(
                     at: now.addingTimeInterval(-Double(ago)).formatted(.iso8601),
-                    caller: "pitboard", verb: verb, subject: subject, outcome: "ok")
+                    caller: caller, verb: verb, subject: subject, outcome: "ok")
             }
         }
 
@@ -325,7 +333,8 @@
                 accountUuid: email, signedIn: signedIn,
                 switchable: switchable ?? !signedIn,
                 parked: seconds.map {
-                    Parked(parkedAt: now - 3600, accessExpiresAt: nil, refreshExpiresAt: now + $0)
+                    Parked(
+                        parkedAt: now - 3600, accessExpiresAt: nil, refreshExpiresAt: now + $0)
                 },
                 usage: windows.isEmpty
                     ? nil : Usage(source: .live, observedAt: now, windows: windows),
@@ -351,7 +360,8 @@
             let explanation = stale.map { $0 } ?? account.staleExplanation
             return Account(
                 id: account.id, provider: account.provider, label: label,
-                qualified: label.map { "\(account.provider)/\($0)" }, unplaced: account.unplaced,
+                qualified: label.map { "\(account.provider)/\($0)" },
+                unplaced: account.unplaced,
                 email: account.email, accountUuid: account.accountUuid,
                 signedIn: signedIn ?? account.signedIn,
                 switchable: switchable ?? account.switchable, parked: account.parked,

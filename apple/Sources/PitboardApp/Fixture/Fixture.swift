@@ -42,13 +42,36 @@
                 core: FixtureCore(self),
                 defaults: defaults,
                 loginItem: FixtureLoginItem(),
-                commandLineTool: CommandLineTool(
-                    bundle: URL(fileURLWithPath: "/Applications/Pitboard.app"),
-                    home: NSTemporaryDirectory(),
-                    link: NSTemporaryDirectory() + "pitboard-fixture/bin/pitboard",
-                    execute: { _ in nil }),
+                commandLineTool: Self.commandLineTool(),
                 notifies: false,
                 watching: false)
+        }
+    }
+
+    extension Fixture {
+        /// A command line inside a stand-in app in a temporary directory, and a link that
+        /// is made there without asking anyone for a password, so linking it can be tried
+        /// without writing to `/usr/local/bin`.
+        static func commandLineTool() -> CommandLineTool {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pitboard-fixture-\(getpid())")
+            let helper = root.appendingPathComponent("Pitboard.app/Contents/Helpers/pitboard")
+            let bin = root.appendingPathComponent("bin")
+            try? FileManager.default.createDirectory(
+                at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(
+                atPath: helper.path, contents: Data("#!/bin/sh\n".utf8),
+                attributes: [.posixPermissions: 0o755])
+            let link = bin.appendingPathComponent("pitboard")
+            return CommandLineTool(
+                helper: helper.path, installPlaces: [bin.path], link: link.path,
+                execute: { _ in
+                    try? FileManager.default.createDirectory(
+                        at: bin, withIntermediateDirectories: true)
+                    try? FileManager.default.createSymbolicLink(
+                        at: link, withDestinationURL: helper)
+                    return nil
+                })
         }
     }
 

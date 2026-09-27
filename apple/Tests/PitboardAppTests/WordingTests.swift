@@ -93,13 +93,3 @@ private func renewed(_ outcome: String) -> Renewed {
     #expect(split("codex/work") == ("codex", "work"))
     #expect(split("work") == ("claude", "work"))
 }
-
-/// A row is headed by its label, by "unenrolled" before it has one, and for a login no
-/// account can be named for, by what is wrong with it.
-@Test func aRowIsHeadedTheSameWayEverywhere() {
-    #expect(account("work").heading == "work")
-    #expect(account(nil, signedIn: true, uuid: "u").heading == "unenrolled")
-    #expect(
-        unplaced(of: "codex").heading
-            == "Codex's login could not be read; run `pitboard doctor`")
-}
