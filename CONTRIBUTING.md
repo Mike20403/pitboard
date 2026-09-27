@@ -11,10 +11,13 @@
 - `crates/pitboard-conformance`: reads a tool's register out of a build of that tool.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the app. Records and enums only,
   every call synchronous.
-- `apple`: the Swift package. `PitboardKit` calls the bindings off the main thread,
-  `Pitboard` is the menu bar app. `scripts/build-xcframework.sh` builds the core for both
-  architectures, `scripts/build-app.sh` assembles `Pitboard.app` from it, with the command
-  line inside at `Contents/Helpers/pitboard`.
+- `apple`: the menu bar app. The Swift package holds it as libraries its tests load
+  without starting it: `PitboardKit` calls the bindings off the main thread, and
+  `PitboardApp` is everything the app does. `Pitboard.xcodeproj` is the app itself: the
+  `Pitboard` target in `App` starts `PitboardApp` and adds Sparkle, and `PitboardUITests`
+  in `UITests` drives it. `scripts/build-xcframework.sh` builds the core for both
+  architectures, and `scripts/build-app.sh` builds `Pitboard.app` from it with `xcodebuild`,
+  with the command line inside at `Contents/Helpers/pitboard`.
 - `crates/pitboard`: the command line. Arguments, rendering for people, and the `--json`
   contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 
@@ -41,6 +44,40 @@ Some code compiles only on Linux, so lint for it before pushing, for example wit
 
 A contract snapshot changes only when the `--json` contract changes on purpose. Review the
 difference with `cargo insta review`, and say in the change why the contract moved.
+
+### The app
+
+The package links the core as `apple/PitboardFFI.xcframework`, beside bindings generated
+into `apple/Sources/PitboardBindings`, and neither is committed. Build them before opening
+the project the first time, and again whenever the core changes:
+
+```sh
+./apple/scripts/build-xcframework.sh
+open apple/Pitboard.xcodeproj
+```
+
+Everything the app does is in the package, and its tests run without starting the app:
+
+```sh
+swift test --package-path apple
+```
+
+The UI tests start the debug build, each in a fixture: a machine in a known state, where
+nothing reaches the keychain, the network or your accounts. Run them from Xcode with
+Product, Test, or with:
+
+```sh
+xcodebuild test -project apple/Pitboard.xcodeproj -scheme Pitboard -destination 'platform=macOS'
+```
+
+macOS asks for an administrator's password before it lets a test drive the app, unless the
+machine was set up to allow that without one, as GitHub's runners are.
+
+The debug build is `com.usepitboard.Pitboard.debug`, so it never shares preferences, a
+login item or notification permission with a copy you have installed. Run from Xcode, it
+reads this machine's accounts like that copy does; `PITBOARD_FIXTURE=twoTools` in the
+scheme's environment runs it in a fixture instead. `./apple/scripts/build-app.sh` builds
+the release bundle the way CI and a release do.
 
 ## Rules this project learned the hard way
 
@@ -105,7 +142,7 @@ tarball: nothing installs from one, and crates.io has the source.
 | `APPLE_API_KEY_P8` | An App Store Connect team key with the Developer role, `base64` |
 | `APPLE_ID` | Only needed if the notarisation route ever goes back to an app-specific password |
 | `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | Shown beside that key |
-| `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` | `apple/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account pitboard` once, then the same with `-x -` to read the private one |
+| `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` | `apple/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account pitboard` once, after `./apple/scripts/build-app.sh` has fetched Sparkle there, then the same with `-x -` to read the private one |
 | `HOMEBREW_TAP_TOKEN` | In the `homebrew-tap` environment. A fine-grained personal access token, `datlechin/homebrew-tap` as its only repository, Contents read and write as its only permission, and an expiry the maintainer will notice |
 
 There is no `CARGO_REGISTRY_TOKEN`. crates.io hands the publish job a token made from

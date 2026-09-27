@@ -235,12 +235,19 @@ administrator's password.
 Usage is read when you open the panel and every few minutes while the app runs. "Open at
 login" and daily renewal are in Settings. Daily renewal runs the command line inside the
 app, so move a downloaded app to Applications before turning it on. A copy from a release
-keeps itself up to date. One you build yourself does not, because it carries no update key:
+keeps itself up to date. One you build yourself does not, because it carries no update key.
+Building it needs Xcode and Rust:
 
 ```sh
 ./apple/scripts/build-app.sh
 cp -R apple/build/Pitboard.app /Applications/
 ```
+
+To work on the app, run `./apple/scripts/build-xcframework.sh` first, which builds the core
+and its Swift bindings, neither of them committed, then open `apple/Pitboard.xcodeproj`. `swift test --package-path apple` runs the unit tests. The UI
+tests run from Xcode, or with `xcodebuild test -project apple/Pitboard.xcodeproj -scheme
+Pitboard -destination 'platform=macOS'`, each in a fixture that never touches your
+accounts. [CONTRIBUTING.md](CONTRIBUTING.md#the-app) has the rest.
 
 ## Scripting
 
