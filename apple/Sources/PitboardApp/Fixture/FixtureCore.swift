@@ -43,8 +43,7 @@
                 case .readFailure:
                     throw PitboardError.Failed(
                         code: "unreachable", cause: nil,
-                        message: "Anthropic could not be reached. The numbers shown are the "
-                            + "last ones measured.",
+                        message: "Anthropic could not be reached.",
                         warnings: [])
                 case .stuck where stuck:
                     throw PitboardError.Failed(
