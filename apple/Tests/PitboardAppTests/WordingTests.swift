@@ -1,3 +1,4 @@
+import Foundation
 import PitboardKit
 import Testing
 
@@ -86,6 +87,28 @@ private func renewed(_ outcome: String) -> Renewed {
         spokenLimit(window("weekly_scoped", 98, scope: "Fable"), resettingIn: 0)
             == "weekly Fable limit, 98 percent used",
         "a reset already passed is not said, as the column does not show it")
+}
+
+/// pitboard says everything else in English, so a span of time inside one of its sentences is
+/// English too, whatever the region of the Mac: "about 1h 30min left" reads as a mistake. A
+/// test cannot change the region of the process it runs in, so this checks that the same
+/// spans in German read differently, which is what a span following a German Mac's region
+/// would show, and that pitboard's read as English.
+@Test func aSpanOfTimeReadsTheSameInEveryRegion() {
+    let german = Locale(identifier: "de_DE")
+    let narrow = Duration.seconds(5400).formatted(
+        .units(allowed: [.days, .hours, .minutes], width: .narrow).locale(german))
+    let wide = Duration.seconds(3 * 3600).formatted(
+        .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2)
+            .locale(german))
+    #expect(narrow.hasSuffix("30min"), "the German shorthand, told apart from 30m")
+    #expect(wide != "3 hours")
+
+    #expect(lasting(5400, burning: true) == "about 1h 30m left at this rate")
+    #expect(lasting(3 * 86_400 + 7200, burning: false) == "resets in 3d 2h")
+    #expect(
+        spokenLimit(window("five_hour", 42, length: 18_000), resettingIn: 90 * 60)
+            == "5-hour limit, 42 percent used, resets in 1 hour, 30 minutes")
 }
 
 /// A label as the core types it, taken apart: bare means Claude Code.

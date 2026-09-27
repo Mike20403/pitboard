@@ -27,9 +27,12 @@ private final class MachineStub: Core, @unchecked Sendable {
     private(set) var logLimits: [UInt32] = []
     /// The login shell's `PATH`, as far as the app looks in it.
     var path: String?
-    /// Asked of the model while a renewal or doctor is running, and each answer kept.
+    /// Asked of the model while a renewal, doctor or a change to the schedule is running,
+    /// and each answer kept.
     var busy: (@MainActor () -> Bool)?
     private(set) var wasBusy: [Bool] = []
+    /// Done while the schedule is being changed, as somebody pressing the switch again.
+    var meanwhile: (@MainActor () async -> Void)?
 
     func schedule() async -> Schedule {
         scheduleReads += 1
@@ -37,12 +40,16 @@ private final class MachineStub: Core, @unchecked Sendable {
     }
     func scheduleInstall() async throws -> String {
         installs += 1
+        if let busy { wasBusy.append(await busy()) }
+        await meanwhile?()
         if let refusing { throw refusing }
         scheduled = .installed(path: plist, everySeconds: 86_400)
         return plist
     }
     func scheduleUninstall() async throws -> Bool {
         uninstalls += 1
+        if let busy { wasBusy.append(await busy()) }
+        await meanwhile?()
         if let refusing { throw refusing }
         defer { scheduled = .absent }
         return scheduled != .absent
@@ -385,6 +392,43 @@ private struct StandInApp {
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
     #expect(tool.linkable)
     #expect(machine.cannotSchedule == nil)
+}
+
+/// The switch shows the state asked for while the scheduler is being changed, rather than
+/// snapping back to the old one until it answers, which can be a while behind a renewal or a
+/// switch. Pressed again meanwhile it does nothing: it was pressed on a switch that did not
+/// yet show the first press.
+@MainActor
+@Test func dailyRenewalShowsWhatWasAskedForWhileItChanges() async throws {
+    let app = try StandInApp()
+    defer { app.remove() }
+    let core = MachineStub()
+    let machine = MachineModel(testing: core, commandLineTool: app.tool(Scripts().run))
+    #expect(machine.scheduling == nil)
+
+    core.busy = { machine.scheduling == true }
+    core.meanwhile = {
+        core.meanwhile = nil
+        await machine.setSchedule(on: false)
+    }
+    await machine.setSchedule(on: true)
+    #expect(core.wasBusy == [true])
+    #expect(core.installs == 1)
+    #expect(core.uninstalls == 0, "the press made meanwhile")
+    #expect(machine.scheduling == nil)
+    #expect(machine.renewsDaily)
+
+    core.busy = { machine.scheduling == false }
+    core.meanwhile = {
+        core.meanwhile = nil
+        await machine.setSchedule(on: true)
+    }
+    await machine.setSchedule(on: false)
+    #expect(core.wasBusy == [true, true])
+    #expect(core.uninstalls == 1)
+    #expect(core.installs == 1, "the press made meanwhile")
+    #expect(machine.scheduling == nil)
+    #expect(!machine.renewsDaily)
 }
 
 /// When the scheduler refuses, the core's own words are said beside the switch, and the
