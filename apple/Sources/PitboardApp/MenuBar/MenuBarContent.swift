@@ -31,6 +31,7 @@ struct MenuBarContent: View {
         }
         Section {
             Button("Open pitboard") { model.showWindow() }
+                .keyboardShortcut("0")
             SettingsLink { Text("Settings…") }
                 .keyboardShortcut(",")
             if updates.available {

@@ -89,20 +89,29 @@
                 let provider = accounts[target].provider
                 guard !accounts[target].signedIn else {
                     return Switched(
-                        outcome: .alreadyActive(label: accounts[target].label ?? ""),
-                        warnings: [])
+                        outcome: .alreadyActive(label: Self.typed(label)), warnings: [])
                 }
-                let from = accounts.first { $0.provider == provider && $0.signedIn }
-                for index in accounts.indices where accounts[index].provider == provider {
-                    accounts[index] = with(
-                        accounts[index], signedIn: index == target,
-                        switchable: index != target)
+                guard accounts[target].switchable else {
+                    throw Self.failed(
+                        "parked_login_expired",
+                        "\(accounts[target].label ?? label)'s parked login has expired. Sign "
+                            + "in to it again to use it.")
                 }
+                // The account left is parked, and so can be switched back to; every other
+                // account of the tool stays as it was, an expired one included.
+                let from = accounts.firstIndex { $0.provider == provider && $0.signedIn }
+                if let from {
+                    accounts[from] = with(accounts[from], signedIn: false, switchable: true)
+                }
+                accounts[target] = with(accounts[target], signedIn: true, switchable: false)
                 record("switch", Self.typed(label))
+                // Labels as the core types them: bare for Claude Code, with the tool for any
+                // other, which is what the app compares an account with.
                 return Switched(
                     outcome: .switched(
-                        provider: provider, from: from?.qualified ?? "",
-                        to: accounts[target].qualified ?? label,
+                        provider: provider,
+                        from: from.flatMap { accounts[$0].qualified }.map(Self.typed) ?? "",
+                        to: Self.typed(label),
                         adoption: provider == "codex"
                             ? .restart(program: "codex") : .follows(withinSeconds: 45)),
                     warnings: [])
@@ -224,7 +233,7 @@
                 if let index = accounts.firstIndex(where: {
                     $0.provider == provider && $0.label == name
                 }) {
-                    accounts[index] = with(accounts[index], switchable: true, stale: nil)
+                    accounts[index] = with(accounts[index], switchable: true, stale: .some(nil))
                     return Enrolled(
                         email: accounts[index].email, enrolled: .renewed, warnings: [])
                 }

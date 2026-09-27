@@ -10,6 +10,7 @@ struct AccountRow: View {
     @ScaledMetric(relativeTo: .title2) private var symbolWidth: CGFloat = 26
 
     var body: some View {
+        let textInset = symbolWidth + Design.iconSpacing
         VStack(alignment: .leading, spacing: Design.rowSpacing) {
             HStack(spacing: Design.iconSpacing) {
                 Image(systemName: symbol)
@@ -42,13 +43,13 @@ struct AccountRow: View {
                     Text(note).explanatory()
                 }
             }
-            .padding(.leading, symbolWidth + Design.iconSpacing)
+            .padding(.leading, textInset)
         }
         .padding(.vertical, 4)
         // The line between rows starts under the name, where the text starts, whatever the
         // row ends with: a list lines it up with a row's last label otherwise, which for the
         // account in use is "In Use" at the far end.
-        .alignmentGuide(.listRowSeparatorLeading) { _ in symbolWidth + Design.iconSpacing }
+        .alignmentGuide(.listRowSeparatorLeading) { _ in textInset }
         // One account, read as one thing with its controls in it, rather than a stop for
         // every line on the way past.
         .accessibilityElement(children: .contain)
@@ -58,7 +59,7 @@ struct AccountRow: View {
 
     private var symbol: String {
         if account.unplaced { return "exclamationmark.triangle" }
-        if case .signInAgain = description.action { return Symbol.signIn }
+        if description.needsSignIn { return Symbol.signIn }
         return description.inUse ? "person.crop.circle.fill" : Symbol.account
     }
 
@@ -94,7 +95,7 @@ struct AccountRow: View {
     private var spokenName: String {
         var parts = [description.title]
         if description.inUse { parts.append("in use") }
-        if case .signInAgain = description.action { parts.append("needs signing in again") }
+        if description.needsSignIn { parts.append("needs signing in again") }
         return parts.joined(separator: ", ")
     }
 }

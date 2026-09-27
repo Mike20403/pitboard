@@ -217,12 +217,7 @@ private func described(
 /// Whether an account needs signing in again is a fact about the account, and a sign-in or a
 /// switch running elsewhere does not change it. Its item cannot be chosen meanwhile, and
 /// without the line saying why it reads as an account that simply does not work.
-@Test(
-    .disabled(
-        """
-        AccountDescription reads the summary off the action, so a sign-in or a switch \
-        running makes an account that needs signing in again say its percentages
-        """))
+@Test
 func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
     let stale = account("stale", switchable: false, [window("session", 12)])
     #expect(described(stale).summary == "Needs signing in again")
@@ -634,12 +629,7 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
 /// Code account still out, beside another that still has room, is as true after a Codex switch
 /// as before it, and it is never told again, so putting it away loses it.
 @MainActor
-@Test(
-    .disabled(
-        """
-        AppModel.use empties all advice, so any switch puts away advice about another \
-        tool that still holds, and the next read does not tell it again
-        """))
+@Test
 func adviceAboutOneToolOutlivesASwitchOfAnother() async {
     let spent = account("work", signedIn: true, [window("session", 100)])
     let spare = account("spare", [window("session", 20)])
@@ -795,12 +785,7 @@ func adviceAboutOneToolOutlivesASwitchOfAnother() async {
 /// Two tools can each have a `work`, so once both are shown a notice about one account says
 /// which tool it is for, as a switch's notice and advice both do.
 @MainActor
-@Test(
-    .disabled(
-        """
-        A sign-in's notice is titled with the label alone, so with two tools it does not \
-        say which tool's account has a new login
-        """))
+@Test
 func aSignInNoticeNamesItsToolBesideAnother() async throws {
     let core = StubCore(
         .success(
@@ -861,12 +846,7 @@ func aSignInNoticeNamesItsToolBesideAnother() async throws {
 /// read after it. The switch leaves it to the read, so the read has to say it: a warning both
 /// carry is said once, and not dropped from both.
 @MainActor
-@Test(
-    .disabled(
-        """
-        The switch's notice leaves out what the read repeats, and the read's warnings \
-        leave out what any switch carried, so a warning both carry is said nowhere
-        """))
+@Test
 func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     let core = StubCore(
         .success(status([account("work", signedIn: true)], warnings: [overridden])))

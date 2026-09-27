@@ -129,6 +129,8 @@ struct AccountDescription: Equatable {
     let title: String
     let email: String
     let inUse: Bool
+    /// Its parked login can no longer be used, whatever else is running.
+    let needsSignIn: Bool
     /// A switch to it is running.
     let switching: Bool
     let action: AccountAction
@@ -146,6 +148,9 @@ struct AccountDescription: Equatable {
     init(_ account: Account, switching: String?, busy: Bool, now: Date = Date()) {
         email = account.email
         inUse = account.signedIn
+        needsSignIn =
+            !account.unplaced && account.label != nil && !account.signedIn
+            && !account.switchable
         limits = account.usage?.windows ?? []
         self.switching = account.qualified != nil && account.qualified == switching
         if account.unplaced {
@@ -177,19 +182,19 @@ struct AccountDescription: Equatable {
             lasting($0, burning: account.lastsBurning).capitalizedFirst
         }
         summary = Self.summary(
-            of: account, switching: self.switching, action: action, now: now)
+            of: account, switching: self.switching, needsSignIn: needsSignIn, now: now)
     }
 
     /// Under the name in the menu, one line: what the account's limits stand at, and when
     /// one that has run out comes back. What stands in the way instead, when something
     /// does.
     private static func summary(
-        of account: Account, switching: Bool, action: AccountAction, now: Date
+        of account: Account, switching: Bool, needsSignIn: Bool, now: Date
     ) -> String {
         if switching { return "Switching…" }
         if account.unplaced { return account.staleExplanation ?? "Can’t be read or switched" }
         if account.label == nil { return "Not named yet" }
-        if case .signInAgain = action { return "Needs signing in again" }
+        if needsSignIn { return "Needs signing in again" }
         let windows = account.usage?.windows ?? []
         guard !windows.isEmpty else { return account.email }
         return windows.map { window in

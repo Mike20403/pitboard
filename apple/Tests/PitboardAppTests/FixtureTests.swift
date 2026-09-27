@@ -138,7 +138,7 @@ private func inUse(_ status: Status) -> [String] {
 /// A parked login that expired stays unusable until somebody signs in to it again. A switch
 /// to it is refused and moves nothing, and a switch between two other accounts of its tool
 /// leaves it as it was, still offering a sign-in rather than a switch.
-@Test(.disabled("FixtureCore.switchTo ignores whether a parked login can be used"))
+@Test
 func anExpiredParkedLoginStaysUnusableAcrossSwitches() async throws {
     let core = FixtureCore(.twoTools)
     #expect(await refusal { try await core.switchTo("claude/old") } != nil)
@@ -157,7 +157,7 @@ func anExpiredParkedLoginStaysUnusableAcrossSwitches() async throws {
 /// a Claude Code switch named with its tool reads as undone by the read after it, and what
 /// it said about running sessions is put away before anyone has seen it.
 @MainActor
-@Test(.disabled("FixtureCore.switchTo names accounts otherwise than the core types them"))
+@Test
 func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
     let core = FixtureCore(.twoTools)
     #expect(
@@ -332,7 +332,7 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 
 /// Once its parked login is renewed nothing is wrong with the account any more, so a read
 /// no longer says the login expired.
-@Test(.disabled("FixtureCore.signedIn passes stale: nil, which keeps the stale explanation"))
+@Test
 func signingInAgainPutsAwayWhatWasWrongWithTheParkedLogin() async throws {
     let core = FixtureCore(.twoTools)
     _ = try await signInToTheEnd("claude/old", on: core)

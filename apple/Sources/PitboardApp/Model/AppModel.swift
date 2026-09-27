@@ -648,7 +648,10 @@ extension AppModel {
                 said.warnings += done.warnings.filter { !said.warnings.contains($0) }
                 remember(said)
             }
-            advice = []
+            // Advice about this tool is about the account it has just left. Another tool's
+            // stays: it is as true as it was, and it is never told again.
+            let provider = split(qualified).provider
+            advice.removeAll { $0.provider == provider }
             updatedAt = nil
             await refresh()
             return nil

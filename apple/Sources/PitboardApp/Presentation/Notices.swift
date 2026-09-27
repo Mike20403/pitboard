@@ -77,7 +77,10 @@ extension AppModel {
         for last in lastSwitches {
             notices.append(notice(about: last, at: now))
         }
-        let shown = Set(lastSwitches.flatMap(\.warnings))
+        // What a switch's notice says already, which is only what the read does not repeat:
+        // a warning both carry is the read's to say, and leaving it out of both said it
+        // nowhere.
+        let shown = Set(lastSwitches.flatMap { warnings(after: $0) })
         for warning in otherWarnings where !shown.contains(warning) {
             if stuck, warning.code == "recovery_undetermined" { continue }
             notices.append(
@@ -112,7 +115,7 @@ extension AppModel {
             severity: warned.isEmpty && last.notice == nil ? .info : .warning,
             title: last.said == nil
                 ? "Switched \(showsTools ? "\(tool) " : "")to \(label)"
-                : "\(label) has a new login",
+                : "\(label)\(showsTools ? " in \(tool)" : "") has a new login",
             lines: lines,
             follows: pending,
             followsLabel: pending == nil
