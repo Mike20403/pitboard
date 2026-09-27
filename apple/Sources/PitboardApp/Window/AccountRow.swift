@@ -6,6 +6,10 @@ import SwiftUI
 struct AccountRow: View {
     let account: Account
     let description: AccountDescription
+    /// Its name as said where nothing around it says which tool it is for: VoiceOver reads a
+    /// row apart from the heading above it, and Voice Control's "Use work" has to name one
+    /// account when two tools each have a `work`.
+    let spokenName: String
     let perform: (AccountAction) -> Void
     @ScaledMetric(relativeTo: .title2) private var symbolWidth: CGFloat = 26
 
@@ -36,8 +40,8 @@ struct AccountRow: View {
                 trailing
             }
             VStack(alignment: .leading, spacing: Design.rowSpacing) {
-                ForEach(Array(description.limits.enumerated()), id: \.offset) { _, window in
-                    UsageBar(window: window)
+                if !description.limits.isEmpty {
+                    UsageBars(limits: description.limits)
                 }
                 ForEach(notes, id: \.self) { note in
                     Text(note).explanatory()
@@ -53,7 +57,7 @@ struct AccountRow: View {
         // One account, read as one thing with its controls in it, rather than a stop for
         // every line on the way past.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(spokenName)
+        .accessibilityLabel(spokenLabel)
         .accessibilityIdentifier("account.\(account.qualified ?? account.id)")
     }
 
@@ -63,10 +67,12 @@ struct AccountRow: View {
         return description.inUse ? "person.crop.circle.fill" : Symbol.account
     }
 
-    /// What is worth knowing beyond the limits: why it cannot be used, how long the account
-    /// in use lasts at this rate, and how long a parked login stays usable.
+    /// What is worth knowing beyond the limits: why it cannot be used, why its numbers are
+    /// not new, how long the account in use lasts at this rate, and how long a parked login
+    /// stays usable.
     private var notes: [String] {
-        [description.problem, description.pace, description.parkedNote].compactMap { $0 }
+        [description.problem, description.staleNote, description.pace, description.parkedNote]
+            .compactMap { $0 }
     }
 
     @ViewBuilder private var trailing: some View {
@@ -81,19 +87,21 @@ struct AccountRow: View {
             switch description.action {
             case .use:
                 Button("Use") { perform(description.action) }
-                    .accessibilityLabel("Use \(description.title)")
+                    .accessibilityLabel("Use \(spokenName)")
             case .signInAgain:
                 Button("Sign In Again…") { perform(description.action) }
+                    .accessibilityLabel("Sign In to \(spokenName) Again…")
             case .name:
                 Button("Name…") { perform(description.action) }
+                    .accessibilityLabel("Name \(spokenName)…")
             case .none:
                 EmptyView()
             }
         }
     }
 
-    private var spokenName: String {
-        var parts = [description.title]
+    private var spokenLabel: String {
+        var parts = [spokenName]
         if description.inUse { parts.append("in use") }
         if description.needsSignIn { parts.append("needs signing in again") }
         return parts.joined(separator: ", ")

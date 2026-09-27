@@ -13,7 +13,8 @@ func lasting(_ seconds: Int64, burning: Bool) -> String {
     // left when the difference is seconds either way.
     guard seconds >= 60 else { return burning ? "about to run out" : "resets any moment" }
     let span = Duration.seconds(seconds)
-        .formatted(.units(allowed: [.days, .hours, .minutes], width: .narrow))
+        .formatted(
+            .units(allowed: [.days, .hours, .minutes], width: .narrow).locale(english))
     return burning ? "about \(span) left at this rate" : "resets in \(span)"
 }
 
@@ -93,7 +94,8 @@ func spokenLimit(_ window: Limits, resettingIn seconds: TimeInterval?) -> String
     let used = "\(name) limit, \(Int(window.percent.rounded())) percent used"
     guard let seconds, seconds > 0 else { return used }
     let span = Duration.seconds(max(60, Int64(seconds))).formatted(
-        .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2))
+        .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2)
+            .locale(english))
     return "\(used), resets in \(span)"
 }
 
@@ -107,6 +109,10 @@ func restartNotice(program: String, from: String) -> String {
         "Any \(program) session started before this switch keeps using \(old) until it is "
         + "quit and started again."
 }
+
+/// The locale spans of time are written in. pitboard says everything else in English, and a
+/// sentence that switches language halfway, "about 1h 30min left", reads as a mistake.
+private let english = Locale(identifier: "en_US_POSIX")
 
 /// The tool a bare label means, as the core reads one.
 let defaultProvider = "claude"

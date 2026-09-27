@@ -39,23 +39,54 @@ struct Advice {
                 if let at = told[key(provider, ran, window)], oneReset(at, window.resetsAt) {
                     continue
                 }
-                let spare =
-                    mine
-                    .filter { $0.switchable && $0.qualified != nil }
-                    .min { used($0, like: window) < used($1, like: window) }
-                guard let spare, let use = spare.label, let switchTo = spare.qualified,
-                    used(spare, like: window) < 100
-                else { continue }
+                guard let spare = spare(like: window, among: mine) else { continue }
                 return Advice(
                     provider: provider,
                     tool: providers.count > 1
                         ? tools.first { $0.code == provider }?.name ?? provider : nil,
-                    ran: ran, window: window, use: use,
-                    left: 100 - Int(used(spare, like: window).rounded()),
-                    switchTo: switchTo)
+                    ran: ran, window: window, use: spare.use,
+                    left: spare.left, switchTo: spare.switchTo)
             }
             return nil
         }
+    }
+
+    /// The account of the same tool with the most left of `window`'s kind that can be
+    /// switched to now, and what it has left. None when none has any.
+    private static func spare(
+        like window: Limits, among mine: [Account]
+    ) -> (use: String, left: Int, switchTo: String)? {
+        let spare =
+            mine
+            .filter { $0.switchable && $0.qualified != nil }
+            .min { used($0, like: window) < used($1, like: window) }
+        guard let spare, let use = spare.label, let switchTo = spare.qualified,
+            used(spare, like: window) < 100
+        else { return nil }
+        return (use, 100 - Int(used(spare, like: window).rounded()), switchTo)
+    }
+
+    /// This advice as `status` bears it out now: nil once the account that ran out has room
+    /// again or is no longer in use, and otherwise offering the best account there is now.
+    /// The one offered before may have been forgotten, renamed, expired or run out itself,
+    /// and a menu item offering it would fail when chosen.
+    func renewed(in status: Status, tools: [Tool] = []) -> Advice? {
+        guard holds(in: status),
+            let spare = Self.spare(
+                like: window, among: status.accounts.filter { $0.provider == provider })
+        else { return nil }
+        return Advice(
+            provider: provider, tool: tool, ran: ran, window: window, use: spare.use,
+            left: spare.left, switchTo: spare.switchTo)
+    }
+
+    /// This advice about `label` of its tool, as it reads once that account is `name`.
+    func renaming(_ label: String, to name: String) -> Advice {
+        Advice(
+            provider: provider, tool: tool, ran: ran == label ? name : ran, window: window,
+            use: use == label ? name : use, left: left,
+            switchTo: switchTo == qualified(label, for: provider)
+                ? qualified(name, for: provider) : switchTo)
     }
 
     /// Whether `status` still bears this out: the account that ran out is still the one in

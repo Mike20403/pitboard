@@ -4,6 +4,8 @@ import SwiftUI
 /// be done about it.
 struct NoticeRow: View {
     let notice: Notice
+    /// Whether a switch is running, which holds back a switch offered here.
+    var switching = false
     let perform: (Notice.Action) -> Void
 
     var body: some View {
@@ -30,6 +32,7 @@ struct NoticeRow: View {
                     HStack {
                         ForEach(buttons, id: \.title) { action in
                             Button(action.title) { perform(action) }
+                                .disabled(switching && action.switches)
                         }
                     }
                 }
@@ -69,4 +72,10 @@ extension Notice.Action {
     }
 
     var isButton: Bool { !dismisses }
+
+    /// Whether it switches account.
+    var switches: Bool {
+        if case .use = self { return true }
+        return false
+    }
 }

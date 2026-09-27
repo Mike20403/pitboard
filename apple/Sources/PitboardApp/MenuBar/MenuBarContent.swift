@@ -13,6 +13,7 @@ struct MenuBarContent: View {
     let model: AppModel
     let updates: any Updates
     @Environment(\.openURL) private var openURL
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         attention
@@ -32,8 +33,13 @@ struct MenuBarContent: View {
         Section {
             Button("Open pitboard") { model.showWindow() }
                 .keyboardShortcut("0")
-            SettingsLink { Text("Settings…") }
-                .keyboardShortcut(",")
+            Button("Settings…") {
+                // Choosing an item of a menu bar item's menu does not make the app active,
+                // and settings already open would come forward behind the app in front.
+                NSApp.activate()
+                openSettings()
+            }
+            .keyboardShortcut(",")
             if updates.available {
                 Button("Check for Updates…") { updates.check() }
             }
@@ -79,11 +85,12 @@ struct MenuBarContent: View {
                             Text("Switch to \(label)")
                             Text(notice.title)
                         }
+                        .disabled(model.switching != nil)
                     }
                 }
                 if let first = others.first {
                     Button {
-                        model.showWindow()
+                        model.showWindow(.accounts)
                     } label: {
                         Image(systemName: first.severity.symbol)
                         Text(
@@ -181,7 +188,7 @@ private struct AccountMenuItem: View {
             Text(description.summary)
         }
         .disabled(!description.inUse && description.action == .none)
-        .help(description.problem ?? "")
+        .help(description.problem ?? description.staleNote ?? "")
     }
 }
 

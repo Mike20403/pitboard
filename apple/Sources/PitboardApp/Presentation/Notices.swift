@@ -62,7 +62,9 @@ extension AppModel {
             notices.append(
                 Notice(
                     id: "read", severity: .error, title: "Couldn’t read usage",
-                    lines: [problem, "The numbers shown are the last ones measured."],
+                    lines: [problem]
+                        + (status?.accounts.contains { $0.usage != nil } == true
+                            ? ["The numbers shown are the last ones measured."] : []),
                     actions: []))
         }
         for advice in advice {

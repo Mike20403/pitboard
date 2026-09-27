@@ -34,21 +34,32 @@ struct MachinePane: View {
             .keyboardShortcut("r")
             .disabled(machine.checking)
         }
-        .task {
-            if machine.checks.isEmpty { await machine.diagnose() }
-        }
+        // Every visit: a menu bar app runs for days, and a check fixed in a terminal since
+        // would otherwise still read as failing. What was found stays up meanwhile.
+        .task { await machine.diagnose() }
     }
 
     @ViewBuilder private var summary: some View {
         let failing = machine.checks.filter { $0.level != .ok }.count
         if !machine.checks.isEmpty {
-            Text(
-                failing == 0
-                    ? "Everything pitboard checks is in order."
-                    : failing == 1
-                        ? "One thing is worth looking at."
-                        : "\(failing) things are worth looking at."
-            )
+            HStack(alignment: .firstTextBaseline) {
+                Text(
+                    failing == 0
+                        ? "Everything pitboard checks is in order."
+                        : failing == 1
+                            ? "One thing is worth looking at."
+                            : "\(failing) things are worth looking at."
+                )
+                Spacer()
+                if machine.checking {
+                    ProgressView().controlSize(.small)
+                } else if let at = machine.checkedAt {
+                    Text("Checked at \(clockTime(at))")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fontWeight(.regular)
+                }
+            }
         }
     }
 }

@@ -27,8 +27,15 @@ public final class AppModel {
     /// show it.
     private(set) var switching: String?
     private(set) var updatedAt: Date?
-    /// Whether a read is running, so the window's refresh button can say so.
-    private(set) var reading = false
+    /// Whether a read is running, so the refresh buttons can say so. Reads overlap, a timer's
+    /// with one somebody asked for, so they are counted rather than flagged: the first to end
+    /// would otherwise say none is running while the other still is.
+    var reading: Bool { readsInFlight > 0 }
+    private var readsInFlight = 0
+    /// Counts the changes this app has made or seen made. A read that started before one
+    /// lands after it with who was signed in before, and would put away what the change said,
+    /// so it is dropped: the read the change starts itself says what is true now.
+    private var changesSeen = 0
     /// Accounts that have run out while another of the same tool has room, one per tool at
     /// most. Shown whether or not notifications are allowed, so the advice does not depend
     /// on a permission.
@@ -66,6 +73,8 @@ public final class AppModel {
     /// menu bar item, opens the window whenever this moves, so the model can ask for it
     /// from anywhere, a notification's button included.
     private(set) var windowRequests = 0
+    /// The pane the last request for the window wants shown, when it wants one.
+    private(set) var requestedPane: WindowPane?
 
     /// Everything about this machine rather than its accounts: the renewal schedule, the
     /// command line, opening at login, what doctor finds and what pitboard has changed.
@@ -89,7 +98,7 @@ public final class AppModel {
         /// The account switched to, as the core types it. While its tool still has it signed
         /// in, what the switch said is still true, whatever else has written the account
         /// index since: a renewal, an enrolment, a read that renewed a lapsed login.
-        let to: String
+        var to: String
         /// When sessions already open will have picked it up, for a tool that follows a
         /// switch by itself.
         var adopted: Date?
@@ -116,7 +125,7 @@ public final class AppModel {
         let program: String
         /// The account they keep using, by its label alone: the notice names the tool
         /// already, by its program.
-        let from: String
+        var from: String
     }
 
     /// Usage is asked of each tool's service for every account, so it is asked sparingly: on
@@ -244,15 +253,18 @@ public final class AppModel {
             await askWhatIsInstalled()
         }
         if let updatedAt, Date().timeIntervalSince(updatedAt) < seconds { return }
-        reading = true
-        defer { reading = false }
-        // As they stood before the read, because a session can record newer numbers while it
-        // waits on a service, and the read then writes nothing over them. Taken after, they
-        // counted as seen though nothing had shown them. What the read writes itself costs
-        // one look at a file.
+        readsInFlight += 1
+        defer { readsInFlight -= 1 }
+        let started = changesSeen
+        // As they stood before the read, because a session can record newer numbers, and a
+        // terminal can switch, while the read waits on a service, and the read then shows
+        // nothing of either. Taken after, they counted as seen though nothing had shown them.
+        // What the read writes itself costs the next look one read of what is known.
         let readingsBefore = await service.readingsChangedAt()
+        let changedBefore = await service.changedAt()
         do {
             let read = try await service.status(fresh: asked)
+            guard changesSeen == started else { return }
             status = read
             forgetSwitchesUndone(by: read)
             warnings = read.warnings
@@ -260,11 +272,11 @@ public final class AppModel {
             problemCode = nil
             stuck = read.warnings.contains { $0.code == "recovery_undetermined" }
             updatedAt = Date()
-            // What this read measured is recorded, and that is not somebody else's change.
-            lastChangedAt = await service.changedAt()
+            lastChangedAt = changedBefore
             lastReadingsAt = readingsBefore
             advise(from: read)
         } catch {
+            guard changesSeen == started else { return }
             problem = Self.saying(error)
             problemCode = Self.code(of: error)
             // What went wrong this time, in place of what was wrong last time. A failure
@@ -293,19 +305,20 @@ public final class AppModel {
     private func noticeOtherChanges() async {
         let changed = await service.changedAt()
         let measured = await service.readingsChangedAt()
-        let seen = lastChangedAt
-        lastChangedAt = changed
         // The first look only records where things stand; there is nothing to compare to.
-        guard let seen, let seenReadings = lastReadingsAt else {
+        guard let seen = lastChangedAt, let seenReadings = lastReadingsAt else {
+            lastChangedAt = changed
             lastReadingsAt = measured
             return
         }
         // A switch this app has in flight is its own change and not somebody else's, and
-        // taking it for one put away what the switch had just said. Numbers recorded
-        // meanwhile are somebody else's, so they stay unseen until they are shown: a switch
-        // that fails reads nothing after it.
+        // taking it for one put away what the switch had just said. What changed meanwhile
+        // stays unseen until it is shown: a switch that fails reads nothing after it, and one
+        // that failed after finishing an interrupted switch has still moved who is signed in.
         guard switching == nil else { return }
+        lastChangedAt = changed
         if seen != changed {
+            changesSeen += 1
             guard let read = try? await service.statusOffline() else { return }
             status = read
             lastReadingsAt = measured
@@ -329,7 +342,7 @@ public final class AppModel {
     private func advise(from read: Status) {
         let new = Advice.about(read, tools: tools, unless: notifier.told)
         new.forEach(notifier.tell)
-        let standing = new + advice.filter { $0.holds(in: read) }
+        let standing = new + advice.compactMap { $0.renewed(in: read, tools: tools) }
         advice = inOrder(standing.map(\.provider), by: tools).compactMap { provider in
             standing.first { $0.provider == provider }
         }
@@ -343,15 +356,21 @@ public final class AppModel {
 
     // MARK: - Asking for the window
 
-    /// Opens the main window, from anywhere: the menu, a notification, the model itself.
-    func showWindow() {
+    /// Opens the main window, from anywhere: the menu, a notification, the model itself,
+    /// on `pane` when it matters which.
+    func showWindow(_ pane: WindowPane? = nil) {
+        requestedPane = pane
         windowRequests += 1
     }
 
-    /// Puts `sheet` over the main window, opening it first.
+    /// Puts `sheet` over the main window, opening it first on the accounts it is about. A
+    /// sign-in that is running keeps its sheet: replacing it would leave the tool's sign-in
+    /// running with nothing on screen to finish or stop it.
     func present(_ sheet: AccountSheet) {
-        self.sheet = sheet
-        showWindow()
+        if signingIn == nil {
+            self.sheet = sheet
+        }
+        showWindow(.accounts)
     }
 
     /// Says a failure of something asked for away from the window, in the window.
@@ -364,6 +383,9 @@ public final class AppModel {
     /// A switch asked for from the menu or a notification, where a failure has nowhere to be
     /// said but the window.
     func switchAsked(to qualified: String) async {
+        // One switch at a time: the second would wait behind the first anyway, and its
+        // choice was made from a menu that did not yet show the first.
+        guard switching == nil else { return }
         present(await use(qualified))
     }
 
@@ -627,6 +649,7 @@ extension AppModel {
         defer { switching = nil }
         do {
             let done = try await service.switchTo(qualified)
+            changesSeen += 1
             switch done.outcome {
             case .switched(let provider, let from, let to, let adoption):
                 var said = LastSwitch(provider: provider, to: to, warnings: done.warnings)
@@ -666,12 +689,14 @@ extension AppModel {
 
     /// Records the login signed in now to `provider`'s tool under a name, with the tool's
     /// prefix, so a Codex login is enrolled as Codex's and not as a Claude Code account.
-    /// The sheet stays open with the name in it when this fails.
+    /// The sheet stays open with the name in it when this fails, and closes when it works,
+    /// if it is still the sheet showing.
     @discardableResult
     func enrol(_ name: String, for provider: String) async -> ActionFailure? {
         do {
             _ = try await service.enrollCurrent(qualified(name, for: provider))
-            sheet = nil
+            changesSeen += 1
+            if case .name(provider, _)? = sheet { sheet = nil }
             updatedAt = nil
             await refresh()
             return nil
@@ -682,11 +707,18 @@ extension AppModel {
 
     /// Gives an enrolled account a new name. A rename stays inside the account's tool, so
     /// the new name is given bare.
+    ///
+    /// Everything said about the account is said about it under its new name: what its
+    /// tool's last switch said, and advice about it running out. Keyed by the old name, the
+    /// read after the rename would take the switch for undone and the advice for new, and
+    /// tell it again.
     @discardableResult
     func rename(_ label: String, of provider: String, to name: String) async -> ActionFailure? {
         do {
             _ = try await service.rename(qualified(label, for: provider), to: name)
-            sheet = nil
+            changesSeen += 1
+            carry(label, of: provider, to: name)
+            if sheet == .rename(provider: provider, label: label) { sheet = nil }
             updatedAt = nil
             await refresh()
             return nil
@@ -695,11 +727,26 @@ extension AppModel {
         }
     }
 
+    /// What was said about `label` of `provider`, said about it as `name`.
+    private func carry(_ label: String, of provider: String, to name: String) {
+        let typedOld = provider == defaultProvider ? label : qualified(label, for: provider)
+        let typedNew = provider == defaultProvider ? name : qualified(name, for: provider)
+        for index in lastSwitches.indices where lastSwitches[index].provider == provider {
+            if lastSwitches[index].to == typedOld { lastSwitches[index].to = typedNew }
+            if lastSwitches[index].restart?.from == label {
+                lastSwitches[index].restart?.from = name
+            }
+        }
+        advice = advice.map { $0.provider == provider ? $0.renaming(label, to: name) : $0 }
+        notifier.rename(label, of: provider, to: name)
+    }
+
     /// Drops the account `qualified` names, and the login parked for it.
     @discardableResult
     func forget(_ qualified: String) async -> ActionFailure? {
         do {
             _ = try await service.forget(qualified)
+            changesSeen += 1
             updatedAt = nil
             await refresh()
             return nil
@@ -715,6 +762,7 @@ extension AppModel {
     func abandonStuckSwitch() async -> ActionFailure? {
         do {
             abandoned = try await service.abandonRecovery()
+            changesSeen += 1
             stuck = false
             await refresh(asked: true)
             return nil
@@ -739,14 +787,15 @@ extension AppModel {
     /// sign-in is not a failure: somebody asked for it to stop.
     @discardableResult
     func signIn(_ name: String, for provider: String) async -> ActionFailure? {
-        let shown = SigningIn(label: name, tool: tool(provider)?.name ?? provider)
+        guard signingIn == nil else { return nil }
+        let shown = SigningIn(label: name, tool: tool(provider)?.name ?? provider, from: sheet)
         signingIn = shown
         let title = "Couldn’t sign in to \(name)"
         do {
             let session = try await service.signIn(qualified(name, for: provider))
             // Cancelled while it was starting: stop what started rather than watch it.
             guard signingIn === shown else {
-                Task.detached(priority: .userInitiated) { session.cancel() }
+                SignInCalls.run { session.cancel() }
                 return nil
             }
             shown.takesACode = session.takesACode()
@@ -765,23 +814,25 @@ extension AppModel {
     private func watch(
         _ session: SignIn, shown: SigningIn, for provider: String, failing title: String
     ) async -> ActionFailure? {
-        while let said = await Task.detached(
-            priority: .utility,
-            operation: {
-                session.nextLine()
-            }
-        ).value {
+        while let said = await SignInCalls.value({ session.nextLine() }) {
             shown.add(said)
         }
         // Cancelled. The tool was stopped because somebody asked, so the sign-in that is
         // "no longer running" is not something that went wrong, and nothing is enrolled.
         guard signingIn === shown else { return nil }
         do {
-            let done = try await Task.detached(priority: .utility) {
-                try session.finish()
-            }.value
+            let done = try await SignInCalls.value({ try session.finish() })
+            changesSeen += 1
+            // Cancelled while it was being finished, too late to stop the tool: what it
+            // signed in to is enrolled all the same, so it is read, and nothing else is
+            // touched. A sheet or a sign-in started since is somebody else's.
+            guard signingIn === shown else {
+                updatedAt = nil
+                await refresh()
+                return nil
+            }
             signingIn = nil
-            sheet = nil
+            if sheet == shown.from { sheet = nil }
             let said = enrolled(done, as: shown.label, for: provider)
             updatedAt = nil
             await refresh()
@@ -789,6 +840,7 @@ extension AppModel {
             warnings += said.filter { !warnings.contains($0) }
             return nil
         } catch {
+            guard signingIn === shown else { return nil }
             signingIn = nil
             let failure = ActionFailure(title, error: error)
             keep(failure)
@@ -829,7 +881,7 @@ extension AppModel {
     func paste(_ code: String) {
         guard let shown = signingIn, let session = shown.session else { return }
         shown.pasted = true
-        Task.detached(priority: .userInitiated) { try? session.paste(line: code) }
+        SignInCalls.run { try? session.paste(line: code) }
     }
 
     /// Stops the sign-in, off the main thread: stopping waits for the tool to exit, and a
@@ -838,7 +890,35 @@ extension AppModel {
         let session = signingIn?.session
         signingIn = nil
         guard let session else { return }
-        Task.detached(priority: .userInitiated) { session.cancel() }
+        SignInCalls.run { session.cancel() }
+    }
+}
+
+/// Where a sign-in's calls run. Each can block for as long as the tool waits on a person in
+/// a browser, so none runs on the main thread or on the threads Swift's tasks share, which
+/// a few waiting sign-ins would use up: they get a queue of their own, which makes threads
+/// as it needs them.
+enum SignInCalls {
+    private static let queue = DispatchQueue(
+        label: "com.usepitboard.signin.calls", qos: .userInitiated, attributes: .concurrent)
+
+    /// Runs `work` there and waits for its answer without holding a thread meanwhile.
+    static func value<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T
+    {
+        try await withCheckedThrowingContinuation { done in
+            queue.async { done.resume(with: Result(catching: work)) }
+        }
+    }
+
+    static func value<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { done in
+            queue.async { done.resume(returning: work()) }
+        }
+    }
+
+    /// Runs `work` there and does not wait for it.
+    static func run(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
     }
 }
 
@@ -856,10 +936,13 @@ final class SigningIn {
     /// started, so no field is offered for a sign-in that could not take what is typed.
     var takesACode = false
     @ObservationIgnored var session: SignIn?
+    /// The sheet it was started from, which is the one to close when it finishes.
+    let from: AccountSheet?
 
-    init(label: String, tool: String) {
+    init(label: String, tool: String, from: AccountSheet? = nil) {
         self.label = label
         self.tool = tool
+        self.from = from
     }
 
     func add(_ text: String) {

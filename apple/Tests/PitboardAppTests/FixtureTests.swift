@@ -436,7 +436,7 @@ struct FixtureLaunchTests {
             launch.defaults.set(true, forKey: "written")
             #expect(suite.bool(forKey: "written"), "the fixture's suite")
             #expect(!launch.notifies)
-            #expect(!launch.watching)
+            #expect(launch.watching)
             #expect(launch.loginItem is FixtureLoginItem)
             #expect(launch.loginItem.state == .disabled)
 
@@ -469,7 +469,7 @@ struct FixtureLaunchTests {
         defer { forgetLaunches() }
         let launch = Dependencies.forLaunch(environment: [Fixture.variable: "twoTools"])
         #expect(!launch.notifies)
-        #expect(!launch.watching)
+        #expect(launch.watching)
         #expect(launch.loginItem is FixtureLoginItem)
         #expect(launch.defaults.bool(forKey: DefaultsKey.hasBeenSeen))
 

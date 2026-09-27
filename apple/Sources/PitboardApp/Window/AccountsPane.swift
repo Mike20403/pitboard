@@ -23,18 +23,18 @@ struct AccountsPane: View {
                     .help("Read every account’s usage again")
                     .keyboardShortcut("r")
                     .disabled(model.reading)
+                    // Command-N is the window's own command, so it works from every pane.
                     Button {
-                        model.sheet = .add(provider: nil)
+                        model.present(.add(provider: nil))
                     } label: {
                         Label("Add Account", systemImage: Symbol.add)
                     }
                     .help("Sign in to another account and park its login")
-                    .keyboardShortcut("n")
                 }
             }
             .task { await model.refresh(ifOlderThan: AppModel.staleAfter) }
             .alert(
-                "Forget “\(forgetting?.label ?? "")”?",
+                "Forget “\(forgetting.map(model.name(of:)) ?? "")”?",
                 isPresented: Binding(
                     get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
                 presenting: forgetting
@@ -48,7 +48,7 @@ struct AccountsPane: View {
             }
             .alert("Give up on the interrupted switch?", isPresented: $givingUp) {
                 Button("Give Up", role: .destructive) {
-                    Task { model.presentedFailure = await model.abandonStuckSwitch() }
+                    Task { model.present(await model.abandonStuckSwitch()) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -71,6 +71,17 @@ struct AccountsPane: View {
                 Link("How to Install Claude Code", destination: Links.installClaudeCode)
                     .buttonStyle(.borderedProminent)
             }
+        case _ where model.problem != nil && model.status?.accounts.isEmpty != false:
+            // Nothing to list, and the read said why: that is the thing to say, in full,
+            // with a way to try again, and not a spinner that never stops.
+            ContentUnavailableView {
+                Label("Couldn’t Read Accounts", systemImage: Notice.Severity.error.symbol)
+            } description: {
+                Text(model.problem ?? "")
+            } actions: {
+                Button("Try Again") { Task { await model.refresh(asked: true) } }
+                    .disabled(model.reading)
+            }
         case .noOneSignedIn:
             ContentUnavailableView {
                 Label("No Accounts", systemImage: Symbol.accounts)
@@ -79,7 +90,7 @@ struct AccountsPane: View {
                     "Sign in once here and pitboard parks that login, so signing in to "
                         + "another account doesn’t cost you the first.")
             } actions: {
-                Button("Add Account…") { model.sheet = .add(provider: nil) }
+                Button("Add Account…") { model.present(.add(provider: nil)) }
                     .buttonStyle(.borderedProminent)
             }
         default:
@@ -95,7 +106,7 @@ struct AccountsPane: View {
     private var list: some View {
         List(selection: $selection) {
             ForEach(model.notices()) { notice in
-                NoticeRow(notice: notice, perform: perform)
+                NoticeRow(notice: notice, switching: model.switching != nil, perform: perform)
                     .selectionDisabled()
             }
             SetupTip(model: model)
@@ -129,7 +140,8 @@ struct AccountsPane: View {
     private func rows(of group: AccountGroup) -> some View {
         ForEach(group.accounts, id: \.id) { account in
             AccountRow(
-                account: account, description: description(of: account), perform: perform
+                account: account, description: description(of: account),
+                spokenName: model.name(of: account), perform: perform
             )
             .tag(account.id)
         }
@@ -147,11 +159,11 @@ struct AccountsPane: View {
         }
         if let label = account.label, !account.unplaced {
             Button("Sign In Again…") {
-                model.sheet = .signInAgain(provider: account.provider, label: label)
+                model.present(.signInAgain(provider: account.provider, label: label))
             }
             .disabled(model.signingIn != nil)
             Button("Rename…") {
-                model.sheet = .rename(provider: account.provider, label: label)
+                model.present(.rename(provider: account.provider, label: label))
             }
         }
         if !account.email.isEmpty {
@@ -170,11 +182,11 @@ struct AccountsPane: View {
     private func perform(_ action: AccountAction) {
         switch action {
         case .use(let qualified):
-            Task { model.presentedFailure = await model.use(qualified) }
+            Task { model.present(await model.use(qualified)) }
         case .signInAgain(let provider, let label):
-            model.sheet = .signInAgain(provider: provider, label: label)
+            model.present(.signInAgain(provider: provider, label: label))
         case .name(let provider, let email):
-            model.sheet = .name(provider: provider, email: email)
+            model.present(.name(provider: provider, email: email))
         case .none:
             break
         }
@@ -183,7 +195,7 @@ struct AccountsPane: View {
     private func perform(_ action: Notice.Action) {
         switch action {
         case .use(let qualified, _):
-            Task { model.presentedFailure = await model.use(qualified) }
+            Task { model.present(await model.use(qualified)) }
         case .dismissSwitch(let provider):
             model.forgetSwitch(of: provider)
         case .giveUp:
@@ -201,7 +213,7 @@ struct AccountsPane: View {
 
     private func forget(_ account: Account) {
         guard let qualified = account.qualified else { return }
-        Task { model.presentedFailure = await model.forget(qualified) }
+        Task { model.present(await model.forget(qualified)) }
     }
 
     private func account(_ id: String?) -> Account? {
@@ -238,7 +250,7 @@ private struct SetupTip: View {
                 detail: "\(email) is signed in\(to(provider)). pitboard parks logins "
                     + "under a name you choose, and can’t park this one until it has one."
             ) {
-                Button("Name…") { model.sheet = .name(provider: provider, email: email) }
+                Button("Name…") { model.present(.name(provider: provider, email: email)) }
                     .buttonStyle(.borderedProminent)
             }
         case .onlyOne(let provider, let label):
@@ -249,7 +261,7 @@ private struct SetupTip: View {
                     + "there’s nothing to switch to. Adding another signs in to it and "
                     + "parks its login beside this one."
             ) {
-                Button("Add Account…") { model.sheet = .add(provider: provider) }
+                Button("Add Account…") { model.present(.add(provider: provider)) }
                     .buttonStyle(.borderedProminent)
                 Button("Not Now") { model.declineSecondAccount(for: provider) }
             }

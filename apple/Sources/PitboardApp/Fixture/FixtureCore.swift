@@ -233,9 +233,14 @@
                 if let index = accounts.firstIndex(where: {
                     $0.provider == provider && $0.label == name
                 }) {
-                    accounts[index] = with(accounts[index], switchable: true, stale: .some(nil))
+                    // The account in use gets its new login in use, parked for nobody; any
+                    // other has its parked login renewed.
+                    let inUse = accounts[index].signedIn
+                    accounts[index] = with(
+                        accounts[index], switchable: !inUse, stale: .some(nil))
                     return Enrolled(
-                        email: accounts[index].email, enrolled: .renewed, warnings: [])
+                        email: accounts[index].email,
+                        enrolled: inUse ? .inUse(again: true) : .renewed, warnings: [])
                 }
                 let email = "\(name)@example.com"
                 accounts.append(

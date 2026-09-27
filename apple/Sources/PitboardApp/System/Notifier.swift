@@ -59,6 +59,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// What was told about `label` of `provider`, kept as told about it under `name`, so a
+    /// rename does not make an account that ran out read as one that has just run out.
+    func rename(_ label: String, of provider: String, to name: String) {
+        let old = "\(provider)/\(label)/"
+        for (key, at) in told where key.hasPrefix(old) {
+            told[key] = nil
+            told["\(provider)/\(name)/" + key.dropFirst(old.count)] = at
+        }
+    }
+
     nonisolated func userNotificationCenter(
         _ centre: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse

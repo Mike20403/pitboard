@@ -10,35 +10,11 @@ struct MainWindow: View {
     static let id = "main"
 
     @Bindable var model: AppModel
-    @SceneStorage("pane") private var pane = Pane.accounts
-
-    enum Pane: String, CaseIterable, Identifiable {
-        case accounts
-        case activity
-        case machine
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .accounts: "Accounts"
-            case .activity: "Activity"
-            case .machine: "This Mac"
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .accounts: Symbol.accounts
-            case .activity: Symbol.activity
-            case .machine: Symbol.machine
-            }
-        }
-    }
+    @SceneStorage("pane") private var pane = WindowPane.accounts
 
     var body: some View {
         NavigationSplitView {
-            List(Pane.allCases, selection: selection) { pane in
+            List(WindowPane.allCases, selection: selection) { pane in
                 Label(pane.title, systemImage: pane.symbol)
                     .tag(pane)
                     .accessibilityIdentifier("sidebar.\(pane.rawValue)")
@@ -56,15 +32,20 @@ struct MainWindow: View {
             AccountSheetView(model: model, sheet: sheet)
         }
         .failureAlert($model.presentedFailure)
-        .onChange(of: model.sheet) {
-            // A sheet asked for from the menu is about accounts, so it opens over them.
-            if model.sheet != nil { pane = .accounts }
-        }
+        // A request for the window from the menu or the model can want a pane: a sheet is
+        // about accounts, and so is a notice. Asked for when the window opens as well, since
+        // a window opened by the request is not there to see it change.
+        .onChange(of: model.windowRequests) { showRequestedPane() }
+        .onAppear { showRequestedPane() }
+    }
+
+    private func showRequestedPane() {
+        if let wanted = model.requestedPane { pane = wanted }
     }
 
     /// The sidebar's selection. A list selects nothing when its selection is cleared, and a
     /// window with no pane shows nothing, so clearing it keeps the pane shown.
-    private var selection: Binding<Pane?> {
+    private var selection: Binding<WindowPane?> {
         Binding(get: { pane }, set: { if let chosen = $0 { pane = chosen } })
     }
 }

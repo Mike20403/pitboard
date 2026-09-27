@@ -1,3 +1,4 @@
+import Accessibility
 import SwiftUI
 
 /// The sheet `sheet` asks for.
@@ -70,6 +71,14 @@ struct SheetFailure: View {
                     .foregroundStyle(Notice.Severity.error.tint)
             }
         }
+        // It appears where nobody's focus is, after the button that was pressed, and
+        // VoiceOver does not read what appears by itself.
+        .onAppear(perform: announce)
+        .onChange(of: failure.id, announce)
+    }
+
+    private func announce() {
+        AccessibilityNotification.Announcement("\(failure.title). \(failure.message)").post()
     }
 }
 

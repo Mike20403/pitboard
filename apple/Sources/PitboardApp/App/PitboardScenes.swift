@@ -30,9 +30,11 @@ public struct PitboardScenes: Scene {
         }
         .defaultSize(width: 760, height: 560)
         .commands {
-            // Nothing here makes a document, and the window has its own Add Account button
-            // and Command-N.
-            CommandGroup(replacing: .newItem) {}
+            // Nothing here makes a document: what is new here is an account, from any pane.
+            CommandGroup(replacing: .newItem) {
+                Button("Add Account…") { model.present(.add(provider: nil)) }
+                    .keyboardShortcut("n")
+            }
         }
 
         Settings {

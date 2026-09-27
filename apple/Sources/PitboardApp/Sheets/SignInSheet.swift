@@ -17,9 +17,12 @@ struct SignInSheet: View {
     @State private var name: String
     @State private var code = ""
     @State private var failure: ActionFailure?
-    /// Whether this sheet started the sign-in the model is running.
-    @State private var started = false
+    /// The sign-in this sheet showed last, kept while the sheet closes after it finishes,
+    /// when the model has already let it go, so the sheet does not flash its form on the way
+    /// out.
+    @State private var shown: SigningIn?
     @FocusState private var nameFocused: Bool
+    @FocusState private var codeFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     init(model: AppModel, provider: String?, again: String?) {
@@ -31,11 +34,18 @@ struct SignInSheet: View {
         _name = State(initialValue: again ?? "")
     }
 
+    /// The model runs one sign-in at a time, so a sign-in sheet shows the one running,
+    /// whichever sheet started it.
     var body: some View {
-        if started, let signingIn = model.signingIn {
-            progress(signingIn)
-        } else {
-            form
+        Group {
+            if let signingIn = model.signingIn ?? shown {
+                progress(signingIn)
+            } else {
+                form
+            }
+        }
+        .onChange(of: model.signingIn.map(ObjectIdentifier.init), initial: true) {
+            if let running = model.signingIn { shown = running }
         }
     }
 
@@ -89,12 +99,16 @@ struct SignInSheet: View {
 
     private func start() {
         let name = trimmed(name)
-        guard !name.isEmpty, model.signingIn == nil else { return }
+        guard !name.isEmpty, model.signingIn == nil, shown == nil else { return }
         failure = nil
-        started = true
         Task {
-            failure = await model.signIn(name, for: provider)
-            started = false
+            let failed = await model.signIn(name, for: provider)
+            // Back to the form, with what went wrong and the name still in it. A sign-in
+            // that finished closes the sheet, which keeps showing it on the way out.
+            if let failed {
+                failure = failed
+                shown = nil
+            }
         }
     }
 
@@ -125,7 +139,10 @@ struct SignInSheet: View {
                         "Code", text: $code, prompt: Text("Paste the code from your browser")
                     )
                     .accessibilityIdentifier("sheet.code")
+                    .focused($codeFocused)
                     .onSubmit(send)
+                    // Appears once the tool asks, with the code on the clipboard to paste.
+                    .onAppear { codeFocused = true }
                 } footer: {
                     Text(
                         "\(signingIn.tool) asks for this only when your browser couldn’t reach it."
@@ -136,6 +153,7 @@ struct SignInSheet: View {
         } buttons: {
             Button("Cancel", role: .cancel) {
                 model.cancelSignIn()
+                shown = nil
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)

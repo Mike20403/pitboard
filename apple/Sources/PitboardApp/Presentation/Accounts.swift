@@ -138,6 +138,9 @@ struct AccountDescription: Equatable {
     let summary: String
     /// Why it cannot be used, in full, when that is the case.
     let problem: String?
+    /// Why its numbers are not new, when they are not and it can be used all the same: its
+    /// service could not be reached or is rate limiting, or its session has expired.
+    let staleNote: String?
     /// How long the parked login stays usable, for an account not in use.
     let parkedNote: String?
     /// How long the account in use lasts at the rate it is going.
@@ -177,6 +180,7 @@ struct AccountDescription: Equatable {
         problem =
             account.unplaced || !account.switchable && !account.signedIn
             ? account.staleExplanation : nil
+        staleNote = problem == nil ? account.staleExplanation : nil
         parkedNote = account.signedIn ? nil : parkedLife(account.parked, now: now)
         pace = account.lastsSeconds.map {
             lasting($0, burning: account.lastsBurning).capitalizedFirst

@@ -19,6 +19,9 @@ final class MachineModel {
     private(set) var schedule: Schedule = .absent
     /// Why the schedule could not be changed, said beside the switch that tried.
     private(set) var scheduleFailed: String?
+    /// The state being written, while it is: the switch shows what was asked for rather than
+    /// snapping back until the scheduler answers, and cannot be pressed again meanwhile.
+    private(set) var scheduling: Bool?
     /// What the last renewal came to, for the settings pane that started it.
     private(set) var renewals: [Renewed]?
     private(set) var renewing = false
@@ -123,6 +126,9 @@ final class MachineModel {
     /// settings, so nothing that calls this can write a schedule that fails every day without
     /// telling anyone. Turning it off never is: that is how such a schedule is taken away.
     func setSchedule(on: Bool) async {
+        guard scheduling == nil else { return }
+        scheduling = on
+        defer { scheduling = nil }
         scheduleFailed = nil
         if on, let why = cannotSchedule {
             scheduleFailed = why

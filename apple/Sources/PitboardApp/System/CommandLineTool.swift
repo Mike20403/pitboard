@@ -87,8 +87,13 @@ struct CommandLineTool: Sendable {
     /// moved, and a link into that copy stops working once the app quits.
     var translocated: Bool { helper?.contains("/AppTranslocation/") ?? false }
 
-    /// Whether there is a command line in this app that a link would keep reaching.
-    var linkable: Bool { helper != nil && !translocated }
+    /// Whether there is a command line in this app that a link would keep reaching. A build
+    /// run from Xcode has no command line inside it, and a link to where one would be would
+    /// cost an administrator's password for a link that runs nothing.
+    var linkable: Bool {
+        guard let helper, !translocated else { return false }
+        return FileManager.default.isExecutableFile(atPath: helper)
+    }
 
     /// Links `link` to this app's command line once macOS has asked for an administrator's
     /// password. Off the main thread, since the prompt waits on a person. Anything at `link`

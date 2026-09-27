@@ -29,13 +29,16 @@ struct NameSheet: View {
                 SheetFailure(failure: failure)
             }
         } buttons: {
+            // A name being saved cannot be withdrawn, so there is nothing to cancel.
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
+                .disabled(saving)
             Button("Save", action: save)
                 .keyboardShortcut(.defaultAction)
                 .disabled(trimmed(name).isEmpty || saving)
         }
         .onAppear { focused = true }
+        .interactiveDismissDisabled(saving)
     }
 
     private func save() {
@@ -86,11 +89,13 @@ struct RenameSheet: View {
         } buttons: {
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
+                .disabled(saving)
             Button("Rename", action: save)
                 .keyboardShortcut(.defaultAction)
                 .disabled(trimmed(name).isEmpty || trimmed(name) == label || saving)
         }
         .onAppear { focused = true }
+        .interactiveDismissDisabled(saving)
     }
 
     private func save() {

@@ -33,10 +33,14 @@
         /// test starts from the same place and nothing reaches the real app's.
         static let suite = "com.usepitboard.Pitboard.fixture"
 
+        /// The fixture's world. It reads, notices changes and reads when a menu opens, as the
+        /// app does on a real machine, since that is what the UI tests are testing; only
+        /// notifications are left out. `defaults` stands in for the fixture's suite, for a unit
+        /// test that must not leave the suite's file behind.
         @MainActor
-        func dependencies() -> Dependencies {
-            let defaults = UserDefaults(suiteName: Self.suite) ?? .standard
-            defaults.removePersistentDomain(forName: Self.suite)
+        func dependencies(defaults given: UserDefaults? = nil) -> Dependencies {
+            let defaults = given ?? UserDefaults(suiteName: Self.suite) ?? .standard
+            if given == nil { defaults.removePersistentDomain(forName: Self.suite) }
             if self != .firstLaunch { defaults.set(true, forKey: DefaultsKey.hasBeenSeen) }
             return Dependencies(
                 core: FixtureCore(self),
@@ -44,7 +48,7 @@
                 loginItem: FixtureLoginItem(),
                 commandLineTool: Self.commandLineTool(),
                 notifies: false,
-                watching: false)
+                watching: true)
         }
     }
 

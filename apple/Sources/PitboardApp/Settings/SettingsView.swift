@@ -70,12 +70,13 @@ private struct GeneralSettings: View {
                 Toggle(
                     "Renew parked logins daily",
                     isOn: Binding(
-                        get: { machine.renewsDaily },
+                        get: { machine.scheduling ?? machine.renewsDaily },
                         set: { wanted in Task { await machine.setSchedule(on: wanted) } })
                 )
-                // Only turning it on, so a schedule that cannot work can still be
-                // taken away.
-                .disabled(!machine.renewsDaily && machine.cannotSchedule != nil)
+                // Only turning it on, so a schedule that cannot work can still be taken away.
+                .disabled(
+                    machine.scheduling != nil
+                        || (!machine.renewsDaily && machine.cannotSchedule != nil))
                 if case .installed(let path, let every) = machine.schedule {
                     LabeledContent(
                         "Runs",
@@ -121,6 +122,13 @@ private struct GeneralSettings: View {
         .task {
             machine.readLoginItem()
             await machine.readSchedule()
+            // Approving pitboard in Login Items happens in System Settings, and coming back
+            // from there makes the app active again without showing this tab anew.
+            for await _ in NotificationCenter.default.notifications(
+                named: NSApplication.didBecomeActiveNotification)
+            {
+                machine.readLoginItem()
+            }
         }
     }
 }
