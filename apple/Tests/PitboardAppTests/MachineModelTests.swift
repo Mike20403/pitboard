@@ -117,7 +117,6 @@ private final class ScriptedLoginItem: LoginItem {
     func openSystemSettings() { settingsOpened += 1 }
 }
 
-private let applications = "/Applications/Pitboard.app"
 private let translocated =
     "/private/var/folders/xy/abc/T/AppTranslocation/0A1B2C/d/Pitboard.app"
 
@@ -133,10 +132,12 @@ extension CommandLineTool {
 }
 
 extension MachineModel {
-    /// The machine's model over `service`, with a command line inside an app in the
-    /// Applications folder and a login item that registers nothing.
+    /// The machine's model over `service`, with a login item that registers nothing and no
+    /// command line inside the app unless a test gives it one. A test that needs one makes a
+    /// `StandInApp`: a path to an app it did not make would pass only on a Mac that has
+    /// pitboard installed there.
     fileprivate convenience init(
-        testing service: any Core, commandLineTool: CommandLineTool = .inside(applications),
+        testing service: any Core, commandLineTool: CommandLineTool = .nowhere,
         loginItem: any LoginItem = ScriptedLoginItem()
     ) {
         self.init(service: service, commandLineTool: commandLineTool, loginItem: loginItem)
@@ -282,9 +283,11 @@ private struct StandInApp {
 /// Turning daily renewal on or off changes the scheduler, and the switch then shows what
 /// the scheduler has, read again rather than assumed.
 @MainActor
-@Test func turningDailyRenewalOnAndOffChangesTheScheduler() async {
+@Test func turningDailyRenewalOnAndOffChangesTheScheduler() async throws {
+    let app = try StandInApp()
+    defer { app.remove() }
     let core = MachineStub()
-    let machine = MachineModel(testing: core)
+    let machine = MachineModel(testing: core, commandLineTool: app.tool(Scripts().run))
 
     await machine.setSchedule(on: true)
     #expect(core.installs == 1)
@@ -306,8 +309,12 @@ private struct StandInApp {
 /// nothing is asked of the scheduler. Turning it off never is: that is how a schedule that
 /// cannot work is taken away.
 @MainActor
-@Test func dailyRenewalIsRefusedWhereNothingWouldBeThereToRun() async {
-    #expect(MachineModel(testing: MachineStub()).cannotSchedule == nil)
+@Test func dailyRenewalIsRefusedWhereNothingWouldBeThereToRun() async throws {
+    let app = try StandInApp()
+    defer { app.remove() }
+    #expect(
+        MachineModel(testing: MachineStub(), commandLineTool: app.tool(Scripts().run))
+            .cannotSchedule == nil)
 
     let reasons: [(String?, String)] = [
         (
@@ -335,15 +342,62 @@ private struct StandInApp {
     }
 }
 
+/// A build run from Xcode is an app with no command line inside it. A link to where one would
+/// be runs nothing, and a schedule of it renews nothing, so neither is offered, and nobody is
+/// asked for an administrator's password to make one. A command line inside the app that
+/// nobody can run is the same as none.
+@MainActor
+@Test func anAppWithoutACommandLineItCanRunCannotLinkOrSchedule() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pitboard-helperless-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = root.appendingPathComponent("Pitboard.app")
+    try FileManager.default.createDirectory(
+        at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+    let scripts = Scripts()
+    let tool = CommandLineTool(
+        helper: Settings.bundledCommandLine(in: app), installPlaces: [],
+        link: root.appendingPathComponent("bin/pitboard").path, execute: scripts.run)
+    let helper = app.appendingPathComponent("Contents/Helpers/pitboard")
+    #expect(tool.helper == helper.path, "where the app's own would be")
+    #expect(!tool.translocated)
+    #expect(!tool.linkable)
+
+    let core = MachineStub()
+    let machine = MachineModel(testing: core, commandLineTool: tool)
+    let none = "This copy of pitboard has no command line inside it to run on a schedule."
+    #expect(machine.cannotSchedule == none)
+    await machine.setSchedule(on: true)
+    #expect(machine.scheduleFailed == none)
+    #expect(core.installs == 0)
+    await machine.installCommandLine()
+    #expect(
+        machine.linkFailed == "This copy of pitboard cannot link the command line inside it.")
+    #expect(scripts.ran.isEmpty)
+
+    try FileManager.default.createDirectory(
+        at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("#!/bin/sh\n".utf8).write(to: helper)
+    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: helper.path)
+    #expect(!tool.linkable, "there, and nobody can run it")
+    #expect(machine.cannotSchedule == none)
+
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+    #expect(tool.linkable)
+    #expect(machine.cannotSchedule == nil)
+}
+
 /// When the scheduler refuses, the core's own words are said beside the switch, and the
 /// switch shows the schedule as it is. The next try starts from nothing said.
 @MainActor
-@Test func aScheduleTheCoreCouldNotChangeSaysWhyUntilTheNextTry() async {
+@Test func aScheduleTheCoreCouldNotChangeSaysWhyUntilTheNextTry() async throws {
+    let app = try StandInApp()
+    defer { app.remove() }
     let core = MachineStub()
     core.refusing = PitboardError.Failed(
         code: "schedule_refused", cause: nil,
         message: "launchctl refused the renewal job: Input/output error", warnings: [])
-    let machine = MachineModel(testing: core)
+    let machine = MachineModel(testing: core, commandLineTool: app.tool(Scripts().run))
 
     await machine.setSchedule(on: true)
     #expect(machine.scheduleFailed == "launchctl refused the renewal job: Input/output error")

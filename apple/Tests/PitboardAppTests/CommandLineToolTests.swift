@@ -76,10 +76,13 @@ private struct Scratch {
 
 /// A link is offered only to an app with a command line inside it that stays where it is.
 /// macOS runs an app opened where it was downloaded from a temporary copy, and a link into
-/// that stops working once the app quits.
-@Test func aLinkIsOfferedOnlyToAnAppThatStaysWhereItIs() {
-    let installed = CommandLineTool(bundle: URL(fileURLWithPath: "/Applications/Pitboard.app"))
-    #expect(installed.helper == "/Applications/Pitboard.app/Contents/Helpers/pitboard")
+/// that stops working once the app quits. The app is a stand-in the test makes, so the answer
+/// does not depend on whether the Mac running the tests has pitboard installed.
+@Test func aLinkIsOfferedOnlyToAnAppThatStaysWhereItIs() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let installed = CommandLineTool(bundle: scratch.app)
+    #expect(installed.helper == scratch.helper.path)
     #expect(installed.linkable)
     #expect(!installed.translocated)
 

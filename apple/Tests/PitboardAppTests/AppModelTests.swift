@@ -805,6 +805,19 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     #expect(stub.signedIn == ["codex/work", "claude/spare"])
 }
 
+/// A stand-in `Pitboard.app` in `directory`, with a command line inside it that can be run.
+/// Made by the test, so nothing depends on whether the Mac running it has pitboard
+/// installed. The test removes `directory`.
+private func standInApp(in directory: URL) throws -> URL {
+    let app = directory.appendingPathComponent("Pitboard.app")
+    let helper = app.appendingPathComponent("Contents/Helpers/pitboard")
+    try FileManager.default.createDirectory(
+        at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("#!/bin/sh\n".utf8).write(to: helper)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+    return app
+}
+
 /// The settings say which `pitboard` a terminal runs, looking where the login shell's
 /// `PATH` says before anywhere else, and whether it is this app's own. Where the shell could
 /// not be asked, it is the first one found where a way of installing pitboard puts it.
@@ -847,9 +860,10 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     #expect(machine.commandLine == .bundled(linked), "ahead of the one cargo installed")
 
     let other = AppModel(
-        testing: stub, commandLineTool: CommandLineTool(home: home.path, execute: scripts.run))
+        testing: stub,
+        commandLineTool: CommandLineTool(bundle: root, home: home.path, execute: scripts.run))
     await other.machine.findCommandLine()
-    #expect(other.machine.commandLine == .another(linked), "these tests are not an app")
+    #expect(other.machine.commandLine == .another(linked), "not run from an app")
 
     stub.path = nil
     await machine.findCommandLine()
@@ -861,15 +875,17 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 /// password prompt says nothing: it was somebody's answer, and it puts away what an earlier
 /// try said.
 @MainActor
-@Test func aDismissedPasswordPromptIsNotShownAsAFailure() async {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("pitboard-link-\(UUID().uuidString)").path
+@Test func aDismissedPasswordPromptIsNotShownAsAFailure() async throws {
+    let scratch = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pitboard-link-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: scratch) }
+    let root = scratch.path
     let scripts = Scripts()
     let model = AppModel(
         testing: Stub(.success(status([]))),
         commandLineTool: CommandLineTool(
-            bundle: URL(fileURLWithPath: "/Applications/Pitboard.app"), home: root,
-            link: "\(root)/bin/pitboard", execute: scripts.run))
+            bundle: try standInApp(in: scratch), home: root, link: "\(root)/bin/pitboard",
+            execute: scripts.run))
 
     scripts.raise(1, "ln: \(root)/bin/pitboard: Permission denied")
     await model.machine.installCommandLine()
@@ -888,7 +904,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 /// not as a read that failed. Turning it off is always possible, so a schedule that cannot
 /// work can be taken away.
 @MainActor
-@Test func dailyRenewalIsTurnedOnOnlyFromAnAppThatStaysWhereItIs() async {
+@Test func dailyRenewalIsTurnedOnOnlyFromAnAppThatStaysWhereItIs() async throws {
     func model(_ bundle: String) -> (AppModel, Stub) {
         let stub = Stub(.success(status([])))
         let model = AppModel(
@@ -898,7 +914,10 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         return (model, stub)
     }
 
-    let (installed, stub) = model("/Applications/Pitboard.app")
+    let scratch = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pitboard-schedule-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: scratch) }
+    let (installed, stub) = model(try standInApp(in: scratch).path)
     #expect(installed.machine.cannotSchedule == nil)
     await installed.machine.setSchedule(on: true)
     #expect(stub.scheduleInstalls == 1)
