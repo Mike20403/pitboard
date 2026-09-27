@@ -110,8 +110,11 @@ private final class Stub: Core, @unchecked Sendable {
     func rename(_ from: String, to: String) async throws -> Changed {
         Changed(email: "a@b.c", warnings: [])
     }
+    /// What happens while a sign-in is still starting, before the tool has said anything.
+    var duringSignIn: (@MainActor () async -> Void)?
     func signIn(_ label: String) async throws -> SignIn {
         signedIn.append(label)
+        await duringSignIn?()
         guard let session else {
             throw PitboardError.Failed(
                 code: "claude_program_missing", cause: nil,
@@ -141,9 +144,14 @@ private final class ScriptedSignIn: SignIn, @unchecked Sendable {
     /// Whether each was called on the main thread, which is the app's to keep free.
     private(set) var pastedOnMain: Bool?
     private(set) var cancelledOnMain: Bool?
+    /// Whether finishing has been asked for, whether or not it has returned.
     private(set) var finished = false
     /// What finishing enrols.
     var enrolls = Enrolled(email: "a@b.c", enrolled: .signedIn, warnings: [])
+    /// What finishing fails with instead, as a tool stopped before it finished does.
+    var refusal: Error?
+    /// Holds finishing until it is signalled, as a tool still enrolling does.
+    var finishing: DispatchSemaphore?
 
     init(saying lines: [String], takesACode code: Bool, waits: Bool = false) {
         self.lines = lines
@@ -166,6 +174,8 @@ private final class ScriptedSignIn: SignIn, @unchecked Sendable {
     }
     override func finish() throws -> Enrolled {
         finished = true
+        finishing?.wait()
+        if let refusal { throw refusal }
         return enrolls
     }
     override func cancel() {
@@ -762,6 +772,10 @@ func aCancelledSignInStopsTheToolAndReportsNothing() async {
 
     model.cancelSignIn()
     #expect(model.signingIn == nil)
+    #expect(await eventually { session.cancelledOnMain != nil }, "the tool is stopped")
+    // Let go by hand only when the cancel never reached the tool, so that fails here rather
+    // than waiting for ever on a browser.
+    if session.cancelledOnMain == nil { session.done.signal() }
     #expect(await running.value == nil, "somebody asked for it to stop")
 
     #expect(session.cancelledOnMain == false)
@@ -2039,4 +2053,167 @@ func aReadThatStartedBeforeAChangeIsDroppedWhenItLands(_ change: ChangeMidRead) 
             "claude/office/session/": 1, "claude/office/weekly_all/": 2,
             "codex/work/primary/": 3, "claude/workshop/session/": 4,
         ])
+}
+
+// MARK: - Sign-ins and sheets
+
+/// One sign-in at a time. A second asked for while one runs would take the place of the one
+/// on screen and leave the first tool waiting on a browser with nothing to stop it.
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func aSecondSignInWhileOneRunsStartsNothing() async {
+    let stub = Stub(.success(status([])))
+    let session = ScriptedSignIn(
+        saying: ["https://auth.openai.com/oauth\n"], takesACode: false, waits: true)
+    stub.session = session
+    let model = AppModel(testing: stub)
+    let running = Task { await model.signIn("work", for: "codex") }
+    #expect(await eventually { model.signingIn?.url != nil })
+    let first = model.signingIn
+
+    // Were a second one started, it would be refused here the way a missing program is,
+    // rather than wait on a browser that never comes.
+    stub.session = nil
+    #expect(await model.signIn("home", for: "codex") == nil)
+    #expect(stub.signedIn == ["codex/work"])
+    #expect(model.signingIn === first)
+
+    session.done.signal()
+    #expect(await running.value == nil)
+    #expect(model.signingIn == nil)
+}
+
+/// Cancel can be pressed before the tool has started. What then starts is stopped rather than
+/// watched, off the main thread, and nothing is enrolled or said.
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func aSignInCancelledWhileItStartsStopsWhatStarted() async {
+    let stub = Stub(.success(status([])))
+    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
+    stub.session = session
+    let gate = Gate()
+    stub.duringSignIn = { await gate.pass() }
+    let model = AppModel(testing: stub)
+    let running = Task { await model.signIn("work", for: "codex") }
+    #expect(await eventually { gate.arrivals == 1 })
+    #expect(model.signingIn != nil)
+
+    model.cancelSignIn()
+    #expect(model.signingIn == nil)
+    gate.open()
+    #expect(await running.value == nil, "somebody asked for it to stop")
+    #expect(await eventually { session.cancelledOnMain != nil })
+    #expect(session.cancelledOnMain == false)
+    #expect(!session.finished)
+    #expect(model.signingIn == nil)
+    #expect(model.warnings.isEmpty)
+    #expect(model.lastSwitches.isEmpty)
+}
+
+/// A sign-in that finishes closes the sheet it was started from. A sheet up by then is
+/// somebody else's, such as a name half typed, and closing it threw that away.
+@MainActor
+@Test(.timeLimit(.minutes(1)))
+func aFinishedSignInClosesOnlyTheSheetItStartedFrom() async {
+    let stub = Stub(.success(status([])))
+    let session = ScriptedSignIn(
+        saying: ["https://auth.openai.com/oauth\n"], takesACode: false, waits: true)
+    stub.session = session
+    let model = AppModel(testing: stub)
+    model.sheet = .add(provider: "codex")
+    let running = Task { await model.signIn("work", for: "codex") }
+    #expect(await eventually { model.signingIn?.url != nil })
+
+    // `present` keeps a running sign-in's sheet, so this stands in for one put up some other
+    // way.
+    model.sheet = .rename(provider: "claude", label: "home")
+    session.done.signal()
+    #expect(await running.value == nil)
+    #expect(session.finished)
+    #expect(model.signingIn == nil)
+    #expect(model.sheet == .rename(provider: "claude", label: "home"))
+}
+
+/// Cancel pressed while the tool is already being finished comes too late to stop it. What it
+/// signed in to is enrolled all the same, so the accounts are read again, and nothing else is
+/// touched: the sign-in and the sheet on screen by then are somebody else's, a sign-in started
+/// since among them. Where the cancel reached the tool first and finishing fails as stopped,
+/// that was somebody's answer and says nothing.
+@MainActor
+@Test(.timeLimit(.minutes(1)), arguments: [false, true])
+func aSignInCancelledWhileItFinishesLeavesWhatCameAfterIt(stoppedFirst: Bool) async {
+    let travel = account("travel", of: "codex")
+    let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
+    let late = ScriptedSignIn(saying: [], takesACode: false)
+    let finishing = DispatchSemaphore(value: 0)
+    late.finishing = finishing
+    if stoppedFirst {
+        late.refusal = PitboardError.Failed(
+            code: "sign_in_gone", cause: nil, message: "The sign-in is no longer running.",
+            warnings: [
+                Warning(code: "interrupted_switch_undone", message: "A switch was undone.")
+            ])
+    }
+    stub.session = late
+    let model = AppModel(testing: stub)
+    model.sheet = .add(provider: "codex")
+    let cancelled = Task { await model.signIn("travel", for: "codex") }
+    #expect(await eventually { late.finished })
+    model.cancelSignIn()
+
+    let next = ScriptedSignIn(
+        saying: ["https://claude.ai/oauth/authorize\n"], takesACode: true, waits: true)
+    stub.session = next
+    model.sheet = .add(provider: "claude")
+    let running = Task { await model.signIn("other", for: "claude") }
+    #expect(await eventually { model.signingIn?.label == "other" })
+
+    let reads = stub.readings
+    stub.answer = .success(status([account("work", of: "codex", signedIn: true), travel]))
+    finishing.signal()
+    #expect(await cancelled.value == nil)
+    #expect(model.signingIn?.label == "other")
+    #expect(model.sheet == .add(provider: "claude"))
+    #expect(model.warnings.isEmpty)
+    if stoppedFirst {
+        #expect(stub.readings == reads, "nothing was enrolled, so nothing is read")
+    } else {
+        #expect(model.status?.accounts.contains(travel) == true, "enrolled all the same")
+    }
+
+    next.done.signal()
+    #expect(await running.value == nil)
+}
+
+/// Naming or renaming closes its own sheet once it is done, and only that. The name is saved
+/// even when somebody has since put up another sheet, and closing that one threw away
+/// whatever was in it.
+@MainActor
+@Test func namingAndRenamingCloseOnlyTheirOwnSheet() async {
+    let stub = Stub(
+        .success(status([account(nil, signedIn: true, uuid: "a"), account("personal")])))
+    let model = AppModel(testing: stub)
+    await model.refresh()
+
+    let others: [AccountSheet] = [
+        .add(provider: nil), .name(provider: "codex", email: "c@example.com"),
+        .rename(provider: "claude", label: "other"),
+    ]
+    for other in others {
+        model.sheet = other
+        #expect(await model.enrol("work", for: "claude") == nil)
+        #expect(model.sheet == other)
+    }
+    model.sheet = .name(provider: "claude", email: "a@example.com")
+    await model.enrol("work", for: "claude")
+    #expect(model.sheet == nil)
+
+    for other in others + [.rename(provider: "codex", label: "personal")] {
+        model.sheet = other
+        #expect(await model.rename("personal", of: "claude", to: "home") == nil)
+        #expect(model.sheet == other)
+    }
+    model.sheet = .rename(provider: "claude", label: "personal")
+    await model.rename("personal", of: "claude", to: "home")
+    #expect(model.sheet == nil)
 }
