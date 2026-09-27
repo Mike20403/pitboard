@@ -54,6 +54,9 @@ jobs:
 
   apple:
     runs-on: macos-latest
+    # A test waiting on a stand-in sign-in that never answers ignores its own time limit, and
+    # a stuck job otherwise holds a runner for six hours.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
