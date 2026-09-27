@@ -5,6 +5,43 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The menu bar item opens a menu instead of a panel, as macOS asks of a menu bar item. Each
+  account is an item under its tool, checked when it is the one in use and subtitled with
+  what its limits stand at, and choosing another switches to it. Advice to switch, anything
+  else worth a look, and an update that is ready come first. It opens at once, closes the
+  way every menu does, and works from the keyboard and with VoiceOver.
+- Everything that needs typing or room is in pitboard's window: every account with its
+  limits drawn out, everything pitboard has to say in full, the activity log, and what it
+  finds about this Mac. Adding an account, signing in again, naming the account in use and
+  renaming one are sheets over it, and a sheet stays open while your browser is in front. The
+  panel closed the moment the browser came forward, and took the sign-in's code field with
+  it.
+- A switch, a rename or a forget that fails says why in an alert, instead of in a line of
+  the panel that the next read could replace before anyone saw it. A sign-in or a name that
+  fails says so in its sheet, with what you typed still there.
+- Settings has a Command Line tab of its own. "Open pitboard at login" says when macOS is
+  waiting for you to allow pitboard in Login Items, and opens them. "Menu bar shows" picks
+  the account and its usage, the usage alone, or the icon alone, for a crowded menu bar.
+
+### Added
+- Rename an account from the window, which only the command line could do.
+- In the window's account list: Use with a double-click or Return, Forget with Delete, and
+  Copy Email Address and Sign In Again in each account's menu.
+- About pitboard in the menu.
+
+### Fixed
+- The panel said "updated just now" for as long as nothing else changed. The menu says the
+  time of the last read, and the window's reset times move on while it stays open.
+- Giving up on an interrupted switch was reported with a warning sign, as though it had
+  failed. It is a note now, which you dismiss once read.
+- A failure to turn daily renewal on or off was said in the panel rather than beside the
+  switch in Settings, and a failure to change "Open at login" was not said at all.
+- The panel and the window described accounts differently: the window had no way to sign in
+  again or forget an account and did not say how long a parked login lasts, and the panel
+  did not say how long the account in use lasts at its rate. Both now say the same things,
+  worked out once.
+
 ## [0.4.1] - 2026-09-26
 
 ### Changed
