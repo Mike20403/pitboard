@@ -114,6 +114,38 @@ extension CommandLineTool {
         execute: { _ in [NSAppleScript.errorMessage: "No script is run in a test."] })
 }
 
+/// Holds whatever comes to it until the test lets it through, so a test can make one thing
+/// happen while another is still under way: a read still waiting on a service, a sign-in
+/// still starting.
+@MainActor
+final class Gate {
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var opened = false
+    /// How many have come to it so far, let through or not.
+    private(set) var arrivals = 0
+
+    /// Waits here until the test lets it through, or goes straight on once it is open.
+    func pass() async {
+        arrivals += 1
+        guard !opened else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    /// Lets through the one that has waited longest, and nobody else.
+    func letOneThrough() {
+        guard !waiting.isEmpty else { return }
+        waiting.removeFirst().resume()
+    }
+
+    /// Lets everyone through, those waiting and those still to come.
+    func open() {
+        opened = true
+        let all = waiting
+        waiting = []
+        for waiter in all { waiter.resume() }
+    }
+}
+
 /// Stands in for AppleScript: keeps each script it is handed and raises what it is told to,
 /// so no test runs one that asks for an administrator's password.
 final class Scripts: @unchecked Sendable {

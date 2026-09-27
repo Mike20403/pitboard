@@ -39,9 +39,14 @@ private final class Stub: Core, @unchecked Sendable {
     private(set) var offlineReads = 0
     var abandoned: Abandoned?
 
+    /// What happens on this machine while a read waits on a service. The read has taken
+    /// what it answers by then, as the core's takes who is signed in before it asks anyone.
+    var duringRead: (@MainActor () async -> Void)?
     func status(fresh: Bool) async throws -> Status {
         if fresh { freshAsks += 1 }
         readings += 1
+        let answer = self.answer
+        await duringRead?()
         return try answer.get()
     }
     func statusOffline() async throws -> Status {
@@ -1671,4 +1676,236 @@ private func standInApp(in directory: URL) throws -> URL {
         ]))
     await model.refresh()
     #expect(model.spokenTitle == "pitboard, work 80%, Codex")
+}
+
+// MARK: - A read that lands after a change
+
+/// What this app changes, or sees changed, while one of its reads waits on a service.
+enum ChangeMidRead: CaseIterable {
+    case switched, enrolled, renamed, forgotten, signedIn, gaveUp, noticed
+}
+
+/// A read waits on a service with who was signed in when it started, and whatever is changed
+/// meanwhile, by this app or somewhere else the poll noticed, is changed before the read
+/// lands. Taken as it was, the read showed the accounts as they had been and put away what
+/// the change had said, a Codex switch's warning that sessions keep the account it left among
+/// it. It is dropped: the read the change starts itself says what is true now.
+@MainActor
+@Test(arguments: ChangeMidRead.allCases)
+func aReadThatStartedBeforeAChangeIsDroppedWhenItLands(_ change: ChangeMidRead) async {
+    let before = [
+        account("personal", of: "codex", signedIn: true), account("work", of: "codex"),
+        account("spare", of: "codex"),
+    ]
+    let after = status([
+        account("personal", of: "codex"), account("work", of: "codex", signedIn: true),
+    ])
+    let stub = Stub(.success(status(before)))
+    let model = AppModel(testing: stub)
+    await model.refresh()
+
+    // What the held read finds when it starts, with a warning nothing after it carries.
+    let overridden = Warning(code: "auth_overridden", message: "OPENAI_API_KEY is set")
+    stub.answer = .success(status(before, warnings: [overridden]))
+    let gate = Gate()
+    stub.duringRead = { await gate.pass() }
+    let held = Task { await model.refresh(asked: true) }
+    #expect(await eventually { gate.arrivals == 1 })
+    stub.duringRead = nil
+
+    stub.answer = .success(after)
+    stub.offline = .success(after)
+    switch change {
+    case .switched:
+        stub.switched = switched(
+            "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
+        await model.use("codex/work")
+        #expect(model.lastSwitches.map(\.to) == ["codex/work"])
+    case .enrolled:
+        await model.enrol("job", for: "codex")
+    case .renamed:
+        await model.rename("spare", of: "codex", to: "home")
+    case .forgotten:
+        await model.forget("codex/spare")
+    case .signedIn:
+        stub.session = ScriptedSignIn(saying: [], takesACode: false)
+        await model.signIn("travel", for: "codex")
+    case .gaveUp:
+        stub.abandoned = Abandoned(from: "personal", to: "work", loginsKept: 2)
+        await model.abandonStuckSwitch()
+    case .noticed:
+        stub.changed += 1
+        await model.noticeOtherChangesForTesting()
+    }
+    #expect(model.status == after)
+    let said = (switches: model.lastSwitches, warnings: model.warnings, at: model.updatedAt)
+
+    gate.open()
+    await held.value
+    #expect(model.status == after, "not the accounts as they were before the change")
+    #expect(model.lastSwitches == said.switches)
+    #expect(model.warnings == said.warnings)
+    #expect(model.updatedAt == said.at)
+    #expect(!model.reading)
+}
+
+/// The same for a read that fails: started before a switch and landing after it, what it
+/// failed on is the machine as it was, and it is not said over the read the switch started.
+@MainActor
+@Test func aFailedReadThatStartedBeforeASwitchSaysNothingOnceItLands() async {
+    let stub = Stub(
+        .success(
+            status([
+                account("personal", of: "codex", signedIn: true), account("work", of: "codex"),
+            ])))
+    let model = AppModel(testing: stub)
+    await model.refresh()
+
+    let unreachable = Warning(code: "unreachable", message: "OpenAI could not be reached")
+    stub.answer = .failure(
+        PitboardError.Failed(
+            code: "unreachable", cause: nil, message: unreachable.message,
+            warnings: [unreachable]))
+    let gate = Gate()
+    stub.duringRead = { await gate.pass() }
+    let held = Task { await model.refresh(asked: true) }
+    #expect(await eventually { gate.arrivals == 1 })
+    stub.duringRead = nil
+
+    let after = status([
+        account("personal", of: "codex"), account("work", of: "codex", signedIn: true),
+    ])
+    stub.answer = .success(after)
+    stub.switched = switched(
+        "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
+    await model.use("codex/work")
+
+    gate.open()
+    await held.value
+    #expect(model.problem == nil)
+    #expect(model.problemCode == nil)
+    #expect(model.warnings.isEmpty)
+    #expect(model.status == after)
+    #expect(model.lastSwitches.first?.warnings == [stillRunning])
+}
+
+/// A switch typed in a terminal while the app's read waits on a service changes the account
+/// index after the read has taken who is signed in. Counted as seen once the read landed, it
+/// was never shown; counted as things stood when the read started, the next look finds it.
+@MainActor
+@Test func aChangeMadeDuringAReadIsNoticedOnTheNextLook() async {
+    let before = status([account("work", signedIn: true), account("personal")])
+    let elsewhere = status([account("work"), account("personal", signedIn: true)])
+    let stub = Stub(.success(before))
+    stub.duringRead = {
+        stub.changed += 1
+        stub.offline = .success(elsewhere)
+    }
+    let model = AppModel(testing: stub)
+    await model.refresh()
+    #expect(model.status == before)
+
+    stub.duringRead = nil
+    await model.noticeOtherChangesForTesting()
+    #expect(model.status == elsewhere)
+    #expect(stub.offlineReads == 1)
+    #expect(stub.freshAsks == 0)
+}
+
+/// A switch that fails can still have moved who is signed in, by finishing a switch that was
+/// interrupted before it. The poll leaves the account index alone while a switch runs, since
+/// the change could be the switch's own, and a failed switch reads nothing after it, so the
+/// poll finds the change on its next look rather than counting it as seen.
+@MainActor
+@Test func aChangeThePollSawDuringASwitchIsNoticedOnceTheSwitchIsOver() async {
+    let before = status([account("work", signedIn: true), account("personal")])
+    let finished = status([account("work"), account("personal", signedIn: true)])
+    let stub = Stub(.success(before))
+    stub.switched = .failure(
+        PitboardError.Failed(
+            code: "parked_login_expired", cause: nil,
+            message: "spare's parked login has expired",
+            warnings: [
+                Warning(
+                    code: "interrupted_switch_finished",
+                    message: "An interrupted switch to personal was finished.")
+            ]))
+    let model = AppModel(testing: stub)
+    await model.refresh()
+    stub.duringSwitch = {
+        stub.changed += 1
+        stub.offline = .success(finished)
+        await model.noticeOtherChangesForTesting()
+    }
+    await model.use("claude/spare")
+    #expect(model.status == before, "left alone while the switch ran")
+    #expect(stub.offlineReads == 0)
+
+    await model.noticeOtherChangesForTesting()
+    #expect(model.status == finished)
+    #expect(stub.offlineReads == 1)
+}
+
+/// Reads overlap: the timer's with one somebody asked for, a menu opening with the read after
+/// a switch. The refresh buttons say a read is running while either is, and the first to end
+/// used to say none was while the other still waited on a service.
+@MainActor
+@Test func aReadIsRunningWhileEitherOfTwoIs() async {
+    let stub = Stub(.success(status([account("work", signedIn: true)])))
+    let gate = Gate()
+    stub.duringRead = { await gate.pass() }
+    let model = AppModel(testing: stub)
+    #expect(!model.reading)
+    let first = Task { await model.refresh() }
+    let second = Task { await model.refresh(asked: true) }
+    #expect(await eventually { gate.arrivals == 2 })
+    #expect(model.reading)
+
+    gate.letOneThrough()
+    #expect(await eventually { model.updatedAt != nil })
+    #expect(model.reading, "the other is still waiting")
+
+    gate.letOneThrough()
+    await first.value
+    await second.value
+    #expect(!model.reading)
+}
+
+/// One switch at a time. Another chosen from the menu or a notification while one runs was
+/// chosen from a menu that did not yet show the first, and would switch again behind it.
+@MainActor
+@Test func aSwitchAskedForWhileOneRunsDoesNothing() async {
+    let stub = Stub(
+        .success(
+            status([account("personal", signedIn: true), account("work"), account("spare")])))
+    stub.switched = switched("claude", from: "work", to: "personal")
+    let model = AppModel(testing: stub)
+    stub.duringSwitch = {
+        stub.duringSwitch = nil
+        await model.switchAsked(to: "claude/spare")
+    }
+    await model.switchAsked(to: "claude/personal")
+    #expect(stub.switchedTo == ["claude/personal"])
+    #expect(model.presentedFailure == nil)
+    #expect(model.windowRequests == 0)
+}
+
+/// Opening a menu reads the accounts again only once the numbers shown are a minute old:
+/// usage is asked of each tool's service for every account, and a menu is opened far more
+/// often than the numbers change. Before anything has been read there is nothing to keep.
+@MainActor
+@Test func openingAMenuReadsOnlyNumbersAMinuteOld() async throws {
+    let stub = Stub(.success(status([account("work", signedIn: true, percent: 10)])))
+    let model = AppModel(testing: stub)
+    #expect(AppModel.staleAfter == 60)
+    await model.refresh(ifOlderThan: AppModel.staleAfter)
+    #expect(stub.readings == 1, "nothing was read yet")
+
+    await model.refresh(ifOlderThan: AppModel.staleAfter)
+    #expect(stub.readings == 1, "read under a minute ago")
+
+    try await Task.sleep(for: .milliseconds(20))
+    await model.refresh(ifOlderThan: 0.01)
+    #expect(stub.readings == 2, "older than asked for")
+    #expect(stub.freshAsks == 0, "and nobody asked for it")
 }
