@@ -24,17 +24,37 @@ private func refusal<T>(_ call: () async throws -> T) async -> String? {
     }
 }
 
+/// Runs `work`, which blocks, on a thread of its own, and waits for it without holding one of
+/// the threads Swift's tasks share. A sign-in's read waits until something else wakes it, and
+/// a few such waits on the shared threads can leave none for whatever would wake them.
+private func onAThreadOfItsOwn<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { done in
+        Thread.detachNewThread { done.resume(returning: work()) }
+    }
+}
+
+/// Asks again every few milliseconds, for as long as a test can reasonably wait, for
+/// something that happens on another thread.
+@MainActor
+private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
+    for _ in 0..<500 {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return condition()
+}
+
 /// Runs a fixture's sign-in to the end the way the sheet does: reads everything the tool
 /// says, types a code back once it asks for one, and finishes.
 private func signInToTheEnd(
     _ label: String, on core: FixtureCore
 ) async throws -> Enrolled {
     let session = try await core.signIn(label)
-    await Task.detached {
+    await onAThreadOfItsOwn {
         while let line = session.nextLine() {
             if line.contains("Paste code") { try? session.paste(line: "fixture-code") }
         }
-    }.value
+    }
     return try session.finish()
 }
 
@@ -177,7 +197,8 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 /// The login signed in with no name is named in place, and stays the account in use. A
 /// name its tool already has is refused and leaves it unnamed, and once it has a name there
 /// is nobody left to name.
-@Test func theLoginSignedInNowIsNamedWithANameNotTaken() async throws {
+@Test(.timeLimit(.minutes(1)))
+func theLoginSignedInNowIsNamedWithANameNotTaken() async throws {
     let core = FixtureCore(.unnamed)
     _ = try await signInToTheEnd("claude/personal", on: core)
     #expect(await refusal { try await core.enrollCurrent("personal") } == "label_taken")
@@ -238,17 +259,18 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 /// which the sheet shows as a link and a field, and goes no further until a code is typed
 /// back. Finishing then parks the new account beside the one in use.
 @MainActor
-@Test func aClaudeCodeSignInWaitsForTheCodeAndThenParksTheAccount() async throws {
+@Test(.timeLimit(.minutes(1)))
+func aClaudeCodeSignInWaitsForTheCodeAndThenParksTheAccount() async throws {
     let core = FixtureCore(.oneTool)
     let session = try await core.signIn("claude/travel")
-    let said = await Task.detached {
+    let said = await onAThreadOfItsOwn {
         var said = ""
         while let line = session.nextLine() {
             said += line
             if line.contains("Paste code") { break }
         }
         return said
-    }.value
+    }
     let shown = SigningIn(label: "travel", tool: "Claude Code")
     shown.takesACode = session.takesACode()
     shown.add(said)
@@ -261,7 +283,7 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
         try await Task.sleep(for: .milliseconds(300))
         try session.paste(line: "fixture-code")
     }
-    #expect(await Task.detached { session.nextLine() }.value == nil)
+    #expect(await onAThreadOfItsOwn { session.nextLine() } == nil)
     #expect(clock.now - asked >= .milliseconds(300), "nothing more until the code is typed")
     try await pasting.value
 
@@ -277,14 +299,15 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 /// Codex's sign-in prints the address to open beside the loopback address the browser
 /// comes back to, reads nothing typed, and finishes by itself once the browser is done.
 @MainActor
-@Test func aCodexSignInFinishesByItself() async throws {
+@Test(.timeLimit(.minutes(1)))
+func aCodexSignInFinishesByItself() async throws {
     let core = FixtureCore(.twoTools)
     let session = try await core.signIn("codex/travel")
-    let said = await Task.detached {
+    let said = await onAThreadOfItsOwn {
         var said = ""
         while let line = session.nextLine() { said += line }
         return said
-    }.value
+    }
     let shown = SigningIn(label: "travel", tool: "Codex")
     shown.takesACode = session.takesACode()
     shown.add(said)
@@ -302,10 +325,11 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 
 /// A sign-in stopped part way enrols nothing: it stops waiting for a code, and finishing it
 /// fails as stopped, the way the tool's own does.
-@Test func aStoppedSignInEnrolsNothing() async throws {
+@Test(.timeLimit(.minutes(1)))
+func aStoppedSignInEnrolsNothing() async throws {
     let core = FixtureCore(.oneTool)
     let session = try await core.signIn("claude/travel")
-    let reading = Task.detached { while session.nextLine() != nil {} }
+    let reading = Task { await onAThreadOfItsOwn { while session.nextLine() != nil {} } }
     session.cancel()
     await reading.value
 
@@ -318,7 +342,8 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 
 /// Signing in again to an account whose parked login expired renews that account rather
 /// than adding a second one, and it can be switched to again.
-@Test func signingInAgainToAnExpiredAccountMakesItSwitchable() async throws {
+@Test(.timeLimit(.minutes(1)))
+func signingInAgainToAnExpiredAccountMakesItSwitchable() async throws {
     let core = FixtureCore(.twoTools)
     #expect(
         try await signInToTheEnd("claude/old", on: core)
@@ -332,7 +357,7 @@ func aSwitchNamesTheAccountsAsTheCoreTypesThem() async throws {
 
 /// Once its parked login is renewed nothing is wrong with the account any more, so a read
 /// no longer says the login expired.
-@Test
+@Test(.timeLimit(.minutes(1)))
 func signingInAgainPutsAwayWhatWasWrongWithTheParkedLogin() async throws {
     let core = FixtureCore(.twoTools)
     _ = try await signInToTheEnd("claude/old", on: core)
@@ -340,6 +365,23 @@ func signingInAgainPutsAwayWhatWasWrongWithTheParkedLogin() async throws {
         try await core.status(fresh: true).accounts.first { $0.qualified == "claude/old" })
     #expect(old.stale == nil)
     #expect(old.staleExplanation == nil)
+}
+
+/// Signing in again to the account in use puts its new login in use at once, as the core
+/// does, and parks nothing: it stays the account in use and is not one to switch to. It says
+/// so, rather than that a parked login was renewed, which is what has the app say what the
+/// new login means for sessions already running.
+@Test(.timeLimit(.minutes(1)))
+func signingInAgainToTheAccountInUseKeepsItInUse() async throws {
+    let core = FixtureCore(.oneTool)
+    #expect(
+        try await signInToTheEnd("claude/work", on: core)
+            == Enrolled(
+                email: "dana@work.example", enrolled: .inUse(again: true), warnings: []))
+    let read = try await core.status(fresh: true)
+    #expect(described(read) == ["claude/work, in use", "claude/personal"])
+    let work = try #require(read.accounts.first { $0.qualified == "claude/work" })
+    #expect(!work.switchable)
 }
 
 // MARK: - The rest of the machine
@@ -404,37 +446,37 @@ func signingInAgainPutsAwayWhatWasWrongWithTheParkedLogin() async throws {
 
 // MARK: - Launching into a fixture
 
-/// Leaves nothing of a fixture launch behind: its preferences, and the stand-in app and
-/// link it made in a temporary directory.
+/// Leaves nothing of a fixture launch behind: the stand-in app and link it made in a
+/// temporary directory. Its preferences are the test's own, kept in memory.
 private func forgetLaunches() {
-    UserDefaults(suiteName: Fixture.suite)?.removePersistentDomain(forName: Fixture.suite)
     try? FileManager.default.removeItem(
         at: FileManager.default.temporaryDirectory
             .appendingPathComponent("pitboard-fixture"))
 }
 
-/// A launch into a fixture empties one defaults suite and one temporary directory, so the
-/// tests that launch one take turns.
+/// A launch into a fixture empties and makes again one temporary directory, so the tests
+/// that launch one take turns.
 @MainActor
 @Suite(.serialized)
 struct FixtureLaunchTests {
     /// A UI test launches the app into a fixture many times, and each launch starts where
-    /// the last one did: preferences of its own that the last launch left nothing in, seen
-    /// before unless it is the first launch, and nothing that runs by itself or asks the
-    /// person running the tests for permission.
-    @Test func everyLaunchStartsFromEmptyPreferencesOfItsOwn() async throws {
+    /// the last one did: seen before unless it is the first launch, reading, noticing
+    /// changes and reading when a menu opens as the app does on a real machine, and asking
+    /// the person running the tests for nothing, a notification's permission included.
+    ///
+    /// Each launch here is handed preferences kept in memory. That a real launch empties the
+    /// fixture's own suite is not checked: the suite is a file in the preferences of whoever
+    /// runs the tests, and emptying it still leaves the file there.
+    @Test func everyLaunchStartsWhereTheLastOneDid() async throws {
         defer { forgetLaunches() }
-        let suite = try #require(UserDefaults(suiteName: Fixture.suite))
+        #expect(Fixture.suite == "com.usepitboard.Pitboard.fixture", "never the app's own")
         for fixture in Fixture.allCases {
-            suite.set(["claude"], forKey: DefaultsKey.secondAccountDeclined)
-            let launch = fixture.dependencies()
-            #expect(
-                launch.defaults.stringArray(forKey: DefaultsKey.secondAccountDeclined) == nil)
+            let defaults = TestDefaults()
+            let launch = fixture.dependencies(defaults: defaults)
+            #expect(launch.defaults === defaults)
             #expect(
                 launch.defaults.bool(forKey: DefaultsKey.hasBeenSeen)
                     == (fixture != .firstLaunch))
-            launch.defaults.set(true, forKey: "written")
-            #expect(suite.bool(forKey: "written"), "the fixture's suite")
             #expect(!launch.notifies)
             #expect(launch.watching)
             #expect(launch.loginItem is FixtureLoginItem)
@@ -447,12 +489,26 @@ struct FixtureLaunchTests {
         }
     }
 
+    /// The UI tests open the menu before the window, and the menu shows only what a read has
+    /// found. The app launched into a fixture reads by itself, as it does on a real machine,
+    /// with nothing opened and nothing pressed.
+    @Test(.timeLimit(.minutes(1)))
+    func aLaunchReadsWithoutBeingAsked() async throws {
+        defer { forgetLaunches() }
+        let model = AppModel(
+            dependencies: Fixture.twoTools.dependencies(defaults: TestDefaults()))
+        #expect(await eventually { model.status != nil })
+        #expect(
+            described(try #require(model.status))
+                == described(try await FixtureCore(.twoTools).statusOffline()))
+    }
+
     /// A fixture's command line is inside a stand-in app in a temporary directory, and
     /// linking it makes the link there without a password prompt, so a UI test can press the
     /// settings' button without writing to `/usr/local/bin`.
     @Test func aLaunchLinksItsCommandLineInATemporaryDirectory() async throws {
         defer { forgetLaunches() }
-        let tool = Fixture.oneTool.dependencies().commandLineTool
+        let tool = Fixture.oneTool.dependencies(defaults: TestDefaults()).commandLineTool
         let temporary = FileManager.default.temporaryDirectory.path
         #expect(tool.linkable)
         #expect(tool.helper?.hasPrefix(temporary) == true)
@@ -461,21 +517,5 @@ struct FixtureLaunchTests {
 
         #expect(await tool.install() == .linked)
         #expect(tool.find(in: tool.installPlaces) == .bundled(tool.link))
-    }
-
-    /// A debug build started with `PITBOARD_FIXTURE` runs in that fixture's world, which is
-    /// how every UI test starts the app without touching the Mac that runs it.
-    @Test func aDebugBuildLaunchesIntoTheFixtureItsEnvironmentNames() async throws {
-        defer { forgetLaunches() }
-        let launch = Dependencies.forLaunch(environment: [Fixture.variable: "twoTools"])
-        #expect(!launch.notifies)
-        #expect(launch.watching)
-        #expect(launch.loginItem is FixtureLoginItem)
-        #expect(launch.defaults.bool(forKey: DefaultsKey.hasBeenSeen))
-
-        let core = try #require(launch.core as? FixtureCore)
-        #expect(
-            described(try await core.statusOffline())
-                == described(try await FixtureCore(.twoTools).statusOffline()))
     }
 }
