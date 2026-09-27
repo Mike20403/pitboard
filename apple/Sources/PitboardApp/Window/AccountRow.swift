@@ -45,6 +45,10 @@ struct AccountRow: View {
             .padding(.leading, symbolWidth + Design.iconSpacing)
         }
         .padding(.vertical, 4)
+        // The line between rows starts under the name, where the text starts, whatever the
+        // row ends with: a list lines it up with a row's last label otherwise, which for the
+        // account in use is "In Use" at the far end.
+        .alignmentGuide(.listRowSeparatorLeading) { _ in symbolWidth + Design.iconSpacing }
         // One account, read as one thing with its controls in it, rather than a stop for
         // every line on the way past.
         .accessibilityElement(children: .contain)

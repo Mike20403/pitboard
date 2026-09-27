@@ -100,12 +100,12 @@ struct AccountsPane: View {
             }
             SetupTip(model: model)
             ForEach(model.groups) { group in
-                // A heading per tool once there is more than one, and none before: an empty
-                // one still takes its room.
+                // A heading per tool once there is more than one, and no section at all
+                // before: a section with no heading still takes a heading's room.
                 if let name = group.name {
                     Section(name) { rows(of: group) }
                 } else {
-                    Section { rows(of: group) }
+                    rows(of: group)
                 }
             }
         }
@@ -232,30 +232,26 @@ private struct SetupTip: View {
     var body: some View {
         switch model.footing {
         case .unnamed(let provider, let email):
-            Section {
-                Tip(
-                    symbol: "tag",
-                    title: "Give this account a name",
-                    detail: "\(email) is signed in\(to(provider)). pitboard parks logins "
-                        + "under a name you choose, and can’t park this one until it has one."
-                ) {
-                    Button("Name…") { model.sheet = .name(provider: provider, email: email) }
-                        .buttonStyle(.borderedProminent)
-                }
+            Tip(
+                symbol: "tag",
+                title: "Give this account a name",
+                detail: "\(email) is signed in\(to(provider)). pitboard parks logins "
+                    + "under a name you choose, and can’t park this one until it has one."
+            ) {
+                Button("Name…") { model.sheet = .name(provider: provider, email: email) }
+                    .buttonStyle(.borderedProminent)
             }
         case .onlyOne(let provider, let label):
-            Section {
-                Tip(
-                    symbol: Symbol.switchAccount,
-                    title: "Add a second \(tool(provider))account",
-                    detail: "\(label) is the only \(tool(provider))account pitboard knows, so "
-                        + "there’s nothing to switch to. Adding another signs in to it and "
-                        + "parks its login beside this one."
-                ) {
-                    Button("Add Account…") { model.sheet = .add(provider: provider) }
-                        .buttonStyle(.borderedProminent)
-                    Button("Not Now") { model.declineSecondAccount(for: provider) }
-                }
+            Tip(
+                symbol: Symbol.switchAccount,
+                title: "Add a second \(tool(provider))account",
+                detail: "\(label) is the only \(tool(provider))account pitboard knows, so "
+                    + "there’s nothing to switch to. Adding another signs in to it and "
+                    + "parks its login beside this one."
+            ) {
+                Button("Add Account…") { model.sheet = .add(provider: provider) }
+                    .buttonStyle(.borderedProminent)
+                Button("Not Now") { model.declineSecondAccount(for: provider) }
             }
         default:
             EmptyView()

@@ -142,6 +142,7 @@ struct AccountDescription: Equatable {
     let pace: String?
     let limits: [Limits]
 
+    /// `switching` is the account a switch is running for, and `busy` whether a sign-in is.
     init(_ account: Account, switching: String?, busy: Bool, now: Date = Date()) {
         email = account.email
         inUse = account.signedIn
@@ -152,16 +153,18 @@ struct AccountDescription: Equatable {
         } else {
             title = account.label ?? account.email
         }
-        let blocked = busy || switching != nil
-        if account.unplaced {
+        // A switch running holds everything back, since each change waits for the one
+        // before. A sign-in running holds back only another sign-in: it waits on a person in
+        // a browser, and switching meanwhile is theirs to do.
+        if account.unplaced || switching != nil {
             action = .none
         } else if account.label == nil {
             action = account.signedIn ? .name(provider: account.provider, email: email) : .none
-        } else if account.signedIn || blocked {
+        } else if account.signedIn {
             action = .none
         } else if account.switchable, let qualified = account.qualified {
             action = .use(qualified)
-        } else if let label = account.label {
+        } else if let label = account.label, !busy {
             action = .signInAgain(provider: account.provider, label: label)
         } else {
             action = .none
