@@ -87,12 +87,14 @@ jobs:
           rung first 0.0.2 2 next
           rung second 0.0.3 3 next
 
-      # Before anything is signed. The production identifier and feed are read out of the
-      # tree rather than repeated here, so this cannot drift away from what they are.
+      # Before anything is signed. The production identifier is read from the release build
+      # the rungs were cut from, which none of them changed, and the feed from the script
+      # that writes it, rather than repeated here, so this cannot drift away from what they
+      # are.
       - name: None of this is production
         run: |
           production_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
-            apple/Resources/Info.plist)
+            apple/build/Pitboard.app/Contents/Info.plist)
           production_feed=$(sed -n 's/^FEED=//p' apple/scripts/build-app.sh)
           for rung in installed first second; do
             plist=$RUNNER_TEMP/rungs/$rung/Pitboard.app/Contents/Info.plist
@@ -126,7 +128,7 @@ jobs:
       # a feed nobody could install.
       - name: The two feeds
         run: |
-          sparkle=$(cd apple/.build/artifacts/sparkle/Sparkle/bin && pwd)
+          sparkle=$(cd apple/build/SourcePackages/artifacts/sparkle/Sparkle/bin && pwd)
           feed() {
             mkdir -p "$RUNNER_TEMP/feeds/$1"
             ditto -c -k --keepParent "$RUNNER_TEMP/rungs/$2/Pitboard.app" \
