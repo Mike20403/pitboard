@@ -12,12 +12,12 @@ final class MenuBarTests: XCTestCase {
         let app = XCUIApplication.launched(.twoTools)
         app.openMenu()
         for title in ["Claude Code", "Codex", "work", "personal", "old", "main", "spare"] {
-            XCTAssertTrue(app.menuItems[title].waitForExistence(timeout: 5), title)
+            XCTAssertTrue(app.menuItem(title).waitForExistence(timeout: 5), title)
         }
         for command in [
             "Add Account…", "Refresh", "Open pitboard", "Settings…", "Quit pitboard",
         ] {
-            XCTAssertTrue(app.menuItems[command].exists, command)
+            XCTAssertTrue(app.menuItem(command).exists, command)
         }
     }
 
@@ -26,9 +26,9 @@ final class MenuBarTests: XCTestCase {
     func testChoosingAnotherAccountSwitchesToIt() {
         let app = XCUIApplication.launched(.oneTool)
         app.openMenu()
-        app.menuItems["personal"].click()
+        app.menuItem("personal").click()
         app.openMenu()
-        app.menuItems["Open pitboard"].click()
+        app.menuItem("Open pitboard").click()
         let row = app.accountRow("claude/personal")
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertTrue(row.staticTexts["In Use"].waitForExistence(timeout: 5))
@@ -39,7 +39,7 @@ final class MenuBarTests: XCTestCase {
     func testAnExpiredAccountOpensSigningInAgain() {
         let app = XCUIApplication.launched(.twoTools)
         app.openMenu()
-        app.menuItems["old"].click()
+        app.menuItem("old").click()
         XCTAssertTrue(app.staticTexts["Sign In to old Again"].waitForExistence(timeout: 5))
     }
 
@@ -48,7 +48,7 @@ final class MenuBarTests: XCTestCase {
     func testAddAccountOpensTheSheet() {
         let app = XCUIApplication.launched(.oneTool)
         app.openMenu()
-        app.menuItems["Add Account…"].click()
+        app.menuItem("Add Account…").click()
         XCTAssertTrue(app.staticTexts["Add Account"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["sheet.name"].exists)
     }
@@ -58,7 +58,7 @@ final class MenuBarTests: XCTestCase {
     func testSettingsOpens() {
         let app = XCUIApplication.launched(.oneTool)
         app.openMenu()
-        app.menuItems["Settings…"].click()
+        app.menuItem("Settings…").click()
         XCTAssertTrue(app.windows["General"].waitForExistence(timeout: 5))
     }
 
@@ -67,7 +67,7 @@ final class MenuBarTests: XCTestCase {
     func testAMachineWithoutClaudeCodeSaysSo() {
         let app = XCUIApplication.launched(.noClaudeCode)
         app.openMenu()
-        XCTAssertTrue(app.menuItems["Claude Code isn’t installed"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.menuItem("Claude Code isn’t installed").waitForExistence(timeout: 5))
     }
 
     /// A read that failed is one item in the menu, and choosing it opens the window, where
@@ -76,7 +76,7 @@ final class MenuBarTests: XCTestCase {
     func testAFailedReadIsSaidInTheMenuAndInTheWindow() {
         let app = XCUIApplication.launched(.readFailure)
         app.openMenu()
-        let item = app.menuItems["Couldn’t read usage"]
+        let item = app.menuItem("Couldn’t read usage")
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.click()
         let notice = app.descendants(matching: .any)["notice.read"]
@@ -97,7 +97,7 @@ final class MenuBarTests: XCTestCase {
         XCTAssertTrue(checks.waitForExistence(timeout: 5))
 
         app.openMenu()
-        let item = app.menuItems["An interrupted switch is waiting"]
+        let item = app.menuItem("An interrupted switch is waiting")
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.click()
         XCTAssertTrue(app.buttons["Give Up…"].waitForExistence(timeout: 5))
@@ -109,7 +109,7 @@ final class MenuBarTests: XCTestCase {
     func testQuitQuits() {
         let app = XCUIApplication.launched(.oneTool)
         app.openMenu()
-        app.menuItems["Quit pitboard"].click()
+        app.menuItem("Quit pitboard").click()
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
     }
 }

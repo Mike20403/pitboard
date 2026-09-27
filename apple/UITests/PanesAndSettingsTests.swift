@@ -13,8 +13,8 @@ final class PanesAndSettingsTests: XCTestCase {
         let app = XCUIApplication.launched(.oneTool)
         app.openWindow()
         app.descendants(matching: .any)["sidebar.activity"].click()
-        let switched = app.tables.staticTexts["Switch"].firstMatch
-        let enrolled = app.tables.staticTexts["Enrol"].firstMatch
+        let switched = app.text("Switch")
+        let enrolled = app.text("Enrol")
         XCTAssertTrue(switched.waitForExistence(timeout: 5))
         XCTAssertTrue(enrolled.exists)
         XCTAssertLessThan(switched.frame.minY, enrolled.frame.minY, "newest first")

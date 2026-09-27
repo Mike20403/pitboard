@@ -68,6 +68,7 @@ struct SignInSheet: View {
                             Text(tool.name).tag(tool.code)
                         }
                     }
+                    .accessibilityIdentifier("sheet.tool")
                 }
                 if let again {
                     LabeledContent("Account", value: again)

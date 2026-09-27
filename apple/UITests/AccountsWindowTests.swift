@@ -34,7 +34,7 @@ final class AccountsWindowTests: XCTestCase {
         let app = XCUIApplication.launched(.twoTools)
         app.openWindow()
         app.toolbars.buttons["Add Account"].click()
-        let tool = app.popUpButtons["Tool"]
+        let tool = app.popUpButtons["sheet.tool"]
         XCTAssertTrue(tool.waitForExistence(timeout: 5))
         tool.click()
         app.menuItems["Codex"].click()
@@ -109,12 +109,12 @@ final class AccountsWindowTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.rightClick()
         app.menuItems["Forget…"].click()
-        XCTAssertTrue(app.buttons["Forget"].waitForExistence(timeout: 5))
-        app.buttons["Cancel"].click()
+        XCTAssertTrue(app.alert.buttons["Forget"].waitForExistence(timeout: 5))
+        app.alert.buttons["Cancel"].click()
         XCTAssertTrue(row.exists)
         row.rightClick()
         app.menuItems["Forget…"].click()
-        app.buttons["Forget"].click()
+        app.alert.buttons["Forget"].click()
         XCTAssertTrue(row.waitForNonExistence(timeout: 5))
     }
 
@@ -139,7 +139,8 @@ final class AccountsWindowTests: XCTestCase {
         app.openWindow()
         let spare = app.accountRow("codex/spare")
         XCTAssertTrue(spare.waitForExistence(timeout: 5))
-        spare.buttons["Use spare"].click()
+        // Named with its tool, since Claude Code could have a `spare` too.
+        spare.buttons["Use spare (Codex)"].click()
         let notice = app.descendants(matching: .any)["notice.switch/codex"]
         XCTAssertTrue(notice.waitForExistence(timeout: 5))
         let restart = "Any codex session started before this switch keeps using main"
@@ -181,7 +182,7 @@ final class AccountsWindowTests: XCTestCase {
         let giveUp = app.buttons["Give Up…"]
         XCTAssertTrue(giveUp.waitForExistence(timeout: 5))
         giveUp.click()
-        app.buttons["Give Up"].click()
+        app.alert.buttons["Give Up"].click()
         let notice = app.descendants(matching: .any)["notice.abandoned"]
         XCTAssertTrue(notice.waitForExistence(timeout: 5))
         XCTAssertTrue(notice.staticTexts["Gave up on the interrupted switch"].exists)
@@ -208,7 +209,7 @@ final class AccountsWindowTests: XCTestCase {
         let app = XCUIApplication.launched(.oneTool)
         app.openWindow()
         app.descendants(matching: .any)["sidebar.activity"].click()
-        let activity = app.tables.staticTexts["Switch"].firstMatch
+        let activity = app.text("Switch")
         XCTAssertTrue(activity.waitForExistence(timeout: 5))
         app.typeKey("n", modifierFlags: .command)
         XCTAssertTrue(app.textFields["sheet.name"].waitForExistence(timeout: 5))

@@ -35,15 +35,34 @@ extension XCUIApplication {
     /// Opens the main window from the menu, as a person does.
     func openWindow() {
         openMenu()
-        menuItems["Open pitboard"].click()
+        menuItem("Open pitboard").click()
         XCTAssertTrue(windows.firstMatch.waitForExistence(timeout: 5))
     }
 
     /// Opens the settings from the menu.
     func openSettings() {
         openMenu()
-        menuItems["Settings…"].click()
+        menuItem("Settings…").click()
         XCTAssertTrue(windows["General"].waitForExistence(timeout: 5))
+    }
+
+    /// An item of the menu bar item's menu. The app keeps a main menu, hidden while it has
+    /// no Dock icon, and its Settings…, Quit and Add Account… have the same titles, so the
+    /// item is looked for under the menu bar item.
+    func menuItem(_ title: String) -> XCUIElement {
+        statusItems.firstMatch.menuItems[title]
+    }
+
+    /// The alert showing over the window. A button is looked for in it rather than in the
+    /// whole app, which has a Touch Bar with a Cancel of its own.
+    var alert: XCUIElement {
+        sheets["alert"]
+    }
+
+    /// A text anywhere in the app whose words are `words`. A table keeps a cell's words in
+    /// its value, which a subscript does not look at.
+    func text(_ words: String) -> XCUIElement {
+        text("==", words)
     }
 
     /// An account's row in the window, by its label with its tool.
