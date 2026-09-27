@@ -2,7 +2,7 @@ import Foundation
 import PitboardKit
 import Testing
 
-@testable import Pitboard
+@testable import PitboardApp
 
 /// Answers whatever a test wants, so the model can be driven through states a real machine
 /// would take a keychain and a network to reach.

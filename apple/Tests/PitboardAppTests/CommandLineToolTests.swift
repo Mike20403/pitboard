@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import Pitboard
+@testable import PitboardApp
 
 /// A scratch directory with an app bundle carrying a command line, and whatever a test puts
 /// beside it. Its name has a space and a quote in it, as a folder somebody made might.

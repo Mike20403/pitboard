@@ -1,7 +1,7 @@
 import PitboardKit
 import Testing
 
-@testable import Pitboard
+@testable import PitboardApp
 
 @Test func theMenuBarNamesTheAccountInUseAndItsTightestLimit() {
     let read = status([

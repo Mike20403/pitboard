@@ -1,7 +1,7 @@
 import Foundation
 import PitboardKit
 
-@testable import Pitboard
+@testable import PitboardApp
 
 /// The tools as the core lists them, written out so no test asks the core for them.
 let claudeCode = Tool(

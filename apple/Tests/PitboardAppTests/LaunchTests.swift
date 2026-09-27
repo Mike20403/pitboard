@@ -1,6 +1,6 @@
 import Testing
 
-@testable import Pitboard
+@testable import PitboardApp
 
 /// A renewal schedule an app up to 0.3.0 wrote starts the app with `renew`, and the command
 /// line inside this one does the renewal in its place. A copy with none inside it starts

@@ -1,7 +1,7 @@
 import PitboardKit
 import Testing
 
-@testable import Pitboard
+@testable import PitboardApp
 
 /// The difference between a limit filling and a limit resetting is the difference between
 /// "switch now" and "stay where you are", and both are a number of seconds.

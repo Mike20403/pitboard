@@ -9,7 +9,7 @@ typealias Limits = PitboardBindings.Window
 /// thread inside `PitboardService`; this only holds the answers.
 @MainActor
 @Observable
-final class AppModel {
+public final class AppModel {
     private let service: any Core
     /// Every tool pitboard handles, in the order a listing shows them.
     let tools: [Tool]
@@ -201,6 +201,12 @@ final class AppModel {
                 try? await Task.sleep(for: Self.noticeEvery, tolerance: .seconds(1))
             }
         }
+    }
+
+    public convenience init(dependencies: Dependencies) {
+        self.init(
+            watching: dependencies.watching, service: dependencies.core,
+            defaults: dependencies.defaults, commandLineTool: dependencies.commandLineTool)
     }
 
     #if DEBUG
