@@ -7,7 +7,7 @@ Switch between your own Claude Code and Codex logins, and see how much each one 
 [![crates.io](https://img.shields.io/crates/v/pitboard.svg)](https://crates.io/crates/pitboard)
 [![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
-<img src=".github/media/menu.png" alt="The pitboard menu, listing Claude Code and Codex accounts with a check mark on each one in use and their five hour and weekly limits under their names" width="299">
+<img src=".github/media/menu.png" alt="The pitboard menu, listing Claude Code and Codex accounts with a check mark on each one in use and their five hour and weekly limits under their names" width="300">
 
 If you have more than one Claude or ChatGPT subscription, changing accounts in Claude Code
 or OpenAI's Codex CLI normally means signing out and back in through a browser. pitboard
