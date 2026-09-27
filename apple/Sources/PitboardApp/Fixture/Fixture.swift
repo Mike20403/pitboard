@@ -53,8 +53,10 @@
         /// is made there without asking anyone for a password, so linking it can be tried
         /// without writing to `/usr/local/bin`.
         static func commandLineTool() -> CommandLineTool {
+            // One folder, emptied at every launch, rather than one per launch left behind.
             let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("pitboard-fixture-\(getpid())")
+                .appendingPathComponent("pitboard-fixture")
+            try? FileManager.default.removeItem(at: root)
             let helper = root.appendingPathComponent("Pitboard.app/Contents/Helpers/pitboard")
             let bin = root.appendingPathComponent("bin")
             try? FileManager.default.createDirectory(

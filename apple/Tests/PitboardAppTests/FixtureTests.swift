@@ -410,11 +410,11 @@ private func forgetLaunches() {
     UserDefaults(suiteName: Fixture.suite)?.removePersistentDomain(forName: Fixture.suite)
     try? FileManager.default.removeItem(
         at: FileManager.default.temporaryDirectory
-            .appendingPathComponent("pitboard-fixture-\(getpid())"))
+            .appendingPathComponent("pitboard-fixture"))
 }
 
-/// A launch into a fixture empties one defaults suite and makes one temporary directory for
-/// the whole test process, so the tests that launch one take turns.
+/// A launch into a fixture empties one defaults suite and one temporary directory, so the
+/// tests that launch one take turns.
 @MainActor
 @Suite(.serialized)
 struct FixtureLaunchTests {

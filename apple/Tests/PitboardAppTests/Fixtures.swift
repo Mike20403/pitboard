@@ -65,21 +65,33 @@ extension AppModel {
     }
 }
 
-/// Preferences in a suite named for one test alone, so what one test declines is not what the
-/// next one reads, and nothing reaches the app's own. The suite is removed once nothing holds
-/// it.
+/// Preferences kept in memory for one test alone, so what one test declines is not what the
+/// next one reads, and nothing is written to the preferences of whoever runs the tests: a
+/// suite of their own leaves a file behind in ~/Library/Preferences for every one, even once
+/// it is emptied.
 final class TestDefaults: UserDefaults, @unchecked Sendable {
-    private let suite: String
+    // Unchecked because a test may hand it to code off the main thread; every read and write
+    // holds `lock`.
+    private let lock = NSLock()
+    private var values: [String: Any] = [:]
 
     init() {
-        let suite = "com.usepitboard.tests.\(UUID().uuidString)"
-        self.suite = suite
-        super.init(suiteName: suite)!
+        super.init(suiteName: nil)!
     }
 
-    deinit {
-        removePersistentDomain(forName: suite)
+    override func object(forKey key: String) -> Any? { lock.withLock { values[key] } }
+    override func set(_ value: Any?, forKey key: String) {
+        lock.withLock { values[key] = value }
     }
+    override func set(_ value: Bool, forKey key: String) {
+        lock.withLock { values[key] = value }
+    }
+    override func removeObject(forKey key: String) { lock.withLock { values[key] = nil } }
+    override func string(forKey key: String) -> String? { object(forKey: key) as? String }
+    override func stringArray(forKey key: String) -> [String]? {
+        object(forKey: key) as? [String]
+    }
+    override func bool(forKey key: String) -> Bool { object(forKey: key) as? Bool ?? false }
 }
 
 /// A login item that keeps what it is told and registers nothing, so no test puts itself
