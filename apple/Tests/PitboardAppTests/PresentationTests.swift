@@ -317,6 +317,29 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
         ).problem == nil, "it is the one in use")
 }
 
+/// Numbers that are not new are worth knowing about where the account can still be used: its
+/// service could not be reached or is rate limiting, or its session has expired. That is said
+/// beside the numbers of the account in use and of one that can be switched to, and not a
+/// second time where the account cannot be used and why is said already.
+@Test func whyAUsableAccountsNumbersAreOldIsSaidBesideThem() {
+    let oldNumbers = "Anthropic did not answer, so these are the last numbers measured."
+    let refusedLogin = "Its parked login was refused. Sign in to it again."
+    let spare = described(reported(account("spare"), explanation: oldNumbers))
+    #expect(spare.staleNote == oldNumbers)
+    #expect(spare.problem == nil)
+    let inUse = described(
+        reported(account("work", signedIn: true, switchable: false), explanation: oldNumbers))
+    #expect(inUse.staleNote == oldNumbers)
+    #expect(inUse.problem == nil)
+
+    let expired = described(
+        reported(account("stale", switchable: false), explanation: refusedLogin))
+    #expect(expired.problem == refusedLogin)
+    #expect(expired.staleNote == nil, "said once, as why it cannot be used")
+    #expect(described(unplaced(of: "codex")).staleNote == nil)
+    #expect(described(account("spare")).staleNote == nil, "numbers that are new")
+}
+
 /// How long a parked login stays usable is about a switch to it, so it is said of every
 /// account but the one in use, whose login is not parked.
 @Test func aParkedLoginsLifeIsSaidOnlyOfAnAccountNotInUse() {
@@ -578,6 +601,64 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
                 id: "read", severity: .error, title: "Couldn’t read usage",
                 lines: [reason, "The numbers shown are the last ones measured."], actions: []))
     #expect(notices.last?.lines == [overridden.message])
+}
+
+/// The line saying the numbers shown are the last ones measured is said only where there are
+/// numbers shown. With nothing measured, or nothing known at all, it pointed at numbers that
+/// were not there.
+@MainActor
+@Test func aFailedReadSaysTheNumbersAreOldOnlyWhereThereAreSome() async {
+    let reason = "Anthropic could not be reached"
+    let known: [Result<Status, Error>] = [
+        .success(status([reported(account("work", signedIn: true), measured: false)])),
+        .success(status([])),
+        refused("state_unreadable", "~/.pitboard/state.json could not be read"),
+    ]
+    for offline in known {
+        let core = StubCore(refused("unreachable", reason))
+        core.offline = offline
+        let model = AppModel(testing: core)
+        await model.refresh()
+        #expect(model.notices().first?.lines == [reason])
+    }
+}
+
+/// A failed read with nothing to list is the window's whole content, with why and a way to try
+/// again, and not a spinner that never stops or a list with nothing in it. The window keys
+/// that off the read's problem with no account to show, whether nothing is known at all or
+/// what is known is empty, and not off a machine without Claude Code, which says that instead.
+/// With accounts to show, the list stays, with the failure above it as a notice.
+@MainActor
+@Test func aFailedReadWithNothingToListIsWhatTheWindowShows() async {
+    let reason = "~/.pitboard/state.json was written on another Mac."
+    let failed = refused("state_wrong_machine", reason)
+
+    let nothing = StubCore(failed)
+    nothing.offline = refused("state_wrong_machine", reason)
+    let unknown = AppModel(testing: nothing)
+    await unknown.refresh()
+    #expect(unknown.status == nil)
+    #expect(unknown.problem == reason)
+    #expect(unknown.footing == .ready, "not a machine without Claude Code")
+
+    let empty = AppModel(testing: StubCore(failed))
+    await empty.refresh()
+    #expect(empty.status?.accounts.isEmpty == true)
+    #expect(empty.problem == reason)
+    #expect(empty.footing == .noOneSignedIn, "the read's problem is said ahead of it")
+
+    let listed = StubCore(failed)
+    listed.offline = .success(status([account("work", signedIn: true, [window("session", 5)])]))
+    let some = AppModel(testing: listed)
+    await some.refresh()
+    #expect(some.status?.accounts.isEmpty == false)
+    #expect(some.notices().map(\.id) == ["read"])
+
+    let missing = AppModel(
+        testing: StubCore(refused("claude_program_missing", "`claude` is not on this machine")))
+    await missing.refresh()
+    #expect(missing.status?.accounts.isEmpty == true)
+    #expect(missing.footing == .noClaudeCode)
 }
 
 /// Without Claude Code there is nothing to read, and the menu says how to install it instead.
