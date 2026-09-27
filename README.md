@@ -242,9 +242,11 @@ minutes while the app runs. "Open pitboard at login", what the menu bar shows, a
 renewal are in Settings. Daily renewal runs the command line inside the app, so move a
 downloaded app to Applications before turning it on. A copy from a release keeps itself up
 to date. One you build yourself does not, because it carries no update key. Building it
-needs Xcode and Rust:
+needs Xcode, and Rust with both of the Mac's targets, since the app and the command line
+inside it are built for Apple silicon and Intel alike:
 
 ```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ./apple/scripts/build-app.sh
 cp -R apple/build/Pitboard.app /Applications/
 ```

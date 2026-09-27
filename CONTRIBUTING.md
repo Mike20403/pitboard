@@ -49,9 +49,11 @@ difference with `cargo insta review`, and say in the change why the contract mov
 
 The package links the core as `apple/PitboardFFI.xcframework`, beside bindings generated
 into `apple/Sources/PitboardBindings`, and neither is committed. Build them before opening
-the project the first time, and again whenever the core changes:
+the project the first time, and again whenever the core changes. They are built for both
+kinds of Mac, so Rust needs both targets:
 
 ```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ./apple/scripts/build-xcframework.sh
 open apple/Pitboard.xcodeproj
 ```
