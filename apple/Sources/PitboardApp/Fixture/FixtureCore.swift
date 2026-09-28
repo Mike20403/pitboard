@@ -230,7 +230,7 @@
                     // other has its parked login renewed.
                     let inUse = accounts[index].signedIn
                     accounts[index] = with(
-                        accounts[index], switchable: !inUse, stale: .some(nil))
+                        accounts[index], switchable: !inUse, signedInAgain: true)
                     return Enrolled(
                         email: accounts[index].email,
                         enrolled: inUse ? .inUse(again: true) : .renewed, warnings: [])
@@ -292,8 +292,7 @@
             switch fixture {
             case .twoTools:
                 let old = account(
-                    "old", email: "dana@old.example", switchable: false,
-                    stale: "The parked login has expired. Sign in again to use this account.")
+                    "old", email: "dana@old.example", switchable: false, expired: true)
                 let codexMain = account(
                     "main", of: "codex", email: "dana@work.example", signedIn: true,
                     windows: [
@@ -328,24 +327,32 @@
             }
         }
 
+        /// An account as the core reports one. `expired` is one whose parked login ran out a
+        /// day ago, which the core says with a code and no explanation: the app's note comes
+        /// from the parked login's expiry.
         static func account(
             _ label: String?, of provider: String = "claude", email: String,
-            signedIn: Bool = false, switchable: Bool? = nil, stale: String? = nil,
+            signedIn: Bool = false, switchable: Bool? = nil, expired: Bool = false,
             windows: [PitboardBindings.Window] = [], parkedFor seconds: Int64? = nil
         ) -> Account {
             let now = Int64(Date().timeIntervalSince1970)
+            let parked =
+                expired
+                ? Parked(
+                    parkedAt: now - 31 * 86_400, accessExpiresAt: now - 30 * 86_400,
+                    refreshExpiresAt: now - 86_400)
+                : seconds.map {
+                    Parked(
+                        parkedAt: now - 3600, accessExpiresAt: nil, refreshExpiresAt: now + $0)
+                }
             return Account(
                 id: "\(provider):\(email):\(label ?? "")", provider: provider, label: label,
                 qualified: label.map { "\(provider)/\($0)" }, unplaced: false, email: email,
                 accountUuid: email, signedIn: signedIn,
-                switchable: switchable ?? !signedIn,
-                parked: seconds.map {
-                    Parked(
-                        parkedAt: now - 3600, accessExpiresAt: nil, refreshExpiresAt: now + $0)
-                },
+                switchable: switchable ?? !signedIn, parked: parked,
                 usage: windows.isEmpty
                     ? nil : Usage(source: .live, observedAt: now, windows: windows),
-                stale: stale == nil ? nil : "parked_access_expired", staleExplanation: stale,
+                stale: expired ? "parked_access_expired" : nil, staleExplanation: nil,
                 lastsSeconds: signedIn && !windows.isEmpty ? 11_000 : nil,
                 lastsBurning: signedIn)
         }
@@ -359,22 +366,32 @@
                 isActive: true)
         }
 
+        /// `signedInAgain` is a sign-in to the account: the core parks the new login for any
+        /// account but the one in use, which keeps none, and says nothing is stale.
         private func with(
             _ account: Account, label: String? = nil, signedIn: Bool? = nil,
-            switchable: Bool? = nil, stale: String?? = .none
+            switchable: Bool? = nil, signedInAgain: Bool = false
         ) -> Account {
             let label = label ?? account.label
-            let explanation = stale.map { $0 } ?? account.staleExplanation
+            let inUse = signedIn ?? account.signedIn
+            let now = Int64(Date().timeIntervalSince1970)
+            // Codex states no expiry for its refresh token; Claude Code's lasts 30 days.
+            let renewed: Parked? =
+                inUse
+                ? nil
+                : Parked(
+                    parkedAt: now, accessExpiresAt: nil,
+                    refreshExpiresAt: account.provider == "claude" ? now + 30 * 86_400 : nil)
             return Account(
                 id: account.id, provider: account.provider, label: label,
                 qualified: label.map { "\(account.provider)/\($0)" },
                 unplaced: account.unplaced,
-                email: account.email, accountUuid: account.accountUuid,
-                signedIn: signedIn ?? account.signedIn,
-                switchable: switchable ?? account.switchable, parked: account.parked,
-                usage: account.usage, stale: explanation == nil ? nil : account.stale,
-                staleExplanation: explanation, lastsSeconds: account.lastsSeconds,
-                lastsBurning: account.lastsBurning)
+                email: account.email, accountUuid: account.accountUuid, signedIn: inUse,
+                switchable: switchable ?? account.switchable,
+                parked: signedInAgain ? renewed : account.parked, usage: account.usage,
+                stale: signedInAgain ? nil : account.stale,
+                staleExplanation: signedInAgain ? nil : account.staleExplanation,
+                lastsSeconds: account.lastsSeconds, lastsBurning: account.lastsBurning)
         }
 
         private static func parts(of label: String) -> (provider: String, name: String) {
