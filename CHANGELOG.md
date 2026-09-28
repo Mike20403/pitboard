@@ -2,20 +2,33 @@
 
 All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The README introduces pitboard and links to
+  [docs.usepitboard.com](https://docs.usepitboard.com), where the guides and reference are.
+- `SECURITY.md` is only the security policy: which versions get fixes, how to report a
+  vulnerability, and what pitboard does and does not protect against. Where parked logins
+  are kept and what leaves your machine are on
+  [Security and privacy](https://docs.usepitboard.com/security).
+- How to make a release, how to replace the update key, and the Sparkle and Homebrew
+  measurements a release rests on, moved from `CONTRIBUTING.md` to `RELEASING.md`.
+- How the code is laid out, and the measurements of macOS, Claude Code and Codex it rests
+  on, moved to `ARCHITECTURE.md`.
+
 ### Fixed
-- `pitboard status --fresh`, and Refresh in the app, asked Anthropic or OpenAI again during a
-  wait the service had asked for, which the 0.3.0 notes and `pitboard doctor` said they did
-  not. They keep that wait now, and still try again a service that could not be reached. An
-  account never answered before and then not reached was said to be rate limited.
+
+- `pitboard status --fresh`, and Refresh in the app, asked Anthropic or OpenAI again during
+  a wait the service had asked for. The 0.3.0 notes and `pitboard doctor` said they did not.
+  They keep that wait now, and still ask a service again after it could not be reached.
+  When a service had never answered for an account and then could not be reached, pitboard
+  said the account was rate limited.
 - With `PITBOARD_NO_ARGV=1`, renewing a parked login too large for `security`'s standard
-  input spent its refresh token and then could not store the new one, so the parked login
-  was lost. pitboard refuses before asking now, and the park stays as it was.
-- The menu bar app ignored `PITBOARD_NO_ARGV`, and so did daily renewal unless its
-  scheduler set it. The app reads it from its own environment, and a schedule installed
-  while it is set keeps it.
+  input spent its refresh token and then could not store the new one. The parked login was
+  lost. pitboard refuses before asking the service now, and the parked login stays as it was.
 - A switch whose login could not be read back said to run `pitboard` again, which only
   reads. It names the `pitboard use` that finishes or undoes the switch.
 - With Codex's `auth.json` missing, `pitboard doctor` suggested `pitboard use codex/<label>`,
@@ -23,12 +36,28 @@ All notable changes are recorded here. The format follows
 - The man page listed a page per command, such as `pitboard-status(1)`, and none of them is
   installed. It sets out every command, with its arguments and options, on its one page.
 - The app never said that Claude Code is not installed: it waited for a read to fail in a
-  way no read does. It says so when it finds neither `claude` nor `codex` and nothing is
-  signed in to either.
+  way no read does. It says so when it finds neither `claude` nor `codex`, and neither tool
+  has a login or an enrolled account.
+
+### Security
+
+- The menu bar app ignored `PITBOARD_NO_ARGV`, and so did daily renewal unless its
+  scheduler set it. Either could pass a large login to `security` as an argument, which
+  another process running as you could read while the call lasts. The app reads
+  `PITBOARD_NO_ARGV` from its own environment, and a schedule installed while it is set
+  keeps it.
 
 ## [0.5.0] - 2026-09-28
 
+### Added
+
+- Rename an account from the window, which only the command line could do.
+- In the window's account list: Use with a double-click or Return, Forget with Delete, and
+  Copy Email Address and Sign In Again in each account's menu.
+- About pitboard in the menu.
+
 ### Changed
+
 - The menu bar item opens a menu instead of a panel, as macOS asks of a menu bar item. Each
   account is an item under its tool, checked when it is the one in use and subtitled with
   what its limits stand at, and choosing another switches to it. Advice to switch, anything
@@ -47,13 +76,8 @@ All notable changes are recorded here. The format follows
   waiting for you to allow pitboard in Login Items, and opens them. "Menu bar shows" picks
   the account and its usage, the usage alone, or the icon alone, for a crowded menu bar.
 
-### Added
-- Rename an account from the window, which only the command line could do.
-- In the window's account list: Use with a double-click or Return, Forget with Delete, and
-  Copy Email Address and Sign In Again in each account's menu.
-- About pitboard in the menu.
-
 ### Fixed
+
 - The panel said "updated just now" for as long as nothing else changed. The menu says the
   time of the last read, and the window's reset times move on while it stays open.
 - Giving up on an interrupted switch was reported with a warning sign, as though it had
@@ -81,6 +105,7 @@ All notable changes are recorded here. The format follows
 ## [0.4.1] - 2026-09-26
 
 ### Changed
+
 - A usage reading only moves forward. pitboard keeps one reading per account, every front
   end records into it and every front end shows it. A later reset is a newer window, and
   within one window the higher share is the newer, so numbers a session has held since its
@@ -90,6 +115,7 @@ All notable changes are recorded here. The format follows
 - The app's Documentation item opens docs.usepitboard.com.
 
 ### Fixed
+
 - Sessions on one account, and the menu bar, disagreed about the account in use. Each
   session showed the numbers of its own last response, so busy sessions read 22%·6% while an
   idle one read 20%·5%, and the menu bar showed what it had last asked Anthropic, or Claude
@@ -119,76 +145,6 @@ All notable changes are recorded here. The format follows
   do, and is told once.
 
 ## [0.4.0] - 2026-09-25
-
-### Changed
-- Installing pitboard no longer needs Rust. `brew install datlechin/tap/pitboard` is now a
-  cask, on macOS and Linux, that installs the release's own command line for the machine,
-  with its man page and completions: signed and notarised on macOS, attested, and checked
-  against the checksums the release took of its own files. It was a formula that fetched
-  Rust and compiled pitboard, which took minutes and a toolchain nobody had asked for.
-- The menu bar app's cask is `pitboard-app`, and the app carries the command line inside
-  it, at `Pitboard.app/Contents/Helpers/pitboard`. The cask links it onto `PATH` with its
-  man page and completions, so an update, from Sparkle or from Homebrew, moves the app and
-  the command line together. They used to be two installs that moved separately, and the
-  app's cask depended on the formula. The two casks conflict, since both link `pitboard`.
-  The app's bill of materials lists the command line and the crates only it uses. The
-  release writes the tap's own README with the casks, so it names both.
-- A release no longer publishes a source tarball. Only the formula installed from it, and
-  the source is on crates.io and in the tag.
-- `pitboard-core`: the report `uninstall` returns says whether the renewal schedule was
-  taken away, and it and `doctor::Facts` are now `#[non_exhaustive]`, so a later field is
-  not a breaking change. A breaking change for anyone who built either with a literal,
-  declared as such; nothing changes for the command line or the app.
-
-### Added
-- Settings can put the app's command line on the `PATH`. The Advanced tab says which
-  `pitboard` a terminal runs, whether it is the app's own and how that one is updated, and
-  when there is none, "Install command line tool…" links `/usr/local/bin/pitboard` to the
-  one inside the app, once macOS has asked for an administrator's password. It never
-  replaces a `pitboard` somebody installed or a file that is not a link, and never links to
-  the temporary copy macOS runs an app from before it is moved to Applications.
-- An account whose parked login has expired has a "Sign in again" button in its row, which
-  starts the same sign-in as adding an account. The row used to say to run `pitboard enroll
-  <label> --sign-in` in a terminal, which somebody with only the app does not use.
-
-### Fixed
-- Daily renewal turned on from the app renewed nothing. The schedule recorded the program
-  that asked for it, which from the app was the app itself, so launchd started a second
-  menu bar app every day and no parked login was renewed. The app now names the command
-  line inside it. A schedule an older app wrote starts the app, which now hands the renewal
-  to that command line, so the old schedule keeps renewing until the app is opened. Opening
-  it then points the schedule at the command line, which `pitboard log` records. The app
-  turns renewal on only where that command line will still be there when the schedule runs:
-  not from the temporary copy macOS runs an app from before it is moved to Applications,
-  which is gone once the app quits, and not from a build with no command line inside it.
-  Settings says why. New codes, from the app's bindings: `schedule_program_missing`,
-  `schedule_program_temporary` and `schedule_program_unnamed`. `pitboard doctor` reads the
-  installed schedule back and fails when the `pitboard` it runs is gone or is an app, and
-  says to turn renewal off and on again.
-- On Linux, a renewal schedule turned on from the command line stopped working at the next
-  `brew upgrade`. It named the running pitboard with every link resolved, which from
-  Homebrew is inside a directory named after the version, and the upgrade deletes that
-  directory, so systemd failed to start it every day after. It now names the path pitboard
-  was started by, such as the link in Homebrew's `bin`, when that leads to the same program.
-- Removing pitboard leaves no renewal schedule behind. `pitboard uninstall` takes it away
-  first and says so, as `schedule_removed` in `--json`, where before it was left running
-  `pitboard renew` every day. Both casks take it away on `brew uninstall --zap`, and not on
-  a plain `brew uninstall`, because Homebrew runs a cask's uninstall steps on every upgrade
-  too. Neither touches `~/.pitboard`: it is the only index of the parked logins, so run
-  `pitboard uninstall` before removing pitboard.
-- Advice about upgrading and removing pitboard no longer assumes Homebrew. A state file
-  from a newer pitboard said to run `brew upgrade pitboard`, and `pitboard uninstall` said
-  to remove the binary with a package manager. Both now say to update or remove pitboard
-  the way it was installed, and the first adds that the app's Check for Updates moves only
-  the app and the command line inside it.
-- On Homebrew 6 and later, `brew install --cask datlechin/tap/pitboard` failed with
-  `build.rb ... exited with 1` unless the formula was installed first. Homebrew trusts only
-  the name it is asked to install, and refused to build the formula the app's cask depended
-  on. `pitboard-app` depends on nothing.
-- `cargo binstall pitboard` no longer falls back to a third party's build when it cannot
-  fetch the release's.
-
-### Upgrading from 0.3.0
 
 In the tap, the name `pitboard` now means the command line.
 
@@ -228,9 +184,81 @@ and on again, in the app's Settings or with `pitboard schedule uninstall` and th
 `pitboard schedule install`. `pitboard doctor` from this release says whether yours needs
 it, and so does Settings, Advanced, "Check this machine".
 
+### Added
+
+- Settings can put the app's command line on the `PATH`. The Advanced tab says which
+  `pitboard` a terminal runs, whether it is the app's own and how that one is updated, and
+  when there is none, "Install command line tool…" links `/usr/local/bin/pitboard` to the
+  one inside the app, once macOS has asked for an administrator's password. It never
+  replaces a `pitboard` somebody installed or a file that is not a link, and never links to
+  the temporary copy macOS runs an app from before it is moved to Applications.
+- An account whose parked login has expired has a "Sign in again" button in its row, which
+  starts the same sign-in as adding an account. The row used to say to run `pitboard enroll
+  <label> --sign-in` in a terminal, which somebody with only the app does not use.
+
+### Changed
+
+- Installing pitboard no longer needs Rust. `brew install datlechin/tap/pitboard` is now a
+  cask, on macOS and Linux, that installs the release's own command line for the machine,
+  with its man page and completions: signed and notarised on macOS, attested, and checked
+  against the checksums the release took of its own files. It was a formula that fetched
+  Rust and compiled pitboard, which took minutes and a toolchain nobody had asked for.
+- The menu bar app's cask is `pitboard-app`, and the app carries the command line inside
+  it, at `Pitboard.app/Contents/Helpers/pitboard`. The cask links it onto `PATH` with its
+  man page and completions, so an update, from Sparkle or from Homebrew, moves the app and
+  the command line together. They used to be two installs that moved separately, and the
+  app's cask depended on the formula. The two casks conflict, since both link `pitboard`.
+  The app's bill of materials lists the command line and the crates only it uses. The
+  release writes the tap's own README with the casks, so it names both.
+- A release no longer publishes a source tarball. Only the formula installed from it, and
+  the source is on crates.io and in the tag.
+- `pitboard-core`: the report `uninstall` returns says whether the renewal schedule was
+  taken away, and it and `doctor::Facts` are now `#[non_exhaustive]`, so a later field is
+  not a breaking change. A breaking change for anyone who built either with a literal,
+  declared as such; nothing changes for the command line or the app.
+
+### Fixed
+
+- Daily renewal turned on from the app renewed nothing. The schedule recorded the program
+  that asked for it, which from the app was the app itself, so launchd started a second
+  menu bar app every day and no parked login was renewed. The app now names the command
+  line inside it. A schedule an older app wrote starts the app, which now hands the renewal
+  to that command line, so the old schedule keeps renewing until the app is opened. Opening
+  it then points the schedule at the command line, which `pitboard log` records. The app
+  turns renewal on only where that command line will still be there when the schedule runs:
+  not from the temporary copy macOS runs an app from before it is moved to Applications,
+  which is gone once the app quits, and not from a build with no command line inside it.
+  Settings says why. New codes, from the app's bindings: `schedule_program_missing`,
+  `schedule_program_temporary` and `schedule_program_unnamed`. `pitboard doctor` reads the
+  installed schedule back and fails when the `pitboard` it runs is gone or is an app, and
+  says to turn renewal off and on again.
+- On Linux, a renewal schedule turned on from the command line stopped working at the next
+  `brew upgrade`. It named the running pitboard with every link resolved, which from
+  Homebrew is inside a directory named after the version, and the upgrade deletes that
+  directory, so systemd failed to start it every day after. It now names the path pitboard
+  was started by, such as the link in Homebrew's `bin`, when that leads to the same program.
+- Removing pitboard leaves no renewal schedule behind. `pitboard uninstall` takes it away
+  first and says so, as `schedule_removed` in `--json`, where before it was left running
+  `pitboard renew` every day. Both casks take it away on `brew uninstall --zap`, and not on
+  a plain `brew uninstall`, because Homebrew runs a cask's uninstall steps on every upgrade
+  too. Neither touches `~/.pitboard`: it is the only index of the parked logins, so run
+  `pitboard uninstall` before removing pitboard.
+- Advice about upgrading and removing pitboard no longer assumes Homebrew. A state file
+  from a newer pitboard said to run `brew upgrade pitboard`, and `pitboard uninstall` said
+  to remove the binary with a package manager. Both now say to update or remove pitboard
+  the way it was installed, and the first adds that the app's Check for Updates moves only
+  the app and the command line inside it.
+- On Homebrew 6 and later, `brew install --cask datlechin/tap/pitboard` failed with
+  `build.rb ... exited with 1` unless the formula was installed first. Homebrew trusts only
+  the name it is asked to install, and refused to build the formula the app's cask depended
+  on. `pitboard-app` depends on nothing.
+- `cargo binstall pitboard` no longer falls back to a third party's build when it cannot
+  fetch the release's.
+
 ## [0.3.0] - 2026-09-24
 
 ### Added
+
 - Codex, beside Claude Code. `pitboard enroll codex/work` records the Codex account signed
   in now, reading its account, email and plan out of its own ID token with no network
   call; `pitboard enroll codex/work --sign-in` runs `codex login` in a private
@@ -443,8 +471,119 @@ it, and so does Settings, Advanced, "Check this machine".
   comparison. It narrows the dependency rather than removing it: Claude Code refreshing the
   token inside those few seconds leaves a login matching neither side, and that is still a
   question for Anthropic, and still changes nothing when Anthropic cannot be reached.
+- Every artefact carries a CycloneDX bill of materials, generated from the lockfile per
+  target, published with the release and attested like the artefact it describes. So are
+  `SHA256SUMS` and `appcast.xml`, which are made in the same job and published in the same
+  release as the files they describe: on their own they said a download had arrived whole
+  and nothing about who put it there.
+- `CONTRIBUTING.md` has a procedure for replacing the Sparkle update key or the Developer
+  ID certificate, and `.github/workflows/rotation.yml` runs the awkward half of it every
+  month against keys it makes on the runner, a feed on `127.0.0.1` and bundles under an
+  `invalid.` identifier. It names no repository secret, so it cannot reach the real key,
+  and CI checks that it still names none. Running it found the trap: `generate_appcast`
+  will not sign a bundle carrying a key other than the one it is handed, and says so by
+  writing the feed with no signature and exiting 0.
+
+### Changed
+
+- pitboard's account list is at schema 4: every account says which tool it is for, and
+  which account is signed in is kept per tool. A schema 3 file is brought forward on its
+  first read with nothing moved and nothing in the keychain or the vault touched. An older
+  pitboard refuses the new file and says to upgrade whichever of the command line and the
+  app is behind, rather than calling it corrupt.
+- Messages name the tool they are about. An error that used to say "Claude Code",
+  "Anthropic" or `claude` whatever the account now names that account's tool, its service
+  and the command that signs in to it. Codes are unchanged. A few Claude Code messages
+  gained the tool's name where a second tool made them ambiguous: "nothing is signed in
+  right now" reads "nothing is signed in to Claude Code right now". A name a message tells
+  somebody to type is qualified, `claude/work`, where another tool has an account of the
+  same name and a bare one would be refused as ambiguous.
+- A Claude Code credential with no account in it, which is what `/logout` leaves beside
+  the machine's MCP tokens, is nobody signed in. `use` and `enroll` answered
+  `live_credential_shape_unexpected` with exit 3 and now answer `live_credential_absent`
+  with exit 1, or `live_credential_elsewhere` where Claude Code's config still names
+  somebody, and `doctor` warns rather than fails.
+- In `--json`, `use` gains `provider` and an `adoption` object saying whether sessions
+  already running follow on their own within a number of seconds or need restarting;
+  `adoption_ceiling_seconds` is null for a tool that needs restarting. Enrolments and
+  renewals gain `provider`. All additive.
+- In `--json`, every `status` account gains `provider` and `qualified`, its name with the
+  tool spelled out (`codex/work`), null for a login nothing has enrolled. Two stale codes
+  are new: `login_unreadable`, for a tool's login that is there and could not be read, and
+  `login_unusable`, for one that was read and is no account pitboard can park or switch,
+  such as an API key. Where no record pins such a login on an account, it gets a row of
+  its own with no label, email or account id, and only for a tool with accounts enrolled.
+  `doctor` gains `environment.codex` (`home`, `present`, `backend`, `login_present`,
+  `version`) and a section about Codex whose codes all start `codex_`: `codex_backend`,
+  `codex_auth_file`, `codex_login`, `codex_version`, `codex_running`, and for a Codex
+  account `codex_parked_login` and `codex_dormant_account`. What somebody chose is not a
+  fault: a keychain store fails only where it puts enrolled Codex accounts out of reach,
+  an API key login is a warning only where there are Codex accounts to switch to, and
+  either is otherwise stated without a warning. All additive: Claude Code's rows, checks
+  and codes are what they were.
+- `CLAUDE_CODE_CUSTOM_OAUTH_URL` refuses changes to Claude Code accounts, and no longer
+  stops a change to a Codex one.
+- `pitboard-core` is reorganised around a provider boundary, and much of what it exposed
+  moved or changed shape: errors that name a tool carry it, `switch::settle` and
+  `sign_in` take the tool, renewals are keyed by account, and Claude Code's own document
+  rules live under `provider::claude`. A breaking change for anyone building on the crate,
+  declared as such; nothing changes for the command line's contract beyond the additions
+  above.
+- `pitboard-core` says what it supports. The interface other programs may build on is
+  `service::Pitboard`, `context::Context` and what they return; the rest is reachable for
+  this repository's own front ends and may change in any release. The enums a caller reads
+  codes out of are now `#[non_exhaustive]`, so adding a code is not a breaking change for a
+  consumer, which is what the command line's JSON contract has always promised. Writing
+  pitboard's index is no longer reachable from outside the crate: every change goes through
+  `switch`, which records its intent first. Marking those enums and withdrawing `state::save`
+  are themselves breaking changes for anyone who built on 0.2.0, so this is the release that
+  makes them, while the crate is young enough for that to cost nothing. Nothing changes for
+  anyone using the command line or the app.
+- Claude Code's supervisor daemon is named as what it is, a second writer of the login that
+  runs on a schedule of its own. It takes the same write lock and re-reads the credential
+  inside it, so it cannot put an older account back over a switch. `doctor` reports it.
+- The storage v5 question is settled rather than open. The successor backend replaces the
+  fallback half of Claude Code's chain and only for a caller that hands a backend in, so an
+  ordinary `claude` still reads the keychain first. `doctor` now warns only for the
+  combination that can mislead, the flag on and the login in the fallback.
+- Linux is decided rather than assumed. Claude Code has exactly two guarded credential
+  stores, the macOS keychain and the Windows credential manager behind a feature flag;
+  searched whole, the shipping build carries no libsecret, no `org.freedesktop.secrets`, no
+  gnome-keyring and no Secret Service. So on Linux its login is a plaintext file at mode
+  0600 and pitboard's parked copies are files beside it, which is what pitboard already
+  did. There is no keyring backend to add. The facts pitboard stands on can now rest on an
+  absence: each one may name literals whose arrival would disprove it, and the conformance
+  run fails when one turns up, because a fact resting on something not existing is wrong
+  the moment it does and nothing disappearing would ever say so.
+- README and SECURITY.md say what a downloader can actually check: the archives, the
+  source tarball Homebrew builds from, `SHA256SUMS`, a bill of materials beside each
+  artefact and `appcast.xml` are all attested, and `gh attestation verify` checks any of
+  them against the workflow and commit that produced it. They named one archive.
+- A failed read in the app shows that failure's own warnings rather than the last
+  successful read's. A fresh network error used to sit above warnings about things that
+  may have been fixed since.
+- Text in the app grows with the person's own. Every column was a width fixed at the
+  default size, so anyone with larger text got a limit name running into its bar and a
+  reset time clipped off the right. The checks were read out without saying whether they
+  passed, an account row was six separate stops for a screen reader rather than one, and
+  the status item announced itself as "speedometer".
+- A login too large for `security`'s standard input is now written the only other way
+  `security` offers, as an argument, which is what Claude Code does for the same login on
+  every token refresh. The switch says so, and `doctor` shows the size. `PITBOARD_NO_ARGV=1`
+  refuses instead. Measured first: writing the item in process would have made every later
+  read by `security` take about a second instead of 0.01, for good.
+- The release publishes the Homebrew tap itself, from the checksums it has already computed
+  for `SHA256SUMS`, and then installs the formula and the cask from the public tap on a
+  clean runner and fails if what it serves is not the version just released. The tap used
+  to be written by a workflow of its own inside the tap repository, waking every six hours
+  and taking the checksum of whatever it downloaded, so `brew install` could be a version
+  behind for most of a day with the release green and nothing anywhere saying so. The
+  formula now builds from a source tarball the release publishes and attests, rather than
+  from the archive GitHub generates for a tag, whose bytes GitHub has changed before now.
+  `packaging/update-tap.sh` is gone with the second download it did.
 
 ### Fixed
+
 - The menu bar app finds a tool installed through a Node version manager or an npm prefix,
   and can start its sign-in. An app opened from Finder has none of a shell's `PATH`, so it
   looked for `claude` and `codex` only where their own installers put them, and did not
@@ -576,126 +715,18 @@ it, and so does Settings, Advanced, "Check this machine".
   written, every copy is kept, and the record of intent stays so a later run with a store
   that answers finishes or undoes the switch. The new code is `switch_unverified`.
 
-### Changed
-- pitboard's account list is at schema 4: every account says which tool it is for, and
-  which account is signed in is kept per tool. A schema 3 file is brought forward on its
-  first read with nothing moved and nothing in the keychain or the vault touched. An older
-  pitboard refuses the new file and says to upgrade whichever of the command line and the
-  app is behind, rather than calling it corrupt.
-- Messages name the tool they are about. An error that used to say "Claude Code",
-  "Anthropic" or `claude` whatever the account now names that account's tool, its service
-  and the command that signs in to it. Codes are unchanged. A few Claude Code messages
-  gained the tool's name where a second tool made them ambiguous: "nothing is signed in
-  right now" reads "nothing is signed in to Claude Code right now". A name a message tells
-  somebody to type is qualified, `claude/work`, where another tool has an account of the
-  same name and a bare one would be refused as ambiguous.
-- A Claude Code credential with no account in it, which is what `/logout` leaves beside
-  the machine's MCP tokens, is nobody signed in. `use` and `enroll` answered
-  `live_credential_shape_unexpected` with exit 3 and now answer `live_credential_absent`
-  with exit 1, or `live_credential_elsewhere` where Claude Code's config still names
-  somebody, and `doctor` warns rather than fails.
-- In `--json`, `use` gains `provider` and an `adoption` object saying whether sessions
-  already running follow on their own within a number of seconds or need restarting;
-  `adoption_ceiling_seconds` is null for a tool that needs restarting. Enrolments and
-  renewals gain `provider`. All additive.
-- In `--json`, every `status` account gains `provider` and `qualified`, its name with the
-  tool spelled out (`codex/work`), null for a login nothing has enrolled. Two stale codes
-  are new: `login_unreadable`, for a tool's login that is there and could not be read, and
-  `login_unusable`, for one that was read and is no account pitboard can park or switch,
-  such as an API key. Where no record pins such a login on an account, it gets a row of
-  its own with no label, email or account id, and only for a tool with accounts enrolled.
-  `doctor` gains `environment.codex` (`home`, `present`, `backend`, `login_present`,
-  `version`) and a section about Codex whose codes all start `codex_`: `codex_backend`,
-  `codex_auth_file`, `codex_login`, `codex_version`, `codex_running`, and for a Codex
-  account `codex_parked_login` and `codex_dormant_account`. What somebody chose is not a
-  fault: a keychain store fails only where it puts enrolled Codex accounts out of reach,
-  an API key login is a warning only where there are Codex accounts to switch to, and
-  either is otherwise stated without a warning. All additive: Claude Code's rows, checks
-  and codes are what they were.
-- `CLAUDE_CODE_CUSTOM_OAUTH_URL` refuses changes to Claude Code accounts, and no longer
-  stops a change to a Codex one.
-- `pitboard-core` is reorganised around a provider boundary, and much of what it exposed
-  moved or changed shape: errors that name a tool carry it, `switch::settle` and
-  `sign_in` take the tool, renewals are keyed by account, and Claude Code's own document
-  rules live under `provider::claude`. A breaking change for anyone building on the crate,
-  declared as such; nothing changes for the command line's contract beyond the additions
-  above.
-- `pitboard-core` says what it supports. The interface other programs may build on is
-  `service::Pitboard`, `context::Context` and what they return; the rest is reachable for
-  this repository's own front ends and may change in any release. The enums a caller reads
-  codes out of are now `#[non_exhaustive]`, so adding a code is not a breaking change for a
-  consumer, which is what the command line's JSON contract has always promised. Writing
-  pitboard's index is no longer reachable from outside the crate: every change goes through
-  `switch`, which records its intent first. Marking those enums and withdrawing `state::save`
-  are themselves breaking changes for anyone who built on 0.2.0, so this is the release that
-  makes them, while the crate is young enough for that to cost nothing. Nothing changes for
-  anyone using the command line or the app.
-- Claude Code's supervisor daemon is named as what it is, a second writer of the login that
-  runs on a schedule of its own. It takes the same write lock and re-reads the credential
-  inside it, so it cannot put an older account back over a switch. `doctor` reports it.
-- The storage v5 question is settled rather than open. The successor backend replaces the
-  fallback half of Claude Code's chain and only for a caller that hands a backend in, so an
-  ordinary `claude` still reads the keychain first. `doctor` now warns only for the
-  combination that can mislead, the flag on and the login in the fallback.
-- Linux is decided rather than assumed. Claude Code has exactly two guarded credential
-  stores, the macOS keychain and the Windows credential manager behind a feature flag;
-  searched whole, the shipping build carries no libsecret, no `org.freedesktop.secrets`, no
-  gnome-keyring and no Secret Service. So on Linux its login is a plaintext file at mode
-  0600 and pitboard's parked copies are files beside it, which is what pitboard already
-  did. There is no keyring backend to add. The facts pitboard stands on can now rest on an
-  absence: each one may name literals whose arrival would disprove it, and the conformance
-  run fails when one turns up, because a fact resting on something not existing is wrong
-  the moment it does and nothing disappearing would ever say so.
-- README and SECURITY.md say what a downloader can actually check: the archives, the
-  source tarball Homebrew builds from, `SHA256SUMS`, a bill of materials beside each
-  artefact and `appcast.xml` are all attested, and `gh attestation verify` checks any of
-  them against the workflow and commit that produced it. They named one archive.
-- A failed read in the app shows that failure's own warnings rather than the last
-  successful read's. A fresh network error used to sit above warnings about things that
-  may have been fixed since.
-- Text in the app grows with the person's own. Every column was a width fixed at the
-  default size, so anyone with larger text got a limit name running into its bar and a
-  reset time clipped off the right. The checks were read out without saying whether they
-  passed, an account row was six separate stops for a screen reader rather than one, and
-  the status item announced itself as "speedometer".
-- A login too large for `security`'s standard input is now written the only other way
-  `security` offers, as an argument, which is what Claude Code does for the same login on
-  every token refresh. The switch says so, and `doctor` shows the size. `PITBOARD_NO_ARGV=1`
-  refuses instead. Measured first: writing the item in process would have made every later
-  read by `security` take about a second instead of 0.01, for good.
+### Security
 
-### Internal
-- The release publishes the Homebrew tap itself, from the checksums it has already computed
-  for `SHA256SUMS`, and then installs the formula and the cask from the public tap on a
-  clean runner and fails if what it serves is not the version just released. The tap used
-  to be written by a workflow of its own inside the tap repository, waking every six hours
-  and taking the checksum of whatever it downloaded, so `brew install` could be a version
-  behind for most of a day with the release green and nothing anywhere saying so. The
-  formula now builds from a source tarball the release publishes and attests, rather than
-  from the archive GitHub generates for a tag, whose bytes GitHub has changed before now.
-  `packaging/update-tap.sh` is gone with the second download it did.
 - There is no `CARGO_REGISTRY_TOKEN` any more. crates.io issues the publish job a token
   from its GitHub identity and revokes it when the job ends, so there is no standing
   credential to leak, and the exchange runs on a pre-release tag too, where a registration
   that does not match is found out before a release reaches the one step nobody can undo.
   That step now waits in a GitHub environment with required reviewers.
-- Every artefact carries a CycloneDX bill of materials, generated from the lockfile per
-  target, published with the release and attested like the artefact it describes. So are
-  `SHA256SUMS` and `appcast.xml`, which are made in the same job and published in the same
-  release as the files they describe: on their own they said a download had arrived whole
-  and nothing about who put it there.
 - The release checks the published feed against the public key in the published app bundle,
   which is the key an installed copy checks it against. It used to check it with the
   private key that signed it, in the job that signed it, so a wrong key verified against
   itself. Nothing in that job reads a secret now. A release whose update key differs from
   the last one's is refused unless a repository variable says that is what it means to do.
-- `CONTRIBUTING.md` has a procedure for replacing the Sparkle update key or the Developer
-  ID certificate, and `.github/workflows/rotation.yml` runs the awkward half of it every
-  month against keys it makes on the runner, a feed on `127.0.0.1` and bundles under an
-  `invalid.` identifier. It names no repository secret, so it cannot reach the real key,
-  and CI checks that it still names none. Running it found the trap: `generate_appcast`
-  will not sign a bundle carrying a key other than the one it is handed, and says so by
-  writing the feed with no signature and exiting 0.
 
 ## [0.2.0] - 2026-09-22
 
@@ -703,6 +734,7 @@ Everything a stranger hits in the first ten minutes, every state a person could 
 and what the app was missing to stand on its own.
 
 ### Added
+
 - `pitboard log` shows what pitboard has changed and when, from the record it was already
   keeping. The log now names which front end asked.
 - `pitboard uninstall` deletes every parked login and then pitboard's own files, in that
@@ -719,8 +751,18 @@ and what the app was missing to stand on its own.
   It can record the account in use, drop an account, and run Claude Code's own sign-in for
   a new one, showing what that sign-in says rather than borrowing a terminal.
 - `cargo binstall pitboard` fetches the built binary instead of compiling the tree.
+- The state file can be read forwards, and says which half to upgrade when it cannot.
+- A release is guarded, re-runnable, and carries build provenance; the macOS command line
+  binaries are signed and notarised like the app. A tag like `v0.2.0-rc1` is a pre-release:
+  no crates.io, no update feed.
+
+### Changed
+
+- MSRV is 1.91, measured by building it, and CI builds at whatever the manifest claims.
+- The app can be tested without a keychain, and is.
 
 ### Fixed
+
 - `pitboard statusline` typed at a prompt waited for input that was never coming. It reads
   stdin only when something is piping into it.
 - Offline, the account in use rendered as one with nothing parked, advising a sign-in it did
@@ -746,17 +788,10 @@ and what the app was missing to stand on its own.
   read as though everything had stopped.
 - Windows gets one sentence instead of a screen of type errors.
 
-### Internal
-- MSRV is 1.91, measured by building it, and CI builds at whatever the manifest claims.
-- The state file can be read forwards, and says which half to upgrade when it cannot.
-- A release is guarded, re-runnable, and carries build provenance; the macOS command line
-  binaries are signed and notarised like the app. A tag like `v0.2.0-rc1` is a pre-release:
-  no crates.io, no update feed.
-- The app can be tested without a keychain, and is.
-
 ## [0.1.4] - 2026-09-22
 
 ### Fixed
+
 - A switch no longer leaves the outgoing account's `trustedDeviceToken`, `organizationUuid`,
   `enterpriseGateway` or `designOauth` behind for the incoming account to present as its
   own. Claude Code deletes all of them with the login on logout; pitboard now does the same,
@@ -771,13 +806,29 @@ and what the app was missing to stand on its own.
 ## [0.1.3] - 2026-09-22
 
 ### Added
+
 - The menu bar panel says when an account has run out and which account has the most left,
   whether or not notifications are allowed, and asks for permission only when there is
   something to say. After a switch it counts down the time until sessions that were already
   open follow.
 - A Homebrew tap: `brew install datlechin/tap/pitboard`, and `--cask` for the app.
+- A release now fails if the update feed is missing or unsigned, and a job after the release
+  reads the feed back the way an installed copy will.
+
+### Changed
+
+- Every assumption pitboard makes about Claude Code re-checked against 2.1.278. Three
+  comments described behaviour that has changed: the credential cache is a rolling window
+  rather than one anchored at process start, `/logout` gives up on the write lock after 7.5
+  seconds and deletes without it, and the organization fields in the config come from
+  separate fetches and are usually absent.
+
+### Removed
+
+- Dead code, duplicated constants and a thrice-written test fixture removed.
 
 ### Fixed
+
 - The keychain account name now falls back to the passwd entry when `USER` is not in the
   environment, which is what Claude Code does. Without it, pitboard run from a launchd
   agent, a cron job or an app opened from Finder read a different keychain item than the
@@ -788,19 +839,10 @@ and what the app was missing to stand on its own.
   number the template carried, which Sparkle would have read as newer than the release
   after it.
 
-### Internal
-- Every assumption pitboard makes about Claude Code re-checked against 2.1.278. Three
-  comments described behaviour that has changed: the credential cache is a rolling window
-  rather than one anchored at process start, `/logout` gives up on the write lock after 7.5
-  seconds and deletes without it, and the organization fields in the config come from
-  separate fetches and are usually absent.
-- A release now fails if the update feed is missing or unsigned, and a job after the release
-  reads the feed back the way an installed copy will.
-- Dead code, duplicated constants and a thrice-written test fixture removed.
-
 ## [0.1.2] - 2026-09-22
 
 ### Added
+
 - A macOS menu bar app: the account in use and its tightest limit in the menu bar, every
   account's limits in the panel, one click to switch, a notification when an account runs
   out, and launch at login. It calls the same core the command line does, directly.
@@ -812,6 +854,7 @@ and what the app was missing to stand on its own.
 ## [0.1.1] - 2026-09-21
 
 ### Fixed
+
 - `enroll --sign-in` no longer holds pitboard's lock while the browser sign-in waits, so
   `use`, `forget` and `rename` go ahead meanwhile; a second sign-in is refused, not queued.
 - What Claude Code's sign-in prints goes to stderr, so `enroll --sign-in --json` prints
@@ -822,6 +865,7 @@ and what the app was missing to stand on its own.
 First release.
 
 ### Added
+
 - `enroll`, `use`, `forget`, `status`, `doctor` and `statusline`.
 - Live usage in `status`, asked of Anthropic for every enrolled account at once, with
   which accounts can be switched to and until when.
@@ -835,8 +879,6 @@ First release.
 - Linux support, using a file vault for parked logins. Not yet confirmed against a
   signed-in Claude Code on Linux.
 - An audit log of every change pitboard makes.
-
-### State file
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 

@@ -1,56 +1,112 @@
 # Contributing
 
-## Layout
+One person maintains pitboard. Send a change as a pull request against `main`. CI runs on
+every pull request. To report a security problem, follow [SECURITY.md](SECURITY.md) instead
+of opening an issue. [ARCHITECTURE.md](ARCHITECTURE.md) describes how the code is organised
+and the measured facts it rests on. [RELEASING.md](RELEASING.md) describes how a release is
+made.
 
-- `crates/pitboard-core`: the engine. Parking, switching, recovery, the stores, usage. It
-  reads no environment variable except in `Context::from_env`, and prints nothing.
-- `crates/pitboard-core/src/provider`: one module per tool, `claude` and `codex`, each
-  implementing the `Provider` trait in `mod.rs` (where the tool keeps its login, whose it
-  is, how to renew it, what it has left). Each module's `assumptions.rs` is that tool's
-  register of facts.
-- `crates/pitboard-conformance`: reads a tool's register out of a build of that tool.
-- `crates/pitboard-ffi`: the core as UniFFI bindings, for the app. Records and enums only,
-  every call synchronous.
-- `apple`: the menu bar app. The Swift package holds it as libraries its tests load
-  without starting it: `PitboardKit` calls the bindings off the main thread, and
-  `PitboardApp` is everything the app does. `Pitboard.xcodeproj` is the app itself: the
-  `Pitboard` target in `App` starts `PitboardApp` and adds Sparkle, and `PitboardUITests`
-  in `UITests` drives it. `scripts/build-xcframework.sh` builds the core for both
-  architectures, and `scripts/build-app.sh` builds `Pitboard.app` from it with `xcodebuild`,
-  with the command line inside at `Contents/Helpers/pitboard`.
-- `crates/pitboard`: the command line. Arguments, rendering for people, and the `--json`
-  contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
+## Report a bug
 
-## Before you change anything
+Open an issue with the **Something went wrong** form. It asks for what happened, the output
+of `pitboard doctor --json` and the versions you run. The last lines of
+`~/.pitboard/audit.log` are optional.
 
-The local loop is the same as CI:
+`pitboard doctor --json` prints no token, email address or account identifier: each becomes
+a short digest. Paths under your home start with `~`. Plain `pitboard doctor` shows your own
+account, so read that one yourself and paste the JSON.
+
+Read audit lines before you paste them. A `reclaim` line with the outcome `discarded` names
+a parked login, and that name contains an account id.
+
+## Set up
+
+`rust-toolchain.toml` selects the stable Rust channel, with rustfmt and clippy. Run
+`rustup toolchain install` in the repository to install it. The oldest Rust the crates
+support is 1.91, the `rust-version` in `Cargo.toml`, and CI runs `cargo check` on the
+workspace with it.
+
+Checking a change uses these tools as well:
+
+- `cargo-deny`, for `cargo deny check`.
+- `cargo-insta`, for `cargo insta review`.
+- `cargo-zigbuild` and Zig, to lint the Linux code from a Mac. Rust also needs the
+  `x86_64-unknown-linux-gnu` target for that.
+
+To work on the app, you need a Mac with Xcode, and its Swift must be 6.2 or later, as
+`apple/Package.swift` asks. Rust needs both Mac targets, as [The app](#the-app) shows.
+
+## Rules
+
+1. Red before green. Before changing behaviour, write or find a test that fails against
+   the current code. Then watch that same test pass. A test that has never failed has
+   proved nothing. pitboard once shipped one that passed whether the code under it worked
+   or not.
+
+2. Compiling is not evidence that an edit applied. An edit that did nothing leaves the old
+   code in place, and the old code compiles. Read the region again right before changing
+   it, and look at the diff after. An empty or surprisingly small diff is the symptom.
+
+3. Never write to a keychain item that holds a real login. Each test names its items after
+   itself and calls `common::guard_not_live` before the first write. A Codex test that
+   writes points `CODEX_HOME` at a scratch directory and never writes to `~/.codex`. The
+   one ignored test that reads a real `auth.json` only reads it. Nothing runs `codex login`
+   or `codex logout` against a real home, because both revoke the login stored there.
+
+4. Measure the tool, do not guess at it. Claude Code's behaviour here is undocumented,
+   Codex's moves with its source, and both ship several times a week. A claim about either
+   needs an experiment or a reading of a named build. It belongs in a test, the tool's
+   register or the commit message. [Tool registers](#tool-registers) says how to add a
+   fact, and [ARCHITECTURE.md](ARCHITECTURE.md#tool-registers) says what a register is.
+
+## Check a change
+
+CI runs these on every pull request. Run them before you push:
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets
-cargo test
+cargo clippy --all-targets --locked
+cargo test --locked -- --skip writing_preserves_attributes
 cargo deny check
 ```
 
-On macOS, run the keychain latency test on its own. Other `security` calls running at the
-same time push it over its threshold:
+CI sets `RUSTFLAGS=-D warnings`, so any compiler or Clippy warning fails it.
+
+The skipped test, `writing_preserves_attributes_and_does_not_slow_later_reads`, exists only
+on macOS. It asserts a read-latency threshold, and other `security` calls running at the
+same time push reads over it. So on macOS, run it on its own:
 
 ```sh
-cargo test -p pitboard --test keychain_write_is_harmless -- --test-threads=1
+cargo test --locked -p pitboard --test keychain_write_is_harmless writing_preserves_attributes
 ```
 
-Some code compiles only on Linux, so lint for it before pushing, for example with
-`cargo zigbuild clippy --target x86_64-unknown-linux-gnu --all-targets`.
+Some code compiles only on Linux. CI lints it on Linux. To lint it from a Mac before you
+push, run:
 
-A contract snapshot changes only when the `--json` contract changes on purpose. Review the
-difference with `cargo insta review`, and say in the change why the contract moved.
+```sh
+cargo-zigbuild clippy --target x86_64-unknown-linux-gnu --all-targets
+```
 
-### The app
+The snapshots in `crates/pitboard/tests/snapshots` pin the `--json` contract. A snapshot
+changes only when the contract changes on purpose. Review the difference with
+`cargo insta review`, and say in the pull request why the contract moved.
 
-The package links the core as `apple/PitboardFFI.xcframework`, beside bindings generated
-into `apple/Sources/PitboardBindings`, and neither is committed. Build them before opening
-the project the first time, and again whenever the core changes. They are built for both
-kinds of Mac, so Rust needs both targets:
+CI also runs:
+
+- clippy and the tests on both macOS and Linux
+- `cargo check --workspace --all-targets --locked` on Rust 1.91
+- the app job: `swift format lint --strict`, `./apple/scripts/build-app.sh`, a check that
+  the command line inside the app runs and holds both architectures, `swift test` and the
+  UI tests
+- `cargo semver-checks --package pitboard-core`, which reports and does not block
+- a guard that fails when `.github/workflows/rotation.yml` names a repository secret
+
+## The app
+
+The Swift package in `apple/` links the core as `apple/PitboardFFI.xcframework`, with
+bindings generated into `apple/Sources/PitboardBindings`. Neither is committed. Build them
+before you open the project the first time, and again whenever the core changes. They are
+built for both kinds of Mac, so Rust needs both targets:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -64,423 +120,115 @@ Everything the app does is in the package, and its tests run without starting th
 swift test --package-path apple
 ```
 
-The UI tests start the debug build, each in a fixture: a machine in a known state, where
-nothing reaches the keychain, the network or your accounts. Run them from Xcode with
-Product, Test, or with:
+The UI tests start the debug build, each in a fixture. A fixture is a machine in a known
+state, where nothing reaches the keychain, the network or your accounts. Run the UI tests
+from Xcode with **Product** > **Test**, or with:
 
 ```sh
 xcodebuild test -project apple/Pitboard.xcodeproj -scheme Pitboard -destination 'platform=macOS'
 ```
 
-macOS asks for an administrator's password before it lets a test drive the app, unless the
-machine was set up to allow that without one, as GitHub's runners are.
+macOS asks for a password before a UI test can drive the app, unless the Mac allows
+Automation Mode without one. GitHub's macOS runners allow it. `automationmodetool` prints
+which applies to your Mac.
 
-The debug build is `com.usepitboard.Pitboard.debug`, so it never shares preferences, a
-login item or notification permission with a copy you have installed. Run from Xcode, it
-reads this machine's accounts like that copy does; `PITBOARD_FIXTURE=twoTools` in the
-scheme's environment runs it in a fixture instead. `./apple/scripts/build-app.sh` builds
-the release bundle the way CI and a release do.
+The debug build's bundle identifier is `com.usepitboard.Pitboard.debug`, so it never shares
+preferences, a login item or notification permission with a copy you have installed. Run
+from Xcode, it reads this Mac's accounts, as that copy does. To run it in a fixture instead,
+add `PITBOARD_FIXTURE=twoTools` to the scheme's environment variables. The fixtures are the
+cases of `Fixture` in `apple/Sources/PitboardApp/Fixture/Fixture.swift`.
 
-## Rules this project learned the hard way
+`./apple/scripts/build-app.sh` builds the release bundle the way CI and a release do.
 
-1. Red before green. Before changing behaviour, write or find a test that fails against
-   the current code, then watch that same test pass. A test that has never failed has
-   proved nothing. This project once shipped one that passed whether the code under it
-   worked or not.
-
-2. Compiling is not evidence that an edit applied. An edit that did nothing leaves the old
-   code in place, and the old code compiles. Read the region again right before changing
-   it, and look at the diff after. An empty or surprisingly small diff is the symptom.
-
-3. Never write to a keychain item that holds a real login. Tests name their items after
-   their own identity and call `common::guard_not_live` before the first write. A Codex
-   test that writes points `CODEX_HOME` at a scratch directory and never writes to
-   `~/.codex` (the one ignored test that reads a real `auth.json` only reads it), and
-   nothing runs `codex login` or `codex logout` against a real home: both revoke the login
-   stored there.
-
-4. Measure the tool, do not guess at it. Claude Code's behaviour here is undocumented,
-   Codex's moves with its source, and both ship several times a week. A claim about either
-   needs an experiment or a reading of a named build, and it belongs in a test, the tool's
-   register or the commit message.
-
-## The site
-
-`website/` is where usepitboard.com will be built, with Astro; it is empty until then.
-`docs/` is the Mintlify source of docs.usepitboard.com, which is live. Pages are MDX,
-navigation and settings are in `docs/docs.json`, and `docs/AGENTS.md` holds the writing
-rules; `docs/README.md` says how to preview and check a change. The app's "pitboard Help"
-item and the Linux renewal unit link to the site, so a page that moves needs a redirect in
-`docs/docs.json`.
-
-## The state file
-
-`state.json` carries a `schema`. The app updates the command line inside it, but a command
-line installed some other way updates by its own route, so on one machine an older
-pitboard will meet a file a newer one wrote. Reading forwards is `state::migrate`: each
-bump adds an arm that rewrites the document and falls through to the next. Reading
-backwards is not possible and says to update the pitboard that is behind. A bump needs a
-test that loads a file the previous version wrote.
-
-Schema 4 records each account's tool and keeps which account is signed in per tool. A
-schema 3 file is brought forward on its first read, with nothing in the keychain or the
-vault touched. A file naming a tool this build does not know is reported as written by a
-newer pitboard, not as corrupt.
-
-## Releasing
-
-A tag `v<version>` releases; a tag like `v0.2.0-rc1` is a pre-release, which skips
-crates.io and publishes no update feed, so nobody's installed copy updates into it. The
-guard job refuses a tag that disagrees with the manifest or has no CHANGELOG section.
-
-A release publishes the crates to crates.io, the command line for four targets, the app
-with the command line for both macOS targets inside it, and the Homebrew tap, signed and
-notarised when these repository secrets are set. Without them the release still happens
-and the app is signed ad-hoc, which Gatekeeper warns about. It publishes no source
-tarball: nothing installs from one, and crates.io has the source.
-
-| Secret | Where it comes from |
-| --- | --- |
-| `CERTIFICATES_P12` | The Developer ID Application certificate, exported from Keychain Access as .p12, `base64` |
-| `CERTIFICATES_PASSWORD` | The password given to that export |
-| `APPLE_API_KEY_P8` | An App Store Connect team key with the Developer role, `base64` |
-| `APPLE_ID` | Only needed if the notarisation route ever goes back to an app-specific password |
-| `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | Shown beside that key |
-| `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` | `apple/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account pitboard` once, after `./apple/scripts/build-app.sh` has fetched Sparkle there, then the same with `-x -` to read the private one |
-| `HOMEBREW_TAP_TOKEN` | In the `homebrew-tap` environment. A fine-grained personal access token, `datlechin/homebrew-tap` as its only repository, Contents read and write as its only permission, and an expiry the maintainer will notice |
-
-There is no `CARGO_REGISTRY_TOKEN`. crates.io hands the publish job a token made from
-GitHub's word about which workflow is running, and revokes it when the job ends.
-
-The signing identity is read from the certificate itself, so there is no secret for it.
-The command line binaries are signed and notarised like the app, because a tarball opened
-from a browser arrives quarantined and Gatekeeper stops an ad-hoc signature.
-
-Everything published is attested, so a downloader can check what built it with
-`gh attestation verify <file> --repo datlechin/pitboard`: the tarballs, the app, the bill
-of materials beside each of them, `SHA256SUMS`, and `appcast.xml`. The last two are made in
-the same job and published in the same release as the files they describe, so on their own
-they say a download arrived whole and nothing about who put it there.
-
-### What the maintainer has to set up by hand
-
-Once, in this order:
-
-1. On crates.io, for `pitboard-core` and then for `pitboard`: Settings, Trusted Publishing,
-   Add, GitHub. Repository owner `datlechin`, repository name `pitboard`, workflow filename
-   `release.yml`, environment `release`. Both crates need their own entry; registration is
-   per crate. Both are already published, which Trusted Publishing requires.
-2. In this repository's settings, an environment named `release` with required reviewers.
-   The publish job waits in it, so an unexpected tag stops before the one step of a release
-   that cannot be undone. The name has to be the one registered on crates.io above.
-3. An environment named `homebrew-tap` holding `HOMEBREW_TAP_TOKEN`. An environment rather
-   than a repository secret because it is the only credential here that reaches another
-   repository, and a secret in an environment is readable only by a job that asks for that
-   environment by name.
-4. Delete `.github/workflows/follow-releases.yml` from `datlechin/homebrew-tap`. The
-   release writes the tap now; leaving the old poller in place means two writers and a
-   version that can come from either.
-5. Push a pre-release tag, `v<next>-rc1`, and watch the publish job. It exchanges the
-   crates.io token and uploads nothing, which is where a registration that does not match
-   is meant to be found out.
-
-Then `CARGO_REGISTRY_TOKEN` can be deleted from this repository's secrets, and the token it
-held revoked on crates.io.
-
-The publish job hands the `tap` job the `SHA256SUMS` it took of the files it published, as
-an artifact of the same run, and the `tap` job fills the placeholders in
-`packaging/pitboard.rb`, the command line, and `packaging/pitboard-app.rb`, the app, from
-that file. It never reads the checksums back from the release, where anyone able to change
-the release could change a file and its line together. It commits the casks to the tap as
-`Casks/pitboard.rb` and `Casks/pitboard-app.rb`, with `packaging/tap_migrations.json` and
-`packaging/tap-README.md` as the tap's `README.md`, and removes `Formula/pitboard.rb`, in
-one commit. It refuses to push a cask with a placeholder left in it or a line missing from
-`SHA256SUMS`. Those files are its alone, and an edit made to them in the tap is gone at the
-next release.
-
-If the tap push fails, re-run the `tap` job. It reads the same `SHA256SUMS` from the run.
-There is no script for doing it by hand any more: a second download somewhere else is what
-this replaced.
-
-The tap has two casks and no formula. `pitboard` installs the command line from the
-release's tarball for the machine, on macOS and Linux, and `pitboard-app` installs the app
-and links the command line inside it onto `PATH`. They conflict, since both link
-`bin/pitboard`. `tap_migrations.json` moves anyone still on the old formula to the cask of
-the same name; Homebrew does that only when that cask is trusted, and otherwise prints what
-to run. Somebody on the old app cask has their app replaced by the command line once. That
-cost was accepted, and the CHANGELOG, the tap's README and the `pitboard` cask's caveats
-give the same three commands to get the app back, in the same order.
-
-The `brew` job then installs from the public tap the way the README says, on a clean macOS
-runner and a clean Linux one: the `pitboard` cask on both, checking the version, the man
-page and the completions, and on macOS `pitboard-app` in its place, checking that the
-`pitboard` on `PATH` is the one inside the app.
-
-### Rotating the update key
-
-For a plain `.app` zip update, which is what pitboard ships, Sparkle takes an update when
-either the archive's EdDSA signature verifies under the public key in the installed bundle
-or the new bundle satisfies the installed bundle's designated requirement. One of the two,
-not both; its own source says this is so that a key can be rotated without breaking the
-chain of trust. When the EdDSA check is the one that failed, the archive must also verify
-under the key the new bundle carries, so the copy comes out able to take the release after
-this one.
-
-There are therefore two routes, and what is still in hand decides which.
-
-The code signing route is one release. The bundle carries the new public key, the archive
-is signed with the new private key, and the app is code signed with the same Developer ID
-as the copies already out there, which take it through the designated requirement and come
-out trusting the new key. It needs no signature from the old key, so this is the route when
-the update key is gone rather than merely suspect. It is also the route for a new Developer
-ID certificate with the update key unchanged: a certificate reissued for the same team
-still satisfies the designated requirement, a different team does not.
-
-The EdDSA route is two releases and depends on nothing but the update key, so it is the one
-to use when the certificate is in doubt as well, and the only one that reaches a copy
-installed from an ad-hoc signed build, whose designated requirement is its own cdhash. It
-signs with the current key, so it is a way off a key that is suspect and not a way back
-from one that is lost.
-
-1. A release signed with the current key whose bundle carries the next public key.
-   `generate_appcast` will not sign a bundle carrying a key other than the one it is
-   handed, and refuses by writing the feed with no signature and exiting 0, so this rung is
-   made by generating the feed with the next key and then replacing the `edSignature` with
-   one `sign_update` makes from the current key.
-2. A release signed with the next key.
-
-The floor is the version of rung one. A copy older than it never learned the next key and
-has nothing to check rung two with, so it stays where it is until somebody installs it
-again with `brew install --cask datlechin/tap/pitboard-app`. Say the floor version out
-loud in the release notes.
-
-Either route changes the key in the bundle, so set the repository variable
-`SPARKLE_KEY_ROTATION` to that version first or the app job refuses the build. Rung two
-ships the same key as rung one, so it does not need the variable and should not have it.
-
-`.github/workflows/rotation.yml` runs the EdDSA route every month against two keys it makes
-on the runner, a feed on `127.0.0.1`, and bundles under an `invalid.` identifier, so the
-procedure is one that has been executed rather than one that has been written. It names no
-repository secret, which is what stops it reaching the real key, and CI checks that it
-still names none.
-
-If both the update key and the certificate are gone there is no route: nothing an installed
-copy will accept can be made. Installing the app again is the only way back, which is the
-argument for keeping the two in different places.
-
-## Measured, not assumed
-
-These decide the design, and each was measured rather than reasoned about:
-
-- `security -i` reads 4097 bytes of command line, no continuation. Its `-w` prompt reads 128.
-- Writing a keychain item in process, through the Security framework, makes every later
-  read of that item by `security` take about a second instead of 0.01, for good.
-- A running Claude Code session picks up a swapped credential within about 33 seconds. A
-  running Codex never does.
-
-Redo the first two on a scratch item before changing anything that depends on them.
-
-Read against Claude Code 2.1.278's own storage layer, which is where the rest of the
-coupling comes from:
-
-- The write lock is proper-lockfile at `<storage dir>/.storage-write`, stale 15000ms, ten
-  retries, 100ms to 1000ms of backoff. `lock.rs` carries the same numbers.
-- Every write under it drops the read cache, reads the credential again inside the lock,
-  and abandons the write when that read fails. A stale account cannot be written back.
-- Claude Code treats its own lock going missing as a warning and keeps writing, so pitboard
-  cannot expect the other side to stop.
-- A write can be marked as already locked without the lock being taken. `/logout` is the
-  path that does it.
-- The keychain write is `security -i` below 4032 bytes of command and
-  `add-generic-password -U -a <account> -s <service> -X <hex>` above it, with a 2 second
-  timeout, and only a timeout counts as retryable.
-- The keychain read is `find-generic-password -a <account> -w -s <service>`. Exit 0 with
-  nothing is absent; 44 is absent; 36 is a locked keychain and means unreadable, not empty.
-  `security show-keychain-info` exiting 36 is the same signal for the keychain as a whole.
-- The live chain is the keychain with the plaintext file behind it. The successor backend
-  (`tengu_hover_rest`) replaces the fallback half and only for a caller that hands a backend
-  in, so an ordinary `claude` still reads the keychain first.
-- Claude Code demotes to the plaintext file when a keychain write fails for good, and
-  deletes the keychain item when it does. pitboard does not, on purpose.
-- The supervisor daemon records itself in `<config dir>/daemon.lock` with its pid and the
-  Claude Code version that launched it, and leaves the file behind when it dies.
-- This machine sat within 0.75 seconds of api.anthropic.com's `Date` header across eight
-  requests, and that header has a granularity of one second, so the whole spread was inside
-  the noise. There is therefore no skew estimate anywhere: a renewal's expiries are
-  anchored to the `Date` of the answer that carried them, which is the correction, and on a
-  machine whose clock works there is nothing left to correct.
-- The facts in `provider/claude/assumptions.rs` carry the literals they are readable by, and
-  `cargo run -p pitboard-conformance -- <a claude binary>` checks them. Measured across six
-  builds: the set holds from 2.1.273 through 2.1.278 and correctly goes red on 2.1.124,
-  which predates the credential write lock, two of the five account-scoped keys and the
-  keychain error classification. It is shallow on purpose, and the tool says so: a literal
-  being present does not prove the behaviour around it, and a literal disappearing does
-  prove something moved.
-- APFS stores a directory's mtime to the nanosecond and stores it approximately: setting
-  one and reading it straight back gives a value 18 to 60 nanoseconds away. A lock that
-  remembered the value it asked for would find a mismatch every time; the value read back
-  is the only one worth keeping.
-- `security dump-keychain` without `-d` never prompts, exits 0 in 0.06 seconds against a
-  keychain of 362 items, and emits attributes only: no secret of any item. Reads afterwards
-  take the usual 0.016 seconds, so listing carries none of the access-list side effect an
-  in-process read does. Service names appear as `    "svce"<blob>="<name>"`.
-- Claude Code has two guarded credential stores and no others: the macOS keychain, and the
-  Windows credential manager behind the `tengu_windows_credman` GrowthBook flag. Searching
-  the whole 2.1.278 bundle finds no `libsecret`, no `org.freedesktop.secrets`, no
-  `gnome-keyring` and no `SecretService`. `secret-tool` and `kwallet-query` do appear, in
-  the list of credential helpers its Bash sandbox keeps out of a shell, which is why
-  neither is used as a needle. So on Linux the keychain backend's `security` call simply
-  fails and the plaintext file is what holds the login. It is written and then chmod'd to
-  0600. pitboard's `PlainUnix` platform matches that, and `assumptions.rs` carries the
-  absence under `no_keyring_off_macos`, checked on every build by the conformance job:
-  a fact resting on something not existing is wrong the moment it does, and nothing
-  disappearing would ever say so.
-
-Read against codex-cli 0.154.0: the binary, its public source at tag `rust-v0.154.0`, and a
-real `auth.json` that build wrote. The register is `provider/codex/assumptions.rs`, still
-green on 0.156.1:
-
-- The login is `$CODEX_HOME/auth.json`, default `~/.codex/auth.json`, mode 0600. `file` is
-  the packaged default store; `keyring`, `auto` and `ephemeral` are the others. `keyring`
-  and `auto` use a keychain item, `Codex Auth`, that Codex makes through the Security
-  framework and that does not trust `/usr/bin/security`, which is why pitboard refuses them.
-- `codex login` and `codex logout` both POST the stored refresh token to
-  `https://auth.openai.com/oauth/revoke` before clearing it. This is why a Codex park is a
-  move and never a copy (`ParkSemantics::MoveOnly`).
-- A running Codex holds its login in memory for the life of the process, watches no file,
-  and refuses a reload whose account id has changed (`Adoption::RestartRequired`). A refresh
-  already under way when the file changes writes its own account's tokens under whatever
-  account id it finds there.
-- Codex writes `auth.json` with no lock of any kind, so there is none for pitboard to share.
-- The ID token names the account: `email`, and under `https://api.openai.com/auth`,
-  `chatgpt_account_id`, which a Team or Business workspace shares, and `chatgpt_user_id`,
-  the person. pitboard identifies an account by the pair, with no network call.
-- Renewal is `POST https://auth.openai.com/oauth/token` with a JSON body
-  `{client_id, grant_type, refresh_token}` and client id `app_EMoamEEZ73f0CkXaXp7hrann`.
-  Each token in the answer is written only if present. `last_refresh` must be there, as an
-  RFC 3339 string, or Codex reads the login as having no token data. A spent or revoked
-  refresh token answers 400 `invalid_grant` (or one of the older `refresh_token_expired`,
-  `refresh_token_reused`, `refresh_token_invalidated`), or 401; any other 400 is not a dead
-  login.
-- Usage is `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer` and
-  `ChatGPT-Account-ID`, no quota spent. Its shape was read from a live answer, not the
-  source: a parser written from the source found the windows in the wrong place and returned
-  nothing while the request succeeded.
-- `CODEX_HOME` moves everything Codex keeps, and an empty one means unset, so the private
-  sign-in always sets it to a directory that exists and runs `codex login` from inside that
-  directory. `codex login` revokes what is stored in that home before signing in, opens the
-  browser itself, and reads nothing from stdin.
-
-Read on 2026-09-22, against Sparkle 2.10.0, Homebrew 7.0.6 and the tap as it then stood.
-These decide how a release is allowed to move:
-
-- `generate_appcast` cross-checks the private key it is given against the bundle's
-  `SUPublicEDKey`, and when they disagree it writes the feed with no `sparkle:edSignature`
-  at all and exits 0, saying "Wrote 1 new update". Tried with a key that was not base64 and
-  again with a valid key that was simply a different one: no signature either time. Two
-  consequences. A release whose `SPARKLE_PUBLIC_KEY` and `SPARKLE_PRIVATE_KEY` drift apart
-  would publish a feed nobody can install, so the app job greps for the attribute. And the
-  first rung of an EdDSA-only rotation cannot be made by `generate_appcast` at all.
-- `sign_update --verify` takes the private key and derives the public one from it, so
-  the job that signed a feed could only ever agree with its own arithmetic. CryptoKit's
-  `Curve25519.Signing` verifies the same signature from the public key alone: exit 0 with
-  the right key, exit 1 with a different one, over a signature `sign_update` had just made.
-  The feed job checks the published feed against the key in the published bundle now, and
-  reads no secret.
-- `sign_update --ed-key-file` accepts a bare base64 of 32 random bytes, so the rehearsal
-  makes keys with `openssl rand -base64 32` and never touches a keychain.
-- Sparkle's `SUUpdateValidator.m` takes a plain `.app` zip update when either the
-  archive's EdDSA signature verifies under the installed bundle's public key or the new
-  bundle satisfies the installed bundle's designated requirement, and says in a comment that
-  this is what allows key rotation. This was read, not run. What was run: an ad-hoc signed
-  bundle's designated requirement is a list of cdhashes, so for a copy installed from an
-  ad-hoc build there is no code signing route and the EdDSA one is all there is.
-- `pitboard doctor` exits 3 where Claude Code has never run, which is every clean runner, so
-  the job that installs from the tap treats 0 and 3 as the binary having run its checks and
-  anything else as it having failed to.
-- `cargo cyclonedx` writes a bill of materials beside every `Cargo.toml` in the
-  workspace whatever `--manifest-path` says, so the release keeps the one belonging to the
-  crate in the artefact and deletes the rest. A target that is not installed still resolves.
-  The two macOS targets resolve to the same 83 components, which is why the app has one bill
-  of materials and not two; macOS and musl differ by 7, which is why each target has its own.
-  The app's is read from the bindings crate, and the command line it carries adds 4 more.
-- crates.io issues a Trusted Publishing token that lasts 30 minutes, and matches on
-  repository owner, repository name, workflow filename and, when it is given one, the
-  environment. Registration is per crate, so `pitboard` and `pitboard-core` each need it.
-- The tap was being written by `follow-releases.yml` inside `datlechin/homebrew-tap`, on
-  `17 */6 * * *`. A release was therefore finished and green up to six hours before anyone
-  could install what it published, and `packaging/pitboard.rb` in this repository still said
-  v0.1.2 while the tap served 0.2.0 and the workspace was at 0.2.0. Nothing anywhere
-  compared the three.
-
-Measured on 2026-09-24 in a Homebrew 7.0.6 of its own, against a copy of the tap in each
-shape it could take, on macOS and on Linux. These decide what the casks may do:
-
-- A cask's `uninstall` directives run on every upgrade and reinstall, not only on removal,
-  so a cask that took the renewal schedule away there would take it away at every release.
-  Both casks take it away in `zap`, which only `brew uninstall --zap` runs. Homebrew's
-  source has `zap launchctl:` look in the system domain too, with `sudo`, so it can ask for
-  an administrator's password; that was read, not run.
-- Neither cask's `zap` touches `~/.pitboard`. `state.json` is the only index of the parked
-  logins in the keychain, and deleting it without `pitboard uninstall` leaves live refresh
-  tokens nothing can name.
-- `brew uninstall --zap` runs the zap of a cask as it was installed, not the tap's copy:
-  `Cask::Installer#zap` loads the installed cask file first. Run on 2026-09-25: a cask was
-  installed, its zap changed in the tap, `brew update` run, and the zap that ran was the
-  installed one's. A machine still on the old app cask therefore runs its zap, which
-  trashes `~/.pitboard`, and the CHANGELOG and the tap's README say to leave `--zap` out.
-- From Homebrew 6, installing a full name trusts that one cask or formula and nothing else.
-  The old app cask depended on the formula, which Homebrew then refused to build, so
-  `brew install --cask datlechin/tap/pitboard` failed with `build.rb ... exited with 1`
-  unless the formula was installed first.
-- `tap_migrations.json` moves an installed formula to the cask of the same name only when
-  that cask is trusted and some cask has been installed before. Otherwise `brew update`
-  prints two commands, which leave the formula linked in front of the cask, so the
-  CHANGELOG says to uninstall the formula first. Trust goes by name and type, so somebody on
-  the old app cask already trusts the cask `pitboard`, and `brew update` replaces their app
-  with the command line.
-- Nothing moves an app from the cask `pitboard` to `pitboard-app` while `pitboard` is still
-  a cask: `cask_renames.json` wins every lookup of the old name, hiding the command line,
-  and `brew audit` rejects it; `old_tokens` redirects nothing. `conflicts_with formula:` no
-  longer exists, only `cask:`.
-- `binary`, `manpage` and the three completion stanzas work on Linux, and `zap launchctl:`
-  does nothing there.
-
-## A tool's register and the conformance run
-
-Each tool keeps its own register, `crates/pitboard-core/src/provider/<tool>/assumptions.rs`,
-dated against the build it was read from. `pitboard-conformance` reads the literals each
-fact is readable by out of a build and says which are still there:
+CI checks the format of the Swift written by hand, leaving out the generated bindings:
 
 ```sh
-cargo run -p pitboard-conformance -- <a claude binary>
-cargo run -p pitboard-conformance -- <a codex binary> --provider codex
+swift format lint --strict --recursive --configuration apple/.swift-format \
+  apple/Sources/PitboardApp apple/Sources/PitboardKit apple/App apple/UITests \
+  apple/Tests apple/scripts .github/scripts
 ```
 
-Add `--json` for a report a program can read. It exits 1 when a fact has moved: a literal
-it needs is gone, or one it rules out has turned up. Point it at the native `codex` binary,
-not the npm wrapper `@openai/codex`. The binary is under `vendor/` in the platform package,
-such as `@openai/codex@<version>-linux-x64`, which is where
-`.github/workflows/conformance.yml` gets it. That workflow checks the newest build of
-each tool against its own register twice a week, and can be run by hand for a given
-version.
+## Tool registers
 
-To add a fact, add an `Assumption` to that tool's register: what pitboard believes
-(`fact`), where in the tool it was read (`read_from`), the build (`verified_against`), and
-what in pitboard stops being true if it moves (`depends`). `probe` lists literals that must
-be in a build for the fact to still be readable there; `absent` lists literals whose
-arrival would disprove it. Pick literals specific to the fact: one already in the build for
-another reason proves nothing. A fact about behaviour with no literal to find gets an empty
-`probe`, and the run reports it as not readable rather than as holding. Run the checker
-against the build you read the fact from, and against an older build that predates it if
-you can, to see it go red. `cargo test` checks that every name is unique and that every
-fact says what it is, where it was read, which version, and what depends on it.
+Each tool's register is `crates/pitboard-core/src/provider/<tool>/assumptions.rs`. What a
+register is for, when CI checks each one and what adding a tool takes are in
+[Tool registers in ARCHITECTURE.md](ARCHITECTURE.md#tool-registers).
 
-Adding a tool takes three things: a register read out of a named build of it, a module
-under `provider/` that implements `Provider`, and a conformance job for it. `ProviderId`,
-`ProviderId::ALL` and the matches in `provider::of` and `assumptions::of` name every tool,
-so the compiler and the tests point at what a new one has to fill in.
+Each fact names the literals it can be read by. `pitboard-conformance` looks for them in a
+build of the tool and says which are still there:
 
-## Dependencies
+```sh
+cargo run -p pitboard-conformance -- <claude binary>
+cargo run -p pitboard-conformance -- <codex binary> --provider codex
+```
 
-Every new dependency needs a reason in the pull request. `cargo deny check` must pass.
+Add `--json` for a report a program can read. The checker exits 1 when a fact has moved: a
+literal it needs is gone, or one it rules out has turned up. It exits 2 when it cannot make
+sense of its arguments or read the binary.
+
+Point it at the tool's native binary, not the npm wrapper, which carries no binary.
+`.github/workflows/conformance.yml` takes Claude Code's from the package
+`@anthropic-ai/claude-code-linux-x64`. It takes Codex's from `vendor/` in
+`@openai/codex@<version>-linux-x64`.
+
+To add a fact, add an `Assumption` to the tool's register:
+
+| Field | What it holds |
+| --- | --- |
+| `name` | A stable snake_case code |
+| `fact` | What pitboard believes |
+| `read_from` | Where in the tool the fact was read, so it can be read again |
+| `verified_against` | The build it was read from, such as `2.1.278` |
+| `depends` | What in pitboard stops being true if the fact moves |
+| `probe` | Literals that must be in a build for the fact to still be readable there |
+| `absent` | Literals whose arrival would disprove the fact |
+
+Pick literals specific to the fact. A literal already in the build for another reason
+proves nothing. A fact about behaviour has no literal to find. It gets an empty `probe`,
+and the run reports it as not readable.
+
+Run the checker against the build you read the fact from. If you can, run it against an
+older build that predates the fact too, and watch it go red.
+
+`cargo test` checks the registers themselves. Every name must be unique and snake_case.
+Every fact must say what it is, where it was read, which version and what depends on it.
+
+## Documentation
+
+`docs/` is the source of [docs.usepitboard.com](https://docs.usepitboard.com).
+[docs/README.md](docs/README.md) says how to preview, check and publish a change, and
+[docs/AGENTS.md](docs/AGENTS.md) holds the writing rules.
+
+## Changelog
+
+Record a change that someone using pitboard would notice in [CHANGELOG.md](CHANGELOG.md),
+under `## [Unreleased]`. The file follows
+[Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/).
+
+- Put each entry under one of six types, in this order: `### Added`, `### Changed`,
+  `### Deprecated`, `### Removed`, `### Fixed`, `### Security`.
+- Write one change per bullet: what changed for the person using pitboard, and why.
+- Say in words when a change breaks something that worked before.
+- Put a security fix under `### Security`.
+- Make links inside an entry inline and absolute. A release's notes are cut from its
+  section, without the link definitions at the end of the file.
+
+The maintainer adds the version heading when making a release, as
+[RELEASING.md](RELEASING.md) describes.
+
+## Submit a change
+
+A pull request against `main` needs all of the following:
+
+- CI passes.
+- A change in behaviour comes with a test that failed before the change, as
+  [Rules](#rules) asks.
+- A changed snapshot comes with the reason the `--json` contract moved.
+- A dependency you add comes with a reason, and `cargo deny check` passes. It checks
+  advisories, licences, bans and sources against `deny.toml`.
+- `CHANGELOG.md` has an entry, if someone using pitboard would notice the change.
+
+Since 0.3.0, most commit subjects are one present-tense sentence saying what pitboard does
+after the change, with no prefix. An example is "The man page sets out every command instead
+of naming pages that are not installed". The body says why, and what was measured, if
+anything was.

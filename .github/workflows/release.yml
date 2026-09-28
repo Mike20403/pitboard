@@ -202,8 +202,8 @@ jobs:
           fi
           echo "this build's update key is $now and $previous shipped $was." >&2
           echo "An installed copy takes this only through the Apple code signing route," >&2
-          echo "which an ad-hoc installed copy has not got. Read 'Rotating the update" >&2
-          echo "key' in CONTRIBUTING.md, and set the repository variable" >&2
+          echo "which an ad-hoc installed copy has not got. Read 'Rotate the update" >&2
+          echo "key' in RELEASING.md, and set the repository variable" >&2
           echo "SPARKLE_KEY_ROTATION to $VERSION when this release means to." >&2
           exit 1
 
@@ -481,9 +481,9 @@ jobs:
     if: needs.guard.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     # HOMEBREW_TAP_TOKEN is a fine-grained token for datlechin/homebrew-tap alone, with
-    # Contents read and write and nothing else. It is the only credential in this release
-    # that reaches another repository, so it lives in an environment of its own and no
-    # other job can read it.
+    # Contents read and write and nothing else beyond the Metadata read access GitHub
+    # requires. It is the only credential in this release that reaches another repository,
+    # so it lives in an environment of its own and no other job can read it.
     environment: homebrew-tap
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -42,5 +42,5 @@ body:
     id: audit
     attributes:
       label: The last few lines of ~/.pitboard/audit.log
-      description: Optional. Times, verbs and labels only, so it is safe to paste.
+      description: Optional. Read them before you paste them. A `reclaim` line whose outcome is `discarded` names a parked login, and that name holds an account id.
       render: text
