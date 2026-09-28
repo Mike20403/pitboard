@@ -8,6 +8,23 @@
 // does not use one of these helpers would otherwise warn about it.
 #![allow(dead_code)]
 
+/// Write a program a test then runs, and make it runnable.
+///
+/// A separate process writes it, so this process never holds the file open for writing.
+/// Tests run on threads, and on Linux a thread that starts a process while another holds
+/// such a descriptor gives the child a copy of it; running the file then fails with
+/// ETXTBSY, "Text file busy", until that child has started its own program. CI met it on
+/// Linux (run 36457687750): the test that ran a fake `codex` it had just written.
+pub fn write_program(path: &Path, contents: &str) {
+    let status = std::process::Command::new("/bin/sh")
+        .args(["-c", "printf %s \"$2\" > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .arg(contents)
+        .status()
+        .expect("sh runs");
+    assert!(status.success(), "could not write {}", path.display());
+}
+
 /// This test process's own environment: the machine's real keychain account and slot.
 pub fn ctx() -> pitboard_core::context::Context {
     pitboard_core::context::Context::from_env()
@@ -110,7 +127,7 @@ fn every_tool_is_pointed_at_a_scratch_home() {
     );
 }
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const SECURITY: &str = "/usr/bin/security";
@@ -297,18 +314,14 @@ impl Env {
 chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
             )
         };
-        let script = bin.join("claude");
-        std::fs::write(
-            &script,
+        write_program(
+            &bin.join("claude"),
             // Talks on stdout like the real one, and can be made to wait like a person does.
-            format!(
+            &format!(
                 "#!/bin/sh\n[ \"$1 $2\" = \"auth login\" ] || exit 64\n\
                  echo 'Opening browser to sign in'\nsleep \"${{FAKE_SIGN_IN_SECONDS:-0}}\"\n{store}\n"
             ),
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
     }
 
     /// Park a login where the binary under test will look for it. On macOS that is the
@@ -457,13 +470,11 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// test that runs a Codex sign-in installs this first, because the harness keeps the
     /// real `PATH` behind its own `bin`, and the real `codex login` must never run here.
     pub fn install_fake_codex_login(&self, login: &serde_json::Value) {
-        use std::os::unix::fs::PermissionsExt;
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let script = bin.join("codex");
         let _ = std::fs::remove_file(&script);
-        std::fs::write(&script, format!("#!/bin/sh\n{}", fake_codex_login(login))).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_program(&script, &format!("#!/bin/sh\n{}", fake_codex_login(login)));
     }
 
     /// `install_fake_codex_login` laid out the way npm installs Codex, in a prefix of this
@@ -475,22 +486,16 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// machine can never be the one found: the script starts only where `PATH` has its
     /// prefix's `bin`.
     pub fn install_fake_npm_codex_login(&self, login: &serde_json::Value) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let prefix = self.root.join("npm");
         let bin = prefix.join("bin");
         let package = prefix.join("lib/node_modules/@openai/codex/bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&package).unwrap();
-        let node = bin.join("fakenode");
-        std::fs::write(&node, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
-        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let script = package.join("codex.js");
-        std::fs::write(
-            &script,
-            format!("#!/usr/bin/env fakenode\n{}", fake_codex_login(login)),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_program(&bin.join("fakenode"), "#!/bin/sh\nexec /bin/sh \"$@\"\n");
+        write_program(
+            &package.join("codex.js"),
+            &format!("#!/usr/bin/env fakenode\n{}", fake_codex_login(login)),
+        );
         let program = bin.join("codex");
         let _ = std::fs::remove_file(&program);
         std::os::unix::fs::symlink("../lib/node_modules/@openai/codex/bin/codex.js", &program)
@@ -524,19 +529,16 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// lives inside the developer's own `~/.codex`, which no test may go near. Running it
     /// fails loudly: nothing that only asks which version it is ever runs it.
     pub fn install_fake_codex(&self, version: &str) {
-        use std::os::unix::fs::PermissionsExt;
         let installed = self
             .root
             .join("codex-install/releases")
             .join(format!("{version}-test-target"))
             .join("bin/codex");
         std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
-        std::fs::write(
+        write_program(
             &installed,
             "#!/bin/sh\necho 'a test stand-in for codex, not meant to run' >&2\nexit 64\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let link = bin.join("codex");
