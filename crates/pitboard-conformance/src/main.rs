@@ -11,11 +11,12 @@
 //! What it is not: a test of pitboard against a running Claude Code. That needs a real
 //! sign-in and a real keychain and cannot run unattended.
 //!
-//! Measured across six builds while it was written. The probe set holds from 2.1.273
-//! through 2.1.278, and correctly goes red on 2.1.124, which predates the credential write
-//! lock, two of the five account-scoped keys, and the keychain error classification. So it
-//! reports real change rather than noise, and would have reported those the week they
-//! landed.
+//! A build is for one system, and a tool's builds for different systems carry different
+//! code: Claude Code's Linux build has no keychain code at all. So the system is read from
+//! the binary's own header, and a fact is read only from the builds its register entry
+//! names. Before that, a Linux build reported both keychain facts gone and a keyring
+//! arrived, on every build from 2.1.278 on, while the macOS build missed the one real
+//! change in 2.1.281.
 //!
 //! ```text
 //! pitboard-conformance <path to a binary> [--provider claude|codex] [--json]
@@ -25,7 +26,7 @@
 //! facts, so a run checks one tool's build against that tool's register. Claude Code is
 //! the default, which is what every run before there was a second tool meant.
 
-use pitboard_core::assumptions::{self, Reading};
+use pitboard_core::assumptions::{self, Platform, Reading};
 use pitboard_core::provider::ProviderId;
 use std::process::ExitCode;
 
@@ -50,10 +51,19 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let Some(platform) = platform_of(&bytes) else {
+        eprintln!("{path} is neither an ELF nor a Mach-O binary, so its system is unknown");
+        return ExitCode::from(2);
+    };
     let strings = assumptions::printable_runs(&bytes, 6);
 
-    let readings: Vec<(&assumptions::Assumption, Reading)> = assumptions::of(provider)
+    // A fact not read from this system's builds is left out, not reported: its literals
+    // being absent here says nothing about it.
+    let (readings, elsewhere): (Vec<_>, Vec<_>) = assumptions::of(provider)
         .iter()
+        .partition(|a| assumptions::read_on(provider, a.name).contains(&platform));
+    let readings: Vec<(&assumptions::Assumption, Reading)> = readings
+        .into_iter()
         .map(|a| (a, assumptions::read_from_build(a, &strings)))
         .collect();
     // Both kinds of drift count. A fact that rested on a keyring backend not existing is
@@ -67,6 +77,7 @@ fn main() -> ExitCode {
     if as_json {
         let report = serde_json::json!({
             "build": path,
+            "platform": platform.code(),
             "verified_against": assumptions::verified_against(provider),
             "assumptions": readings.iter().map(|(a, r)| serde_json::json!({
                 "name": a.name,
@@ -88,11 +99,13 @@ fn main() -> ExitCode {
                 "depends": a.depends,
             })).collect::<Vec<_>>(),
             "moved": moved.iter().map(|a| a.name).collect::<Vec<_>>(),
+            "not_read_here": elsewhere.iter().map(|a| a.name).collect::<Vec<_>>(),
         });
         println!("{report}");
     } else {
         println!(
-            "{path}\npitboard's facts about {} were read from {}\n",
+            "{path}\na {} build; pitboard's facts about {} were read from {}\n",
+            platform.code(),
             provider.code(),
             assumptions::verified_against(provider)
         );
@@ -121,6 +134,17 @@ fn main() -> ExitCode {
                 }
             }
         }
+        for a in &elsewhere {
+            let on: Vec<&str> = assumptions::read_on(provider, a.name)
+                .iter()
+                .map(|p| p.code())
+                .collect();
+            println!(
+                "  skipped  {}  (read from {} builds)",
+                a.name,
+                on.join(" and ")
+            );
+        }
         println!();
         if moved.is_empty() {
             println!("Everything pitboard can read from a build is still there.");
@@ -137,6 +161,21 @@ fn main() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+/// The system a binary is built for, from its first four bytes: an ELF binary is taken
+/// for Linux and a Mach-O one, thin or universal, for macOS. The tools pitboard reads ship
+/// no other kind.
+fn platform_of(bytes: &[u8]) -> Option<Platform> {
+    match bytes.get(..4)? {
+        [0x7f, b'E', b'L', b'F'] => Some(Platform::Linux),
+        [0xcf, 0xfa, 0xed, 0xfe]
+        | [0xce, 0xfa, 0xed, 0xfe]
+        | [0xfe, 0xed, 0xfa, 0xcf]
+        | [0xfe, 0xed, 0xfa, 0xce]
+        | [0xca, 0xfe, 0xba, 0xbe] => Some(Platform::MacOs),
+        _ => None,
     }
 }
 
@@ -173,6 +212,17 @@ fn parse(args: &[String]) -> Result<(String, ProviderId, bool), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The system comes from the binary itself, so a build cannot be checked against the
+    /// wrong list of facts. Headers as the 2.1.284 packages have them.
+    #[test]
+    fn the_system_is_read_from_the_binary() {
+        assert_eq!(platform_of(b"\x7fELF\x02\x01"), Some(Platform::Linux));
+        assert_eq!(platform_of(b"\xcf\xfa\xed\xfe\x0c"), Some(Platform::MacOs));
+        assert_eq!(platform_of(b"\xca\xfe\xba\xbe"), Some(Platform::MacOs));
+        assert_eq!(platform_of(b"#!/bin/sh"), None);
+        assert_eq!(platform_of(b"\x7fE"), None);
+    }
 
     fn args(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_owned).collect()

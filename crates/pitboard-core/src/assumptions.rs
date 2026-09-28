@@ -20,6 +20,32 @@
 
 use crate::provider::ProviderId;
 
+/// The system a build of a tool is for.
+///
+/// A tool's builds for different systems do not carry the same code. Claude Code's Linux
+/// build has no keychain code at all, so a fact about the macOS keychain, read from it,
+/// reports the keychain gone. Measured on 2.1.278, 2.1.281 and 2.1.284, where 1,462 string
+/// literals are in the macOS build only and 85 in the Linux build only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Platform {
+    MacOs,
+    Linux,
+}
+
+impl Platform {
+    /// Both, for a fact that holds the same on either.
+    pub const ALL: &'static [Platform] = &[Platform::MacOs, Platform::Linux];
+
+    /// Stable, lower case, as a report names it.
+    pub fn code(self) -> &'static str {
+        match self {
+            Platform::MacOs => "macos",
+            Platform::Linux => "linux",
+        }
+    }
+}
+
 /// One thing pitboard believes about a tool it parks logins for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Assumption {
@@ -39,9 +65,7 @@ pub struct Assumption {
     ///
     /// These are a cheap and shallow check. A literal being present does not prove the
     /// behaviour around it is unchanged; a literal disappearing does prove something moved.
-    /// Measured across six builds: the set below holds from 2.1.273 onwards, and correctly
-    /// goes red on 2.1.124, which predates the write lock, the two extra account-scoped
-    /// keys and the keychain error classification.
+    /// Read from the builds [`read_on`] names, and only from those.
     pub probe: &'static [&'static str],
     /// Literals whose *arrival* would disprove the fact.
     ///
@@ -63,6 +87,18 @@ pub fn of(provider: ProviderId) -> &'static [Assumption] {
     match provider {
         ProviderId::Claude => crate::provider::claude::assumptions::ASSUMPTIONS,
         ProviderId::Codex => crate::provider::codex::assumptions::ASSUMPTIONS,
+    }
+}
+
+/// The systems whose builds one of a provider's facts is read from.
+///
+/// Each register says this beside its facts rather than in them: `Assumption` can be
+/// written as a literal outside this crate, and a field added to it would break every such
+/// literal.
+pub fn read_on(provider: ProviderId, name: &str) -> &'static [Platform] {
+    match provider {
+        ProviderId::Claude => crate::provider::claude::assumptions::read_on(name),
+        ProviderId::Codex => Platform::ALL,
     }
 }
 
@@ -173,19 +209,62 @@ mod tests {
     #[test]
     fn a_keyring_arriving_where_there_was_none_is_reported() {
         let no_keyring = named("no_keyring_off_macos").unwrap();
+        let backends = r#"tengu_windows_credman CLAUDE_CODE_FORCE_WINDOWS_CREDMAN ["keychain","plaintext","windows-credman"]"#;
+        assert_eq!(read_from_build(no_keyring, backends), Reading::Holds);
+        assert_eq!(
+            read_from_build(no_keyring, &format!("{backends} Bun.secrets.get")),
+            Reading::Appeared(vec!["Bun.secrets"])
+        );
+    }
+
+    /// `libsecret` is in every Linux build of Claude Code since at least 2.1.278, in the
+    /// Bun runtime it ships inside, and Claude Code's own code never reaches it. As a needle
+    /// it reported a keyring backend that was not there, from the first run that read a
+    /// Linux build.
+    #[test]
+    fn the_bundled_runtime_is_not_taken_for_a_keyring() {
+        let no_keyring = named("no_keyring_off_macos").unwrap();
+        assert!(!no_keyring.absent.contains(&"libsecret"));
+        let backends = r#"tengu_windows_credman CLAUDE_CODE_FORCE_WINDOWS_CREDMAN ["keychain","plaintext","windows-credman"]"#;
         assert_eq!(
             read_from_build(
                 no_keyring,
-                "tengu_windows_credman CLAUDE_CODE_FORCE_WINDOWS_CREDMAN"
+                &format!("{backends} libsecret not available. libsecret-1.so.0")
             ),
             Reading::Holds
         );
+    }
+
+    /// Every fact is read from at least one build. One read from none would never be
+    /// checked, and nothing would say so.
+    #[test]
+    fn every_fact_is_read_from_some_build() {
+        for &provider in ProviderId::ALL {
+            for a in of(provider) {
+                assert!(
+                    !read_on(provider, a.name).is_empty(),
+                    "{} is read from no build",
+                    a.name
+                );
+            }
+        }
+    }
+
+    /// The keychain facts are read from a macOS build, and the fact about Linux having no
+    /// keyring from a Linux one. Read from the wrong build, each reported drift that was
+    /// not there.
+    #[test]
+    fn each_keychain_fact_is_read_where_the_keychain_code_is() {
+        for name in ["keychain_write_route", "keychain_absence_codes"] {
+            assert_eq!(
+                read_on(ProviderId::Claude, name),
+                &[Platform::MacOs],
+                "{name}"
+            );
+        }
         assert_eq!(
-            read_from_build(
-                no_keyring,
-                "tengu_windows_credman CLAUDE_CODE_FORCE_WINDOWS_CREDMAN libsecret_password_store"
-            ),
-            Reading::Appeared(vec!["libsecret"])
+            read_on(ProviderId::Claude, "no_keyring_off_macos"),
+            &[Platform::Linux]
         );
     }
 

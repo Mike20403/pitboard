@@ -6,8 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- In `pitboard-core`, `assumptions::read_on` says which systems' builds a fact is read from,
+  as the new `assumptions::Platform`.
+
 ### Changed
 
+- pitboard's facts about Claude Code are read from 2.1.284, and from its macOS build as well
+  as its Linux one. The weekly check reported three facts moved from 2.1.281; all three were
+  read from the Linux build, which has no keychain code, or from the runtime Claude Code
+  ships in. The one real change is that Claude Code no longer moves its login to the
+  plaintext file when the keychain is locked, and nothing in pitboard depends on the old
+  behaviour.
 - The README introduces pitboard and links to
   [docs.usepitboard.com](https://docs.usepitboard.com), where the guides and reference are.
 - `SECURITY.md` is only the security policy: which versions get fixes, how to report a

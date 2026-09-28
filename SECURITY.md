@@ -60,7 +60,7 @@ A report is in scope when pitboard fails at one of these.
   only a parked login, which it alone holds, because a second renewer would break a login.
   It stores the renewed login before deleting the old one, under its lock.
 - pitboard takes the lock Claude Code takes around each write of its login. As read in
-  Claude Code 2.1.278, sessions and the supervisor daemon wait for that lock and read the
+  Claude Code 2.1.284, sessions and the supervisor daemon wait for that lock and read the
   login again inside it. So neither can write an older account back over a switch. A
   `/logout` that gave up waiting deletes the login without the lock, so pitboard reads the
   login back after each switch.

@@ -13,7 +13,7 @@ A Claude Code parked login holds the account's OAuth block, plus any `organizati
 
 On Linux, parked logins are files in `~/.pitboard/vault/`, at mode 0600 in a 0700 directory. Any process running as you can read them, as it can the login in use, which each tool keeps in a file at mode 0600.
 
-As read in Claude Code 2.1.278, Claude Code keeps its login in a plaintext `~/.claude/.credentials.json`. `pitboard doctor` fails if anyone else can read that file or the vault. On both systems, it warns if anyone else can read Codex's `auth.json`.
+Claude Code keeps its login in a plaintext `~/.claude/.credentials.json`, as read in Claude Code 2.1.284. `pitboard doctor` fails if anyone else can read that file or the vault. On both systems, it warns if anyone else can read Codex's `auth.json`.
 
 pitboard's other files hold no token, though some hold your email address, account identifiers and project paths; see [Files and environment variables](/reference/files#the-pitboard-directory).
 
@@ -36,11 +36,11 @@ Every request verifies TLS against your system's trust store. Requests to Anthro
 
 ## Large logins on macOS
 
-pitboard hands a login to `security` in hex on standard input, where `ps` cannot see it. pitboard keeps that input within 4032 bytes, the ceiling Claude Code 2.1.278 used, so about 2 KB of login fits.
+pitboard hands a login to `security` in hex on standard input, where `ps` cannot see it. pitboard keeps that input within 4032 bytes, the ceiling Claude Code uses (read in 2.1.284), so about 2 KB of login fits.
 
 MCP server tokens can push a Claude Code login past that. Every Codex parked login is past it, because it is Codex's whole `auth.json`, over 4 KB before hex encoding.
 
-Past the ceiling, pitboard passes the login as an argument, which another process running as you could read while the call lasts. Claude Code 2.1.278 wrote its own large logins the same way. Codex keeps its login in a file, so for a Codex account this exposure comes from pitboard alone.
+Past the ceiling, pitboard passes the login as an argument, which another process running as you could read while the call lasts. Claude Code writes its own large logins the same way. Codex keeps its login in a file, so for a Codex account this exposure comes from pitboard alone.
 
 A switch or `--sign-in` enrolment that does this says so; a renewal does not.
 
