@@ -5,6 +5,8 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-28
+
 ### Changed
 - The menu bar item opens a menu instead of a panel, as macOS asks of a menu bar item. Each
   account is an item under its tool, checked when it is the one in use and subtitled with
@@ -817,7 +819,8 @@ First release.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 
-[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/datlechin/pitboard/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/datlechin/pitboard/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/datlechin/pitboard/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/datlechin/pitboard/compare/v0.2.0...v0.3.0
