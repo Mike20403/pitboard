@@ -22,6 +22,9 @@ All notable changes are recorded here. The format follows
   which refuses while nothing is signed in. It says to sign in with `codex login`.
 - The man page listed a page per command, such as `pitboard-status(1)`, and none of them is
   installed. It sets out every command, with its arguments and options, on its one page.
+- The app never said that Claude Code is not installed: it waited for a read to fail in a
+  way no read does. It says so when it finds neither `claude` nor `codex` and nothing is
+  signed in to either.
 
 ## [0.5.0] - 2026-09-28
 

@@ -81,7 +81,7 @@ func eachFixtureStartsWhereItsTestsExpect(_ fixture: Fixture) async throws {
         case .onlyOne: (nil, [work])
         case .unnamed: (nil, ["dana@work.example, in use"])
         case .empty, .firstLaunch: (nil, [])
-        case .noClaudeCode: ("claude_program_missing", [])
+        case .noClaudeCode: (nil, [])
         case .readFailure: ("unreachable", [work, "claude/personal"])
         case .stuck: ("recovery_undetermined", [work, "claude/personal"])
         }

@@ -34,12 +34,6 @@
         func status(fresh: Bool) async throws -> Status {
             try lock.withLock {
                 switch fixture {
-                case .noClaudeCode:
-                    throw PitboardError.Failed(
-                        code: "claude_program_missing", cause: nil,
-                        message: "`claude` is not on this machine. Install Claude Code and "
-                            + "sign in to it once.",
-                        warnings: [])
                 case .readFailure:
                     throw PitboardError.Failed(
                         code: "unreachable", cause: nil,

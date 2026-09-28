@@ -15,7 +15,7 @@
         case empty
         /// `empty`, opened for the first time.
         case firstLaunch
-        /// Claude Code is not on this machine.
+        /// Neither Claude Code nor Codex is on this machine, and nothing is signed in.
         case noClaudeCode
         /// Somebody is signed in to Claude Code and pitboard has no name for them.
         case unnamed
