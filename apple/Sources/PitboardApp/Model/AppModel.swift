@@ -246,9 +246,11 @@ public final class AppModel {
 
     /// `asked` means somebody asked for this reading rather than a timer producing it, and
     /// is what tells the core to ask each service again whatever it read moments ago. The
-    /// first read also asks which tools are installed, for the sheet for a new account.
+    /// first read also asks which tools are installed, for the sheet for a new account, and
+    /// each read asks again while none has been found: the service asks a login shell that
+    /// was too slow to answer once more, and finding none is what says to install a tool.
     func refresh(ifOlderThan seconds: TimeInterval = 0, asked: Bool = false) async {
-        if !askedWhatIsInstalled {
+        if !askedWhatIsInstalled || installed.isEmpty {
             askedWhatIsInstalled = true
             await askWhatIsInstalled()
         }
@@ -492,9 +494,9 @@ public final class AppModel {
     /// want to. Every state before `ready` used to show either a line naming a command to run
     /// or nothing at all, which is the same as telling them the app does not work.
     enum Footing: Equatable {
-        /// Claude Code is not on this machine and no other tool has an account here.
-        /// Nothing pitboard does means anything without a tool, and pitboard cannot install
-        /// one.
+        /// No tool pitboard works with was found on this machine, and none has an account
+        /// or a login here. Nothing pitboard does means anything without a tool, and
+        /// pitboard cannot install one. Claude Code is the tool it names.
         case noClaudeCode
         /// No tool has anybody signed in, and nothing is enrolled.
         case noOneSignedIn
@@ -513,15 +515,16 @@ public final class AppModel {
     /// signed in to, and a Claude Code account beside a Codex one still has nothing to
     /// switch to.
     var footing: Footing {
-        let accounts = status?.accounts
-        if problemCode == "claude_program_missing",
-            accounts?.allSatisfy({ $0.provider == "claude" }) ?? true
-        {
-            return .noClaudeCode
-        }
         // Before the first read there is nothing to go on, and guessing at this point
         // shows somebody a setup step they may have finished years ago.
-        guard let accounts else { return .ready }
+        guard let accounts = status?.accounts else { return .ready }
+        // Said only where nothing else is: a login or an account means a tool is here
+        // however it was installed, and a program the app could not find may still be.
+        // The core's read does not fail for a missing tool, so this is the one place it
+        // shows. It used to be told by a failure no read gives, and was never shown.
+        if accounts.isEmpty, askedWhatIsInstalled, installed.isEmpty {
+            return .noClaudeCode
+        }
         guard accounts.contains(where: \.signedIn) else {
             // Enrolled accounts with nobody signed in is a machine mid-switch or one whose
             // login was signed out from elsewhere, not a machine that needs setting up.

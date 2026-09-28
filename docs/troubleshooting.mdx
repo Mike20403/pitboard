@@ -60,7 +60,7 @@ Old numbers say when they were measured, as in `measured 14:02, 1m ago`, and may
 | Reason | Cause and fix |
 | --- | --- |
 | No reason | pitboard asked moments ago. For an account with a five-hour limit, it does not ask again for 3 minutes. To ask anyway, run `pitboard status --fresh` or choose **Refresh** in pitboard's menu. |
-| `Anthropic is rate limiting usage checks` | Anthropic asked for fewer requests. pitboard waits, then asks again. |
+| `Anthropic is rate limiting usage checks` | Anthropic asked for fewer requests. pitboard waits, then asks again. `--fresh` and **Refresh** wait too. |
 | `Anthropic could not be reached` | Check the connection. pitboard waits, then asks again. |
 | `Anthropic answered with an error; try again later` | Anthropic returned an error. pitboard waits, then asks again. |
 

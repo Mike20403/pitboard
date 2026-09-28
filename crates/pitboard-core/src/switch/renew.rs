@@ -167,6 +167,11 @@ struct Asked {
 /// at once.
 fn ask(ctx: &Context, key: &Key, held: &Park) -> Result<Asked> {
     let document = park::load(ctx, key, held)?;
+    // The service spends the old refresh token as it answers, so an answer that could not
+    // be written back would lose the login. Where it could not be, the service is not
+    // asked: a renewed login is this one with new tokens of the same length, so this one's
+    // size answers for it. On macOS with PITBOARD_NO_ARGV, that is every Codex park.
+    park::price(ctx, key.provider, &key.typed(), &held.service, &document)?;
     let tool = crate::provider::of(key.provider);
     let credential = crate::provider::Credential::new(key.provider, document);
     match tool.renew(ctx, &credential) {
@@ -528,6 +533,50 @@ mod tests {
             );
             assert_eq!(m.mem.vault().services(), vec![before.service.clone()]);
         }
+    }
+
+    /// With the argument line forbidden, a login past the keychain's standard input cannot
+    /// be written back, and the service spends the old refresh token as it answers. It is
+    /// not asked: the park stays as it was, and the reason is said. It used to be asked,
+    /// and the login was lost.
+    #[test]
+    fn a_park_that_could_not_be_written_back_is_not_renewed() {
+        let mut m = machine("no-argv");
+        m.ctx = m.ctx.clone().with_argv_fallback(false);
+        let before = with_park(&m, "work", "old", NOW - 1);
+        m.mem.vault().takes_on_stdin(16);
+        m.api.renews("old", fresh("new"));
+
+        let outcomes = renew_parked(&m.ctx);
+
+        assert_eq!(outcome(&outcomes, "work"), "credential_too_large");
+        assert_eq!(
+            m.api.calls(),
+            0,
+            "the service was not asked, so nothing was spent"
+        );
+        let state = state::load(&m.ctx).expect("state");
+        assert_eq!(
+            state
+                .get(&Key::new(crate::provider::ProviderId::Claude, "work"))
+                .expect("account")
+                .parked,
+            Some(before.clone())
+        );
+        assert_eq!(m.mem.vault().services(), vec![before.service.clone()]);
+    }
+
+    /// The same login with the argument line allowed is renewed as usual.
+    #[test]
+    fn a_park_past_the_ceiling_is_renewed_where_the_argument_line_is_allowed() {
+        let m = machine("argv");
+        with_park(&m, "work", "old", NOW - 1);
+        m.mem.vault().takes_on_stdin(16);
+        m.api.renews("old", fresh("new"));
+
+        let outcomes = renew_parked(&m.ctx);
+
+        assert_eq!(outcome(&outcomes, "work"), "renewed");
     }
 
     /// The failure this module's comments describe and no test could reach: Anthropic has

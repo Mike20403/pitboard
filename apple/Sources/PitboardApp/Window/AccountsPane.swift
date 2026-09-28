@@ -65,8 +65,9 @@ struct AccountsPane: View {
                 Label("Claude Code Isn’t Installed", systemImage: Symbol.terminal)
             } description: {
                 Text(
-                    "pitboard parks and restores Claude Code’s logins, so there is nothing "
-                        + "for it to do until Claude Code is installed and signed in once.")
+                    "pitboard switches the logins of Claude Code and Codex, so there is "
+                        + "nothing for it to do until one of them is installed and signed in "
+                        + "once.")
             } actions: {
                 Link("How to Install Claude Code", destination: Links.installClaudeCode)
                     .buttonStyle(.borderedProminent)

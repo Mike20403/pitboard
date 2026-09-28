@@ -16,6 +16,8 @@ private final class StubCore: Core, @unchecked Sendable {
     /// What the next sign-in hands back; nil refuses it the way a missing program does.
     var session: SignIn?
     var abandoned: Abandoned?
+    /// The tools whose program the app found.
+    var found: [Tool] = [claudeCode]
 
     init(_ answer: Result<Status, Error>) {
         self.answer = answer
@@ -52,7 +54,7 @@ private final class StubCore: Core, @unchecked Sendable {
     func changedAt() async -> Int64 { 0 }
     func readingsChangedAt() async -> Int64 { 0 }
     func tools() -> [Tool] { bothTools }
-    func installed() async -> [Tool] { [claudeCode] }
+    func installed() async -> [Tool] { found }
     func searchPath() async -> String? { nil }
 }
 
@@ -654,25 +656,29 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
     #expect(some.status?.accounts.isEmpty == false)
     #expect(some.notices().map(\.id) == ["read"])
 
-    let missing = AppModel(
-        testing: StubCore(refused("claude_program_missing", "`claude` is not on this machine")))
+    let bare = StubCore(failed)
+    bare.found = []
+    let missing = AppModel(testing: bare)
     await missing.refresh()
     #expect(missing.status?.accounts.isEmpty == true)
     #expect(missing.footing == .noClaudeCode)
 }
 
-/// Without Claude Code there is nothing to read, and the menu says how to install it instead.
+/// Without a tool there is nothing to read, and the menu says how to install one instead.
 /// A failed read beside that would be the same fact said as a fault. Once another tool has an
 /// account here the machine is not without a tool, and a failed read is one.
 @MainActor
 @Test func aMachineWithoutClaudeCodeIsNotToldItsReadFailed() async {
-    let missing = refused("claude_program_missing", "`claude` is not on this machine")
-    let bare = AppModel(testing: StubCore(missing))
+    let missing = refused("unreachable", "Anthropic could not be reached")
+    let nothing = StubCore(missing)
+    nothing.found = []
+    let bare = AppModel(testing: nothing)
     await bare.refresh()
     #expect(bare.footing == .noClaudeCode)
     #expect(bare.notices().isEmpty)
 
     let core = StubCore(missing)
+    core.found = []
     core.offline = .success(status([account("job", of: "codex", signedIn: true)]))
     let withCodex = AppModel(testing: core)
     await withCodex.refresh()

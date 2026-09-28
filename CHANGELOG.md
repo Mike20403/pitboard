@@ -5,6 +5,27 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `pitboard status --fresh`, and Refresh in the app, asked Anthropic or OpenAI again during a
+  wait the service had asked for, which the 0.3.0 notes and `pitboard doctor` said they did
+  not. They keep that wait now, and still try again a service that could not be reached. An
+  account never answered before and then not reached was said to be rate limited.
+- With `PITBOARD_NO_ARGV=1`, renewing a parked login too large for `security`'s standard
+  input spent its refresh token and then could not store the new one, so the parked login
+  was lost. pitboard refuses before asking now, and the park stays as it was.
+- The menu bar app ignored `PITBOARD_NO_ARGV`, and so did daily renewal unless its
+  scheduler set it. The app reads it from its own environment, and a schedule installed
+  while it is set keeps it.
+- A switch whose login could not be read back said to run `pitboard` again, which only
+  reads. It names the `pitboard use` that finishes or undoes the switch.
+- With Codex's `auth.json` missing, `pitboard doctor` suggested `pitboard use codex/<label>`,
+  which refuses while nothing is signed in. It says to sign in with `codex login`.
+- The man page listed a page per command, such as `pitboard-status(1)`, and none of them is
+  installed. It sets out every command, with its arguments and options, on its one page.
+- The app never said that Claude Code is not installed: it waited for a read to fail in a
+  way no read does. It says so when it finds neither `claude` nor `codex` and nothing is
+  signed in to either.
+
 ## [0.5.0] - 2026-09-28
 
 ### Changed

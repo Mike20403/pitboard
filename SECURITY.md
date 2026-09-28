@@ -60,12 +60,12 @@ writes the same way without a warning. For a Claude Code login this is what Clau
 itself does on every token refresh. Codex writes its login to a file, so for a Codex park
 the exposure is pitboard's alone, on every Codex switch, `--sign-in` enrolment and renewal
 on macOS. `PITBOARD_NO_ARGV=1` refuses the write instead, for anyone who would rather have
-neither; on macOS that means no Codex account can be parked. Set it before parking any
-Codex account: with Codex parks already in the keychain, the next renewal exchanges the
-refresh token and then cannot store the result, and that account's parked login is lost.
-Only the command line reads `PITBOARD_NO_ARGV`, from its own environment: the menu bar app
-writes on the argument line whatever it is set to, and so does a scheduled renewal unless
-the scheduler's own environment sets it.
+neither; on macOS that means no Codex account can be parked. A park that could not be
+written back is not renewed either: pitboard refuses before asking the service, since the
+service spends the old refresh token as it answers, so the park stays as it was. The
+command line reads `PITBOARD_NO_ARGV` from its shell and the menu bar app from its own
+environment, which does not include the shell's when it opens from Finder or at login. A
+renewal schedule installed while it is set carries it into the scheduler's job.
 
 ### Linux
 

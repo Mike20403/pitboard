@@ -1333,17 +1333,53 @@ private func standInApp(in directory: URL) throws -> URL {
 }
 
 /// The one state pitboard cannot do anything about. It has to say so rather than show an
-/// empty panel, which reads as an app that does not work.
+/// empty panel, which reads as an app that does not work. The core's read succeeds with
+/// nothing to list on such a machine, so what says it is that no tool was found. It was told
+/// by a read failing for a missing program, which no read does, and was never shown.
 @MainActor
 @Test func aMachineWithoutClaudeCodeIsToldThatFirst() async {
-    let model = AppModel(
-        testing: Stub(
-            .failure(
-                PitboardError.Failed(
-                    code: "claude_program_missing", cause: nil,
-                    message: "`claude` is not on this machine", warnings: []))))
+    let stub = Stub(.success(status([])))
+    stub.found = []
+    let model = AppModel(testing: stub)
+    #expect(model.footing == .ready, "nothing is said before the first read")
     await model.refresh()
     #expect(model.footing == .noClaudeCode)
+}
+
+/// A tool that was found, or a login or an account of any tool, means a tool is here, and
+/// the machine is one to set up rather than one to install on.
+@MainActor
+@Test func aToolFoundOrSignedInIsNotAMachineWithoutOne() async {
+    let codexOnly = Stub(.success(status([])))
+    codexOnly.found = [codex]
+    let found = AppModel(testing: codexOnly)
+    await found.refresh()
+    #expect(found.footing == .noOneSignedIn)
+
+    let signedIn = Stub(.success(status([account("job", of: "codex", signedIn: true)])))
+    signedIn.found = []
+    let unfound = AppModel(testing: signedIn)
+    await unfound.refresh()
+    #expect(unfound.footing != .noClaudeCode)
+}
+
+/// A login shell too slow to answer finds nothing the first time, and the service asks it
+/// once more later, so a read asks again while nothing has been found. Once a tool is found
+/// the question stops.
+@MainActor
+@Test func whatIsInstalledIsAskedAgainWhileNothingIsFound() async {
+    let stub = Stub(.success(status([])))
+    stub.found = []
+    let model = AppModel(testing: stub)
+    await model.refresh()
+    #expect(model.footing == .noClaudeCode)
+
+    stub.found = [claudeCode]
+    await model.refresh()
+    #expect(stub.installedAsks == 2)
+    #expect(model.footing == .noOneSignedIn)
+    await model.refresh()
+    #expect(stub.installedAsks == 2)
 }
 
 @MainActor

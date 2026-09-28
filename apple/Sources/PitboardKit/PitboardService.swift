@@ -349,7 +349,8 @@ extension Settings {
             codexHome: environment["CODEX_HOME"],
             codexProgram: find("codex", unless: "PITBOARD_CODEX"),
             searchPath: loginPath.map { _ in shell.joined(separator: ":") },
-            scheduleProgram: bundle.flatMap(bundledCommandLine(in:))
+            scheduleProgram: bundle.flatMap(bundledCommandLine(in:)),
+            noArgv: environment["PITBOARD_NO_ARGV"] == "1"
         )
     }
 

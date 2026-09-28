@@ -12,6 +12,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 use ui::{BOLD, DIM, WARN, paint};
 
+mod manpage;
 mod render;
 mod ui;
 
@@ -890,7 +891,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Command::Manpage => {
-            return match clap_mangen::Man::new(Cli::command()).render(&mut std::io::stdout()) {
+            return match manpage::render(Cli::command(), &mut std::io::stdout()) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(_) => ExitCode::FAILURE,
             };
@@ -947,5 +948,56 @@ mod tests {
     #[test]
     fn no_arguments_means_status() {
         assert!(Cli::try_parse_from(["pitboard"]).unwrap().command.is_none());
+    }
+
+    /// Only `pitboard.1` is installed, so the page sets out every command itself. It used
+    /// to list `pitboard-status(1)` and the like, pages nobody installed.
+    #[test]
+    fn the_man_page_sets_out_every_command_itself() {
+        let mut out = Vec::new();
+        manpage::render(Cli::command(), &mut out).unwrap();
+        let page = String::from_utf8(out).unwrap();
+        assert!(
+            !page.contains("(1)"),
+            "a reference to another page:\n{page}"
+        );
+        for typed in [
+            "pitboard status",
+            "pitboard enroll",
+            "pitboard use",
+            "pitboard forget",
+            "pitboard abandon",
+            "pitboard repair",
+            "pitboard adopt",
+            "pitboard renew",
+            "pitboard schedule install",
+            "pitboard schedule status",
+            "pitboard schedule uninstall",
+            "pitboard log",
+            "pitboard uninstall",
+            "pitboard rename",
+            "pitboard doctor",
+            "pitboard statusline",
+            "pitboard completions",
+        ] {
+            assert!(
+                page.contains(&format!("\\fB{typed}\\fR")),
+                "{typed} missing:\n{page}"
+            );
+        }
+        for option in [r"\-\-offline", r"\-\-sign\-in", r"\-y", r"\-\-lines"] {
+            assert!(page.contains(option), "{option} missing:\n{page}");
+        }
+        assert!(page.contains("[possible values: bash"), "{page}");
+        assert!(page.contains("[default: 20]"), "{page}");
+        assert!(
+            !page.contains("pitboard manpage"),
+            "the hidden command is shown"
+        );
+        assert!(!page.contains("pitboard help"), "clap's own help is shown");
+        assert!(
+            page.contains(".SH SYNOPSIS") && page.contains(".SH VERSION"),
+            "{page}"
+        );
     }
 }

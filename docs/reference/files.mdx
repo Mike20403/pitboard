@@ -100,7 +100,7 @@ Opened from Finder, the app does not see your shell's variables, so the defaults
 | --- | --- | --- |
 | `HOME` | Both | Your home directory, the `~` in every path here. |
 | `PITBOARD_HOME` | Both | pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`. |
-| `PITBOARD_NO_ARGV` | Command line | On macOS, when it is `1`, the command line refuses to write a large login on `security`'s argument line. Setting it after a Codex account is parked can lose that parked login at its next renewal. See [Large logins on macOS](/security#large-logins-on-macos). |
+| `PITBOARD_NO_ARGV` | Both | On macOS, when it is `1`, pitboard refuses to write a large login on `security`'s argument line, and does not renew a parked login it could not write back. A renewal schedule installed while it is set keeps it. See [Large logins on macOS](/security#large-logins-on-macos). |
 | `PITBOARD_API_BASE` | Command line | For pitboard's tests. Sends the requests meant for Anthropic and OpenAI to this URL, if it is an `http` URL whose host is a loopback IP address, such as `http://127.0.0.1:8080`. |
 | `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Empty counts as unset. |
 | `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Both | The directory that picks Claude Code's keychain item, `.credentials.json` and lock, in place of the config directory. Set but empty, it picks `~/.claude` and `Claude Code-credentials`. |

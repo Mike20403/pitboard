@@ -30,7 +30,7 @@ An account asked about recently is not asked again until its numbers could have 
 
 `--offline` renews nothing and writes nothing. It takes who is signed in from each tool's own files, and each account says `read without asking Anthropic` or `read without asking OpenAI`.
 
-`--fresh` asks even while pitboard is waiting out a rate limit or an unreachable service. Giving both options is refused with exit status 2.
+`--fresh` asks again a service pitboard could not reach moments ago, but not one that asked pitboard to wait: those accounts keep their last numbers until the wait ends. Giving both options is refused with exit status 2.
 
 `status` exits 0 even when a service cannot be reached, and the account's last line says why. It exits 1 only when pitboard cannot load its account list.
 

@@ -104,7 +104,8 @@ Usage comes from Anthropic for Claude Code accounts and from OpenAI for Codex ac
 all accounts at once. A number is asked for again once the tightest limit it describes could
 have moved by a percentage point, which for a five-hour window is three minutes, so running
 `pitboard` twice in a row costs one set of requests and the app and the command line share
-one between them. `pitboard status --fresh` asks anyway. If a parked
+one between them. `pitboard status --fresh` asks anyway, unless a service asked pitboard to
+wait. If a parked
 login has expired, pitboard renews it first. If the service cannot be reached, or asks for
 less traffic, you get the last numbers pitboard saw, and when it saw them.
 
@@ -365,12 +366,11 @@ as you could read it while the call lasts. Claude Code does the same for its own
 every token refresh. pitboard does it too, and says so after a switch or a `--sign-in`
 enrolment that does it. It does not say so when it renews a parked login, and on macOS
 every Codex park renewal goes that way. `PITBOARD_NO_ARGV=1` refuses instead, which on
-macOS means no Codex account can be parked. Set it before parking any Codex account: with a
-Codex park already in the keychain, the next renewal exchanges the refresh token and then
-cannot store the result, and that account's parked login is lost. Only the command line
-reads `PITBOARD_NO_ARGV`: the menu bar app ignores it, and a scheduled renewal sees it only
-if the scheduler's own environment sets it. `pitboard doctor` shows the size of the Claude
-Code login.
+macOS means no Codex account can be parked, and a Codex park already there is not renewed:
+pitboard refuses before asking OpenAI, so the park stays as it was. The app reads it from
+its own environment, which an app opened from Finder does not share with your shell, and a
+renewal schedule installed while it is set keeps it. `pitboard doctor` shows the size of the
+Claude Code login.
 
 **What about Gemini CLI?** Not supported. Since 18 June 2026 Google no longer offers Gemini
 CLI's "Login with Google" to individual, Google AI Pro and Google AI Ultra accounts

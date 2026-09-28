@@ -1413,8 +1413,9 @@ fn judge_codex(facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> 
                     "{} is absent: nothing is signed in to Codex",
                     facts.auth_file.display()
                 ),
-                "Sign in with `codex`, or put an enrolled account back with \
-                 `pitboard use codex/<label>`.",
+                "Sign in to one of your enrolled accounts with `codex login`. A switch \
+                 needs an account signed in to park, so `pitboard use` cannot put one \
+                 back while nothing is.",
             ),
             None => ok(
                 "codex_auth_file",
@@ -2484,6 +2485,8 @@ mod tests {
         );
 
         // Accounts enrolled on a machine whose Codex home has gone still get the section.
+        // The way back is signing in: a switch refuses while nothing is signed in, so
+        // advice to switch would send somebody to a command that fails.
         f.codex = CodexFacts {
             enrolled: 1,
             ..no_codex()
@@ -2491,8 +2494,9 @@ mod tests {
         let checks = evaluate(&f);
         let file = check(&checks, "codex_auth_file");
         assert_eq!(file.level, Level::Warn);
+        assert!(file.advice.contains("`codex login`"), "{}", file.advice);
         assert!(
-            file.advice.contains("pitboard use codex/"),
+            !file.advice.contains("pitboard use codex/"),
             "{}",
             file.advice
         );

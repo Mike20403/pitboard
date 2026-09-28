@@ -39,6 +39,10 @@ pub struct Settings {
     /// build directory, and then there is nothing to schedule.
     #[uniffi(default)]
     pub schedule_program: Option<String>,
+    /// `PITBOARD_NO_ARGV=1`: refuse to write a login on the argument line, as the command
+    /// line does when its environment says so.
+    #[uniffi(default = false)]
+    pub no_argv: bool,
 }
 
 impl Settings {
@@ -70,6 +74,9 @@ impl Settings {
         }
         if let Some(program) = self.schedule_program {
             ctx = ctx.with_schedule_program(PathBuf::from(program));
+        }
+        if self.no_argv {
+            ctx = ctx.with_argv_fallback(false);
         }
         // These bindings exist for the app, so a change made through them says so.
         ctx.with_caller("app".into())
@@ -806,7 +813,20 @@ mod tests {
             codex_program: None,
             search_path: None,
             schedule_program,
+            no_argv: false,
         }
+    }
+
+    /// `PITBOARD_NO_ARGV` reaches the app's core as it reaches the command line's. The app
+    /// used to write on the argument line whatever it was set to.
+    #[test]
+    fn the_app_refuses_the_argument_line_where_it_is_told_to() {
+        assert!(settings(None).context().argv_fallback());
+        let refusing = Settings {
+            no_argv: true,
+            ..settings(None)
+        };
+        assert!(!refusing.context().argv_fallback());
     }
 
     #[test]
