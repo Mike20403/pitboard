@@ -111,7 +111,9 @@ each one.
 
 ## Contributing
 
-One person maintains pitboard. To report a bug, use the
+One person maintains pitboard, and everyone taking part follows the
+[code of conduct](https://github.com/datlechin/pitboard/blob/main/CODE_OF_CONDUCT.md). To
+report a bug, use the
 [bug report form](https://github.com/datlechin/pitboard/issues/new?template=bug.yml).
 [Report a bug](https://github.com/datlechin/pitboard/blob/main/CONTRIBUTING.md#report-a-bug)
 says what it asks for and what is safe to paste.

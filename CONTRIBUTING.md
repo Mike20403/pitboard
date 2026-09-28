@@ -1,7 +1,8 @@
 # Contributing
 
-One person maintains pitboard. Send a change as a pull request against `main`. CI runs on
-every pull request. To report a security problem, follow [SECURITY.md](SECURITY.md) instead
+One person maintains pitboard. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md). Send a change as a pull request against `main`. CI
+runs on every pull request. To report a security problem, follow [SECURITY.md](SECURITY.md) instead
 of opening an issue. [ARCHITECTURE.md](ARCHITECTURE.md) describes how the code is organised
 and the measured facts it rests on. [RELEASING.md](RELEASING.md) describes how a release is
 made.
