@@ -1,0 +1,70 @@
+---
+title: "Remove pitboard"
+description: "Delete parked logins and pitboard's files with `pitboard uninstall`, then remove pitboard the way you installed it."
+---
+
+To remove pitboard and the logins it parked, run `pitboard uninstall` before you remove pitboard itself. A parked login is the login pitboard holds for an account that is not in use.
+
+## Delete parked logins and pitboard's files
+
+`pitboard uninstall` turns off the daily renewal schedule and deletes every parked login it wrote. Then it deletes pitboard's own directory, `~/.pitboard`.
+
+<Warning>
+  `pitboard uninstall` cannot be undone. Claude Code and OpenAI's Codex CLI stay signed in to the accounts in use. Every other account needs a browser sign-in before you can use it again.
+</Warning>
+
+1. If the app is open, quit it: click pitboard's item in the menu bar, then choose **Quit pitboard**. While it runs, it recreates `~/.pitboard`.
+2. If Claude Code's status line runs `pitboard statusline`, remove it: delete the `statusLine` field from `~/.claude/settings.json`, or the call from your own script. Claude Code runs it after each response, and each run recreates `~/.pitboard`.
+3. Run `pitboard uninstall`:
+
+   ```sh
+   pitboard uninstall
+   ```
+
+   It asks before it deletes anything. Type `y`, then press Return. To skip the question, add `--yes`.
+
+   If you have only the app from a release download and your shell cannot find `pitboard`, run the command line inside the app:
+
+   ```sh
+   /Applications/Pitboard.app/Contents/Helpers/pitboard uninstall
+   ```
+
+With two parked logins and daily renewal on, `pitboard uninstall` prints:
+
+```text
+Removed 2 parked login(s). The login each tool is signed in with is untouched.
+Turned off the daily renewal schedule.
+~/.pitboard is gone. Remove pitboard itself the way you installed it.
+```
+
+On macOS, deleting `~/.pitboard` by hand leaves parked logins in the keychain, still valid. Only the account list in `~/.pitboard` records their names, so without it `pitboard uninstall` cannot find them. If you already deleted `~/.pitboard`, delete the `pitboard-park-` items in Keychain Access.
+
+If a parked login cannot be deleted, pitboard keeps `~/.pitboard`. Run `pitboard uninstall` again.
+
+If you set `PITBOARD_HOME` to move pitboard's directory, `pitboard uninstall` deletes that directory. It leaves the daily renewal schedule, which renews only `~/.pitboard`. If you do not use `~/.pitboard` either, turn the schedule off with `pitboard schedule uninstall`.
+
+On macOS, pitboard leaves any parked login that `pitboard repair` found in the keychain but this directory did not write. Another pitboard directory on the Mac may own it. The output says how many it left.
+
+If `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set in your environment or in Claude Code's settings, `pitboard uninstall` refuses to run. Unset it, then run `pitboard uninstall` again.
+
+## Remove pitboard itself
+
+| Installed with | To remove it |
+| --- | --- |
+| `pitboard` cask | `brew uninstall --cask pitboard` |
+| `pitboard-app` cask | `brew uninstall --cask pitboard-app` |
+| `cargo binstall` or `cargo install` | `cargo uninstall pitboard` |
+| A release tarball | Delete `pitboard` and any man page or completion files you copied from it. |
+| The app from a release download | Quit the app, then move `Pitboard.app` to the Trash. |
+
+Adding `--zap` to either `brew uninstall` removes the daily renewal schedule, if `pitboard uninstall` left it. For `pitboard-app`, `--zap` also removes the app's files in `~/Library`. Neither cask's `--zap` deletes `~/.pitboard`.
+
+If you installed the app with the `pitboard` cask of 0.3.0 or earlier, leave out `--zap`. For the reason, see [Upgrade from 0.3.0 or earlier](/install/upgrade-from-0-3-0#from-the-old-app-cask).
+
+Moving the app to the Trash leaves its files in `~/Library`. To remove them, move each `com.usepitboard.Pitboard` item that [Files and environment variables](/reference/files#the-app) lists to the Trash.
+
+If you clicked **Install Command Line Tool** in **Settings** > **Command Line**, remove the link it made, because nothing else does:
+
+```sh
+sudo rm /usr/local/bin/pitboard
+```

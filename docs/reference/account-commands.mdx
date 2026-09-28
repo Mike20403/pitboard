@@ -1,0 +1,228 @@
+---
+title: "Account commands"
+description: "`status`, `enroll`, `use`, `forget` and `rename` each get their usage, options, output and an example."
+---
+
+The account commands show, add, switch, forget and rename the accounts pitboard knows. Each also takes `--json` and `--help`, described in [Global options](/reference/commands#global-options). Exit statuses are as in [Exit codes](/reference/commands#exit-codes) unless a section says otherwise.
+
+A label such as `codex/work` names an account of OpenAI's Codex CLI. `pitboard enroll` reads a bare label such as `work` as a Claude Code account. `pitboard use`, `pitboard forget` and the first label of `pitboard rename` look for a bare label in both tools.
+
+A parked login is the login pitboard keeps for an account that is not in use. For more on both, see [Labels](/reference/commands#labels) and [Parked logins](/concepts/switching#parked-logins).
+
+## `status`
+
+```text
+What is signed in, and how much each account has left (the default)
+
+Usage: pitboard status [OPTIONS]
+```
+
+First, `status` renews each parked login whose access token has expired or expires within 2 minutes. Then it asks about every account at the same time: Anthropic for Claude Code accounts, OpenAI for Codex accounts. Each request times out after 5 seconds.
+
+An account asked about recently is not asked again until its numbers could have moved. For how long that takes, see [How usage is read](/concepts/usage#how-often-pitboard-asks).
+
+`status` shows Codex accounts only once one is enrolled. Until then, it reads none of Codex's files and asks OpenAI nothing.
+
+| Option | Description |
+| --- | --- |
+| `--offline` | Answer from what was last measured, without asking anyone |
+| `--fresh` | Ask about every account, even one asked about moments ago |
+
+`--offline` renews nothing and writes nothing. It takes who is signed in from each tool's own files, and each account says `read without asking Anthropic` or `read without asking OpenAI`.
+
+`--fresh` asks even while pitboard is waiting out a rate limit or an unreachable service. Giving both options is refused with exit status 2.
+
+`status` exits 0 even when a service cannot be reached, and the account's last line says why. It exits 1 only when pitboard cannot load its account list.
+
+To see the last numbers measured, without asking anyone:
+
+```sh
+pitboard status --offline
+```
+
+```text
+● personal  me@example.com  signed in
+    5h    ██████░░░░   59%  resets in 1h 10m
+    week  ███████░░░   73%  resets in 5d 18h
+          about 48m left at this rate
+          measured 14:02, 3m ago · read without asking Anthropic
+
+○ work      me@company.com  ready · good for 26d 4h
+    5h    █░░░░░░░░░   12%  resets in 3h 02m
+    week  ████░░░░░░   40%  resets in 2d 4h
+          resets in 3h 02m
+          measured 14:02, 3m ago · read without asking Anthropic
+```
+
+For what each line means, see [Check what each account has left](/guides/usage#read-the-lines-under-each-account). For the fields of `--json` output, see [JSON output](/reference/json-output#status-data).
+
+## `enroll`
+
+```text
+Add an account: the one signed in now, or with --sign-in, another one
+
+Usage: pitboard enroll [OPTIONS] <LABEL>
+```
+
+Without `--sign-in`, `pitboard enroll` records the account the tool is signed in to. It parks nothing: that account's login is parked the first time you switch away from it.
+
+With `--sign-in`, pitboard runs the tool's own sign-in without touching the login in use. Before a browser opens, pitboard checks that it can load its account list and write where the tool keeps its login. It also checks that the tool's program is on your `PATH`.
+
+Only one sign-in runs at a time. While one runs, pitboard holds a lock on `~/.pitboard/signin.lock` and refuses a second sign-in until the first finishes.
+
+The sign-in runs in a private directory, `~/.pitboard/signin`, which pitboard deletes and creates again, with mode 0700, before each sign-in. For Claude Code it runs `claude auth login` with `CLAUDE_CONFIG_DIR` set to that directory. For Codex it runs `codex login` with `CODEX_HOME` set to it.
+
+When the sign-in finishes, pitboard reads the new login the tool stored. Codex, and Claude Code on Linux, store it in that directory. Claude Code on macOS stores it in a keychain item made for that directory.
+
+pitboard then deletes the directory and, on macOS, the keychain item Claude Code created for that sign-in.
+
+| Argument | Description |
+| --- | --- |
+| `<LABEL>` | A short name for this account, such as `personal` or `work`. `codex/work` names a Codex account; a bare name means Claude Code |
+
+| Option | Description |
+| --- | --- |
+| `--sign-in` | Sign in through the tool's own sign-in, without signing out of the account in use. For the account in use, this puts its new login in use; for another enrolled label, it renews its parked login |
+
+The `enrolled` field of the `--json` output names what happened:
+
+| `enrolled` | When | First line printed |
+| --- | --- | --- |
+| `current` | Without `--sign-in` | `Enrolled work (me@company.com), the account signed in now.` |
+| `signed_in` | With `--sign-in`, for a label not enrolled before, signed in as an account that is not in use | `Enrolled work (me@company.com). Switch to it with: pitboard use work` |
+| `renewed` | With `--sign-in`, for an enrolled label whose account is not in use; its parked login is replaced | `Renewed work (me@company.com): its parked login is a fresh one.` |
+| `in_use` | With `--sign-in`, signed in as the account in use; the new login replaces the one in use and nothing is parked | `Signed in to work (me@company.com) again. Its new login is the one in use now.` |
+
+For a label not enrolled before, `in_use` prints `Enrolled work (me@company.com), the account signed in now. Its new login is the one in use.` instead.
+
+`enroll` enrols nothing if the account is already enrolled under another label (`already_enrolled`), or if the label names another account (`label_taken`).
+
+If pitboard cannot tell whose login the tool is using, it parks the new login instead of putting it in use. It warns only when that label is the one it last recorded in use. For the warning and what to do, see [Sign in to an account again](/guides/sign-in-again#if-pitboard-cannot-tell-whose-login-is-in-use).
+
+To add a second Claude Code account:
+
+```sh
+pitboard enroll work --sign-in
+```
+
+pitboard prints this line to standard error:
+
+```text
+Opening Claude Code's sign-in. Sign in as the account to add; the account in use now stays signed in.
+```
+
+Claude Code then opens your browser. What it prints also goes to standard error, so `--json` output stays one line. When you finish signing in, pitboard prints:
+
+```text
+Enrolled work (me@company.com). Switch to it with: pitboard use work
+```
+
+For the same task in the app, see [Add and manage accounts](/guides/accounts#add-another-account).
+
+## `use`
+
+```text
+Switch a tool to an enrolled account
+
+Usage: pitboard use [OPTIONS] <LABEL>
+```
+
+`pitboard use` parks the login the label's tool is using and puts the named account's parked login in its place. The tool must be signed in to an enrolled account. The named account must have a parked login whose refresh token has not expired.
+
+Before anything moves, pitboard checks that the parked login belongs to that account and that Anthropic or OpenAI still accepts it. If only its access token has expired, pitboard renews the parked login first. A switch therefore needs the network, for Claude Code and Codex alike.
+
+| Argument | Description |
+| --- | --- |
+| `<LABEL>` | The label the account was enrolled under, such as `work` or `codex/work` |
+
+If the account is already in use, `use` prints `work is already signed in.` and moves no login.
+
+After a switch, it prints `Switched to work; personal is parked.` and one more line. For Claude Code, that line is `Claude Code sessions already running follow within 33 seconds.` For Codex, it is the second line of the following example.
+
+For every error a switch can end with, and what to do about each, see [Error and warning codes](/reference/errors).
+
+To switch Codex to `codex/work`:
+
+```sh
+pitboard use codex/work
+```
+
+```text
+Switched to codex/work; codex/personal is parked.
+Restart any running `codex` for this to take effect. It will not pick the switch up on its own.
+```
+
+For what to do with sessions that are already open, see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
+
+## `forget`
+
+```text
+Drop an account and its parked login
+
+Usage: pitboard forget [OPTIONS] <LABEL>
+```
+
+`pitboard forget` drops an account from pitboard's list. It deletes the account's parked login, its last usage reading and its usage history. Deleting a parked login does not revoke it; see [Security and privacy](/security#what-pitboard-protects-against).
+
+`forget` refuses the account in use, and its message says to switch to another account first. It reads which account is in use from the tool's own files, so it needs no network.
+
+| Argument | Description |
+| --- | --- |
+| `<LABEL>` | The label to drop |
+
+| Option | Description |
+| --- | --- |
+| `-y, --yes` | Do not ask first |
+
+At a terminal, without `--yes` or `--json`, `forget` asks first on standard error:
+
+```text
+Forget old and delete its parked login? Adding it again needs a browser sign-in. [y/N]
+```
+
+For when it asks and what each answer does, see [Output](/reference/commands#output).
+
+To forget `old` without being asked:
+
+```sh
+pitboard forget old --yes
+```
+
+```text
+Forgot old (old@example.com).
+```
+
+For the same task in the app, see [Add and manage accounts](/guides/accounts#forget-an-account).
+
+## `rename`
+
+```text
+Change the label an account is enrolled under
+
+Usage: pitboard rename [OPTIONS] <FROM> <TO>
+```
+
+`pitboard rename` changes only the label. The account keeps its parked login and its usage history, because pitboard files both under the account's id, not its label. An account in use stays in use.
+
+| Argument | Description |
+| --- | --- |
+| `<FROM>` | The label it has now |
+| `<TO>` | The label it should have |
+
+A rename stays inside the account's tool: `pitboard rename codex/work job` gives `codex/job`. pitboard refuses a `<TO>` that another account of that tool already has. Naming the other tool in `<TO>`, as in `pitboard rename work codex/work`, fails with exit status 2:
+
+```text
+error: `work` is a claude account, and a rename cannot move it to codex. Sign in to that tool and enrol the account there instead.
+```
+
+To fix a label:
+
+```sh
+pitboard rename wrong right
+```
+
+```text
+Renamed wrong to right (me@company.com).
+```
+
+For the same task in the app, see [Add and manage accounts](/guides/accounts#rename-an-account).

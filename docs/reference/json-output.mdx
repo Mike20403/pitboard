@@ -1,0 +1,181 @@
+---
+title: "JSON output"
+description: "Every command prints the same versioned envelope with `--json`, whether it succeeds or fails."
+---
+
+With `--json`, every command prints one line of JSON on standard output: an envelope with the same six fields, whether it succeeds or fails.
+
+## The envelope
+
+This command renames the account `wrong` to `right`:
+
+```sh
+pitboard rename wrong right --json
+```
+
+It prints this on one line:
+
+```json
+{
+  "v": 1,
+  "command": "rename",
+  "ok": true,
+  "data": {
+    "from": "wrong",
+    "to": "right",
+    "email": "me@company.com"
+  },
+  "warnings": [],
+  "error": null
+}
+```
+
+<ResponseField name="v" type="integer" required>
+  The version of the envelope, `1`. It goes up only when a field changes shape. Adding a field or a code, such as an error code, is not a breaking change; renaming or removing one is.
+</ResponseField>
+
+<ResponseField name="command" type="string | null" required>
+  The command that ran, such as `rename`. The three `schedule` commands give `schedule`, and `completions` and `manpage` give `generate`. `null` when pitboard could not parse the command line.
+</ResponseField>
+
+<ResponseField name="ok" type="boolean" required>
+  `true` when the command succeeded and its exit status is 0. For the other statuses, see [Exit codes](/reference/commands#exit-codes).
+</ResponseField>
+
+<ResponseField name="data" type="object | null" required>
+  What the command found or did, as listed in [Data by command](/reference/json-output#data-by-command). `null` when the command failed, except for `doctor` and `generate`.
+</ResponseField>
+
+<ResponseField name="warnings" type="object[]" required>
+  One object per warning, with `code` and `message`, or an empty array. A failed command still lists the warnings it gathered before it failed. For the codes, see [Warning codes](/reference/errors#warning-codes).
+</ResponseField>
+
+<ResponseField name="error" type="object | null" required>
+  Set when `ok` is `false`, and `null` otherwise.
+
+  <Expandable title="error fields">
+    <ResponseField name="code" type="string">
+      A stable error code, listed in [Error and warning codes](/reference/errors).
+    </ResponseField>
+
+    <ResponseField name="message" type="string">
+      What went wrong, in words for a person.
+    </ResponseField>
+
+    <ResponseField name="cause" type="object | null">
+      What went wrong in a request to Anthropic or OpenAI. Only the three errors named in [Cause codes](/reference/errors#cause-codes) carry one; every other error has `null`.
+
+      <Expandable title="cause fields">
+        <ResponseField name="code" type="string">
+          A cause code, listed in [Cause codes](/reference/errors#cause-codes).
+        </ResponseField>
+
+        <ResponseField name="worth_retrying" type="boolean">
+          `true` when the same request could succeed later.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+If pitboard cannot parse a command line that contains `--json`, `command` and `data` are `null`, `error.code` is `usage` and the exit status is 2. A label refused after parsing also gives `usage` and exit status 2, but `command` is set: `pitboard enroll codx/work --json` gives `enroll`.
+
+In two cases, `data` is set although the command failed, and `error` has no `cause` field:
+
+- `doctor` with a failed check: `data` holds the whole report, `error.code` is `checks_failed` and the exit status is 3.
+- `completions` or `manpage` with `--json`: `command` is `generate`, `data` is `{}`, `error.code` is `output_is_not_a_report` and the exit status is 2.
+
+Times are Unix times in seconds, such as `1790474400`, except `at` in `log` entries, a local time such as `2026-09-22T01:01:00+07:00`.
+
+The JSON of `status`, `enroll`, `forget` and `rename` holds email addresses, as does the message of errors such as `label_taken`. The JSON of `status` also holds account ids, and that of `repair` holds parked login names, which contain account ids. Only `doctor --json` hides such values, with placeholders such as `<email 1a2b3c4d>`.
+
+## Data by command
+
+The `data` of each command, in the order of `pitboard --help`:
+
+| Command | `data` |
+| --- | --- |
+| `status` | See [Status data](/reference/json-output#status-data). |
+| `enroll` | `label` as typed, `provider` (`claude` or `codex`), `email`, and `enrolled`: `current`, `signed_in`, `renewed` or `in_use`, as [Account commands](/reference/account-commands#enroll) explains. |
+| `use` | Already in use: `to`, and `changed` set to `false`. After a switch: `from`, `to`, `provider`, `changed` set to `true`, `parked_at` (when the login you left was parked), `adoption_ceiling_seconds` and `adoption`. |
+| `forget` | `label` and `email`. |
+| `abandon` | `abandoned`, `false` when there was no interrupted switch. When it is `true`, also `from`, `to` and `logins_kept`, a count. |
+| `repair` | `given_back`, a list of objects with `label` and `service`, the parked login's name. `deleted`, `strangers` (left alone because they belong to no account this pitboard knows) and `unreadable`, lists of parked login names. All four are always present. |
+| `adopt` | `adopted`, `false` when pitboard's directory was already this computer's. When it is `true`, also `accounts`, the labels of the accounts kept, and `logins_dropped`, the labels whose parked login was dropped. |
+| `renew` | `accounts`, a list of objects with `label`, `provider` and `outcome`, and `renewed`, a count. `outcome` is `renewed`, `parked_login_refused` (the service refused the login and pitboard dropped it), `renewal_deferred` (tried again next time) or an error code. |
+| `schedule` | `schedule install`: `installed` set to `true`, and `path`. `schedule status`: `installed`, and when it is `true`, `path` and `every_seconds` (`86400`). Where pitboard cannot write a schedule, also `supported` set to `false`. `schedule uninstall`: `installed` set to `false`, and `removed`. |
+| `log` | `entries`, oldest first, each with `at`, `caller` (`cli`, `app` or `unknown`), `verb`, `subject` and `outcome`. |
+| `uninstall` | `parks_removed`, `parks_pending` (could not be deleted) and `parks_left` (left because another pitboard may own them), counts. `home_removed` and `schedule_removed`, booleans. |
+| `rename` | `from`, `to` and `email`. |
+| `doctor` | `environment`: the paths and login stores pitboard found, and the version of OpenAI's Codex CLI. `checks`, each with `code`, `name`, `level` (`ok`, `warn` or `fail`), `detail` and `advice`, as [Maintenance commands](/reference/maintenance-commands#doctor) lists. |
+| `statusline` | `line`, the status line without colour. |
+| `generate` (`completions` and `manpage`) | `{}` |
+
+`adoption` says how sessions already running pick up a switch. For Claude Code it is `{"follows":"polling","within_seconds":33}`, and `adoption_ceiling_seconds` is `33`. For Codex it is `{"follows":"restart","program":"codex"}`, and `adoption_ceiling_seconds` is `null`.
+
+## Status data
+
+The `data` of `pitboard status` has four fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `slot` | object | Which Claude Code login this output describes. On macOS, `service` is its keychain item name; on Linux it names no item. `default` is `true` for the login Claude Code uses when `CLAUDE_CONFIG_DIR` is not set. |
+| `signed_in` | object or null | The Claude Code account in use, never a Codex one: `account_uuid`, `email` and `organization_uuid`. |
+| `signed_in_error` | string or null | Why `signed_in` is `null`, such as `nothing is signed in`. |
+| `accounts` | array | One object per enrolled account: Claude Code first, and the account in use first within each tool. A login in use that no account matches gets one too. |
+
+For Codex, the account in use is the object in `accounts` with `provider` set to `codex` and `signed_in` set to `true`.
+
+Each object in `accounts` has these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `label` | string or null | The label without its tool, such as `work`, or `null` for a login nobody enrolled. |
+| `email` | string | The account's email address. Empty when pitboard could not tell whose login it is. |
+| `account_uuid` | string | The account id. Empty in the same case. |
+| `signed_in` | boolean | `true` for the account its tool is using. |
+| `switchable` | boolean | `true` when `pitboard use` can switch to it: it is not in use, and its parked login can still be restored. |
+| `parked` | object or null | The parked login's `parked_at`, `access_expires_at` and `refresh_expires_at`. `null` when nothing is parked. Each expiry is `null` when unknown, and `refresh_expires_at` is always `null` for Codex. |
+| `lasts` | object or null | `seconds` until the account's tightest limit fills at its recent rate (`why` is `filling`) or resets (`why` is `resets`), whichever comes first. `null` until there are enough readings, as [How long an account lasts](/concepts/usage#how-long-an-account-lasts) explains. |
+| `usage` | object or null | The last reading: `source`, `observed_at` (when it was taken) and `windows`. `null` when no usage is known. |
+| `stale` | string or null | Why the reading is not live, as listed in [Stale codes](/reference/json-output#stale-codes). |
+| `provider` | string | `claude` or `codex`. |
+| `qualified` | string or null | The label with its tool, such as `claude/work`. `null` for a login nobody enrolled. |
+
+In `usage`, `source` is `live` when pitboard asked the service this time. It is `claude_code_cache` for a reading copied from Claude Code's own cache, and `remembered` for the last reading pitboard took itself.
+
+Each object in `windows` is one limit:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | string | The limit, such as `session` or `five_hour` for a five-hour limit and `weekly_all` or `seven_day` for a weekly one. |
+| `scope` | string or null | The display name Anthropic gives the model or surface a narrower limit applies to. `null` for the account's own limit, and always for Codex. |
+| `percent` | number | How much of the limit is used. Over 100 when the limit is exceeded. |
+| `resets_at` | integer or null | When the limit resets. |
+| `is_active` | boolean | `true` when the service says the account is working against this limit. Always `true` for Codex. |
+| `severity` | string or null | Anthropic's own grade of the limit, or `null` when it gives none, as for every Codex limit. |
+| `length_seconds` | integer | How long the limit's window runs, such as `18000`. Left out when unknown. |
+
+## Stale codes
+
+`stale` says why a reading is not live. `pitboard status` prints the Text column under the account, after its usage. Codes marked None print nothing.
+
+| `stale` | Meaning | Text |
+| --- | --- | --- |
+| `nothing_signed_in` | Nothing is signed in to the tool. | `nothing is signed in` |
+| `login_unreadable` | The tool's login is there but could not be read. | `` Claude Code's login could not be read; run `pitboard doctor` `` |
+| `login_unusable` | The tool's login is not one pitboard can park or switch, such as one made with an API key. | `` Claude Code's login is not one pitboard can park or switch; run `pitboard doctor` `` |
+| `session_expired` | The login in use has expired. The tool renews it the next time it runs. | `` Claude Code's session has expired; `claude` renews it `` |
+| `parked_access_expired` | The parked login's access token has expired and could not be renewed this time. | None |
+| `nothing_parked` | The account has no parked login. | None |
+| `park_unreadable` | The parked login could not be read. | `` its parked login cannot be read; run `pitboard doctor` `` |
+| `rate_limited` | The service asked for fewer usage requests, so pitboard waits before asking again. | `Anthropic is rate limiting usage checks` |
+| `unreachable` | The service could not be reached. | `Anthropic could not be reached` |
+| `server_error` | The service answered with an error. | `Anthropic answered with an error; try again later` |
+| `answer_not_understood` | The service's answer was not in a shape pitboard reads. | `Anthropic's answer was not understood` |
+| `login_refused` | The service no longer accepts the parked login. | `its parked login is no longer accepted; sign in again` |
+| `asked_recently` | pitboard asked too recently for the limit to have moved by one percentage point, so it did not ask again. | None |
+| `interrupted` | The request stopped before it had an answer. | `the check did not finish` |
+| `not_asked` | Read without the network, as every row of `pitboard status --offline` is. | `read without asking Anthropic` |
+
+For a Codex account, the text says Codex, OpenAI and `codex` where the table says Claude Code, Anthropic and `claude`.

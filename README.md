@@ -1,7 +1,7 @@
 # pitboard
 
 Switch between your own Claude Code and Codex logins, and see how much each one has left.
-[usepitboard.com](https://usepitboard.com)
+[docs.usepitboard.com](https://docs.usepitboard.com)
 
 [![CI](https://github.com/datlechin/pitboard/actions/workflows/ci.yml/badge.svg)](https://github.com/datlechin/pitboard/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/pitboard.svg)](https://crates.io/crates/pitboard)
@@ -41,7 +41,8 @@ Neither needs Rust. Without Homebrew:
 
 If you installed the app with the old cask, `datlechin/tap/pitboard`, that name is the
 command line now and Homebrew replaces your app with it once. Install the app again as
-`pitboard-app`, as [Upgrading from 0.3.0](CHANGELOG.md#upgrading-from-030) shows.
+`pitboard-app`, as
+[Upgrading from 0.3.0](https://docs.usepitboard.com/install/upgrade-from-0-3-0) shows.
 
 Removing it: run `pitboard uninstall` first. It deletes every parked login it wrote,
 pitboard's own files and the daily renewal schedule, and leaves the account you are signed
@@ -112,10 +113,12 @@ do not have to restart it. A running `codex` does not pick it up at all: restart
 [Codex](#codex)).
 
 Each account holds one parked login. Switching to an account uses that login up, and
-switching away parks a fresh one. A parked login is renewed whenever you run `pitboard`,
-and otherwise not, so one you leave alone for weeks expires and needs a browser sign-in.
-`pitboard schedule install` hands that to your computer's own scheduler instead. If one
-expires or goes missing, sign in to that account again. The rest of what pitboard knows about it stays:
+switching away parks a fresh one. A parked login is renewed only when pitboard runs:
+`pitboard` renews one whose access token has expired or is about to. So if pitboard does not
+run for weeks, a parked login expires and needs a browser sign-in.
+`pitboard schedule install` hands renewal to your computer's own scheduler instead. If one
+expires or goes missing, sign in to that account again. The rest of what pitboard knows
+about it stays:
 
 ```sh
 pitboard enroll work --sign-in
@@ -127,7 +130,7 @@ Signing in again to the account you are using puts the new login in use in place
 one, the way the tool's own sign-in would, and parks nothing. A running `codex` keeps the old
 login until you restart it. If pitboard cannot tell whose login the tool is using, because
 the service does not answer or the login cannot be read, it parks the new login instead of
-writing over one it cannot name, and says so.
+writing over one it cannot name. It says so when that account is the one it last saw in use.
 
 Other commands:
 
@@ -138,9 +141,11 @@ Other commands:
   of both tools.
 - `pitboard log` shows what pitboard has changed, and when.
 - `pitboard abandon` gives up on an interrupted switch that cannot be finished, keeping
-  every login. Only needed when recovery cannot reach Anthropic.
-- `pitboard repair` asks the keychain what parked logins are on this machine and accounts
-  for every one: given back to the account it belongs to, or reported and left alone.
+  every login. Only needed when recovery cannot reach Anthropic, or when the switch ran
+  with another `CLAUDE_CONFIG_DIR` or `CODEX_HOME`.
+- `pitboard repair` lists the parked logins in the keychain, or in `~/.pitboard/vault/` on
+  Linux, and accounts for every one: given back to the account it belongs to, or reported
+  and left alone.
   Only needed if pitboard's own files were lost or restored from a backup. On macOS a login
   it gives back that this pitboard did not write may be another pitboard's, so `forget` and
   `uninstall` leave it where it is.
@@ -228,9 +233,9 @@ many pitboard found running, if any.
 pitboard's window has the rest: every account with its limits drawn out, everything the app
 has to tell you in full, the activity log, and what `pitboard doctor` finds about your Mac.
 Add Account signs in through the tool's own sign-in in your browser, and asks which tool
-when both are installed. Each account's menu renames it, signs in to it again, copies its
-address or forgets it. The app calls the same core as the command line rather than running
-`pitboard` for each answer.
+when each is installed or already has an account here. Each account's menu renames it,
+signs in to it again, copies its address or forgets it. The app calls the same core as the
+command line rather than running `pitboard` for each answer.
 
 The command line comes inside the app, for `pitboard repair`, scripts and the status line,
 and updates with it. The `pitboard-app` cask puts it on your `PATH`. Without the cask, and
@@ -262,10 +267,12 @@ and its Swift bindings, neither of them committed, then open `apple/Pitboard.xco
 
 Every command that reports a result takes `--json` and prints the same envelope, including
 on failure and for a mistyped command line: `{v, command, ok, data, warnings, error}`.
-Error codes are stable. When a failure came from asking Anthropic or OpenAI, `error.cause`
-says what went wrong underneath and whether asking again is worth anything:
-`{"code": "rate_limited", "worth_retrying": true}`. `completions` and `manpage` write a generated file to stdout, so
-they have no JSON form and refuse the flag rather than ignore it.
+Error codes are stable. For `identity_unverifiable`, `renewal_failed` and `session_expired`,
+which come from asking Anthropic or OpenAI, `error.cause` says what went wrong underneath
+and whether asking again is worth anything:
+`{"code": "rate_limited", "worth_retrying": true}`. Other errors carry no cause.
+`completions` and `manpage` write a generated file to stdout, so they have no JSON form and
+refuse the flag rather than ignore it.
 Exit codes: 0 done, 1 not done, 2 command line wrong, 3 a login or a tool's files are in a
 state pitboard will not act on.
 
@@ -275,8 +282,6 @@ on their own (`{"follows": "polling", "within_seconds": 33}`) or need a restart
 `adoption_ceiling_seconds` is null.
 
 Shell completions: `pitboard completions zsh` (or `bash`, `fish`, `elvish`, `powershell`).
-
-Documentation: [docs.usepitboard.com](https://docs.usepitboard.com).
 
 ## What it will not do
 
@@ -341,17 +346,20 @@ touch an account you do not own. Whether several subscriptions suit what you are
 between you and Anthropic's or OpenAI's terms.
 
 **What if it dies halfway through a switch?** It writes down what it is about to do before
-it does it, including a fingerprint of the login on each side. The next command reads which
-one is in place and finishes or undoes the switch from that, with no network needed. Only
-when the login in place is neither, which is what the tool refreshing a token in those few
-seconds looks like, does it need to work out whose login it is. A Codex login names its own
-account, so that needs no network. A Claude Code login needs Anthropic to say, and when
-pitboard cannot ask, it changes nothing and keeps the record for a later run. `pitboard
-doctor` reports the state, and `pitboard log` is the record of every change it has made.
+it does it, including a fingerprint of the login on each side. The next command that
+changes something reads which one is in place and finishes or undoes the switch from that,
+with no network needed. Only when the login in place is neither, which is what the tool
+refreshing a token in those few seconds looks like, does it need to work out whose login
+it is. A Codex login names its own account, so that needs no network. A Claude Code login
+needs Anthropic to say, and when pitboard cannot ask, it changes nothing and keeps the
+record for a later run. `pitboard doctor` reports the state, and `pitboard log` is the
+record of every change it has made.
 
-**My login is too big for the keychain, what now?** On macOS, `security` reads only about
-two kilobytes of a command from standard input. A Claude Code login goes over that when it
-holds MCP server tokens, and a Codex park always does, since it is the whole `auth.json`.
+**My login is too big for the keychain, what now?** On macOS, standard input carries only
+about two kilobytes of login to `security`: the login goes hex-encoded, in a command that
+pitboard keeps within 4032 bytes, the ceiling Claude Code uses. A Claude Code login goes
+over that when it holds MCP server tokens, and a Codex park always does, since it is the
+whole `auth.json`.
 Past that there is one route left, passing it as an argument, where another process running
 as you could read it while the call lasts. Claude Code does the same for its own login on
 every token refresh. pitboard does it too, and says so after a switch or a `--sign-in`
@@ -359,8 +367,10 @@ enrolment that does it. It does not say so when it renews a parked login, and on
 every Codex park renewal goes that way. `PITBOARD_NO_ARGV=1` refuses instead, which on
 macOS means no Codex account can be parked. Set it before parking any Codex account: with a
 Codex park already in the keychain, the next renewal exchanges the refresh token and then
-cannot store the result, and that account's parked login is lost. `pitboard doctor` shows
-the size of the Claude Code login.
+cannot store the result, and that account's parked login is lost. Only the command line
+reads `PITBOARD_NO_ARGV`: the menu bar app ignores it, and a scheduled renewal sees it only
+if the scheduler's own environment sets it. `pitboard doctor` shows the size of the Claude
+Code login.
 
 **What about Gemini CLI?** Not supported. Since 18 June 2026 Google no longer offers Gemini
 CLI's "Login with Google" to individual, Google AI Pro and Google AI Ultra accounts
@@ -374,8 +384,8 @@ each artefact, and `appcast.xml`, which is the file that decides what an install
 runs next. The attestation names the workflow and the commit that produced the file:
 
 ```sh
-gh attestation verify Pitboard-v0.3.0-macos.zip --repo datlechin/pitboard
-gh attestation verify pitboard-v0.3.0-aarch64-apple-darwin.tar.gz --repo datlechin/pitboard
+gh attestation verify Pitboard-v<version>-macos.zip --repo datlechin/pitboard
+gh attestation verify pitboard-v<version>-aarch64-apple-darwin.tar.gz --repo datlechin/pitboard
 gh attestation verify SHA256SUMS --repo datlechin/pitboard
 gh attestation verify appcast.xml --repo datlechin/pitboard
 ```

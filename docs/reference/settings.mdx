@@ -1,0 +1,97 @@
+---
+title: "Settings"
+description: "Look up each control in the General, Command Line and Updates tabs of the app's Settings."
+---
+
+To open Settings, click pitboard's item in the menu bar, then choose **Settings** (Command-Comma). It opens on the tab you used last.
+
+## General
+
+### Open pitboard at login
+
+When this is on, macOS opens pitboard each time you log in.
+
+If macOS needs your approval, the tab says **macOS is waiting for you to allow pitboard in Login Items.** Until you allow pitboard in System Settings, the switch stays on but pitboard does not open at login. **Open Login Items Settings** opens that part of System Settings.
+
+### Menu bar shows
+
+Sets what the menu bar item shows beside its icon. For which account and limit it shows, see [Menu bar app](/reference/app#menu-bar-item).
+
+| Choice | The menu bar item shows |
+| --- | --- |
+| **Account and usage** (the default) | The account's label and its usage, such as **work 42%** |
+| **Usage only** | The usage alone, such as **42%** |
+| **Icon only** | The icon alone |
+
+### Renew parked logins daily
+
+This setting is in the **While you're away** section.
+
+When you turn it on, launchd, your Mac's scheduler, runs `pitboard renew` once a day with the command line inside the app. That run renews due parked logins and nothing else: it never switches account or asks for usage.
+
+The setting is also on after `pitboard schedule install`, whose schedule runs the `pitboard` that installed it. While it is on, **Runs** shows **Every day** and **Scheduled in** shows the file of the [renewal schedule](/reference/files#renewal-schedule).
+
+You cannot turn it on while macOS runs the app from a temporary copy. macOS does that until you move the app to your Applications folder.
+
+For why parked logins need renewing, see [Keep parked logins alive](/guides/renewal).
+
+### Renew Now
+
+Renews every due parked login, as `pitboard renew` does, then reads usage again, as **Refresh** in pitboard's menu does. For when a parked login is due, see [Maintenance commands](/reference/maintenance-commands#renew).
+
+The text beside the button then gives the result:
+
+- **Nothing was due.**
+- **Renewed one.**
+- **Renewed all 3.**
+- **Renewed 2 of 3.**
+- **3 due; none could be renewed this time.**
+
+**Nothing was due.** also appears while another pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read.
+
+## Command Line
+
+### In your terminal
+
+Shows the `pitboard` a terminal would run, or **Not installed**. pitboard looks on your login shell's `PATH` first, then in `~/.cargo/bin`, `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.
+
+A note under the row says how that `pitboard` is updated:
+
+| The `pitboard` found | Note under the row |
+| --- | --- |
+| The one inside the app, directly or through a link | **The one inside this app, so it updates with the app.** |
+| Any other install | **Installed apart from this app, so update it the way you installed it.** |
+
+The tab also names `pitboard status` for scripts and `pitboard repair` for a parked login pitboard's records have lost track of.
+
+### Install Command Line Tool
+
+Appears only when no `pitboard` is found, so it never replaces one you installed. It links `/usr/local/bin/pitboard` to `Pitboard.app/Contents/Helpers/pitboard`, the command line inside the app. macOS asks for an administrator's password first.
+
+pitboard keeps a file at `/usr/local/bin/pitboard` that is not a link, and says `/usr/local/bin/pitboard` **is already there and is not a link, so it was kept.** Any other failure shows the reason macOS gives, or **The link could not be made.**
+
+While the app runs from a temporary copy, the tab shows no button: a link into that copy would break.
+
+## Updates
+
+In a copy from a release download or the `pitboard-app` cask, the tab has three controls.
+
+### Check for updates automatically
+
+On by default. While it is on, pitboard checks GitHub for a newer version once a day. For what the check sends, see [Security and privacy](/security#what-leaves-your-machine).
+
+### Download and install updates automatically
+
+Off by default. When it is on, an update the daily check finds downloads in the background and installs when pitboard quits. It is dimmed while **Check for updates automatically** is off.
+
+### Check Now
+
+Checks for a newer version at once, in the update window.
+
+Beside the button is the version you are running, as **pitboard** `<version>`. After the daily check finds a newer version, the text reads **pitboard** `<version>` **is ready to install.**
+
+For the **Install pitboard** `<version>` item in pitboard's menu, see [Menu bar app](/reference/app#menu).
+
+### A copy built from source
+
+A copy built from source has no update key, the public key that verifies an update, so it cannot update itself. Its **Updates** tab shows only **Version** and a note saying so.

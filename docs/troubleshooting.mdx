@@ -1,0 +1,124 @@
+---
+title: "Troubleshooting"
+description: "Find the problem you see, what causes it and how to fix it, starting with `pitboard doctor`."
+---
+
+Start with `pitboard doctor`. For an interrupted switch, lost parked logins or a directory from another computer, see [Recover after a crash, a restore or a move](/troubleshooting/recovery). For other messages, see [Error and warning codes](/reference/errors).
+
+## Check first
+
+`pitboard doctor` checks what pitboard relies on and marks each check `✓` (holds), `!` (worth a look) or `✗` (broken). Its last line is one of these:
+
+```text
+Everything pitboard relies on holds.
+2 to look at; nothing is broken.
+1 broken: do not switch accounts until fixed.
+```
+
+`pitboard log` lists pitboard's last 20 changes and how each ended.
+
+In the app, click pitboard's item in the menu bar, then choose **Open pitboard**. The window's **This Mac** pane makes the same checks, and **Activity** shows the log.
+
+For every check, see [Maintenance commands](/reference/maintenance-commands#doctor).
+
+## A parked login has expired
+
+`pitboard status` shows `login expired` beside a Claude Code account, and pitboard's menu shows **Needs signing in again**. pitboard renews [parked logins](/concepts/switching#parked-logins) only when it runs, so a Claude Code one left for weeks expires.
+
+To fix it, see [Sign in to an account again](/guides/sign-in-again). To prevent it, see [Keep parked logins alive](/guides/renewal).
+
+## pitboard cannot confirm which account is signed in
+
+If the message says `pitboard could not confirm`, check the connection and run the command again.
+
+If it says `session has expired`, run the program it names once, then run the command again.
+
+## Claude Code still shows the previous account
+
+An open Claude Code session follows a switch within about 33 seconds. If not, the switch may have warned why:
+
+```text
+warning: ANTHROPIC_API_KEY in the environment is set, so Claude Code signs in with it and not with the login pitboard moved. Unset it for the switch to take effect.
+```
+
+Unset or remove what it names, then restart Claude Code.
+
+If the warning says Claude Code's config could not be updated, the switch worked, but the old name may show until the next switch.
+
+## A running codex still uses the old account
+
+A running `codex` keeps its account until you restart it. To do that without losing a login, see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
+
+## pitboard refuses Codex's login store
+
+pitboard switches OpenAI's Codex CLI only when Codex keeps its login in `auth.json` and signs in with ChatGPT; see [Use pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account).
+
+## Usage shows old numbers
+
+Old numbers say when they were measured, as in `measured 14:02, 1m ago`, and may give a reason. For Codex, read OpenAI for Anthropic:
+
+| Reason | Cause and fix |
+| --- | --- |
+| No reason | pitboard asked moments ago. For an account with a five-hour limit, it does not ask again for 3 minutes. To ask anyway, run `pitboard status --fresh` or choose **Refresh** in pitboard's menu. |
+| `Anthropic is rate limiting usage checks` | Anthropic asked for fewer requests. pitboard waits, then asks again. |
+| `Anthropic could not be reached` | Check the connection. pitboard waits, then asks again. |
+| `Anthropic answered with an error; try again later` | Anthropic returned an error. pitboard waits, then asks again. |
+
+For why pitboard waits, see [How usage is read](/concepts/usage#how-often-pitboard-asks).
+
+## macOS says the keychain is locked
+
+Where macOS cannot show a password prompt, as over SSH, a locked keychain stops pitboard:
+
+```text
+the keychain is locked and cannot ask to be unlocked from here; unlock it with `security unlock-keychain`, or run pitboard from a desktop session
+```
+
+Do what the message says. If a switch was stopped, run it again: pitboard first finishes or undoes it.
+
+## pitboard cannot find Claude Code
+
+Without `claude`, a Claude Code sign-in stops like this:
+
+```text
+error: `claude` is not on this machine, and pitboard signs in with Claude Code's own sign-in. Install Claude Code, or point pitboard at it.
+```
+
+Install Claude Code, then run `claude` once and sign in. If `claude` is installed, add its folder to your `PATH`.
+
+The app looks for `claude` only when it opens: on your login shell's `PATH`, then in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`. After you install Claude Code, quit pitboard and open it again.
+
+## pitboard does not open at login
+
+pitboard opens at login only when **Open pitboard at login** is on in **Settings** > **General**. If macOS is waiting for you there, click **Open Login Items Settings** and allow pitboard.
+
+## Daily renewal stopped working
+
+`pitboard doctor` fails its `renewal schedule` check with `which is not there any more`. The app moved, or the pitboard the schedule ran was removed.
+
+Turn **Renew parked logins daily** off and on in **Settings** > **General**, or run:
+
+```sh
+pitboard schedule uninstall
+pitboard schedule install
+```
+
+## A file was written by a newer pitboard
+
+The pitboard you ran is older than another using the same files. Update it: see [Update pitboard](/install#update-pitboard).
+
+## pitboard refuses a folder that syncs
+
+pitboard refuses to keep its files, `~/.pitboard` or `PITBOARD_HOME`, in a folder that syncs to other machines, such as Dropbox or iCloud Drive. Parked logins belong to one machine. Set `PITBOARD_HOME` to a local folder. For the names pitboard refuses, see [Files and environment variables](/reference/files#the-pitboard-directory).
+
+## Report a problem
+
+Open a [GitHub issue](https://github.com/datlechin/pitboard/issues/new/choose) with:
+
+- What you ran, what it printed and what you expected.
+- The output of `pitboard --version`, `pitboard doctor --json` and the last lines of `pitboard log`.
+- How you installed pitboard, and your macOS or Linux version.
+
+`pitboard doctor --json` hides email addresses, account identifiers and your home folder; plain `pitboard doctor` does not.
+
+For a security problem, see [Security and privacy](/security#report-a-vulnerability).

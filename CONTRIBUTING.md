@@ -107,9 +107,11 @@ the release bundle the way CI and a release do.
 ## The site
 
 `website/` is where usepitboard.com will be built, with Astro; it is empty until then.
-`docs/` holds the documentation source for docs.usepitboard.com. Neither is published by
-this repository yet, and the README and the app already link to the documentation, so it
-has to be standing before the next release.
+`docs/` is the Mintlify source of docs.usepitboard.com, which is live. Pages are MDX,
+navigation and settings are in `docs/docs.json`, and `docs/AGENTS.md` holds the writing
+rules; `docs/README.md` says how to preview and check a change. The app's "pitboard Help"
+item and the Linux renewal unit link to the site, so a page that moves needs a redirect in
+`docs/docs.json`.
 
 ## The state file
 

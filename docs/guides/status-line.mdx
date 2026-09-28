@@ -1,0 +1,63 @@
+---
+title: "Show usage in Claude Code's status line"
+sidebarTitle: "Status line"
+description: "Add `pitboard statusline` to Claude Code's settings to see every account's usage in each session."
+---
+
+`pitboard statusline` prints one line with the account in use and what every Claude Code account has left.
+
+## Add it to Claude Code
+
+Claude Code runs the command in a shell, so `pitboard` must be on your `PATH`. If you installed only the app, see [Add the app's command line to your PATH](/install#add-the-apps-command-line-to-your-path).
+
+Add the `statusLine` field to `~/.claude/settings.json`, beside any fields already there. If it already has a `statusLine`, see [Combine it with your own status line](/guides/status-line#combine-it-with-your-own-status-line) instead.
+
+```json title="~/.claude/settings.json"
+{
+  "statusLine": {
+    "type": "command",
+    "command": "pitboard statusline",
+    "refreshInterval": 10
+  }
+}
+```
+
+Claude Code runs the command after each response. With `refreshInterval`, Claude Code also runs it every 10 seconds, so an idle session shows what your busy sessions passed to pitboard.
+
+Each session then shows a line such as:
+
+```text
+personal 59%·73%  work 12%·40%
+```
+
+## Read the line
+
+The account in use comes first, in bold, then every other Claude Code account you enrolled.
+
+| What you see | What it means |
+| --- | --- |
+| `personal 59%·73%` | `personal` has used 59% of its five-hour limit and 73% of its weekly limit. |
+| A green, yellow or red percentage | Green under 70%, yellow from 70%, red from 90%. |
+| `?` | pitboard has no reading of that limit. Run `pitboard` to read every account. |
+| `(3h 00m)` after another account | That account's numbers are 3 hours old. Numbers under 15 minutes old show no age. The account in use never shows an age. |
+| `unenrolled` in place of the first label | Claude Code is not signed in to an account you enrolled. See [Add and manage accounts](/guides/accounts#add-the-account-you-are-signed-in-to). |
+
+The line leaves out accounts of OpenAI's Codex CLI and limits for a single model. For those, see [Check what each account has left](/guides/usage).
+
+Claude Code passes the account's usage to its status line only on Pro and Max plans, after the session's first response. Before that, or on other plans, the line shows pitboard's last reading of the account in use.
+
+## Combine it with your own status line
+
+If your status line script reads its input with `input=$(cat)`, add this line to it:
+
+```sh
+echo "$input" | pitboard statusline
+```
+
+Pass the input unchanged. Without the session's `session_id`, pitboard still prints the line but records nothing.
+
+## What it reads and writes
+
+`pitboard statusline` makes no network request, does not read the keychain and does not touch a login. It reads only what Claude Code passes, Claude Code's config and pitboard's files.
+
+It writes only in `~/.pitboard`, where it records the usage each session passes, so `pitboard` and the app show it. For when it records usage, see [How usage is read](/concepts/usage#what-the-status-line-adds).
