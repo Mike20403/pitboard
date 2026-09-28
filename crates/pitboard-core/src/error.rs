@@ -434,8 +434,8 @@ pub enum Error {
     #[error(
         "could not sign in as `{to}` ({detail}), and could not read the credential store \
          back to find out whether anything changed. Nothing has been deleted and both \
-         logins are still here. {} and run `pitboard` again; it finishes or undoes this \
-         before doing anything else.",
+         logins are still here. {} and run `pitboard use {to}` again; it finishes or \
+         undoes this before doing anything else.",
         make_readable(*tool)
     )]
     SwitchUnverified {
@@ -966,5 +966,24 @@ mod tests {
             already.contains("pitboard enroll codex/<label> --sign-in"),
             "{already}"
         );
+    }
+
+    /// Only a command that changes something finishes an interrupted switch; a plain
+    /// `pitboard` reads and leaves it. So the message names the switch to run again, as it
+    /// would be typed here.
+    #[test]
+    fn an_unverified_switch_names_a_command_that_finishes_it() {
+        let message = Error::SwitchUnverified {
+            tool: ProviderId::Codex,
+            from: "codex/personal".into(),
+            to: "codex/work".into(),
+            detail: "auth.json is not readable".into(),
+        }
+        .to_string();
+        assert!(
+            message.contains("run `pitboard use codex/work` again"),
+            "{message}"
+        );
+        assert!(!message.contains("run `pitboard` again"), "{message}");
     }
 }

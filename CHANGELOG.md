@@ -16,6 +16,8 @@ All notable changes are recorded here. The format follows
 - The menu bar app ignored `PITBOARD_NO_ARGV`, and so did daily renewal unless its
   scheduler set it. The app reads it from its own environment, and a schedule installed
   while it is set keeps it.
+- A switch whose login could not be read back said to run `pitboard` again, which only
+  reads. It names the `pitboard use` that finishes or undoes the switch.
 
 ## [0.5.0] - 2026-09-28
 
