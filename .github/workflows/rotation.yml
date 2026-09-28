@@ -2,23 +2,24 @@ name: Update key rehearsal
 
 # Sparkle takes an update when either the archive's EdDSA signature verifies under the
 # public key in the installed bundle or the new bundle satisfies the installed bundle's
-# designated requirement, and there is no way to revoke either. "Rotating the update key"
-# in CONTRIBUTING.md has a route for each. This runs the one that needs no certificate,
+# designated requirement, and there is no way to revoke either. "Rotate the update key"
+# in RELEASING.md has a route for each. This runs the one that needs no certificate,
 # which is the awkward one and the one that still works when both are in doubt: a release
 # signed with the current key that carries the next public key, then a release signed with
 # the next key, and a floor version below which a copy cannot follow and has to be
 # installed again from the cask.
 #
-# It is run rather than written so that the procedure is one that has been executed. Its
-# first rung is the step nobody would get right from reading: generate_appcast will not
-# sign a bundle carrying a key other than the one it is given, and refuses by leaving the
-# signature out and exiting 0.
+# It is a workflow rather than prose so that the procedure is run on a schedule, and not
+# only written down. Its first rung is the step nobody would get right from reading:
+# generate_appcast will not sign a bundle carrying a key other than the one it is given,
+# and refuses by leaving the signature out and exiting 0.
 #
 # It cannot touch anything real, by construction rather than by care. This file names no
 # repository secret, so no job it starts is given the update key or the certificate; the
 # keys it uses are made on the runner and go when the runner does; its feed is on the
 # loopback address, which no release can publish to; and its bundles carry an identifier
-# under a reserved domain. A step checks all four before a single byte is signed.
+# under a reserved domain. A step checks the secrets, the feed and the identifier before a
+# single byte is signed.
 
 on:
   schedule:
