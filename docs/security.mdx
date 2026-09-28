@@ -11,9 +11,11 @@ On macOS, parked logins are keychain items whose names start with `pitboard-park
 
 A Claude Code parked login holds the account's OAuth block, plus any `organizationUuid`, `trustedDeviceToken`, `enterpriseGateway` or `designOauth` stored beside it. Whether restoring a device token spares a re-verification has not been measured. A Codex parked login is Codex's whole login file, `~/.codex/auth.json`.
 
-On Linux, parked logins are files in `~/.pitboard/vault/`, at mode 0600 in a 0700 directory. Claude Code keeps its login in a plaintext `~/.claude/.credentials.json`. `pitboard doctor` fails if anyone else can read that file or the vault. On both systems, it warns if anyone else can read Codex's `auth.json`.
+On Linux, parked logins are files in `~/.pitboard/vault/`, at mode 0600 in a 0700 directory. Any process running as you can read them, as it can the login in use, which each tool keeps in a file at mode 0600.
 
-pitboard's other files hold no token, though some hold your email address and project paths; see [Files and environment variables](/reference/files#the-pitboard-directory).
+As read in Claude Code 2.1.278, Claude Code keeps its login in a plaintext `~/.claude/.credentials.json`. `pitboard doctor` fails if anyone else can read that file or the vault. On both systems, it warns if anyone else can read Codex's `auth.json`.
+
+pitboard's other files hold no token, though some hold your email address, account identifiers and project paths; see [Files and environment variables](/reference/files#the-pitboard-directory).
 
 ## What leaves your machine
 
@@ -28,23 +30,23 @@ pitboard makes only these requests. It has no server of its own and no telemetry
 | `auth.openai.com/oauth/token` | A refresh token and Codex's public client id | Renewing a Codex parked login |
 | `github.com/datlechin/pitboard/releases` | Nothing of yours | The app's update check (`appcast.xml`) and update downloads, only in a copy of the app from a release. It checks once a day while **Check for updates automatically** is on, and when you choose **Check for Updates** or click **Check Now**. The command line never checks. |
 
-pitboard never renews a login a tool is using. Until you enrol a Codex account, pitboard sends OpenAI nothing.
+pitboard never renews a login a tool is using. Each renewal is the request the tool itself makes to renew its own login. Until you enrol a Codex account, pitboard sends OpenAI nothing.
 
 Every request verifies TLS against your system's trust store. Requests to Anthropic and OpenAI time out after 5 seconds.
 
 ## Large logins on macOS
 
-pitboard hands a login to `security` in hex on standard input, where `ps` cannot see it. pitboard keeps that input within 4032 bytes, Claude Code's own ceiling, so about 2 KB of login fits.
+pitboard hands a login to `security` in hex on standard input, where `ps` cannot see it. pitboard keeps that input within 4032 bytes, the ceiling Claude Code 2.1.278 used, so about 2 KB of login fits.
 
-MCP server tokens can push a Claude Code login past that. Every Codex parked login is past it.
+MCP server tokens can push a Claude Code login past that. Every Codex parked login is past it, because it is Codex's whole `auth.json`, over 4 KB before hex encoding.
 
-Past the ceiling, pitboard passes the login as an argument, which another process running as you could read while the call lasts. Claude Code writes its own large logins the same way.
+Past the ceiling, pitboard passes the login as an argument, which another process running as you could read while the call lasts. Claude Code 2.1.278 wrote its own large logins the same way. Codex keeps its login in a file, so for a Codex account this exposure comes from pitboard alone.
 
 A switch or `--sign-in` enrolment that does this says so; a renewal does not.
 
 `PITBOARD_NO_ARGV=1` makes pitboard refuse such a write, so on macOS it cannot park a Codex account. It also leaves such a parked login unrenewed, since the renewed login could not be stored. pitboard refuses before asking the service, so the parked login stays as it was.
 
-The command line reads the variable from your shell. The app reads it from its own environment, which does not include your shell's when the app opens from Finder or at login; `open -a Pitboard` from a shell that sets it passes it on. A daily renewal schedule installed while it is set keeps it.
+The command line reads the variable from your shell. The app reads it from its own environment, which does not include your shell's when the app opens from Finder or at login. To pass it on, quit the app, then run `open -a Pitboard` from a shell that sets it. A daily renewal schedule installed while it is set keeps it.
 
 ## What pitboard protects against
 
@@ -55,7 +57,7 @@ The command line reads the variable from your shell. The app reads it from its o
 - pitboard keeps no copy of a login in use.
 - pitboard refuses to keep its files in a synced folder, because a parked login belongs to one machine.
 - Every release is attested; see [Verify a download](/install/verify).
-- The app installs only updates signed with the key it shipped with.
+- The app installs an update signed with the key it carries. A copy signed with a Developer ID also installs one whose app is signed by the same Developer ID team. The release workflow refuses a changed key unless the repository declares a rotation.
 
 pitboard keeps renewing an unused account's parked login, so its token stays live. `pitboard doctor` warns about an account last switched to 30 days ago or more, and `pitboard forget` deletes its login.
 
@@ -65,7 +67,7 @@ Deleting a parked login does not revoke it, and pitboard revokes no login. Its r
 
 - Another process running as you.
 - Another user with administrator access to your computer.
-- A compromised Claude Code or Codex, or a compromised library that pitboard uses. CI checks those libraries against known advisories, and each release lists them in a bill of materials.
+- A compromised Claude Code or Codex, or a compromised library that pitboard uses. CI checks pitboard's Rust libraries against known advisories, and a weekly job checks Sparkle, the app's update framework, only for a newer release. Each release lists all of them in a bill of materials.
 - `/logout` in a `codex` session started before a switch, which revokes the login pitboard has parked; see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
 - Anyone who can already read your files.
 
