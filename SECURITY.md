@@ -36,9 +36,12 @@ which keeps the login in memory only, is refused too: there is nothing at rest t
 
 A login larger than about two kilobytes cannot go through standard input. MCP server tokens
 make a Claude Code login that large, and every Codex park is larger: it is the whole
-`auth.json`, over four kilobytes. `security` reads at most 4097 bytes of command from
-standard input, with no line continuation, and its interactive prompt takes 128 bytes.
-Measured on macOS 26 on 22 September 2026, along with the two alternatives:
+`auth.json`, over four kilobytes. The command that writes a login carries it hex-encoded,
+two characters a byte. pitboard keeps that command within 4032 bytes, the ceiling Claude
+Code uses, and that is the limit its messages give. `security` itself reads at most 4097
+bytes of command from standard input, with no line continuation, and its interactive
+prompt takes 128 bytes. Measured on macOS 26 on 22 September 2026, along with the two
+alternatives:
 
 | How to write a large login | Cost |
 | --- | --- |
@@ -60,6 +63,9 @@ on macOS. `PITBOARD_NO_ARGV=1` refuses the write instead, for anyone who would r
 neither; on macOS that means no Codex account can be parked. Set it before parking any
 Codex account: with Codex parks already in the keychain, the next renewal exchanges the
 refresh token and then cannot store the result, and that account's parked login is lost.
+Only the command line reads `PITBOARD_NO_ARGV`, from its own environment: the menu bar app
+writes on the argument line whatever it is set to, and so does a scheduled renewal unless
+the scheduler's own environment sets it.
 
 ### Linux
 
@@ -74,7 +80,7 @@ can read them, which is the exposure each tool's own file already has.
 A mode bit is the whole of that protection, and a backup restore, a `cp -r` or a careless
 umask changes one quietly. `pitboard doctor` looks at the actual modes of Claude Code's
 credential file, the vault and everything in it, and fails if anyone but you can read one.
-It does not look at Codex's `auth.json`.
+For Codex's `auth.json` it warns instead of failing.
 
 ### Everywhere else
 
@@ -102,9 +108,11 @@ the limits it passed then. The audit log holds labels, codes and times only.
 For a Claude Code account, pitboard makes two read-only requests to
 `https://api.anthropic.com`, each carrying an access token: `/api/oauth/profile`, to learn
 which account a login belongs to, and `/api/oauth/usage`, for the numbers `pitboard status`
-shows. It sends a refresh token in one case only: renewing a parked login whose access
-token has expired, through `https://platform.claude.com/v1/oauth/token` with Claude Code's
-own client id, the request Claude Code makes to renew its own login.
+shows. It sends a refresh token in one case only: renewing a parked login, through
+`https://platform.claude.com/v1/oauth/token` with Claude Code's own client id, the request
+Claude Code makes to renew its own login. A parked login is renewed when its access token
+has expired or expires within two minutes, and by `pitboard renew`, which daily renewal
+runs, also when its refresh token expires within three days.
 
 pitboard reads nothing of Codex's, and sends OpenAI nothing, until a Codex account is
 enrolled. For a Codex account, pitboard makes one read-only request,
@@ -116,15 +124,19 @@ own ID token with no request. The token's signature is not checked: it came from
 your own disk, which is the same trust as reading any other file there.
 
 pitboard sends a Codex refresh token in one case only: renewing a parked login whose
-access token has expired, through `https://auth.openai.com/oauth/token` with Codex's own
-public client id, `app_EMoamEEZ73f0CkXaXp7hrann`, the request Codex makes to renew its own
-login.
+access token has expired or expires within two minutes, through
+`https://auth.openai.com/oauth/token` with Codex's own public client id,
+`app_EMoamEEZ73f0CkXaXp7hrann`, the request Codex makes to renew its own login.
 
 A parked login is held by pitboard alone, so renewing it puts no second holder on its
 refresh chain. The new tokens replace the parked copy before the old one is deleted, and all
 of this happens under pitboard's lock, so no switch can install the old copy meanwhile. The
 login signed in is never renewed by pitboard: that is the tool's own job, and a second
 renewer would break it.
+
+A copy of the app from a release also checks for updates at
+`https://github.com/datlechin/pitboard/releases/latest/download/appcast.xml`. That request
+carries no token.
 
 TLS is verified against your operating system's trust store. There is no telemetry.
 
@@ -139,9 +151,10 @@ IP address.
   Business workspace are two accounts. Every parked copy is also bound to a fingerprint of
   its refresh token, and a copy that does not match is refused.
 - Corruption from a crash mid-switch: a switch durably records its intent before acting,
-  and the next `use`, `enroll` or `forget` finishes what the interrupted one started before
-  doing anything else. When it cannot tell what happened, it changes nothing and keeps the
-  record for a later run.
+  and the next command that changes something (`use`, `enroll`, `forget`, `rename`,
+  `repair` or `uninstall`) finishes what the interrupted one started before doing anything
+  else. When it cannot tell what happened, it changes nothing and keeps the record for a
+  later run.
 - Leftover copies: a parked login that is no longer needed stays listed until it is
   deleted, so a failed or interrupted delete is retried. Temporary files a killed run left
   behind are removed on the next write to the same directory.
@@ -189,10 +202,11 @@ IP address.
   to exactly one machine.
 - A changed download. Every release attests each command line tarball, the app,
   `SHA256SUMS`, a bill of materials beside each artefact, and `appcast.xml`, which is the
-  file that decides what an installed copy runs next. `gh attestation verify <file> --repo
-  datlechin/pitboard` checks any of them against the workflow and the commit that produced
-  it. On macOS the command line and the app are signed with a Developer ID and notarised,
-  and the app carries its own signed copy of the command line, so an update replaces both.
+  file that decides what an installed copy runs next; a pre-release publishes no
+  `appcast.xml`. `gh attestation verify <file> --repo datlechin/pitboard` checks any of
+  them against the workflow and the commit that produced it. On macOS the command line and
+  the app are signed with a Developer ID and notarised, and the app carries its own signed
+  copy of the command line, so an update replaces both.
   Homebrew installs these same files and builds nothing: the command line's tarball for the
   machine, or the app. The checksums it checks are the ones the release took of the files
   it published. The job that writes the tap is handed them inside the same run rather than
@@ -213,17 +227,17 @@ IP address.
   describes.
 - Signing out inside a `codex` that was running before a switch. It still holds the
   outgoing account's tokens in memory, so `/logout` there revokes the login pitboard has
-  just parked. After a Codex switch made on the command line, pitboard counts the running
-  `codex` processes and says to quit them rather than sign out; the menu bar app does not
-  yet say so.
+  just parked. After a Codex switch, on the command line or in the menu bar app, pitboard
+  counts the running `codex` processes and says to quit them rather than sign out.
 - Anyone who can already read your files. Where there is no keychain, a parked login is a
   file and a mode bit is the whole of what keeps it private. `pitboard doctor` checks the
   modes and fails when one is wrong, which is all it can do.
 
 ## If something goes wrong
 
-If a switch is interrupted, the next `pitboard use`, `enroll` or `forget` finishes it first
-and says what it found. Run `pitboard doctor` if anything still looks wrong.
+If a switch is interrupted, the next `pitboard use`, `enroll`, `forget`, `rename`, `repair`
+or `uninstall` finishes it first and says what it found. Run `pitboard doctor` if anything
+still looks wrong.
 
 When the login in place matches neither side of the record, finishing needs to know whose
 it is. A Codex login names its own account. For Claude Code, Anthropic has to say, and when
