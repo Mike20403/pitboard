@@ -1,55 +1,30 @@
-# Mintlify Starter Kit
+# pitboard documentation
 
-Use the starter kit to get your docs deployed and ready to customize.
+The source of docs.usepitboard.com, built with Mintlify. Pages are `.mdx` files; the
+sidebar and site settings are in `docs.json`. Writing rules are in `AGENTS.md`.
 
-Click the green **Use this template** button at the top of this repo to copy the Mintlify starter kit. The starter kit contains examples with
+## Preview
 
-- Guide pages
-- Navigation
-- Customizations
-- API reference pages
-- Use of popular components
+Install the Mintlify CLI once, then run it in this folder:
 
-**[Follow the full quickstart guide](https://starter.mintlify.com/quickstart)**
+    npm i -g mint
+    mint dev
 
-## AI-assisted writing
+The site opens at http://localhost:3000. The first run downloads Mintlify's preview
+client. Restart `mint dev` after changing `docs.json`.
 
-Set up your AI coding tool to work with Mintlify:
+## Check
 
-```bash
-npx skills add https://mintlify.com/docs
-```
+All three must pass before a commit:
 
-This command installs Mintlify's documentation skill for your configured AI tools like Claude Code, Cursor, Windsurf, and others. The skill includes component reference, writing standards, and workflow guidance.
+    mint validate
+    mint broken-links --check-anchors --check-redirects
+    mint a11y
 
-See the [AI tools guides](/ai-tools) for tool-specific setup.
+## Where things go
 
-## Development
-
-Install the [Mintlify CLI](https://www.npmjs.com/package/mint) to preview your documentation changes locally. To install, use the following command:
-
-```
-npm i -g mint
-```
-
-Run the following command at the root of your documentation, where your `docs.json` is located:
-
-```
-mint dev
-```
-
-View your local preview at `http://localhost:3000`.
-
-## Publishing changes
-
-Install our GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app) to propagate changes from your repo to your deployment. Changes are deployed to production automatically after pushing to the default branch.
-
-## Need help?
-
-### Troubleshooting
-
-- If your dev environment isn't running: Run `mint update` to ensure you have the most recent version of the CLI.
-- If a page loads as a 404: Make sure you are running in a folder with a valid `docs.json`.
-
-### Resources
-- [Mintlify documentation](https://mintlify.com/docs)
+- Pages: the folder that matches their sidebar group, such as `guides/switch.mdx`. Add
+  each page to `docs.json`.
+- Images: `images/`, referenced as `/images/name.png`.
+- The site icon: `favicon.svg`, drawn from `apple/scripts/make-icon.swift`.
+- Files Mintlify must not publish: `.mintignore`.

@@ -1,47 +1,93 @@
 ---
 title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+description: "Install pitboard, add two Claude Code accounts, see what each has left and switch between them."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+Enrol two Claude Code accounts with pitboard's command line, switch between them and see what each account has left.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+Before you start, install Claude Code, run `claude` once and sign in to one of your accounts.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Install pitboard">
+    Run one of these commands, not both. The menu bar app includes the command line.
 
-    ```bash
-    npm install your-package
+    ```sh
+    brew install datlechin/tap/pitboard            # the command line, macOS and Linux
+    brew install --cask datlechin/tap/pitboard-app # the menu bar app, macOS 14 or later
+    ```
+
+    To check the install, run `pitboard --version`. It prints `pitboard` and the version number. For other ways to install, see [Install pitboard](/install).
+  </Step>
+  <Step title="Add the account you are signed in to">
+    Enrol the account Claude Code is signed in to, under the label `personal`. A label is the short name you give an account.
+
+    ```sh
+    pitboard enroll personal
+    ```
+
+    ```text
+    Enrolled personal (me@example.com), the account signed in now.
+    Add another without signing out of it: pitboard enroll <label> --sign-in
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+  <Step title="Add a second account">
+    Enrol your second account as `work`. The `--sign-in` option runs Claude Code's own sign-in, and Claude Code stays signed in to `personal`.
 
-    ```bash
-    your-cli init
+    ```sh
+    pitboard enroll work --sign-in
+    ```
+
+    pitboard prints this line:
+
+    ```text
+    Opening Claude Code's sign-in. Sign in as the account to add; the account in use now stays signed in.
+    ```
+
+    Claude Code's sign-in opens in your browser. Sign in there as your second account. pitboard keeps that account's login until you switch to it, and prints:
+
+    ```text
+    Enrolled work (me@company.com). Switch to it with: pitboard use work
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+  <Step title="Switch to it">
+    Switch Claude Code to `work`.
 
-    ```bash
-    your-cli start
+    ```sh
+    pitboard use work
     ```
+
+    ```text
+    Switched to work; personal is parked.
+    Claude Code sessions already running follow within 33 seconds.
+    ```
+
+    `work` is the account in use. `personal`'s login is parked: pitboard keeps it until you switch back with `pitboard use personal`.
+
+    A Claude Code session that is already open picks up the switch within about 33 seconds. You do not have to restart it.
+  </Step>
+  <Step title="See what each account has left">
+    Run `pitboard` on its own.
+
+    ```sh
+    pitboard
+    ```
+
+    ```text
+    ● work      me@company.com  signed in
+        5h    █░░░░░░░░░   12%  resets in 3h 02m
+        week  ████░░░░░░   40%  resets in 2d 4h
+
+    ○ personal  me@example.com  ready · good for 26d 4h
+        5h    ██████░░░░   59%  resets in 1h 10m
+        week  ███████░░░   73%  resets in 5d 18h
+    ```
+
+    The account in use is marked `●` and `signed in`. `ready` means you can switch to the account, and `good for 26d 4h` is how long its parked login lasts.
+
+    Under each account, `5h` is its five-hour limit and `week` is its weekly limit. Each line shows how much of the limit is used and when it resets.
+
+    Once pitboard has read an account three times over at least 15 minutes, a last line under it says how long the account lasts. For what each line means, see [Check what each account has left](/guides/usage#read-the-lines-under-each-account).
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Next, to switch OpenAI's Codex CLI between your ChatGPT accounts, see [Use pitboard with Codex](/guides/codex). To add accounts in the menu bar app, see [Add and manage accounts](/guides/accounts).

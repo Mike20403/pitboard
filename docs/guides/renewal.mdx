@@ -1,0 +1,97 @@
+---
+title: "Keep parked logins alive"
+description: "Renew parked logins once a day, so an account you have left alone for weeks can still be switched to."
+---
+
+If you leave an account unused for weeks, turn on daily renewal. A parked login is the login pitboard holds for an account not in use. Daily renewal keeps it usable, so switching back needs no browser sign-in.
+
+## Why parked logins expire
+
+For how parking works, see [How switching works](/concepts/switching#parked-logins).
+
+A Claude Code parked login expires 30 days after its last renewal. `pitboard` shows the time left as `ready · good for 26d 4h`, and the pitboard window as **Parked login good for 26 more days**. An expired one needs a browser sign-in: see [Sign in to an account again](/guides/sign-in-again).
+
+OpenAI's Codex CLI states no expiry, so a parked Codex login shows only `ready`.
+
+pitboard renews parked logins only when it runs. Running `pitboard` or the app renews a parked login only when pitboard can no longer ask for usage with it, or 2 minutes before. `pitboard renew` and daily renewal also renew every parked login that expires within 3 days.
+
+pitboard never renews the login a tool is using. The tool refreshes its own.
+
+## Turn on daily renewal
+
+<Tabs>
+  <Tab title="App">
+    1. If the app is not in your Applications folder, quit it, move it there, then open it. Until you do, macOS runs a temporary copy that daily renewal cannot use.
+    2. Click pitboard's item in the menu bar, then choose **Settings**.
+    3. Click **General**, then turn on **Renew parked logins daily**. **Runs** shows **Every day**.
+  </Tab>
+  <Tab title="Command line">
+    ```sh
+    pitboard schedule install
+    ```
+
+    On a Mac, it prints:
+
+    ```text
+    Parked logins will be renewed daily.
+    /Users/me/Library/LaunchAgents/com.datlechin.pitboard.renew.plist
+
+    It renews your own parked logins and does nothing else: it never switches account and never asks Anthropic for usage.
+    ```
+  </Tab>
+</Tabs>
+
+Daily renewal runs `pitboard renew` once a day, from a LaunchAgent on macOS or a systemd user timer on Linux.
+
+On a Mac, the first run comes a day after you turn it on. A run due while the Mac is asleep is missed, and the next one renews whatever is still due.
+
+<Note>
+  Daily renewal renews only the parked logins in `~/.pitboard`. With the `PITBOARD_HOME` environment variable set, run `pitboard renew` yourself.
+</Note>
+
+## Check or turn off daily renewal
+
+<Tabs>
+  <Tab title="App">
+    In **Settings** > **General**, the **Renew parked logins daily** switch shows whether it is on. To stop it, turn off the switch.
+  </Tab>
+  <Tab title="Command line">
+    ```sh
+    pitboard schedule status
+    ```
+
+    ```text
+    Parked logins are renewed every 1d 0h by this computer's own scheduler.
+    /Users/me/Library/LaunchAgents/com.datlechin.pitboard.renew.plist
+    ```
+
+    To stop it, run `pitboard schedule uninstall`.
+  </Tab>
+</Tabs>
+
+If `pitboard doctor` reports a problem with daily renewal, see [Daily renewal stopped working](/troubleshooting#daily-renewal-stopped-working).
+
+## Renew now
+
+Renew every due parked login without waiting for daily renewal. A login `pitboard` shows with `ready · expires in 2d 3h` is due, and renewing it saves a sign-in.
+
+<Tabs>
+  <Tab title="App">
+    In **Settings** > **General**, click **Renew Now**. The text beside the button gives the result, such as **Renewed one.**
+  </Tab>
+  <Tab title="Command line">
+    ```sh
+    pitboard renew
+    ```
+
+    ```text
+    Renewed 2.
+    ```
+  </Tab>
+</Tabs>
+
+## Accounts you no longer use
+
+With daily renewal on, pitboard keeps a parked login alive for as long as its account stays enrolled. `pitboard doctor` warns about an account last switched to at least 30 days ago.
+
+If you are not coming back to an account, forget it: see [Forget an account](/guides/accounts#forget-an-account). For an account labelled `old`, run `pitboard forget old`. Forgetting deletes the parked login but does not revoke it: see [Security and privacy](/security#what-pitboard-protects-against).

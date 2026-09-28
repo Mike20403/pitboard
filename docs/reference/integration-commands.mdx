@@ -1,0 +1,97 @@
+---
+title: "Integration commands"
+description: "`statusline`, `completions` and `manpage` produce output for Claude Code's status line, your shell and `man`."
+---
+
+These three commands print text for another program to read. None of them makes a network request or touches a login.
+
+Their only options are `--json` and `--help`, which [Global options](/reference/commands#global-options) describes.
+
+## `statusline`
+
+```text
+One line for Claude Code's status bar; reads its session JSON on stdin
+
+Usage: pitboard statusline [OPTIONS]
+```
+
+`pitboard statusline` reads the session JSON that Claude Code passes on standard input. It uses only `session_id`, `rate_limits.five_hour.used_percentage`, `rate_limits.five_hour.resets_at`, `rate_limits.seven_day.used_percentage` and `rate_limits.seven_day.resets_at`.
+
+When standard input is a terminal, it reads nothing. Input that is not JSON counts as empty, and the command always exits 0.
+
+It prints one line: the account in use, then every other enrolled Claude Code account, two spaces apart.
+
+| Part | Meaning |
+| --- | --- |
+| `work 46%·70%` | `work` has used 46% of its five-hour limit and 70% of its weekly limit. Percentages are whole numbers. |
+| `?` | pitboard has no reading of that limit. |
+| `0%` | None of that limit is used, or it has reset since pitboard last read it. |
+| `(3h 00m)` | The age of another account's reading, shown once it is older than 15 minutes. |
+| `unenrolled` | Shown in place of the first label when Claude Code's config names no account, or one you have not enrolled. |
+
+Limits for a single model and accounts of OpenAI's Codex CLI never appear.
+
+The label of the account in use is bold. Other labels, `·`, `?` and ages are dim. A percentage is green under 70%, yellow from 70% and red from 90%.
+
+The colour stays on through a pipe unless `NO_COLOR` is set, as [Commands](/reference/commands#output) describes. With `--json`, the [JSON output](/reference/json-output#data-by-command) field `data.line` holds the line without colour.
+
+It reads Claude Code's config to learn which account is in use. It also reads pitboard's accounts and readings, never the keychain.
+
+It keeps what each session passed at its last run in `~/.pitboard/sessions.json`. It records a session's numbers in `~/.pitboard/usage.json`, the readings `pitboard` and the app show. For when it records them, see [How usage is read](/concepts/usage#what-the-status-line-adds).
+
+At a prompt, it prints pitboard's last readings:
+
+```sh
+pitboard statusline
+```
+
+```text
+work 46%·70%  personal 12%·40% (3h 00m)  side ?·?
+```
+
+To add it to Claude Code, see [Show usage in Claude Code's status line](/guides/status-line).
+
+## `completions`
+
+```text
+Print a shell completion script
+
+Usage: pitboard completions [OPTIONS] <SHELL>
+```
+
+| Argument | Values |
+| --- | --- |
+| `<SHELL>` | `bash`, `elvish`, `fish`, `powershell`, `zsh` |
+
+`pitboard completions` prints the completion script for that shell on standard output.
+
+With `--json`, it prints no script and exits 2 with the error `output_is_not_a_report`.
+
+The Homebrew casks install the bash, zsh and fish scripts. Each release tarball includes them in `completions/`, and the app in `Pitboard.app/Contents/Resources/completions/`. No release includes the elvish or PowerShell script.
+
+zsh loads `_pitboard` from any directory on its `fpath`. This example writes it to the current directory:
+
+```sh
+pitboard completions zsh > _pitboard
+```
+
+## `manpage`
+
+```text
+Print the man page
+
+Usage: pitboard manpage [OPTIONS]
+```
+
+`pitboard manpage` prints pitboard's man page in roff on standard output. `pitboard --help` does not list it. With `--json`, it exits 2 with the error `output_is_not_a_report`.
+
+The man page gives the synopsis, the global options and each command with its one-line description. It is pitboard's only man page. For a command's options, run `pitboard help` and the command's name, as in `pitboard help use`.
+
+The Homebrew casks install it. Each release tarball includes it as `pitboard.1`, and the app as `Pitboard.app/Contents/Resources/man/pitboard.1`.
+
+This example opens it in `man`:
+
+```sh
+pitboard manpage > pitboard.1
+man ./pitboard.1
+```

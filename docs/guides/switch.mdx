@@ -1,0 +1,63 @@
+---
+title: "Switch accounts"
+description: "Move Claude Code or Codex to another enrolled account from the menu, the window or the command line."
+keywords:
+  - "swap"
+  - "change account"
+---
+
+A switch moves Claude Code or OpenAI's Codex CLI to another enrolled account. pitboard checks three things before it moves anything:
+
+- The tool is signed in to an enrolled account. See [Add and manage accounts](/guides/accounts#add-the-account-you-are-signed-in-to).
+- The account you switch to has a [parked login](/concepts/switching#parked-logins): the login pitboard holds for an account not in use. Adding it with a sign-in parks one.
+- Anthropic or OpenAI confirms the parked login.
+
+## Switch to another account
+
+<Tabs>
+  <Tab title="App">
+    Click pitboard's item in the menu bar, then choose the account. The check mark moves to it.
+
+    In the pitboard window, click **Use** in the account's row, double-click the row, or select it and press Return. The row shows **In Use**.
+  </Tab>
+  <Tab title="Command line">
+    Run `pitboard use` with the account's label, such as `work` or `codex/work`.
+
+    ```sh
+    pitboard use work
+    ```
+
+    ```text
+    Switched to work; personal is parked.
+    Claude Code sessions already running follow within 33 seconds.
+    ```
+
+    For how pitboard matches labels, see [Labels](/reference/commands#labels).
+  </Tab>
+</Tabs>
+
+If a check fails, pitboard says what to do, and the tool keeps its account. If the parked login expired or was refused, see [Sign in to an account again](/guides/sign-in-again). For every message, see [Error and warning codes](/reference/errors).
+
+## What happens to open sessions
+
+An open Claude Code session follows the switch within about 33 seconds, with no restart. After a switch in the app, a notice in the pitboard window counts down those seconds. For why, see [How switching works](/concepts/switching#open-sessions).
+
+A running `codex` keeps the old account until you quit it and start it again. If any are still running, pitboard says how many.
+
+<Warning>
+  After a Codex switch, quit each `codex` session that was running before it. Do not type `/logout` in one.
+
+  That session still holds the old account's login, and signing out there revokes it at OpenAI. It is the same login pitboard parked during the switch. If you signed out there, Control-click the old account in the pitboard window and choose **Sign In Again**. Or run `pitboard enroll codex/<label> --sign-in`, where `<label>` is its label.
+</Warning>
+
+## When an account runs out
+
+When the account in use runs out of a limit, the app suggests the same tool's account with the most of that limit left. For example, a notification titled **work has no 5-hour limit left** says **personal has 58% of its own left.** Click **Switch** to switch to `personal`.
+
+If no account you can switch to has any left, the app suggests nothing. It never switches by itself.
+
+The app tells you once each time a limit runs out, and again after you reopen it. The first time it tells you, macOS asks whether to allow notifications. Either way, the advice is at the top of pitboard's menu as **Switch to personal**, and in the pitboard window.
+
+The command line sends no notification. Run `pitboard` to see what each account has left.
+
+For what a switch changes and what it costs you, see [How switching works](/concepts/switching) and [What a switch costs you](/concepts/limits#what-a-switch-costs-you).

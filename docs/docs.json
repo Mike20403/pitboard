@@ -1,72 +1,132 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "pitboard",
+  "description": "Switch between your own Claude Code and Codex logins, and see how much each one has left.",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
+    "primary": "#166534",
+    "light": "#4DD170",
     "dark": "#15803D"
   },
   "favicon": "/favicon.svg",
+  "icons": {
+    "library": "lucide"
+  },
+  "appearance": {
+    "default": "system"
+  },
   "navigation": {
-    "pages": [
+    "groups": [
       {
-        "group": "Getting Started",
+        "group": "Get started",
         "pages": [
           "index",
           "quickstart"
+        ]
+      },
+      {
+        "group": "Install and remove",
+        "pages": [
+          "install",
+          "install/verify",
+          "install/upgrade-from-0-3-0",
+          "install/remove"
+        ]
+      },
+      {
+        "group": "Use pitboard",
+        "pages": [
+          "guides/accounts",
+          "guides/usage",
+          "guides/switch",
+          "guides/sign-in-again",
+          "guides/renewal",
+          "guides/codex",
+          "guides/status-line"
+        ]
+      },
+      {
+        "group": "Troubleshooting",
+        "pages": [
+          "troubleshooting",
+          "troubleshooting/recovery"
+        ]
+      },
+      {
+        "group": "How it works",
+        "pages": [
+          "concepts/switching",
+          "concepts/usage",
+          "security",
+          "concepts/limits"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          {
+            "group": "Commands",
+            "root": "reference/commands",
+            "pages": [
+              "reference/account-commands",
+              "reference/maintenance-commands",
+              "reference/recovery-commands",
+              "reference/integration-commands"
+            ]
+          },
+          "reference/json-output",
+          "reference/errors",
+          "reference/files",
+          "reference/app",
+          "reference/settings"
         ]
       }
     ],
     "global": {
       "anchors": [
         {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
+          "anchor": "Releases",
+          "href": "https://github.com/datlechin/pitboard/releases",
+          "icon": "tag"
         },
         {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
+          "anchor": "Changelog",
+          "href": "https://github.com/datlechin/pitboard/blob/main/CHANGELOG.md",
+          "icon": "scroll-text"
         }
       ]
     }
   },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/datlechin/pitboard"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/datlechin/pitboard"
     }
   },
   "contextual": {
     "options": [
       "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
+      "view"
     ]
   },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+  "search": {
+    "prompt": "Search the docs"
+  },
+  "seo": {
+    "metatags": {
+      "canonical": "https://docs.usepitboard.com"
+    }
+  },
+  "errors": {
+    "404": {
+      "redirect": false,
+      "title": "Page not found",
+      "description": "Go back to the [introduction](/)."
     }
   }
 }

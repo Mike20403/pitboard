@@ -1,0 +1,59 @@
+---
+title: "How switching works"
+description: "pitboard parks the login you leave, identifies every login before moving it, and can finish or undo an interrupted switch."
+---
+
+A switch moves the login Claude Code or OpenAI's Codex CLI is using into pitboard's store. A parked login takes its place.
+
+## Parked logins
+
+A parked login is the login pitboard holds for an account not in use. Each account has at most one. Switching to an account puts its parked login in use, and switching away parks a fresh one.
+
+Enrolling the account in use, which adds it to pitboard, parks nothing: a copy would go stale as the tool refreshes its login. The first switch away parks its login.
+
+For where parked logins are kept and why they expire, see [Security and privacy](/security#where-parked-logins-are-kept) and [Keep parked logins alive](/guides/renewal#why-parked-logins-expire).
+
+## How pitboard knows whose login it is
+
+pitboard does not move a login until it knows whose it is.
+
+For Claude Code, pitboard asks Anthropic, because the account named in Claude Code's config file can be a day out of date. For Codex, it reads the account from the login's ID token.
+
+pitboard records a fingerprint of each parked login's refresh token, and refuses one that no longer matches.
+
+## What a switch does
+
+1. Checks the incoming parked login with Anthropic or OpenAI, renewing it if needed. Every switch, Codex included, needs the network.
+2. For Claude Code, takes the lock Claude Code holds while writing its login. Both treat a lock untouched for 15 seconds as abandoned, and touch their own every 7.5 seconds. Codex takes no lock.
+3. Parks the outgoing login, leaving other entries, such as Claude Code's MCP server tokens, in place. For Codex, pitboard parks the whole `auth.json`.
+4. Writes the incoming login where the tool reads it. On macOS, if writing Claude Code's keychain item fails, pitboard does not fall back to Claude Code's plaintext file.
+5. Reads the login back to check the write held. A Claude Code `/logout` that gives up waiting for the lock deletes the login anyway.
+6. For Claude Code, copies Claude Code's config file to `~/.pitboard/backups/`, keeping the 10 newest copies, then writes the incoming account into the config file.
+
+## Open sessions
+
+An open Claude Code session picks up a switch within about 33 seconds. Claude Code caches its login for 30 seconds. The other 3 are margin for the next read.
+
+On one Mac, switches 8, 20 and 28 seconds into a session took effect 32.3 to 33.5 seconds in.
+
+Claude Code sessions and the daemon that refreshes their login take the same lock as pitboard. Each reads the login again under the lock, so none can write the previous account back.
+
+A running `codex` holds its login in memory until it exits, so it needs a restart. For what to do, see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
+
+## Why Codex logins are moved, not copied
+
+`codex login` and `codex logout` ask OpenAI to revoke the stored refresh token. If pitboard kept a copy beside the login in use, your next sign-in or sign-out would revoke both.
+
+So pitboard moves the outgoing login into its store and reads it back before writing the incoming one. Finishing or undoing an interrupted switch, `pitboard abandon` and `pitboard repair` keep no copy of the login in use.
+
+## Interrupted switches
+
+Before moving any login, a switch records what it is about to do, with fingerprints of the outgoing and the incoming login.
+
+If the switch stops partway, the next command that changes something finishes or undoes it first. It compares the login in use with the record, which needs no network.
+
+Those commands are `pitboard use`, `enroll`, `forget`, `rename`, `repair` and `uninstall`, and the same changes in the app. `pitboard`, `pitboard doctor`, `pitboard log` and `pitboard renew` do not finish it.
+
+A login matching neither fingerprint usually means the tool refreshed it after the switch stopped. Then pitboard must identify it, which for Claude Code means asking Anthropic. Until it can, every such command stops without changing anything.
+
+To give up on the switch, see [Recover after a crash, a restore or a move](/troubleshooting/recovery#an-interrupted-switch-cannot-be-finished).

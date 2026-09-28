@@ -1,0 +1,264 @@
+---
+title: "Maintenance commands"
+description: "`renew`, `schedule`, `log`, `uninstall` and `doctor` each get their usage, options, output and an example."
+---
+
+`renew` and `schedule` keep [parked logins](/concepts/switching#parked-logins), the logins pitboard holds for accounts not in use, alive. `log` lists what pitboard changed, `uninstall` removes pitboard's files and `doctor` checks the machine. Each command also takes `--json` and `--help`, described in [Global options](/reference/commands#global-options), so the options tables leave them out.
+
+## `renew`
+
+```text
+Renew every parked login that is due, and nothing else
+
+Usage: pitboard renew [OPTIONS]
+```
+
+A parked login is due when its access token has expired or expires within 2 minutes. It is also due when its refresh token expires within 3 days.
+
+A parked login whose refresh token has expired is never due, because it cannot be renewed. Its account needs a sign-in again: see [Sign in to an account again](/guides/sign-in-again). A parked login of OpenAI's Codex CLI records no refresh token expiry, so only its access token makes it due.
+
+`pitboard renew` asks the service that issued each due parked login, Anthropic or OpenAI, to renew it. It sends the requests at the same time and parks each renewed login in place of the old one. It does not switch accounts or ask for usage.
+
+Without `--offline`, `pitboard status` also renews, but only parked logins whose access token has expired or expires within 2 minutes.
+
+pitboard never renews the login a tool is using. Renewing a parked login that copies it would use up the refresh token the tool holds, so `renew` drops that parked login instead. The account needs no sign-in, because the tool holds the same login.
+
+A parked login the service refuses is dropped, and its account needs a sign-in again. A parked login the service could not renew, because the service was unreachable or asked for less traffic, is tried again next time.
+
+`renew` prints one of these lines, and exits with status 0 even when nothing could be renewed:
+
+| Output | When |
+| --- | --- |
+| `No parked login was due.` | Nothing was due. Also printed, with nothing renewed, while another pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read. |
+| `2 due; none could be renewed this time.` | No due parked login was renewed. |
+| `Renewed 2.` | Every due parked login was renewed. |
+| `Renewed 1 of 2; the rest are tried again next time.` | Some due parked logins were renewed. |
+
+```sh
+pitboard renew
+```
+
+```text
+Renewed 2.
+```
+
+See [Keep parked logins alive](/guides/renewal#renew-now).
+
+## `schedule`
+
+```text
+Keep parked logins alive without running anything yourself
+
+Usage: pitboard schedule [OPTIONS] <COMMAND>
+```
+
+| Command | Description |
+| --- | --- |
+| `install` | Ask this computer's own scheduler to renew parked logins daily |
+| `status` | Say whether it is installed |
+| `uninstall` | Take it away |
+
+`pitboard schedule install` sets up a job that runs `pitboard renew` every 24 hours. On macOS the job is a LaunchAgent, and on Linux a systemd user timer. For its files, see [Files and environment variables](/reference/files#renewal-schedule).
+
+The job runs `renew` from the full path of the pitboard program that installed it. If nothing is at that path any more, `pitboard doctor` fails its `renewal schedule` check. For the fix, see [Daily renewal stopped working](/troubleshooting#daily-renewal-stopped-working).
+
+The job does not carry `PITBOARD_HOME`, the variable that moves pitboard's directory, so it always renews the parked logins of the accounts in `~/.pitboard`. `pitboard schedule uninstall` removes the job whatever `PITBOARD_HOME` is set to.
+
+`pitboard schedule status` checks only that the job's file exists. It does not ask launchd or systemd whether the job is loaded.
+
+| Command | Output begins |
+| --- | --- |
+| `install` | `Parked logins will be renewed daily.`, then the path of the job's file |
+| `status` | `Parked logins are renewed every 1d 0h by this computer's own scheduler.` or `Nothing is keeping parked logins alive here.` |
+| `uninstall` | `Stopped renewing parked logins on a schedule.` or `There was nothing scheduled.` |
+
+On a Mac:
+
+```sh
+pitboard schedule install
+```
+
+```text
+Parked logins will be renewed daily.
+/Users/me/Library/LaunchAgents/com.datlechin.pitboard.renew.plist
+
+It renews your own parked logins and does nothing else: it never switches account and never asks Anthropic for usage.
+```
+
+See [Keep parked logins alive](/guides/renewal#turn-on-daily-renewal).
+
+## `log`
+
+```text
+What pitboard has changed, and when
+
+Usage: pitboard log [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `-n, --lines <LINES>` | How many changes to show [default: 20] |
+
+`pitboard log` prints the last 20 changes, or as many as `--lines` asks for, oldest first. Each line gives the local time, a verb, the subject (what the change was about) and the outcome.
+
+The outcome is `ok`, a code from the following table, or the code of the error that stopped the change. With no changes logged, it prints `pitboard has not changed anything yet.`
+
+The log includes changes made from the app. Only `--json` says where each came from, in `caller`: `cli`, `app`, or `unknown` for older lines that do not say.
+
+pitboard keeps the log in `~/.pitboard/audit.log`. Past 256 KiB, it moves the file to `audit.log.1`, replacing the one there, and `pitboard log` reads both.
+
+The log holds labels, codes and times, and no email addresses. It holds an account id only in a `reclaim` line with the outcome `discarded`. That line's subject is a parked login's name, which contains the account id.
+
+| Verb | Written when | Subject and outcome |
+| --- | --- | --- |
+| `use` | A switch | The label switched to. `already_active` when that account was already in use. |
+| `enroll` | An enrolment, with or without `--sign-in` | The label. `label_unusable` when the label was refused. |
+| `forget` | An account is forgotten | The label |
+| `rename` | A label changes | The label before and after, as in `wrong -> right` |
+| `abandon` | `pitboard abandon` runs, even with no interrupted switch | None |
+| `repair` | `pitboard repair` runs | None |
+| `adopt` | `pitboard adopt` takes over a directory another computer wrote | None |
+| `uninstall` | `pitboard uninstall` runs and `~/.pitboard` is still there afterwards | None. `parks_pending_removal` when a parked login could not be deleted. |
+| `renew` | `renew`, daily renewal, `status` or the app tries to renew a due parked login | The label. The outcome is `renewed`, `parked_login_refused`, `renewal_deferred` or an error code. |
+| `recover` | An interrupted switch is finished or undone before another change | The label the switch was to. The outcome is `interrupted_switch_finished` or `interrupted_switch_undone`. |
+| `reclaim` | A parked login is given back to its account, or discarded | The label with `ok`, or the parked login's name with `discarded` |
+| `schedule` | Daily renewal is turned on or off, or the app repairs a schedule that an app of 0.3.0 or earlier wrote | `install`, `uninstall` or `repair` |
+| `config` | A Claude Code switch removes keys that name the previous account from Claude Code's config | The names of the keys, with the outcome `dropped` |
+
+```sh
+pitboard log -n 3
+```
+
+```text
+2026-09-22T09:14:03+07:00  enroll  personal  ok
+2026-09-22T09:16:52+07:00  enroll  work  ok
+2026-09-22T09:17:10+07:00  use     work  ok
+```
+
+See [Troubleshooting](/troubleshooting#check-first).
+
+## `uninstall`
+
+```text
+Delete every parked login this pitboard wrote, the daily renewal schedule and pitboard's own files
+
+Usage: pitboard uninstall [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `-y, --yes` | Do not ask first |
+
+`pitboard uninstall` works in this order:
+
+1. It removes the daily renewal schedule. If that fails, it stops before deleting anything.
+2. It deletes every parked login this pitboard wrote.
+3. It deletes `~/.pitboard`, but only if every parked login was deleted.
+
+The login each tool is using stays in place. On macOS, `uninstall` also leaves any parked login that `pitboard repair` gave back but this pitboard did not write. Every pitboard on the Mac shares the keychain, so one with another `PITBOARD_HOME` may own it.
+
+It removes the schedule only when pitboard's directory is `~/.pitboard`. With `PITBOARD_HOME` set to another directory, it deletes that directory and leaves the schedule, which `pitboard schedule uninstall` removes. The question and the output still say `~/.pitboard`.
+
+`uninstall` refuses to run while `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, in the environment or in Claude Code's settings, and fails with `custom_oauth_endpoint`. With that variable set, Claude Code keeps its login under a name pitboard does not read.
+
+In a terminal, it asks first:
+
+```text
+Delete every parked login this pitboard wrote, the daily renewal schedule and ~/.pitboard? The account you are signed in to stays signed in; the others need a browser sign-in again. [y/N]
+```
+
+For when it asks and when it does not, see [Output](/reference/commands#output). Any answer but `y`, `Y` or `yes` stops it with nothing deleted.
+
+With two parked logins and daily renewal on:
+
+```sh
+pitboard uninstall --yes
+```
+
+```text
+Removed 2 parked login(s). The login each tool is signed in with is untouched.
+Turned off the daily renewal schedule.
+~/.pitboard is gone. Remove pitboard itself the way you installed it.
+```
+
+It can also print these lines:
+
+| Output | When |
+| --- | --- |
+| `` Left 1 parked login(s) that `pitboard repair` found and this pitboard did not write, because they may be another pitboard's. `` | On macOS, when it left parked logins another pitboard may own. |
+| `` 1 could not be deleted, so ~/.pitboard was kept; run `pitboard uninstall` again. `` | A parked login could not be deleted. It takes the place of the last line. |
+
+See [Remove pitboard](/install/remove).
+
+## `doctor`
+
+```text
+Check that what pitboard relies on still holds on this machine
+
+Usage: pitboard doctor [OPTIONS]
+```
+
+`pitboard doctor` prints one line per check: a mark, the check's name and what it found. When there is something to do, the next line says what. It changes nothing and sends no network request.
+
+| Mark | `level` in JSON | Meaning |
+| --- | --- | --- |
+| `✓` | `ok` | The check holds. |
+| `!` | `warn` | Worth a look. Nothing is broken. |
+| `✗` | `fail` | Something pitboard relies on does not hold. |
+
+The last line sums up:
+
+| Last line | When |
+| --- | --- |
+| `Everything pitboard relies on holds.` | Every check holds. |
+| `2 to look at; nothing is broken.` | Some checks warn and none fails. |
+| `1 broken: do not switch accounts until fixed.` | At least one check fails. |
+
+`doctor` exits with status 3 when a check fails, and 0 otherwise. With `--json`, a failed check also sets `ok` to `false` and gives the error code `checks_failed`. For the fields, see [JSON output](/reference/json-output#data-by-command).
+
+`pitboard doctor --json` replaces email addresses, your user name, account ids, organisation ids and names, login fingerprints and parked login names with digests such as `<email 1a2b3c4d>`. It writes your home folder as `~`. The text report hides nothing.
+
+Codex's checks come last, under the heading `Codex`. They appear when Codex's directory (`~/.codex`, or `CODEX_HOME`) exists or a Codex account is enrolled.
+
+With a Codex account enrolled, `codex_backend` fails when Codex keeps its login anywhere but `auth.json`. `codex_login` warns when Codex is signed in with an API key. With none enrolled, both are `ok` in those cases. A login in `auth.json` that pitboard cannot read fails `codex_login` either way.
+
+When Codex's checks appear and Claude Code is absent, `doctor` leaves out most of Claude Code's checks. Claude Code is absent when it has no config file, no `claude` program and no login, and no Claude Code account is enrolled.
+
+<Accordion title="Every check">
+  The checks in the order `doctor` prints them. In a name, `<label>` is an account's label.
+
+  | Code | Name | What it checks |
+  | --- | --- | --- |
+  | `security_tool` | `security tool` | macOS only. `/usr/bin/security`, which pitboard reads the keychain with, is there. |
+  | `config_file` | `config file` | Claude Code's config file can be read. Fails where Claude Code has never run. |
+  | `identity` | `identity` | Claude Code's config names a signed-in account. |
+  | `slot` | `slot` | Which of Claude Code's login entries pitboard reads: the default one, or one that `CLAUDE_CONFIG_DIR` or `CLAUDE_SECURESTORAGE_CONFIG_DIR` selects. Always `ok`. |
+  | `credential_size` | `login size` | Only when Claude Code's login is in the macOS keychain. Whether it fits what `security` reads from standard input. A larger one warns, and fails when `PITBOARD_NO_ARGV` is set. |
+  | `credential_store` | `credential store` | Where Claude Code keeps its login, and whether pitboard can read it there. A file instead of the keychain warns on macOS. |
+  | `credential` | `credential` | The shape of Claude Code's login, and the days its refresh token has left. Under 3 days warns. |
+  | `usage_cache` | `usage cache` | Whether the usage Claude Code saved is for the signed-in account. |
+  | `home` | `pitboard home` | pitboard's directory is mode 700. |
+  | `private_on_disk` | `logins on disk` | No file that holds a login can be read by other users. |
+  | `state` | `accounts` | pitboard's account list can be read, and how many accounts are enrolled. |
+  | `parked_login` | `account <label>` | One per Claude Code account. Its parked login is there, can be read, and does not expire within 3 days. |
+  | `interrupted_switch` | `interrupted switch` | Only when a switch did not finish. Always warns. |
+  | `discarded` | `old parked logins` | Only when parked logins are waiting to be deleted. |
+  | `machine_id` | `machine id` | Only when this machine has no stable identifier. |
+  | `storage_v5` | `storage v5` | Whether Claude Code's storage v5 flag is on, and if so, whether its login is in the fallback file. |
+  | `claude_daemon` | `Claude Code daemon` | Whether Claude Code's daemon has run here, and whether it is running. Always `ok`. |
+  | `pending_parks` | `parks being reclaimed` | Parked logins pitboard started to write and has not accounted for. Warns when one cannot be read. |
+  | `schedule` | `renewal schedule` | Only when daily renewal is on for `~/.pitboard`. The program the job runs is still there and is not the app itself. |
+  | `claude_version` | `Claude Code build` | The installed Claude Code version, and the one pitboard was checked against. Always `ok`. |
+  | `auth_source` | `what a session authenticates with` | Whether Claude Code uses something other than the login pitboard moves, such as `ANTHROPIC_API_KEY` or `apiKeyHelper`. |
+  | `asking` | `asking Anthropic` | Whether pitboard is waiting before it asks about usage again, because a service asked for less traffic or could not be reached. The name lists the services pitboard asks. |
+  | `dormant_account` | `account <label>` | Only for a Claude Code account not switched to for 30 days or more. Always warns. |
+  | `codex_backend` | `Codex login store` | Codex keeps its login in the file store, `auth.json`, the only store pitboard switches. |
+  | `codex_auth_file` | `Codex login file` | File store only. `auth.json` exists, and only you can read it. |
+  | `codex_login` | `Codex login` | File store only. The login in `auth.json` is a ChatGPT sign-in pitboard can read. |
+  | `codex_parked_login` | `account codex/<label>` | As `parked_login`, for each Codex account. |
+  | `codex_dormant_account` | `account codex/<label>` | As `dormant_account`, for each Codex account. |
+  | `codex_version` | `Codex build` | The installed Codex version, and the one pitboard was checked against. Always `ok`. |
+  | `codex_running` | `running Codex` | How many `codex` processes are running. Always `ok`. |
+</Accordion>
+
+See [Troubleshooting](/troubleshooting#check-first).

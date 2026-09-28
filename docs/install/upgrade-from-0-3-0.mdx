@@ -1,0 +1,55 @@
+---
+title: "Upgrade from 0.3.0 or earlier"
+sidebarTitle: "Upgrade from 0.3.0"
+description: "Move a Homebrew install from the old formula or app cask to the `pitboard` and `pitboard-app` casks."
+---
+
+From 0.4.0, `datlechin/tap/pitboard` is the command line, and `datlechin/tap/pitboard-app` is the menu bar app with the command line inside it.
+
+Up to 0.3.0, `brew install datlechin/tap/pitboard` installed a formula. `brew install --cask datlechin/tap/pitboard` installed the app.
+
+## From the old formula
+
+`brew update` warns that it did not install the cask that replaces the formula, and pitboard stays at the old version. The two commands it prints leave `pitboard` running the formula's copy. Instead, remove the formula, then install the cask:
+
+```sh
+brew uninstall --formula pitboard
+brew install datlechin/tap/pitboard
+```
+
+## From the old app cask
+
+`brew update` replaces the app with the command line. The app's settings and your accounts in `~/.pitboard` stay.
+
+To get the app back, run these in order, before or after that `brew update`:
+
+```sh
+brew uninstall --cask pitboard
+brew uninstall --formula --force pitboard
+brew install --cask datlechin/tap/pitboard-app
+```
+
+The first command removes the old app, or the command line that replaced it. The second removes the old formula, if there is one.
+
+<Warning>
+  Leave `--zap` out when you remove the old app cask: with it, that cask moves `~/.pitboard` to the Trash. That folder is the only record of your accounts and their parked logins. Homebrew runs `--zap` as the cask you installed says, even after the tap changes.
+</Warning>
+
+## If you downloaded the app from a release
+
+The app updates itself as before. To use its command line in a terminal, see [Add the app's command line to your PATH](/install#add-the-apps-command-line-to-your-path).
+
+## If daily renewal was on
+
+In an app up to 0.3.0, the daily renewal schedule ran the app itself, which renewed nothing. Once an app from 0.4.0 or later is in its place, that schedule renews. Open the app once to point the schedule at the command line inside it.
+
+A schedule stays broken if the `pitboard` it runs is gone. On Linux, that includes one turned on with the old formula.
+
+To check yours, run `pitboard doctor` or open the **This Mac** pane in the pitboard window. A broken schedule fails the `renewal schedule` check.
+
+To fix the schedule, turn daily renewal off and on again. In the app, click pitboard's item in the menu bar and choose **Settings**. Click **General**. Turn **Renew parked logins daily** off, then on. On the command line, run:
+
+```sh
+pitboard schedule uninstall
+pitboard schedule install
+```
