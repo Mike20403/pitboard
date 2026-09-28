@@ -6,6 +6,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-29
+
+Fixes that writing the documentation site turned up, and pitboard's facts about Claude Code
+read again, from 2.1.284.
+
 ### Added
 
 - In `pitboard-core`, `assumptions::read_on` says which systems' builds a fact is read from,
@@ -893,7 +898,8 @@ First release.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 
-[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/datlechin/pitboard/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/datlechin/pitboard/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/datlechin/pitboard/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/datlechin/pitboard/compare/v0.3.0...v0.4.0
