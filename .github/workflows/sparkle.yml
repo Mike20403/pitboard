@@ -1,8 +1,9 @@
 name: Sparkle
 
-# Dependabot cannot read apple/Package.swift: it names an XCFramework that is built rather
-# than committed, so resolution fails. Sparkle is the code that installs updates on someone
-# else's machine, so a move still has to be noticed.
+# Sparkle is the code that installs updates on someone else's machine, so a move has to be
+# noticed. Pitboard.xcodeproj pins it, and Dependabot is not set up to read that: in apple/
+# it reads Package.swift before any Xcode project, and that manifest names an XCFramework
+# that is built rather than committed, so resolution fails.
 on:
   schedule:
     - cron: "23 6 * * 1"
@@ -23,7 +24,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          pinned=$(python3 -c "import json;print([p for p in json.load(open('apple/Package.resolved'))['pins'] if p['identity']=='sparkle'][0]['state']['version'])")
+          resolved=apple/Pitboard.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          pinned=$(python3 -c "import json,sys;print([p for p in json.load(open(sys.argv[1]))['pins'] if p['identity']=='sparkle'][0]['state']['version'])" "$resolved")
           latest=$(gh api repos/sparkle-project/Sparkle/releases/latest --jq .tag_name)
           echo "pinned $pinned, latest $latest"
           [ "$pinned" = "$latest" ] && exit 0
@@ -33,4 +35,4 @@ jobs:
             exit 0
           fi
           gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body \
-            "apple/Package.resolved pins Sparkle $pinned; $latest is released. Bump with \`swift package --package-path apple update\`, then run apple/scripts/build-app.sh and check the app still updates itself."
+            "$resolved pins Sparkle $pinned; $latest is released. Run ./apple/scripts/build-xcframework.sh first: the project cannot resolve its packages without the XCFramework and the bindings it builds. Then bump Sparkle in Xcode with File, Packages, Update to Latest Package Versions, or raise the Sparkle requirement in apple/Pitboard.xcodeproj/project.pbxproj and run \`xcodebuild -resolvePackageDependencies -project apple/Pitboard.xcodeproj\`. Then run apple/scripts/build-app.sh and check the app still updates itself."

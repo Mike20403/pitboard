@@ -1,6 +1,7 @@
 #!/bin/sh
-# Assembles Pitboard.app, universal, from the Swift package and the core's XCFramework, with
-# the command line inside it.
+# Builds Pitboard.app, universal, from Pitboard.xcodeproj and the core's XCFramework, with
+# the command line inside it. This is the one way the app is built: here, in CI and in a
+# release.
 #
 # Signing: set SIGN_IDENTITY to a Developer ID Application identity to make a build others
 # can run; without it the app is signed ad-hoc, which is enough on the machine that built it.
@@ -19,48 +20,46 @@ identity=${SIGN_IDENTITY:--}
 # before the site does.
 FEED=https://github.com/datlechin/pitboard/releases/latest/download/appcast.xml
 app=apple/build/Pitboard.app
+# Sparkle decides what is newer by CFBundleVersion, so it counts up with the version
+# rather than staying at whatever the project says.
+rest=${version#*.}
+build=$((${version%%.*} * 10000 + ${rest%%.*} * 100 + ${rest#*.}))
 
 # This clears apple/build and makes it again, so nothing from a previous build survives.
 ./apple/scripts/build-xcframework.sh
-# One build per architecture, then lipo: `--arch x --arch y` builds through Xcode's build
-# system instead, which does not find the core's static library in every toolchain.
-slices=""
-for triple in arm64-apple-macosx x86_64-apple-macosx; do
-    swift build --package-path apple --configuration release --triple "$triple" --product Pitboard
-    built=$(swift build --package-path apple --configuration release --triple "$triple" \
-        --show-bin-path)/Pitboard
-    cp "$built" "apple/build/Pitboard-$triple"
-    slices="$slices apple/build/Pitboard-$triple"
-done
-binary=apple/build/Pitboard-universal
-# shellcheck disable=SC2086 # the slices are paths this script just made.
-lipo -create $slices -output "$binary"
+
+# Unsigned, because the bundle is not finished: the command line, the icon and the man
+# pages go in after this, and a signature covers what is inside it. Sparkle is the version
+# Package.resolved pins or the build stops, since the app's bill of materials reads it from
+# there. Packages are cloned under apple/build, where the release finds Sparkle's tools.
+xcodebuild -project apple/Pitboard.xcodeproj -scheme Pitboard -configuration Release \
+    -destination 'generic/platform=macOS' \
+    -derivedDataPath apple/build/DerivedData \
+    -clonedSourcePackagesDirPath apple/build/SourcePackages \
+    -onlyUsePackageVersionsFromResolvedFile -quiet \
+    ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+    MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" \
+    CODE_SIGNING_ALLOWED=NO build
+ditto apple/build/DerivedData/Build/Products/Release/Pitboard.app "$app"
+[ -d "$app/Contents/Frameworks/Sparkle.framework" ] || {
+    echo "Xcode did not embed Sparkle.framework" >&2
+    exit 1
+}
 
 # The command line comes inside the app, so one update moves both, and the renewal
-# schedule has a pitboard to run: the app has no renewal of its own. Not named
-# pitboard-universal, which on a case-insensitive volume is the file above.
+# schedule has a pitboard to run: the app has no renewal of its own.
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
     cargo build --locked --release -p pitboard --target "$target"
 done
 cli=apple/build/cli-universal
 lipo -create target/aarch64-apple-darwin/release/pitboard \
     target/x86_64-apple-darwin/release/pitboard -output "$cli"
-
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources" \
-    "$app/Contents/Frameworks"
-cp "$binary" "$app/Contents/MacOS/Pitboard"
 # Helpers, which is where a bundle keeps a tool that is not its main program. In MacOS it
 # would be the same file as Pitboard on a case-insensitive volume, and overwrite it.
+mkdir -p "$app/Contents/Helpers"
 cp "$cli" "$app/Contents/Helpers/pitboard"
-# The plist carries a placeholder version; the crate's is the one that ships.
-sed "s/>0\.0\.0</>$version</" apple/Resources/Info.plist > "$app/Contents/Info.plist"
-printf 'APPL????' > "$app/Contents/PkgInfo"
-# Sparkle decides what is newer by CFBundleVersion, so it counts up with the version
-# rather than staying at whatever the template says.
-rest=${version#*.}
-build=$((${version%%.*} * 10000 + ${rest%%.*} * 100 + ${rest#*.}))
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build" "$app/Contents/Info.plist"
 
+mkdir -p "$app/Contents/Resources"
 swift apple/scripts/make-icon.swift apple/build
 iconutil --convert icns --output "$app/Contents/Resources/AppIcon.icns" \
     apple/build/AppIcon.iconset
@@ -74,10 +73,6 @@ mkdir -p "$app/Contents/Resources/man" "$app/Contents/Resources/completions"
 for shell in bash zsh fish; do
     "$cli" completions "$shell" > "$app/Contents/Resources/completions/pitboard.$shell"
 done
-
-sparkle=$(find apple/.build/artifacts -type d -name Sparkle.framework | head -1)
-[ -n "$sparkle" ] || { echo "Sparkle.framework not built" >&2; exit 1; }
-ditto "$sparkle" "$app/Contents/Frameworks/Sparkle.framework"
 
 if [ -n "${SPARKLE_PUBLIC_KEY:-}" ]; then
     plist=$app/Contents/Info.plist

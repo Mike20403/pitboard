@@ -3,8 +3,8 @@
 cargo-cyclonedx reads the Cargo lockfile, so it describes the app's Rust half and stops
 there. Sparkle is the rest of what ships inside Pitboard.app, it is the part that installs
 code on someone else's machine, and a bill of materials that leaves it out is worse than
-none: it reads as complete. Its version is the one apple/Package.resolved pins, which is
-what build-app.sh put in the bundle.
+none: it reads as complete. Its version is the one Pitboard.xcodeproj's Package.resolved
+pins, which is what build-app.sh put in the bundle: the build stops rather than use another.
 
     python3 sbom-add-sparkle.py <bom.json> <Package.resolved>
 """

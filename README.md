@@ -7,7 +7,7 @@ Switch between your own Claude Code and Codex logins, and see how much each one 
 [![crates.io](https://img.shields.io/crates/v/pitboard.svg)](https://crates.io/crates/pitboard)
 [![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
-<img src=".github/media/panel.png" alt="The pitboard menu bar panel, listing three accounts with their five hour and weekly limits" width="380">
+<img src=".github/media/menu.png" alt="The pitboard menu, listing Claude Code and Codex accounts with a check mark on each one in use and their five hour and weekly limits under their names" width="300">
 
 If you have more than one Claude or ChatGPT subscription, changing accounts in Claude Code
 or OpenAI's Codex CLI normally means signing out and back in through a browser. pitboard
@@ -213,34 +213,50 @@ To combine it with a status line of your own, pipe the same input to it:
 
 ## Menu bar app
 
-The menu bar shows the account in use and its tightest limit. Open the panel to see every
-account's limits and switch with one click. When an account runs out, the app says so once
-and offers the account with the most left.
+The menu bar shows the account in use and its tightest limit. Its menu lists every account
+under its tool, checks the one in use, and says under each what its limits stand at.
+Choosing another account switches to it. When the account in use runs out, the app tells
+you once, and the menu offers the account of the same tool with the most left.
 
-With accounts of both tools, the panel lists them under a heading per tool, and the menu
-bar follows the signed-in account closest to running out, whichever tool it is for. When
-an account runs out, only another account of the same tool is offered. A Codex switch has
-no countdown: the panel says that running `codex` sessions keep the old account until you
-quit them and start them again, and how many pitboard found running, if any. "Add another
-account" asks which tool the account is for when both are installed.
+With accounts of both tools, the menu bar follows the signed-in account closest to running
+out, whichever tool it is for. A Codex switch has no countdown: the app says that running
+`codex` sessions keep the old account until you quit them and start them again, and how
+many pitboard found running, if any.
 
-It calls the same core as the command line rather than running `pitboard` for each answer.
-The panel adds and drops accounts itself, and signs in again to one whose parked login has
-expired. The command line comes inside the app, for renaming, `pitboard repair`, scripts
-and the status line, and updates with it. The `pitboard-app` cask puts it on your `PATH`.
-Without the cask, and with no other `pitboard` installed, Settings, Advanced, "Install
-command line tool…" links `/usr/local/bin/pitboard` to it, after asking for an
-administrator's password.
+<img src=".github/media/window.png" alt="pitboard's window, listing each account with a bar for each of its limits, when each resets, and a note on the last Codex switch above them" width="760">
 
-Usage is read when you open the panel and every few minutes while the app runs. "Open at
-login" and daily renewal are in Settings. Daily renewal runs the command line inside the
-app, so move a downloaded app to Applications before turning it on. A copy from a release
-keeps itself up to date. One you build yourself does not, because it carries no update key:
+pitboard's window has the rest: every account with its limits drawn out, everything the app
+has to tell you in full, the activity log, and what `pitboard doctor` finds about your Mac.
+Add Account signs in through the tool's own sign-in in your browser, and asks which tool
+when both are installed. Each account's menu renames it, signs in to it again, copies its
+address or forgets it. The app calls the same core as the command line rather than running
+`pitboard` for each answer.
+
+The command line comes inside the app, for `pitboard repair`, scripts and the status line,
+and updates with it. The `pitboard-app` cask puts it on your `PATH`. Without the cask, and
+with no other `pitboard` installed, Settings, Command Line, "Install Command Line Tool…"
+links `/usr/local/bin/pitboard` to it, after asking for an administrator's password.
+
+Usage is read when you open the menu, if the last read is a minute old, and every few
+minutes while the app runs. "Open pitboard at login", what the menu bar shows, and daily
+renewal are in Settings. Daily renewal runs the command line inside the app, so move a
+downloaded app to Applications before turning it on. A copy from a release keeps itself up
+to date. One you build yourself does not, because it carries no update key. Building it
+needs Xcode, and Rust with both of the Mac's targets, since the app and the command line
+inside it are built for Apple silicon and Intel alike:
 
 ```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ./apple/scripts/build-app.sh
 cp -R apple/build/Pitboard.app /Applications/
 ```
+
+To work on the app, run `./apple/scripts/build-xcframework.sh` first, which builds the core
+and its Swift bindings, neither of them committed, then open `apple/Pitboard.xcodeproj`.
+`swift test --package-path apple` runs the unit tests. The UI tests run from Xcode, or with
+`xcodebuild test -project apple/Pitboard.xcodeproj -scheme Pitboard -destination
+'platform=macOS'`, each in a fixture that never touches your accounts.
+[CONTRIBUTING.md](CONTRIBUTING.md#the-app) has the rest.
 
 ## Scripting
 

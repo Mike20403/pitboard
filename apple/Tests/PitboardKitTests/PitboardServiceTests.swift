@@ -4,32 +4,45 @@ import Testing
 
 /// A scratch home whose Claude Code and Codex directories are its own, so the credential
 /// slot read is hashed from it and never the machine's real login, and the Codex login read
-/// is a file that is not there.
-private func scratch(codex: String? = nil, schedules: String? = nil) throws -> Settings {
+/// is a file that is not there. The test that makes one removes it, so no run leaves homes
+/// behind in the temporary directory.
+private struct ScratchHome {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("pitboardkit-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    return Settings(
-        home: root.path,
-        pitboardHome: root.appendingPathComponent("pitboard").path,
-        claudeConfigDir: root.appendingPathComponent("claude").path,
-        secureStorageDir: nil,
-        user: NSUserName(),
-        claudeProgram: nil,
-        codexHome: root.appendingPathComponent("codex").path,
-        codexProgram: codex,
-        scheduleProgram: schedules
-    )
+
+    init() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    func settings(codex: String? = nil, schedules: String? = nil) -> Settings {
+        Settings(
+            home: root.path,
+            pitboardHome: root.appendingPathComponent("pitboard").path,
+            claudeConfigDir: root.appendingPathComponent("claude").path,
+            secureStorageDir: nil,
+            user: NSUserName(),
+            claudeProgram: nil,
+            codexHome: root.appendingPathComponent("codex").path,
+            codexProgram: codex,
+            scheduleProgram: schedules
+        )
+    }
+
+    func remove() { try? FileManager.default.removeItem(at: root) }
 }
 
 @Test func statusOfAnEmptyHomeHasNoAccounts() async throws {
-    let status = try await PitboardService(settings: try scratch()).status(fresh: false)
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let status = try await PitboardService(settings: home.settings()).status(fresh: false)
     #expect(status.accounts.isEmpty)
     #expect(status.warnings.isEmpty)
 }
 
 @Test func aFailedChangeCarriesItsStableCode() async throws {
-    let service = PitboardService(settings: try scratch())
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let service = PitboardService(settings: home.settings())
     do {
         _ = try await service.rename("nobody", to: "somebody")
         Issue.record("renaming an account that does not exist must fail")
@@ -43,10 +56,15 @@ private func scratch(codex: String? = nil, schedules: String? = nil) throws -> S
 /// A tool is offered only where its program was found, and a program named outright
 /// counts as found: that is what `PITBOARD_CLAUDE` and `PITBOARD_CODEX` are for.
 @Test func onlyToolsWithAProgramAreInstalled() async throws {
-    let neither = PitboardService(settings: try scratch())
+    let (bare, withCodex) = (try ScratchHome(), try ScratchHome())
+    defer {
+        bare.remove()
+        withCodex.remove()
+    }
+    let neither = PitboardService(settings: bare.settings())
     #expect(neither.tools().map(\.code) == ["claude", "codex"])
     #expect(await neither.installed().isEmpty)
-    let codex = PitboardService(settings: try scratch(codex: "/nowhere/codex"))
+    let codex = PitboardService(settings: withCodex.settings(codex: "/nowhere/codex"))
     #expect(await codex.installed().map(\.code) == ["codex"])
 }
 
@@ -75,7 +93,9 @@ private final class Asks: @unchecked Sendable {
 /// for when something first needs the core, off the main thread, and once however many
 /// calls arrive at the same time.
 @Test func theSettingsAreAskedForOnceOffTheMainThread() async throws {
-    let settings = try scratch(codex: "/nowhere/codex")
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let settings = home.settings(codex: "/nowhere/codex")
     let asks = Asks()
     let service = PitboardService {
         asks.note()
@@ -97,7 +117,12 @@ private final class Asks: @unchecked Sendable {
 /// and what it answers then is what is used. Once more and no more: a shell that is always
 /// that slow would otherwise cost its patience on every ask.
 @Test func aLoginShellTooSlowToAnswerIsAskedOnceMoreLater() async throws {
-    let (slow, answered) = (try scratch(), try scratch(codex: "/nowhere/codex"))
+    let (late, found) = (try ScratchHome(), try ScratchHome())
+    defer {
+        late.remove()
+        found.remove()
+    }
+    let (slow, answered) = (late.settings(), found.settings(codex: "/nowhere/codex"))
     let asks = Asks()
     let service = PitboardService(
         asking: {
@@ -117,7 +142,9 @@ private final class Asks: @unchecked Sendable {
 
 /// Not before the while is up, and never when the shell answered or could not be asked.
 @Test func aLoginShellIsNotAskedAgainSoonerOrForNothing() async throws {
-    let settings = try scratch()
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let settings = home.settings()
     let soon = Asks()
     let early = PitboardService(
         asking: {
@@ -140,7 +167,9 @@ private final class Asks: @unchecked Sendable {
 }
 
 @Test func doctorReportsEveryCheck() async throws {
-    let diagnosis = await PitboardService(settings: try scratch()).doctor()
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let diagnosis = await PitboardService(settings: home.settings()).doctor()
     #expect(!diagnosis.checks.isEmpty)
     #expect(diagnosis.checks.contains { $0.code == "state" })
 }
@@ -153,7 +182,9 @@ private final class Asks: @unchecked Sendable {
     try Data("#!/bin/sh\n".utf8).write(to: bundled)
     defer { try? FileManager.default.removeItem(at: bundled) }
     for program in [nil, bundled.path] {
-        let service = PitboardService(settings: try scratch(schedules: program))
+        let home = try ScratchHome()
+        defer { home.remove() }
+        let service = PitboardService(settings: home.settings(schedules: program))
         #expect(try await service.scheduleRepair() == false)
     }
 }
