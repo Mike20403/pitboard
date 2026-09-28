@@ -20,6 +20,8 @@ All notable changes are recorded here. The format follows
   reads. It names the `pitboard use` that finishes or undoes the switch.
 - With Codex's `auth.json` missing, `pitboard doctor` suggested `pitboard use codex/<label>`,
   which refuses while nothing is signed in. It says to sign in with `codex login`.
+- The man page listed a page per command, such as `pitboard-status(1)`, and none of them is
+  installed. It sets out every command, with its arguments and options, on its one page.
 
 ## [0.5.0] - 2026-09-28
 

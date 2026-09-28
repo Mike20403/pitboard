@@ -23,6 +23,7 @@ anstyle = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 clap_mangen = "0.3"
+roff = "1"
 hex = "0.4"
 insta = { version = "1.48", features = ["json", "redactions"] }
 jiff = "0.2"

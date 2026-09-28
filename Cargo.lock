@@ -1011,6 +1011,7 @@ dependencies = [
  "insta",
  "mockito",
  "pitboard-core",
+ "roff",
  "serde_json",
  "unicode-width",
 ]
