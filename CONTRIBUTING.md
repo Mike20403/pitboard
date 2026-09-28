@@ -169,8 +169,8 @@ sense of its arguments or read the binary.
 
 Point it at the tool's native binary, not the npm wrapper, which carries no binary. The
 checker reads the binary's header to tell a macOS build from a Linux one, and reads each
-fact only from the builds its `read_on` names: Claude Code's Linux build has no keychain
-code, so the keychain facts are read from its macOS build.
+fact only from the builds the register's `read_on` names for it: Claude Code's Linux build
+has no keychain code, so the keychain facts are read from its macOS build.
 `.github/workflows/conformance.yml` takes Claude Code's builds from the packages
 `@anthropic-ai/claude-code-linux-x64` and `@anthropic-ai/claude-code-darwin-arm64`. It takes
 Codex's from `vendor/` in `@openai/codex@<version>-linux-x64`.
@@ -186,7 +186,10 @@ To add a fact, add an `Assumption` to the tool's register:
 | `depends` | What in pitboard stops being true if the fact moves |
 | `probe` | Literals that must be in a build for the fact to still be readable there |
 | `absent` | Literals whose arrival would disprove the fact |
-| `read_on` | The systems whose builds the fact is read from: `Platform::MacOs`, `Platform::Linux` or both |
+
+A fact that only one system's build can be read for, such as one about the macOS keychain,
+goes in that register's `MACOS_ONLY` or `LINUX_ONLY` list; every other fact is read from
+both.
 
 Pick literals specific to the fact. A literal already in the build for another reason
 proves nothing. A fact about behaviour has no literal to find. It gets an empty `probe`,

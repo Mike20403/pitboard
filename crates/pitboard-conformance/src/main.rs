@@ -61,7 +61,7 @@ fn main() -> ExitCode {
     // being absent here says nothing about it.
     let (readings, elsewhere): (Vec<_>, Vec<_>) = assumptions::of(provider)
         .iter()
-        .partition(|a| a.read_on(platform));
+        .partition(|a| assumptions::read_on(provider, a.name).contains(&platform));
     let readings: Vec<(&assumptions::Assumption, Reading)> = readings
         .into_iter()
         .map(|a| (a, assumptions::read_from_build(a, &strings)))
@@ -135,7 +135,10 @@ fn main() -> ExitCode {
             }
         }
         for a in &elsewhere {
-            let on: Vec<&str> = a.read_on.iter().map(|p| p.code()).collect();
+            let on: Vec<&str> = assumptions::read_on(provider, a.name)
+                .iter()
+                .map(|p| p.code())
+                .collect();
             println!(
                 "  skipped  {}  (read from {} builds)",
                 a.name,

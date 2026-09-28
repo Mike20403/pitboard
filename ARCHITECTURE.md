@@ -162,8 +162,9 @@ keeps its facts in a register, `crates/pitboard-core/src/provider/<tool>/assumpt
 dated with the build they were read from.
 
 A fact names literals a build must contain (`probe`), or literals whose arrival would
-disprove it (`absent`), and the systems whose builds it is read from (`read_on`). A fact
-about behaviour, such as the 30 second cache, names no literals. `pitboard-conformance`
+disprove it (`absent`). Beside the facts, the register names those that only one system's
+build can be read for (`read_on`). A fact about behaviour, such as the 30 second cache,
+names no literals. `pitboard-conformance`
 tells a macOS build from a Linux one by its header, and reports which facts can still be
 read from it, which have moved, which name nothing to look for, and which it skipped as
 read from the other system's builds.

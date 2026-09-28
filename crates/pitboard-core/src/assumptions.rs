@@ -47,11 +47,7 @@ impl Platform {
 }
 
 /// One thing pitboard believes about a tool it parks logins for.
-///
-/// Not exhaustive, so a register can say more about a fact without every reader having to
-/// change: adding `read_on` broke every literal of this struct outside the crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Assumption {
     /// Stable, snake_case, safe for a program to branch on.
     pub name: &'static str,
@@ -69,7 +65,7 @@ pub struct Assumption {
     ///
     /// These are a cheap and shallow check. A literal being present does not prove the
     /// behaviour around it is unchanged; a literal disappearing does prove something moved.
-    /// Read from the builds `read_on` names, and only from those.
+    /// Read from the builds [`read_on`] names, and only from those.
     pub probe: &'static [&'static str],
     /// Literals whose *arrival* would disprove the fact.
     ///
@@ -84,16 +80,6 @@ pub struct Assumption {
     /// its sandbox excludes from a shell, and either would report a keyring backend that is
     /// not there.
     pub absent: &'static [&'static str],
-    /// The builds this fact is read from. A fact about the macOS keychain is read from a
-    /// macOS build, since the Linux build has no keychain code to read it in.
-    pub read_on: &'static [Platform],
-}
-
-impl Assumption {
-    /// Whether a build for `platform` is one this fact can be read from.
-    pub fn read_on(&self, platform: Platform) -> bool {
-        self.read_on.contains(&platform)
-    }
 }
 
 /// One provider's register.
@@ -101,6 +87,18 @@ pub fn of(provider: ProviderId) -> &'static [Assumption] {
     match provider {
         ProviderId::Claude => crate::provider::claude::assumptions::ASSUMPTIONS,
         ProviderId::Codex => crate::provider::codex::assumptions::ASSUMPTIONS,
+    }
+}
+
+/// The systems whose builds one of a provider's facts is read from.
+///
+/// Each register says this beside its facts rather than in them: `Assumption` can be
+/// written as a literal outside this crate, and a field added to it would break every such
+/// literal.
+pub fn read_on(provider: ProviderId, name: &str) -> &'static [Platform] {
+    match provider {
+        ProviderId::Claude => crate::provider::claude::assumptions::read_on(name),
+        ProviderId::Codex => Platform::ALL,
     }
 }
 
@@ -241,8 +239,14 @@ mod tests {
     /// checked, and nothing would say so.
     #[test]
     fn every_fact_is_read_from_some_build() {
-        for a in all() {
-            assert!(!a.read_on.is_empty(), "{} is read from no build", a.name);
+        for &provider in ProviderId::ALL {
+            for a in of(provider) {
+                assert!(
+                    !read_on(provider, a.name).is_empty(),
+                    "{} is read from no build",
+                    a.name
+                );
+            }
         }
     }
 
@@ -252,14 +256,16 @@ mod tests {
     #[test]
     fn each_keychain_fact_is_read_where_the_keychain_code_is() {
         for name in ["keychain_write_route", "keychain_absence_codes"] {
-            let a = named(name).unwrap();
-            assert!(
-                a.read_on(Platform::MacOs) && !a.read_on(Platform::Linux),
+            assert_eq!(
+                read_on(ProviderId::Claude, name),
+                &[Platform::MacOs],
                 "{name}"
             );
         }
-        let linux = named("no_keyring_off_macos").unwrap();
-        assert!(linux.read_on(Platform::Linux) && !linux.read_on(Platform::MacOs));
+        assert_eq!(
+            read_on(ProviderId::Claude, "no_keyring_off_macos"),
+            &[Platform::Linux]
+        );
     }
 
     /// `secret-tool` and `kwallet-query` are both in a shipping build already, in the list
@@ -295,7 +301,6 @@ mod tests {
             depends: "x",
             probe: &[],
             absent: &["a_thing_that_should_not_be_here"],
-            read_on: Platform::ALL,
         };
         assert_eq!(
             read_from_build(&only_absent, "nothing to see"),

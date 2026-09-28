@@ -15,10 +15,29 @@ use crate::assumptions::{Assumption, Platform};
 /// The build every entry below was read from, unless it says otherwise.
 pub const VERIFIED_AGAINST: &str = "2.1.284";
 
-/// Facts about the keychain, which only the macOS build has code for.
-const MACOS: &[Platform] = &[Platform::MacOs];
+/// Facts about the keychain, which only the macOS build has code for. The Linux build has
+/// none, so read from it they report the keychain gone, on every build from 2.1.278 on.
+const MACOS_ONLY: &[&str] = &[
+    "credential_service_name",
+    "keychain_account_name",
+    "keychain_write_route",
+    "keychain_absence_codes",
+];
+
 /// Facts about Linux, read from the Linux build.
-const LINUX: &[Platform] = &[Platform::Linux];
+const LINUX_ONLY: &[&str] = &["no_keyring_off_macos"];
+
+/// The systems whose builds a fact is read from: its own system's for the facts named
+/// above, both for the rest.
+pub fn read_on(name: &str) -> &'static [Platform] {
+    if MACOS_ONLY.contains(&name) {
+        &[Platform::MacOs]
+    } else if LINUX_ONLY.contains(&name) {
+        &[Platform::Linux]
+    } else {
+        Platform::ALL
+    }
+}
 
 pub const ASSUMPTIONS: &[Assumption] = &[
     Assumption {
@@ -31,7 +50,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "slot.rs, and every read and write of the live credential",
         probe: &["-credentials", "OAUTH_FILE_SUFFIX"],
         absent: &[],
-        read_on: MACOS,
     },
     Assumption {
         name: "keychain_account_name",
@@ -42,7 +60,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "slot::account_name",
         probe: &["claude-code-user"],
         absent: &[],
-        read_on: MACOS,
     },
     Assumption {
         name: "live_chain_order",
@@ -56,7 +73,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "store::resolve and everything that reads or writes through it",
         probe: &[".credentials.json", "-with-", "-fallback"],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "keychain_write_route",
@@ -76,7 +92,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "keychain_locked_skip_fallback",
         ],
         absent: &[],
-        read_on: MACOS,
     },
     Assumption {
         name: "keychain_absence_codes",
@@ -97,7 +112,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "show-keychain-info",
         ],
         absent: &[],
-        read_on: MACOS,
     },
     Assumption {
         name: "write_lock",
@@ -117,7 +131,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "failureIfTransient",
         ],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "logout_skips_the_lock",
@@ -128,7 +141,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "the slot re-read in switch, which exists for this",
         probe: &["secureStorage.READ_FAILED"],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "account_scoped_keys",
@@ -146,7 +158,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "designOauth",
         ],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "credential_cache",
@@ -160,7 +171,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "switch::ADOPTION_CEILING_SECONDS",
         probe: &[],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "config_file_location",
@@ -171,7 +181,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "claude::config_file",
         probe: &[".config.json", "CLAUDE_CONFIG_DIR"],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "oauth_client",
@@ -182,7 +191,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "api::CLIENT_ID and park::renewed",
         probe: &["9d1c250a-e61b-44d9-88ed-5944d1962f5e"],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "supervisor_daemon",
@@ -198,7 +206,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "auth: scheduling proactive refresh in ",
         ],
         absent: &[],
-        read_on: Platform::ALL,
     },
     Assumption {
         name: "no_keyring_off_macos",
@@ -224,7 +231,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "gnome-keyring",
             "SecretService",
         ],
-        read_on: LINUX,
     },
     Assumption {
         name: "plaintext_credential_mode",
@@ -239,6 +245,22 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "Warning: Storing credentials in plaintext.",
         ],
         absent: &[],
-        read_on: Platform::ALL,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A name in either list that is not a fact would leave the fact it meant read from
+    /// both systems, and the Linux build would report it gone.
+    #[test]
+    fn every_fact_named_for_one_system_is_in_the_register() {
+        for name in MACOS_ONLY.iter().chain(LINUX_ONLY) {
+            assert!(
+                ASSUMPTIONS.iter().any(|a| a.name == *name),
+                "{name} is not a fact"
+            );
+        }
+    }
+}
