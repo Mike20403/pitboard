@@ -18,6 +18,8 @@ All notable changes are recorded here. The format follows
   while it is set keeps it.
 - A switch whose login could not be read back said to run `pitboard` again, which only
   reads. It names the `pitboard use` that finishes or undoes the switch.
+- With Codex's `auth.json` missing, `pitboard doctor` suggested `pitboard use codex/<label>`,
+  which refuses while nothing is signed in. It says to sign in with `codex login`.
 
 ## [0.5.0] - 2026-09-28
 
