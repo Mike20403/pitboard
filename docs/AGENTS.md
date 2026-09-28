@@ -1,25 +1,31 @@
-# pitboard documentation
+# Writing pitboard's documentation
 
 This folder is the Mintlify source of docs.usepitboard.com. Pages are MDX with YAML
-frontmatter. `docs.json` holds navigation and settings. The facts come from the code at
-the tagged release; when README.md or SECURITY.md disagree with the code, the code wins.
+frontmatter. `docs.json` holds navigation and settings.
+
+Merging to `main` publishes the site, and readers run the tagged release, so the facts come
+from the code at that release. Where a Markdown file in the repository disagrees with the
+code, the code wins. Release procedures, design notes and unreleased behaviour are not site
+content; they live in `RELEASING.md`, `ARCHITECTURE.md` and the code.
 
 ## Before you commit
 
 Run these in `docs/`. All three must pass:
 
-    mint validate
-    mint broken-links --check-anchors --check-redirects
-    mint a11y
+```sh
+mint validate
+mint broken-links --check-anchors --check-redirects
+mint a11y
+```
 
-Preview with `mint dev`. They miss the silent failures listed under "MDX", so read the
+Preview with `mint dev`. The checks miss the silent failures listed under "MDX", so read the
 rendered page too.
 
 ## Pages
 
 - Every page has a quoted `title` in sentence case and a quoted one-sentence
   `description` of at most about 20 words, ending with a full stop. Never start it with
-  "Learn", "This page", "A guide to" or "Welcome".
+  `Learn`, `This page`, `A guide to` or `Welcome`.
 - The title is the page's only H1. Headings start at `##`, in sentence case, with no end
   punctuation, no questions and no links. No heading holds only other headings.
 - Each page is one type: quickstart, how-to, explanation or reference. Most pages stay
@@ -28,7 +34,7 @@ rendered page too.
   stops; at most one closing line that links to the next page.
 - Add a new page to `navigation` in `docs.json`, path without extension.
 - Link root-relative without extension: `[Switch accounts](/guides/switch)`. Link text
-  names the destination. Never "here" or a bare URL.
+  names the destination. Never `here` or a bare URL.
 - Images go in `images/`, referenced as `/images/name.png`, inside `<Frame>`, always with
   alt text that says what the image shows.
 
@@ -39,12 +45,13 @@ rendered page too.
   and drops anything in braces.
 - A bare `<label>` breaks the build. Write `` `<label>` ``.
 - Comments are `{/* */}`. HTML comments break the build.
-- Quote every frontmatter value. An unquoted value with `: ` breaks the build.
+- Quote every frontmatter value. An unquoted value that contains a colon and a space breaks
+  the build.
 
 ## Voice
 
-- Write to "you", present tense, active voice. When pitboard or a tool acts, make it the
-  subject. Never "we", "our" or "let's".
+- Write to `you`, present tense, active voice. When pitboard or a tool acts, make it the
+  subject. Never `we`, `our` or `let's`.
 - Say what happens, then why. Give the measured number. State limits plainly, with no
   apology and no promise. Say what is not known instead of guessing.
 - One idea per sentence, under 25 words.
@@ -57,19 +64,20 @@ rendered page too.
 
 ## Banned
 
-- No em dash or en dash as punctuation; write "to" for ranges. No emoji. No exclamation
+- No em dash or en dash as punctuation; write `to` for ranges. No emoji. No exclamation
   marks. Bold only for UI elements.
-- Words: simply, just, easy, quick, seamless, powerful, robust, effortless, intuitive,
-  smart, unlock, empower, leverage, utilise, delve, crucial, key (adjective), enhance,
-  comprehensive, serves as, boasts, Additionally, Furthermore, Moreover, Notably,
-  allows you to, in order to, currently, now, new, latest, soon, e.g., i.e., etc., via,
-  click on, hit, toggle, enable, disable, above, below.
-- Phrases: "Welcome to", "In this guide", "Let's", "Note that", "Keep in mind",
-  "It's worth noting", "In summary", "That's it", "Feel free to".
-- Structures: "not just X but Y", triplets for rhythm, rhetorical questions, trailing
-  verdict clauses (", making it painless"), cycling synonyms, future tense for ordinary
+- Words: `simply`, `just`, `easy`, `quick`, `seamless`, `powerful`, `robust`,
+  `effortless`, `intuitive`, `smart`, `unlock`, `empower`, `leverage`, `utilise`, `delve`,
+  `crucial`, `key` (adjective), `enhance`, `comprehensive`, `serves as`, `boasts`,
+  `Additionally`, `Furthermore`, `Moreover`, `Notably`, `allows you to`, `in order to`,
+  `currently`, `now`, `new`, `latest`, `soon`, `e.g.`, `i.e.`, `etc.`, `via`, `click on`,
+  `hit`, `toggle`, `enable`, `disable`, `above`, `below`.
+- Phrases: `Welcome to`, `In this guide`, `Let's`, `Note that`, `Keep in mind`,
+  `It's worth noting`, `In summary`, `That's it`, `Feel free to`.
+- Structures: `not just X but Y`, triplets for rhythm, rhetorical questions, trailing
+  verdict clauses (`, making it painless`), cycling synonyms, future tense for ordinary
   behaviour.
-- "now", "new" and "latest" are banned when they date a release or a feature. "The new
+- `now`, `new` and `latest` are banned when they date a release or a feature. "The new
   login" after a sign-in is fine. Quoted UI text and program output keep their own words.
 
 ## Terms
@@ -106,7 +114,7 @@ Use the first word, never the others.
 - Commands are never verbs: "enrol it with `pitboard enroll`".
 - Code blocks always have a language: `sh` for commands, `text` for output, `json`,
   `toml`. No `$` prompt. Commands and output in separate blocks.
-- Prefer real values (`work`, `codex/work`, me@example.com) to placeholders.
+- Prefer real values (`work`, `codex/work`, `me@example.com`) to placeholders.
 
 ## Components
 
@@ -117,6 +125,6 @@ Use the first word, never the others.
   titled "App" and "Command line", in that order.
 - `<Columns>` and `<Card>` only on the home page, without icons.
 - `<Accordion>` only on reference pages, for detail most readers skip.
-- `<ResponseField>` and `<Expandable>` only for the JSON envelope. Not `<ParamField>`.
+- `<ResponseField>` and `<Expandable>` only for the JSON envelope. Not `ParamField`.
 - Not used: Tip, Info, Check, Danger, Callout, CodeGroup, Badge, Tooltip, Tree, Mermaid,
   snippets, Icon.
