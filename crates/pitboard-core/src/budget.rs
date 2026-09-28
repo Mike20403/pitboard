@@ -79,29 +79,43 @@ pub struct Record {
     /// Refusals in a row, which is what makes the wait grow.
     #[serde(default)]
     pub refusals: u32,
-    /// Why `held_until` was set. A record written before pitboard kept this has none, and
-    /// its wait is told by its length, as it always was.
+}
+
+/// One account's line in the ledger: its record, and why its wait was set.
+///
+/// The reason is kept beside the record rather than in it. `Record` is public and can be
+/// written as a literal, so a field added to it breaks every such literal, which a patch
+/// release must not do. The file is the same either way: the reason is one more key.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct Entry {
+    #[serde(flatten)]
+    record: Record,
+    /// Absent in a line written before pitboard kept it, whose wait is then told by its
+    /// length, as it always was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub held_for: Option<Reason>,
+    held_for: Option<Reason>,
 }
 
 /// Why an account is being held off, which decides whether asking for it may go through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Reason {
+enum Reason {
     /// The service asked for less traffic.
     RateLimited,
     /// The service could not be reached, and pitboard chose the wait.
     Unreachable,
 }
 
-impl Record {
+impl Entry {
     fn held(&self) -> Held {
+        let record = &self.record;
         match self.held_for {
             Some(Reason::RateLimited) => Held::RateLimited,
             Some(Reason::Unreachable) => Held::Unreachable,
             // No unreachable wait runs longer than its cap, so a longer one was asked for.
-            None if self.refusals > 0 && self.held_until - self.answered_at > UNREACHABLE_MOST => {
+            None if record.refusals > 0
+                && record.held_until - record.answered_at > UNREACHABLE_MOST =>
+            {
                 Held::RateLimited
             }
             None => Held::Unreachable,
@@ -109,7 +123,7 @@ impl Record {
     }
 }
 
-type Ledger = HashMap<String, Record>;
+type Ledger = HashMap<String, Entry>;
 
 fn path(ctx: &Context) -> PathBuf {
     home::dir(ctx).join("asking.json")
@@ -157,10 +171,11 @@ pub fn may_ask(
     forced: bool,
 ) -> Option<Held> {
     let ledger = load(ctx);
-    let record = ledger.get(account_uuid)?;
+    let entry = ledger.get(account_uuid)?;
+    let record = &entry.record;
     let now = ctx.now();
     if record.held_until > now {
-        let held = record.held();
+        let held = entry.held();
         return (!forced || held == Held::RateLimited).then_some(held);
     }
     (!forced && now - record.answered_at < floor_for(last_reading)).then_some(Held::Fresh)
@@ -190,13 +205,14 @@ pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
     let now = ctx.now();
     let mut ledger = load(ctx);
     for (account_uuid, outcome) in outcomes {
-        let record = ledger.entry(account_uuid.clone()).or_default();
+        let entry = ledger.entry(account_uuid.clone()).or_default();
+        let record = &mut entry.record;
         match outcome {
             Outcome::Answered => {
                 record.answered_at = now;
                 record.held_until = 0;
                 record.refusals = 0;
-                record.held_for = None;
+                entry.held_for = None;
             }
             Outcome::RateLimited(retry_after) => {
                 hold(
@@ -206,11 +222,11 @@ pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
                     RATE_LIMITED_MOST,
                     *retry_after,
                 );
-                record.held_for = Some(Reason::RateLimited);
+                entry.held_for = Some(Reason::RateLimited);
             }
             Outcome::Unreachable => {
                 hold(record, now, UNREACHABLE_FIRST, UNREACHABLE_MOST, None);
-                record.held_for = Some(Reason::Unreachable);
+                entry.held_for = Some(Reason::Unreachable);
             }
         }
     }
@@ -243,8 +259,8 @@ pub fn holds(ctx: &Context) -> Vec<(String, i64)> {
     let now = ctx.now();
     let mut held: Vec<(String, i64)> = load(ctx)
         .into_iter()
-        .filter(|(_, r)| r.held_until > now)
-        .map(|(uuid, r)| (uuid, r.held_until - now))
+        .filter(|(_, e)| e.record.held_until > now)
+        .map(|(uuid, e)| (uuid, e.record.held_until - now))
         .collect();
     held.sort();
     held
