@@ -6,7 +6,7 @@
 //!
 //! See [`crate::assumptions`] for what an entry means and how a probe reads one.
 
-use crate::assumptions::Assumption;
+use crate::assumptions::{Assumption, Platform};
 
 /// The build every entry below was read from.
 pub const VERIFIED_AGAINST: &str = "0.154.0";
@@ -22,6 +22,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::paths, and every read and write of the live login",
         probe: &["auth.json", "cli_auth_credentials_store"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_login_shape",
@@ -34,6 +35,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::engine's renew, which writes it on every renewal",
         probe: &["last_refresh", "Token data is not available"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_identity_is_local",
@@ -45,6 +47,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::engine::identify",
         probe: &["chatgpt_account_id", "chatgpt_plan_type"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_renewal",
@@ -57,6 +60,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::api::renew",
         probe: &["app_EMoamEEZ73f0CkXaXp7hrann", "auth.openai.com"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_usage_endpoint",
@@ -74,6 +78,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                   account",
         probe: &["wham/usage", "ChatGPT-Account-ID", "used_percent"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_revokes_on_its_own_sign_out",
@@ -86,6 +91,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "ParkSemantics::MoveOnly for Codex, and the read-back before install",
         probe: &["oauth/revoke"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_never_follows_a_switch",
@@ -103,6 +109,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "since logged out or signed in to another account",
         ],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_home_isolates_a_sign_in",
@@ -116,6 +123,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::engine's sign_in and read_signin, and Isolation for Codex",
         probe: &["CODEX_HOME", "cli_auth_credentials_store"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_keychain_stores_are_its_own",
@@ -129,6 +137,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::paths::backend and Codex::live's refusal",
         probe: &["Codex Auth", "secret_auth_storage", "codex_auth.age"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_identity_is_the_person",
@@ -141,6 +150,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                   for Codex",
         probe: &["chatgpt_user_id", "chatgpt_account_id"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_refusal_is_invalid_grant",
@@ -153,6 +163,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                   dropped",
         probe: &["invalid_grant"],
         absent: &[],
+        read_on: Platform::ALL,
     },
     Assumption {
         name: "codex_login_is_driveable",
@@ -165,5 +176,6 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         depends: "provider::codex::engine::sign_in, and the watched sign-in the app runs",
         probe: &["Starting local login server"],
         absent: &[],
+        read_on: Platform::ALL,
     },
 ];

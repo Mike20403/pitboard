@@ -25,6 +25,7 @@ pub(crate) fn credential_file(ctx: &Context) -> PathBuf {
 ///
 /// Resolved on every call, never cached: Claude Code moves the credential between backends
 /// when a keychain write fails for good, so a remembered answer goes wrong without warning.
+/// From 2.1.281 a locked keychain whose item the process has seen does not move it.
 pub(crate) fn chain(ctx: &Context) -> Live {
     let host = ctx.host();
     let mut backends: Vec<Box<dyn RawStore>> = Vec::new();

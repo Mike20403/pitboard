@@ -162,22 +162,27 @@ keeps its facts in a register, `crates/pitboard-core/src/provider/<tool>/assumpt
 dated with the build they were read from.
 
 A fact names literals a build must contain (`probe`), or literals whose arrival would
-disprove it (`absent`). A fact about behaviour, such as the 30 second cache, names none.
-`pitboard-conformance` reports which facts can still be read from a build, which have
-moved, and which name nothing to look for.
+disprove it (`absent`), and the systems whose builds it is read from (`read_on`). A fact
+about behaviour, such as the 30 second cache, names no literals. `pitboard-conformance`
+tells a macOS build from a Linux one by its header, and reports which facts can still be
+read from it, which have moved, which name nothing to look for, and which it skipped as
+read from the other system's builds.
 
 The check is shallow on purpose. A literal being present does not prove the behaviour around
 it is unchanged. A literal disappearing, or a ruled-out one appearing, does prove something
 moved.
 
 On 22 September 2026, the twelve facts the Claude Code register then held were checked
-against six builds. They could be read from 2.1.273 to 2.1.278, and the check went red on
-2.1.124. That build predates the credential write lock, two of the five account-scoped keys
-and the keychain error classification. `no_keyring_off_macos` and
-`plaintext_credential_mode` were added after that measurement.
+against six macOS builds. They could be read from 2.1.273 to 2.1.278, and the check went
+red on 2.1.124. That build predates the credential write lock, two of the five
+account-scoped keys and the keychain error classification. On 29 September the register was
+read again from the macOS and Linux builds of 2.1.278, 2.1.281 and 2.1.284: every fact
+holds on 2.1.281 and 2.1.284, and on 2.1.278 the three that describe the 2.1.281 change are
+reported moved, as they should be.
 
 `.github/workflows/conformance.yml` checks the newest build of each tool against its
-register on Mondays and Thursdays, or a version given by hand. Its most recent run says
+register on Mondays and Thursdays, or a version given by hand: Claude Code's macOS and
+Linux builds, and Codex's Linux build. Its most recent run says
 which facts can still be read from the build it checked, and which have moved.
 
 Adding a tool takes three things: a register read out of a named build, a module under
@@ -222,10 +227,12 @@ a scratch item.
 
 ### Claude Code
 
-Read against Claude Code 2.1.278's own storage layer, unless a fact gives its own date. The
-conformance runs of 24 and 28 September 2026, on 2.1.281 and 2.1.283, reported three of
-these moved. They are the keychain write route, the keychain read's exit codes, and the
-absence of a Linux keyring backend.
+Read against Claude Code 2.1.284's own storage layer, macOS and Linux builds alike, on 29
+September 2026, unless a fact gives its own date. The conformance runs of 24 and 28
+September reported three facts moved on 2.1.281 and 2.1.283. All three were false: they
+read the Linux build, which has no keychain code, and a `libsecret` that belongs to the Bun
+runtime Claude Code ships in. The one real change, in 2.1.281, is how a locked keychain is
+treated, and only the macOS build shows it. The run reads both builds since.
 
 - A running session serves its login from a 30 second cache, so it picks up a switch within
   about 33 seconds.
@@ -233,41 +240,50 @@ absence of a Linux keyring backend.
   `<storage dir>/.storage-write`: stale after 15000 ms, ten retries, 100 ms to 1000 ms of
   backoff. `lock.rs` carries the same numbers.
 - Every write under that lock drops the read cache, reads the login again inside the lock,
-  and abandons the write when that read fails. A stale account cannot be written back.
+  and abandons the write when that read fails. A stale account cannot be written back. From
+  2.1.281, a locked keychain counts as a failed read here once the process has seen its
+  item; before, it read as empty.
 - Claude Code treats its own lock going missing as a warning and keeps writing. pitboard
   cannot expect the other side to stop.
 - A write can be marked as already locked without the lock being taken. `/logout` does this
   after retrying for 7.5 seconds, and deletes the login with no lock held.
-- In 2.1.278, the keychain write is `security -i` while the command is at most 4032 bytes.
-  Past that it is `add-generic-password -U -a <account> -s <service> -X <hex>`, on the
-  argument line. It has a 2 second timeout, and only a timeout counts as retryable.
+- The keychain write is `security -i` while the command is at most 4032 bytes. Past that it
+  is `add-generic-password -U -a <account> -s <service> -X <hex>`, on the argument line. It
+  never refuses or splits a login, and each call has a 2 second timeout.
+- A failed write is transient, and does not move the login to the plaintext file, when it
+  timed out or, from 2.1.281, when it exited 36 after the process had seen its item. Any
+  other failure moves the login to the file.
 - The login goes hex-encoded, two characters a byte, so standard input carries about 2 KB of
-  it. In 2.1.278, a larger login is on Claude Code's own argument line at every token
-  refresh. pitboard keeps its `security -i` command within the same 4032 bytes, the limit
-  its messages give.
-- In 2.1.278, the keychain read is `find-generic-password -a <account> -w -s <service>`.
-  Exit 0 with nothing, or 44, means absent; 36 means a locked keychain, unreadable and not
-  empty. `security show-keychain-info` exiting 36 is the same signal for the whole keychain.
-- The live chain is the keychain, with the plaintext file `.credentials.json` behind it.
-  The successor backend, behind the `tengu_hover_rest` flag, replaces only the fallback
-  half, and only for a caller that hands one in. An ordinary `claude` still reads the
-  keychain first.
+  it. A larger login is on Claude Code's own argument line at every token refresh. pitboard
+  keeps its `security -i` command within the same 4032 bytes, the limit its messages give.
+- The keychain read is `find-generic-password -a <account> -w -s <service>`. Exit 0 with
+  output is the login; exit 0 with nothing, 44, or output that is not JSON is absent. Exit
+  36, a locked keychain, is absent to an ordinary read, a failed read to a write once the
+  process has seen its item (from 2.1.281), and a failed read outright only when a caller
+  asks. pitboard reads 36 as unreadable on purpose, the strict end of that.
+  `security show-keychain-info` exiting 36 only adds an unlock hint.
+- On macOS the live chain is the keychain, with the plaintext file `.credentials.json`
+  behind it. The successor backend, behind the `tengu_hover_rest` flag, replaces only the
+  fallback half, and only for a caller that hands one in. An ordinary `claude` still reads
+  the keychain first.
 - Claude Code demotes to the plaintext file when a keychain write fails for good, and
-  deletes the keychain item when it does.
+  deletes the keychain item when it does. A locked keychain after the item was seen is not
+  failing for good, from 2.1.281.
 - The supervisor daemon records itself in `<config dir>/daemon.lock`, with its pid and the
   Claude Code version that started it. It leaves the file behind when it stops.
-- In 2.1.278, Claude Code has two guarded credential stores: the macOS keychain, and the
-  Windows credential manager behind the `tengu_windows_credman` flag. A search of the whole
-  bundle finds no `libsecret`, `org.freedesktop.secrets`, `gnome-keyring` or
-  `SecretService`.
+- Claude Code's storage backends are `keychain`, `plaintext` and `windows-credman`, the
+  last behind the `tengu_windows_credman` flag. Its code has no `libsecret`,
+  `org.freedesktop.secrets`, `gnome-keyring` or `SecretService`. The Linux binary does
+  contain `libsecret`, in the Bun runtime it ships in, behind `Bun.secrets`, which Claude
+  Code's code never calls.
 - `secret-tool` and `kwallet-query` do appear in the bundle, in the credential helpers its
   Bash sandbox keeps out of a shell. So neither name is used to look for a keyring backend.
-- In 2.1.278 on Linux, the keychain backend's `security` call fails, and the plaintext file
-  holds the login. Claude Code writes it, then sets its mode to 0600, and pitboard's
-  `PlainUnix` host matches that.
+- On Linux, Claude Code has no keychain backend at all: the plaintext file holds the login.
+  Claude Code writes it, then sets its mode to 0600, and pitboard's `PlainUnix` host matches
+  that.
 - The register holds that absence as `no_keyring_off_macos`, and the conformance run looks
-  for each of those names in every build it checks. A fact that rests on something not
-  existing is wrong the moment it does.
+  for `Bun.secrets` and each keyring name in every Linux build. A fact that rests on
+  something not existing is wrong the moment it does.
 - A Claude Code parked login holds the account's slice of Claude Code's credential
   document. On one real account, measured on 22 September 2026, the slice was 524 bytes
   against 506 for the OAuth block alone. An account holding a device token has not been

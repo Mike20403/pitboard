@@ -167,10 +167,13 @@ Add `--json` for a report a program can read. The checker exits 1 when a fact ha
 literal it needs is gone, or one it rules out has turned up. It exits 2 when it cannot make
 sense of its arguments or read the binary.
 
-Point it at the tool's native binary, not the npm wrapper, which carries no binary.
-`.github/workflows/conformance.yml` takes Claude Code's from the package
-`@anthropic-ai/claude-code-linux-x64`. It takes Codex's from `vendor/` in
-`@openai/codex@<version>-linux-x64`.
+Point it at the tool's native binary, not the npm wrapper, which carries no binary. The
+checker reads the binary's header to tell a macOS build from a Linux one, and reads each
+fact only from the builds its `read_on` names: Claude Code's Linux build has no keychain
+code, so the keychain facts are read from its macOS build.
+`.github/workflows/conformance.yml` takes Claude Code's builds from the packages
+`@anthropic-ai/claude-code-linux-x64` and `@anthropic-ai/claude-code-darwin-arm64`. It takes
+Codex's from `vendor/` in `@openai/codex@<version>-linux-x64`.
 
 To add a fact, add an `Assumption` to the tool's register:
 
@@ -179,10 +182,11 @@ To add a fact, add an `Assumption` to the tool's register:
 | `name` | A stable snake_case code |
 | `fact` | What pitboard believes |
 | `read_from` | Where in the tool the fact was read, so it can be read again |
-| `verified_against` | The build it was read from, such as `2.1.278` |
+| `verified_against` | The build it was read from, such as `2.1.284` |
 | `depends` | What in pitboard stops being true if the fact moves |
 | `probe` | Literals that must be in a build for the fact to still be readable there |
 | `absent` | Literals whose arrival would disprove the fact |
+| `read_on` | The systems whose builds the fact is read from: `Platform::MacOs`, `Platform::Linux` or both |
 
 Pick literals specific to the fact. A literal already in the build for another reason
 proves nothing. A fact about behaviour has no literal to find. It gets an empty `probe`,

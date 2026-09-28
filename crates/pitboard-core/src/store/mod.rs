@@ -314,8 +314,9 @@ fn with_live<T>(live: &Live, run: impl FnOnce(&[&dyn RawStore]) -> T) -> T {
 /// order below is therefore the order Claude Code reads in, not a guess.
 ///
 /// One divergence, on purpose. Claude Code demotes to the plaintext file when a keychain
-/// write fails for good, and deletes the keychain item when it does. pitboard never does:
-/// see the note on `write_in`.
+/// write fails for good, and deletes the keychain item when it does; from 2.1.281 a locked
+/// keychain whose item the process has seen is not failing for good. pitboard never
+/// demotes: see the note on `write_in`.
 pub fn resolve(live: &Live, service: &str) -> Result<Backend, Error> {
     with_live(live, |chain| {
         Ok(resolve_in(chain, service)?.map_or(Backend::Absent, |b| b.kind()))
