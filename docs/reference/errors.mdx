@@ -35,7 +35,7 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 | `parked_credential_corrupt` | 1 | The parked login is not the one pitboard recorded. | Replace it with `pitboard enroll <label> --sign-in`. |
 | `park_slot_exhausted` | 1 | pitboard found no free name to park a login under. | Run `pitboard doctor`. |
 | `renewal_failed` | 1 | pitboard could not [renew](/guides/renewal) a parked login. | Run `pitboard doctor` if it keeps happening. |
-| `credential_too_large` | 3 | On macOS, the login is too large for `security` to read from standard input, and `PITBOARD_NO_ARGV=1` forbids the argument line. | Unset `PITBOARD_NO_ARGV`. For Claude Code, signing out of MCP servers you no longer use also makes the login smaller. See [Large logins on macOS](/security#large-logins-on-macos). |
+| `credential_too_large` | 3 | On macOS, the login is too large for `security` to read from standard input, and `PITBOARD_NO_ARGV=1` forbids the argument line. A renewal refused this way asks nothing and keeps the parked login. | Unset `PITBOARD_NO_ARGV`. For Claude Code, signing out of MCP servers you no longer use also makes the login smaller. See [Large logins on macOS](/security#large-logins-on-macos). |
 
 ## Switching
 

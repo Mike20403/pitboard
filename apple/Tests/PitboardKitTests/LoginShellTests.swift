@@ -204,6 +204,19 @@ private func gone(_ pid: pid_t) async -> Bool {
     #expect(nowhere.claudeProgram == nil)
 }
 
+/// `PITBOARD_NO_ARGV=1` in the app's environment refuses the argument line, as it does for
+/// the command line, and anything else leaves it allowed.
+@Test func theArgumentLineIsRefusedWhereTheEnvironmentSaysSo() {
+    func settings(_ extra: [String: String]) -> Settings {
+        Settings.forCurrentUser(
+            environment: ["HOME": "/Users/x"].merging(extra) { $1 }, loginPath: nil,
+            bundle: nil, isExecutable: { _ in false })
+    }
+    #expect(settings(["PITBOARD_NO_ARGV": "1"]).noArgv)
+    #expect(!settings([:]).noArgv)
+    #expect(!settings(["PITBOARD_NO_ARGV": "0"]).noArgv)
+}
+
 /// A relative entry on the login shell's `PATH` names a directory relative to wherever the
 /// shell was, which is not where this app is, so it is not looked in.
 @Test func aRelativeEntryIsNotLookedIn() {

@@ -289,6 +289,55 @@ impl RawStore for Arc<MemoryStore> {
     }
 }
 
+/// The vault as one context opens it. A real keychain takes `PITBOARD_NO_ARGV` from the
+/// context it is opened with, so above its ceiling it writes on the argument line or
+/// refuses; this one does the same.
+struct Vault {
+    store: Arc<MemoryStore>,
+    argument_line: bool,
+}
+
+impl RawStore for Vault {
+    fn kind(&self) -> Backend {
+        RawStore::kind(&self.store)
+    }
+
+    fn contains(&self, service: &str) -> Result<bool, Error> {
+        RawStore::contains(&self.store, service)
+    }
+
+    fn read(&self, service: &str) -> Result<Option<String>, Error> {
+        RawStore::read(&self.store, service)
+    }
+
+    fn write(&self, service: &str, contents: &str) -> Result<(), Error> {
+        if let Some(cost) = self.cost(service, contents)
+            && cost.refused()
+        {
+            return Err(Error::Write(format!(
+                "this credential is {} bytes, past the {}-byte command limit",
+                cost.needs, cost.limit
+            )));
+        }
+        RawStore::write(&self.store, service, contents)
+    }
+
+    fn delete(&self, service: &str) -> Result<(), Error> {
+        RawStore::delete(&self.store, service)
+    }
+
+    fn list(&self) -> Result<Option<Vec<String>>, Error> {
+        RawStore::list(&self.store)
+    }
+
+    fn cost(&self, service: &str, contents: &str) -> Option<super::Cost> {
+        RawStore::cost(&self.store, service, contents).map(|cost| super::Cost {
+            second_route: self.argument_line,
+            ..cost
+        })
+    }
+}
+
 /// A machine whose keychain and filesystem are both in memory.
 ///
 /// It fakes the two things a real host offers and nothing above them, so the code under
@@ -371,8 +420,11 @@ impl Host for MemoryHost {
         Box::new(self.file_at(path))
     }
 
-    fn vault(&self, _ctx: &Context) -> Box<dyn RawStore> {
-        Box::new(Arc::clone(&self.vault))
+    fn vault(&self, ctx: &Context) -> Box<dyn RawStore> {
+        Box::new(Vault {
+            store: Arc::clone(&self.vault),
+            argument_line: ctx.argv_fallback(),
+        })
     }
 
     fn vault_is_shared(&self) -> bool {

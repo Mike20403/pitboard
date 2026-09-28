@@ -271,7 +271,7 @@ fn put(ctx: &Context, program: &std::path::Path) -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let before = std::fs::read_to_string(&path).ok();
-        write(&path, &plist(program))?;
+        write(&path, &plist(program, ctx.argv_fallback()))?;
         // `bootstrap` is launchd's own word for this, and replaces the deprecated `load`.
         // SAFETY: `getuid` cannot fail and touches no memory of this process.
         let uid = unsafe { libc::getuid() };
@@ -294,7 +294,7 @@ fn put(ctx: &Context, program: &std::path::Path) -> Result<PathBuf> {
             std::fs::read_to_string(&unit).ok(),
             std::fs::read_to_string(&path).ok(),
         );
-        write(&unit, &service(program))?;
+        write(&unit, &service(program, ctx.argv_fallback()))?;
         write(&path, &timer())?;
         let _ = run("systemctl", &["--user", "daemon-reload"]);
         let start = ["--user", "enable", "--now", "pitboard-renew.timer"];
@@ -424,8 +424,17 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
 
 /// launchd's own format. `RunAtLoad` is off: installing this is not a reason to talk to
 /// Anthropic that second, and the first run comes at the first interval.
+///
+/// `argument_line` is whether the pitboard installing it may write a login on the argument
+/// line. The job runs with launchd's environment, not the person's shell, so a
+/// `PITBOARD_NO_ARGV` they set would not reach it; where it is set, the job is given it.
 #[cfg(target_os = "macos")]
-fn plist(program: &std::path::Path) -> String {
+fn plist(program: &std::path::Path, argument_line: bool) -> String {
+    let environment = if argument_line {
+        ""
+    } else {
+        "  <key>EnvironmentVariables</key>\n  <dict>\n    <key>PITBOARD_NO_ARGV</key><string>1</string>\n  </dict>\n"
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -441,7 +450,7 @@ fn plist(program: &std::path::Path) -> String {
   <key>RunAtLoad</key><false/>
   <key>LowPriorityIO</key><true/>
   <key>ProcessType</key><string>Background</string>
-</dict>
+{environment}</dict>
 </plist>
 "#,
         escape(&program.to_string_lossy())
@@ -465,8 +474,10 @@ fn unescape(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
+/// systemd's own format. `argument_line` is as for the launchd job: the service runs with
+/// systemd's environment, so a `PITBOARD_NO_ARGV` the installing pitboard has is given to it.
 #[cfg(target_os = "linux")]
-fn service(program: &std::path::Path) -> String {
+fn service(program: &std::path::Path, argument_line: bool) -> String {
     format!(
         "[Unit]\n\
          Description=Renew pitboard's parked logins\n\
@@ -474,7 +485,13 @@ fn service(program: &std::path::Path) -> String {
          \n\
          [Service]\n\
          Type=oneshot\n\
+         {}\
          ExecStart={} renew\n",
+        if argument_line {
+            ""
+        } else {
+            "Environment=PITBOARD_NO_ARGV=1\n"
+        },
         program.display()
     )
 }
@@ -884,7 +901,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn the_agent_runs_one_verb_and_does_not_run_at_load() {
-        let body = plist(std::path::Path::new("/usr/local/bin/pitboard"));
+        let body = plist(std::path::Path::new("/usr/local/bin/pitboard"), true);
         assert!(body.contains("<string>/usr/local/bin/pitboard</string>"));
         assert!(body.contains("<string>renew</string>"));
         assert!(!body.contains("status"), "it never asks for usage");
@@ -901,17 +918,56 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn the_agent_writes_a_path_as_xml_text() {
-        let body = plist(std::path::Path::new("/Users/x/A&B <old>/Pitboard.app"));
+        let body = plist(
+            std::path::Path::new("/Users/x/A&B <old>/Pitboard.app"),
+            true,
+        );
         assert!(
             body.contains("<string>/Users/x/A&amp;B &lt;old&gt;/Pitboard.app</string>"),
             "{body}"
         );
     }
 
+    /// The job runs with launchd's environment, not the shell's, so a `PITBOARD_NO_ARGV`
+    /// the installing pitboard has is written into it, and nothing is written otherwise.
+    /// The program is still read back from what was written.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_agent_keeps_a_refusal_of_the_argument_line() {
+        let program = std::path::Path::new("/usr/local/bin/pitboard");
+        let refusing = plist(program, false);
+        assert!(
+            refusing.contains("<key>PITBOARD_NO_ARGV</key><string>1</string>"),
+            "{refusing}"
+        );
+        assert!(!plist(program, true).contains("EnvironmentVariables"));
+        let (_, after) = refusing
+            .split_once("<key>ProgramArguments</key>")
+            .expect("its arguments");
+        assert!(
+            after
+                .trim_start()
+                .starts_with("<array>\n    <string>/usr/local/bin/pitboard")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_unit_keeps_a_refusal_of_the_argument_line() {
+        let program = std::path::Path::new("/usr/local/bin/pitboard");
+        let refusing = service(program, false);
+        assert!(
+            refusing.contains("Environment=PITBOARD_NO_ARGV=1\n"),
+            "{refusing}"
+        );
+        assert!(refusing.contains("ExecStart=/usr/local/bin/pitboard renew"));
+        assert!(!service(program, true).contains("Environment="));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn the_unit_runs_one_verb_and_the_timer_survives_a_machine_being_off() {
-        let unit = service(std::path::Path::new("/usr/local/bin/pitboard"));
+        let unit = service(std::path::Path::new("/usr/local/bin/pitboard"), true);
         assert!(unit.contains("ExecStart=/usr/local/bin/pitboard renew"));
         assert!(!unit.contains("status"));
         let timer = timer();

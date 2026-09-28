@@ -10,6 +10,12 @@ All notable changes are recorded here. The format follows
   wait the service had asked for, which the 0.3.0 notes and `pitboard doctor` said they did
   not. They keep that wait now, and still try again a service that could not be reached. An
   account never answered before and then not reached was said to be rate limited.
+- With `PITBOARD_NO_ARGV=1`, renewing a parked login too large for `security`'s standard
+  input spent its refresh token and then could not store the new one, so the parked login
+  was lost. pitboard refuses before asking now, and the park stays as it was.
+- The menu bar app ignored `PITBOARD_NO_ARGV`, and so did daily renewal unless its
+  scheduler set it. The app reads it from its own environment, and a schedule installed
+  while it is set keeps it.
 
 ## [0.5.0] - 2026-09-28
 

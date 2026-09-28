@@ -42,11 +42,9 @@ Past the ceiling, pitboard passes the login as an argument, which another proces
 
 A switch or `--sign-in` enrolment that does this says so; a renewal does not.
 
-`PITBOARD_NO_ARGV=1` makes the command line refuse such a write, so it cannot park a Codex account. The app ignores the variable. The daily renewal sees it only if its scheduler sets it.
+`PITBOARD_NO_ARGV=1` makes pitboard refuse such a write, so on macOS it cannot park a Codex account. It also leaves such a parked login unrenewed, since the renewed login could not be stored. pitboard refuses before asking the service, so the parked login stays as it was.
 
-<Warning>
-  Do not set `PITBOARD_NO_ARGV=1` while a Codex account is parked. The command line's next renewal uses up that login's refresh token but cannot store its replacement, so the parked login is lost.
-</Warning>
+The command line reads the variable from your shell. The app reads it from its own environment, which does not include your shell's when the app opens from Finder or at login; `open -a Pitboard` from a shell that sets it passes it on. A daily renewal schedule installed while it is set keeps it.
 
 ## What pitboard protects against
 
