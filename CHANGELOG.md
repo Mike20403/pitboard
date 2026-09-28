@@ -5,6 +5,12 @@ All notable changes are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `pitboard status --fresh`, and Refresh in the app, asked Anthropic or OpenAI again during a
+  wait the service had asked for, which the 0.3.0 notes and `pitboard doctor` said they did
+  not. They keep that wait now, and still try again a service that could not be reached. An
+  account never answered before and then not reached was said to be rate limited.
+
 ## [0.5.0] - 2026-09-28
 
 ### Changed

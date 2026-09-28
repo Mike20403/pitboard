@@ -104,7 +104,8 @@ Usage comes from Anthropic for Claude Code accounts and from OpenAI for Codex ac
 all accounts at once. A number is asked for again once the tightest limit it describes could
 have moved by a percentage point, which for a five-hour window is three minutes, so running
 `pitboard` twice in a row costs one set of requests and the app and the command line share
-one between them. `pitboard status --fresh` asks anyway. If a parked
+one between them. `pitboard status --fresh` asks anyway, unless a service asked pitboard to
+wait. If a parked
 login has expired, pitboard renews it first. If the service cannot be reached, or asks for
 less traffic, you get the last numbers pitboard saw, and when it saw them.
 

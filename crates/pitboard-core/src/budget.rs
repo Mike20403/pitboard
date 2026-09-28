@@ -79,6 +79,34 @@ pub struct Record {
     /// Refusals in a row, which is what makes the wait grow.
     #[serde(default)]
     pub refusals: u32,
+    /// Why `held_until` was set. A record written before pitboard kept this has none, and
+    /// its wait is told by its length, as it always was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_for: Option<Reason>,
+}
+
+/// Why an account is being held off, which decides whether asking for it may go through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reason {
+    /// The service asked for less traffic.
+    RateLimited,
+    /// The service could not be reached, and pitboard chose the wait.
+    Unreachable,
+}
+
+impl Record {
+    fn held(&self) -> Held {
+        match self.held_for {
+            Some(Reason::RateLimited) => Held::RateLimited,
+            Some(Reason::Unreachable) => Held::Unreachable,
+            // No unreachable wait runs longer than its cap, so a longer one was asked for.
+            None if self.refusals > 0 && self.held_until - self.answered_at > UNREACHABLE_MOST => {
+                Held::RateLimited
+            }
+            None => Held::Unreachable,
+        }
+    }
 }
 
 type Ledger = HashMap<String, Record>;
@@ -116,28 +144,26 @@ pub enum Held {
 /// `None` means ask. `Some(held)` means do not, and says which of the three reasons it is,
 /// so a front end can show the right thing and a person can tell a quiet answer from a
 /// refused one.
+///
+/// `forced` is a person asking, with `status --fresh` or the app's Refresh. It goes past the
+/// floor and past a wait pitboard chose after failing to reach the service, since asking is
+/// how somebody says the network is back. It does not go past a wait the service asked for:
+/// that request is the traffic the service asked not to get, and it would answer with the
+/// same refusal.
 pub fn may_ask(
     ctx: &Context,
     account_uuid: &str,
     last_reading: Option<&Snapshot>,
     forced: bool,
 ) -> Option<Held> {
-    if forced {
-        return None;
-    }
     let ledger = load(ctx);
     let record = ledger.get(account_uuid)?;
     let now = ctx.now();
     if record.held_until > now {
-        return Some(
-            if record.refusals > 0 && record.held_until - record.answered_at > UNREACHABLE_MOST {
-                Held::RateLimited
-            } else {
-                Held::Unreachable
-            },
-        );
+        let held = record.held();
+        return (!forced || held == Held::RateLimited).then_some(held);
     }
-    (now - record.answered_at < floor_for(last_reading)).then_some(Held::Fresh)
+    (!forced && now - record.answered_at < floor_for(last_reading)).then_some(Held::Fresh)
 }
 
 /// What one request turned out to be, for recording afterwards.
@@ -170,6 +196,7 @@ pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
                 record.answered_at = now;
                 record.held_until = 0;
                 record.refusals = 0;
+                record.held_for = None;
             }
             Outcome::RateLimited(retry_after) => {
                 hold(
@@ -179,9 +206,11 @@ pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
                     RATE_LIMITED_MOST,
                     *retry_after,
                 );
+                record.held_for = Some(Reason::RateLimited);
             }
             Outcome::Unreachable => {
                 hold(record, now, UNREACHABLE_FIRST, UNREACHABLE_MOST, None);
+                record.held_for = Some(Reason::Unreachable);
             }
         }
     }
@@ -346,13 +375,61 @@ mod tests {
     }
 
     #[test]
-    fn asking_for_it_is_always_allowed() {
+    fn asking_for_it_goes_past_the_floor() {
         let (ctx, _clock, _s) = machine("forced");
         record(&ctx, &[("acc".into(), Outcome::Answered)]);
         assert_eq!(
             may_ask(&ctx, "acc", Some(&reading(&["five_hour"])), true),
             None
         );
+    }
+
+    /// `status --fresh` and the app's Refresh do not ask through a wait the service asked
+    /// for, as the 0.3.0 changelog and doctor's advice say. They asked through it before.
+    #[test]
+    fn asking_for_it_keeps_a_wait_the_service_asked_for() {
+        let (ctx, clock, _s) = machine("forced-rate-limited");
+        record(&ctx, &[("acc".into(), Outcome::RateLimited(Some(300)))]);
+        assert_eq!(may_ask(&ctx, "acc", None, true), Some(Held::RateLimited));
+        clock.advance(301);
+        assert_eq!(may_ask(&ctx, "acc", None, true), None);
+    }
+
+    /// A wait pitboard chose after failing to reach the service is its own guess, and
+    /// somebody asking is how it learns the network is back.
+    #[test]
+    fn asking_for_it_tries_an_unreachable_service_again() {
+        let (ctx, _clock, _s) = machine("forced-unreachable");
+        record(&ctx, &[("acc".into(), Outcome::Unreachable)]);
+        assert_eq!(may_ask(&ctx, "acc", None, false), Some(Held::Unreachable));
+        assert_eq!(may_ask(&ctx, "acc", None, true), None);
+    }
+
+    /// The reason was told by the wait's length alone, and an account never answered
+    /// has a long way back to its last answer: one that could not be reached was said
+    /// to be rate limited.
+    #[test]
+    fn an_unreachable_service_is_not_called_rate_limiting() {
+        let (ctx, _clock, _s) = machine("never-answered");
+        record(&ctx, &[("acc".into(), Outcome::Unreachable)]);
+        assert_eq!(may_ask(&ctx, "acc", None, false), Some(Held::Unreachable));
+    }
+
+    /// A record an older pitboard wrote has no reason, and is told by its length as it
+    /// was then: longer than any unreachable wait means asked for.
+    #[test]
+    fn a_wait_an_older_pitboard_recorded_is_told_by_its_length() {
+        let (ctx, _clock, _s) = machine("older");
+        let written = format!(
+            r#"{{"asked":{{"answered_at":{a},"held_until":{h},"refusals":1}},"short":{{"answered_at":{a},"held_until":{s},"refusals":1}}}}"#,
+            a = NOW - 10,
+            h = NOW + 3000,
+            s = NOW + 20,
+        );
+        std::fs::write(path(&ctx), written).unwrap();
+        assert_eq!(may_ask(&ctx, "asked", None, true), Some(Held::RateLimited));
+        assert_eq!(may_ask(&ctx, "short", None, false), Some(Held::Unreachable));
+        assert_eq!(may_ask(&ctx, "short", None, true), None);
     }
 
     /// What Anthropic said to wait is believed over anything pitboard would pick.
