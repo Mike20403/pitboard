@@ -228,6 +228,35 @@ mod tests {
         assert_eq!(std::fs::read_to_string(path(&ctx)).unwrap(), laid_out);
     }
 
+    /// After a banked reset on claude.ai, this machine's sessions passed 14% of a weekly limit
+    /// recorded at 100%, with the same reset. A session cannot say its number is the newer,
+    /// so the 100% stands until pitboard's next answer from Anthropic, which can. From there
+    /// sessions move the lower share forward again.
+    #[test]
+    fn a_banked_reset_is_recorded_by_the_next_answer_and_followed_by_sessions() {
+        let (ctx, _scratch) = machine("banked");
+        let weekly = |ctx: &Context| load(ctx)["work"].windows[0].percent;
+        remember(
+            &ctx,
+            &[(
+                "work".into(),
+                reading("weekly_all", 100.0, Some(NOW - 3_600)),
+            )],
+        );
+
+        remember(&ctx, &[("work".into(), reading("seven_day", 14.0, None))]);
+        assert_eq!(weekly(&ctx), 100.0, "a session says no time");
+
+        remember(
+            &ctx,
+            &[("work".into(), reading("weekly_all", 14.0, Some(NOW)))],
+        );
+        assert_eq!(weekly(&ctx), 14.0);
+
+        remember(&ctx, &[("work".into(), reading("seven_day", 15.0, None))]);
+        assert_eq!(weekly(&ctx), 15.0);
+    }
+
     /// A parked account that ran out, asked about once its window has reset: the answer that
     /// finds nothing used is recorded once, and every read after it that finds the same
     /// leaves the file alone.

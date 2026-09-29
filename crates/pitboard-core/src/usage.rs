@@ -124,9 +124,12 @@ const SAME_RESET: u64 = 60;
 /// Both must be the account's own: another account's windows order against its own just as
 /// readily. A session's numbers do not say whose they are, so the status line offers only
 /// what moved between two of a session's runs with the same account named both times, and
-/// leaves out any whose reset shows them to be another account's. And where the service
-/// lowers a share within a window, as a plan upgraded in the middle of one does by raising
-/// the limit, the old, higher share stands until the window resets.
+/// leaves out any whose reset shows them to be another account's.
+///
+/// The service can lower a share within a window, as a banked reset does, or a plan upgraded
+/// in the middle of one by raising the limit. Shares cannot show that: the lower share reads
+/// as the older. Only a reading that says when it was taken can, which [`merge`] looks at
+/// before this.
 pub(crate) fn recency(a: &Window, b: &Window, now: i64) -> Ordering {
     match (a.resets_at, b.resets_at) {
         (Some(x), Some(y)) if x.abs_diff(y) >= SAME_RESET => x.cmp(&y),
@@ -137,6 +140,14 @@ pub(crate) fn recency(a: &Window, b: &Window, now: i64) -> Ordering {
 /// One account's reading with `offered` folded in, limit by limit: each limit keeps the
 /// newer measurement by [`recency`], taken whole, and on a tie the one already known, so a
 /// repeat changes nothing, whatever name or rounding it came with.
+///
+/// Unless `offered` was taken after everything `known` holds. An answer from the
+/// service, or Claude Code's cache of one, says when it was taken, and one taken later than
+/// anything that advanced or confirmed `known` is what the limits were at that time. Where
+/// it finds less used, the service lowered the share, and the lower share is taken. A
+/// session's numbers say no time, so they only ever move a limit forward. The time is the
+/// whole reading's, so a session that moved any limit since the answer was taken, or in the
+/// same second, leaves the lower share to the next answer.
 ///
 /// Except where the known window's reset has passed. A tie there is a reading that finds
 /// nothing used since, which is what an account nobody has used since says, with no reset or
@@ -171,11 +182,16 @@ pub(crate) fn merge(
         return Some(first);
     };
     let answered = offered.source == Source::Live && offered.observed_at.is_some();
+    let taken_since = offered.observed_at > known.observed_at;
     let (mut advanced, mut confirmed) = (false, false);
     let mut windows = Vec::new();
     for had in &known.windows {
         match offered.windows.iter().find(|w| w.same_limit(had)) {
             Some(given) => match recency(given, had, now) {
+                Ordering::Less if taken_since => {
+                    advanced = true;
+                    windows.push(given.clone());
+                }
                 Ordering::Less => windows.push(had.clone()),
                 Ordering::Equal if had.resets_at.is_some_and(|at| at <= now) => {
                     confirmed = true;
@@ -471,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reading_never_moves_a_limit_backwards() {
+    fn a_reading_that_says_no_time_never_moves_a_limit_backwards() {
         let known = reading(vec![measured("session", 22.0, Some(NOW + HOUR))], Some(NOW));
         for behind in [
             measured("five_hour", 20.0, Some(NOW + HOUR)),
@@ -487,6 +503,69 @@ mod tests {
             [("five_hour", 25.0)],
             "under the name it came with"
         );
+    }
+
+    /// Measured on this machine on 2026-09-29: an account at 100% of its weekly limit,
+    /// resetting at 20:00 UTC the next day, had a banked reset used on claude.ai. Its
+    /// sessions then passed 1%, 13% and 14% of the same limit, with the same reset. Ordered
+    /// by share, every lower answer lost to the 100%, and the account read as out for the
+    /// day and a half until the reset.
+    #[test]
+    fn an_answer_taken_after_everything_known_is_what_the_limits_are_now() {
+        let known = reading(
+            vec![
+                measured("session", 0.0, None),
+                measured("weekly_all", 100.0, Some(NOW + 33 * HOUR)),
+            ],
+            Some(NOW - HOUR),
+        );
+        let answered = reading(
+            vec![
+                measured("session", 5.0, Some(NOW + 5 * HOUR)),
+                measured("weekly_all", 14.0, Some(NOW + 33 * HOUR)),
+            ],
+            Some(NOW),
+        );
+        let mut cached = reading(answered.windows.clone(), Some(NOW - 5));
+        cached.source = Source::ClaudeCodeCache;
+        for offered in [answered, cached] {
+            let merged = merge(Some(&known), Some(&offered), NOW).unwrap();
+            assert_eq!(
+                shares(&merged),
+                [("session", 5.0), ("weekly_all", 14.0)],
+                "{:?}",
+                offered.source
+            );
+            assert_eq!(merged.observed_at, offered.observed_at);
+            assert_eq!(merged.source, offered.source);
+        }
+
+        let unused = reading(vec![measured("weekly_all", 0.0, None)], Some(NOW));
+        let merged = merge(Some(&known), Some(&unused), NOW).unwrap();
+        assert_eq!(
+            shares(&merged),
+            [("session", 0.0), ("weekly_all", 0.0)],
+            "and one that finds nothing used and no window running"
+        );
+    }
+
+    /// An answer is what the limits were when it was taken. Whatever was recorded since,
+    /// or in the same second, may have come with a later response, so an answer only moves
+    /// such a limit forward.
+    #[test]
+    fn an_answer_taken_no_later_than_what_is_known_never_lowers_a_share() {
+        let known = reading(
+            vec![measured("weekly_all", 100.0, Some(NOW + 33 * HOUR))],
+            Some(NOW - 60),
+        );
+        for taken in [NOW - 60, NOW - HOUR] {
+            let answered = reading(
+                vec![measured("weekly_all", 14.0, Some(NOW + 33 * HOUR))],
+                Some(taken),
+            );
+            let merged = merge(Some(&known), Some(&answered), NOW).unwrap();
+            assert_eq!(shares(&merged), [("weekly_all", 100.0)], "taken at {taken}");
+        }
     }
 
     /// A session knows the five-hour and weekly limits and nothing scoped to a model, so a

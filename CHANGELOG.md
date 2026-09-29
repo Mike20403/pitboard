@@ -6,6 +6,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- After a banked reset on claude.ai, pitboard went on showing the account's weekly limit as
+  full until the old window's reset, a day and a half away in the case measured. A banked
+  reset lowers the share and keeps the reset time, and pitboard took the higher share in
+  one window as the newer, so every answer with the lower share lost to the 100% recorded
+  before. An answer from the service taken after everything recorded for the account now
+  replaces it, however low, so the lower share shows the next time pitboard asks. A plan
+  upgraded in the middle of a window is followed the same way; before, the old, higher
+  share stood until the window reset. A session's numbers still only move a limit forward,
+  since they do not say when they were measured.
+
 ## [0.5.1] - 2026-09-29
 
 Fixes that writing the documentation site turned up, and pitboard's facts about Claude Code

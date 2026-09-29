@@ -1152,7 +1152,8 @@ mod tests {
     }
 
     /// Anthropic's usage answer can be behind the numbers a session has had in its latest
-    /// response. Shown as it came, the menu bar read 20% while every session said 22%.
+    /// response: one taken before the session recorded them. Shown as it came, the menu bar
+    /// read 20% while every session said 22%.
     #[test]
     fn a_live_reading_behind_what_a_session_recorded_does_not_move_the_row_back() {
         let s = state(&["work"]);
@@ -1161,7 +1162,11 @@ mod tests {
             Ok(reading(20.0, Source::Live, None)),
             vec![Err(Stale::NothingParked)],
         );
-        let recorded = |_: &str| Some(reading(22.0, Source::Remembered, Some("work-uuid")));
+        let recorded = |_: &str| {
+            let mut since = reading(22.0, Source::Remembered, Some("work-uuid"));
+            since.observed_at = Some(NOW - 60);
+            Some(since)
+        };
         let rows = assemble(&s, &f, recorded, nothing_known, NOW);
         assert_eq!(rows[0].usage.as_ref().unwrap().windows[0].percent, 22.0);
         assert_eq!(rows[0].stale, None);
@@ -1181,6 +1186,24 @@ mod tests {
             Source::Live,
             "a live reading ahead is shown as live"
         );
+    }
+
+    /// A banked reset used on claude.ai lowers a limit's share and keeps its reset, as this
+    /// machine's sessions measured on 2026-09-29. Folded in by share alone, Anthropic's
+    /// answer lost to the 100% recorded before it, and the row read full until the reset.
+    #[test]
+    fn a_live_reading_taken_after_what_was_recorded_is_shown_however_low() {
+        let s = state(&["work"]);
+        let mut answered = reading(14.0, Source::Live, None);
+        answered.observed_at = Some(NOW);
+        let f = facts("work-uuid", Ok(answered), vec![Err(Stale::NothingParked)]);
+        let recorded = |_: &str| Some(reading(100.0, Source::Remembered, Some("work-uuid")));
+        let usage = assemble(&s, &f, recorded, nothing_known, NOW)[0]
+            .usage
+            .clone()
+            .unwrap();
+        assert_eq!(usage.windows[0].percent, 14.0);
+        assert_eq!(usage.source, Source::Live);
     }
 
     #[test]
