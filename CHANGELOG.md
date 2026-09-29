@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-29
+
 ### Fixed
 
 - After a banked reset on claude.ai, pitboard went on showing the account's weekly limit as
@@ -910,7 +912,8 @@ First release.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 
-[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/datlechin/pitboard/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/datlechin/pitboard/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/datlechin/pitboard/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/datlechin/pitboard/compare/v0.4.0...v0.4.1
