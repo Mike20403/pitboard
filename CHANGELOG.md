@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
+pitboard tells apart everything that runs Codex with its login in memory, and the app quits
+OpenAI's ChatGPT app around a Codex switch. `pitboard-core`'s public API changes, as the
+last entry under Changed says, which is why this is 0.6.0.
+
 ### Added
 
 - Switching Codex in the app while OpenAI's ChatGPT app is open asks first: **Quit ChatGPT
@@ -939,7 +945,8 @@ First release.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 
-[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/datlechin/pitboard/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/datlechin/pitboard/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/datlechin/pitboard/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/datlechin/pitboard/compare/v0.4.1...v0.5.0
