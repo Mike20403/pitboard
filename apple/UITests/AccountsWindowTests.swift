@@ -150,6 +150,31 @@ final class AccountsWindowTests: XCTestCase {
         XCTAssertTrue(notice.waitForNonExistence(timeout: 5))
     }
 
+    /// With ChatGPT open and running Codex's login, Use asks before quitting it. Cancel
+    /// changes nothing; Quit ChatGPT and Switch switches, which the notice about the switch
+    /// says. The fixture's ChatGPT is a stand-in: no real app is quit.
+    @MainActor
+    func testUsingACodexAccountAsksToQuitChatGPTFirst() {
+        let app = XCUIApplication.launched(.chatGPTOpen)
+        app.openWindow()
+        let spare = app.accountRow("codex/spare")
+        XCTAssertTrue(spare.waitForExistence(timeout: 5))
+        let notice = app.descendants(matching: .any)["notice.switch/codex"]
+
+        spare.buttons["Use spare (Codex)"].click()
+        XCTAssertTrue(app.alert.buttons["Cancel"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alert.staticTexts["Quit ChatGPT to switch?"].exists)
+        app.alert.buttons["Cancel"].click()
+        XCTAssertTrue(app.alert.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(notice.exists, "nothing was switched")
+
+        spare.buttons["Use spare (Codex)"].click()
+        XCTAssertTrue(
+            app.alert.buttons["Quit ChatGPT and Switch"].waitForExistence(timeout: 5))
+        app.alert.buttons["Quit ChatGPT and Switch"].click()
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+    }
+
     /// Naming the login in use, from the tip above it.
     @MainActor
     func testNamingTheAccountInUse() {

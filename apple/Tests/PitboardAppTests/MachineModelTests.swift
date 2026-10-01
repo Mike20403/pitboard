@@ -63,6 +63,8 @@ private final class MachineStub: Core, @unchecked Sendable {
         if let busy { wasBusy.append(await busy()) }
         return renewals
     }
+    func holding(_ provider: String) async -> [Holding] { [] }
+
     func doctor() async -> Diagnosis {
         doctorAsks += 1
         if let busy { wasBusy.append(await busy()) }

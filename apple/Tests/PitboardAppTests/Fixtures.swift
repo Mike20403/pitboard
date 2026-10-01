@@ -57,11 +57,42 @@ extension AppModel {
     convenience init(
         testing service: any Core, watching: Bool = false,
         defaults: UserDefaults = TestDefaults(), commandLineTool: CommandLineTool = .nowhere,
-        loginItem: any LoginItem = StandInLoginItem()
+        loginItem: any LoginItem = StandInLoginItem(),
+        appControl: any AppControl = StandInAppControl()
     ) {
         self.init(
             watching: watching, service: service, defaults: defaults,
-            commandLineTool: commandLineTool, loginItem: loginItem, notifies: false)
+            commandLineTool: commandLineTool, loginItem: loginItem, appControl: appControl,
+            notifies: false)
+    }
+}
+
+/// Other apps, as a test says they are, and nothing on the machine running the tests: this
+/// Mac may have ChatGPT open.
+@MainActor
+final class StandInAppControl: AppControl {
+    var running: Set<String>
+    /// Whether an app asked to quit does. One busy with work, or whose person said no, does
+    /// not.
+    var quits: Bool
+    /// Every app asked to quit and every app opened, in order.
+    private(set) var asked: [String] = []
+
+    init(running: Set<String> = [], quits: Bool = true) {
+        self.running = running
+        self.quits = quits
+    }
+
+    func isRunning(_ bundleID: String) -> Bool { running.contains(bundleID) }
+
+    func requestQuit(_ bundleID: String) {
+        asked.append("quit \(bundleID)")
+        if quits { running.remove(bundleID) }
+    }
+
+    func open(_ bundleID: String) {
+        asked.append("open \(bundleID)")
+        running.insert(bundleID)
     }
 }
 

@@ -10,6 +10,10 @@ public protocol Core: Sendable {
     /// No network and no keychain, so it answers at once and works on a plane.
     func statusOffline() async throws -> Status
     func doctor() async -> Diagnosis
+    /// What is running a tool with a login a switch would leave it on, by kind, from the
+    /// process list alone. The tool is a `Tool`'s code; empty for a tool that follows a
+    /// switch by itself, and wherever nothing is running.
+    func holding(_ provider: String) async -> [Holding]
     /// Takes a label with its tool, as `Account.qualified` gives it, which names exactly one
     /// account whatever else is enrolled.
     func switchTo(_ label: String) async throws -> Switched
@@ -192,6 +196,10 @@ public final class PitboardService: Core, Sendable {
     public func doctor() async -> Diagnosis {
         // `doctor` does not throw, so the only failure is the queue's, which cannot happen.
         (try? await run(on: reads) { $0.doctor() }) ?? Diagnosis(checks: [], healthy: false)
+    }
+
+    public func holding(_ provider: String) async -> [Holding] {
+        (try? await run(on: reads) { $0.holding(provider: provider) }) ?? []
     }
 
     public func switchTo(_ label: String) async throws -> Switched {

@@ -10,14 +10,17 @@
     final class FixtureCore: Core, @unchecked Sendable {
         private let lock = NSLock()
         private let fixture: Fixture
+        /// The apps running on the fixture's machine, which run Codex as ChatGPT does.
+        private let apps: FixtureApps
         private var accounts: [Account]
         private var stuck: Bool
         private var changes: [Change] = []
         private var scheduled = false
         private var changedAt: Int64 = 1
 
-        init(_ fixture: Fixture, now: Date = Date()) {
+        init(_ fixture: Fixture, apps: FixtureApps = FixtureApps(), now: Date = Date()) {
             self.fixture = fixture
+            self.apps = apps
             accounts = Self.accounts(for: fixture, now: now)
             stuck = fixture == .stuck
             changes = Self.history(now: now)
@@ -53,6 +56,16 @@
 
         func statusOffline() async throws -> Status {
             lock.withLock { currentStatus() }
+        }
+
+        /// ChatGPT's two `codex` processes while it is open, as the process list shows them.
+        func holding(_ provider: String) async -> [Holding] {
+            guard provider == "codex", apps.isRunning(FixtureApps.chatGPT) else { return [] }
+            return [
+                Holding(
+                    kind: "chatgpt_app", phrase: "the ChatGPT app", pids: [4242, 4243],
+                    remedy: .reopenApp(bundleId: FixtureApps.chatGPT, name: "ChatGPT"))
+            ]
         }
 
         func doctor() async -> Diagnosis {
@@ -290,7 +303,7 @@
                 ],
                 parkedFor: 11 * 86_400)
             switch fixture {
-            case .twoTools:
+            case .twoTools, .chatGPTOpen:
                 let old = account(
                     "old", email: "dana@old.example", switchable: false, expired: true)
                 let codexMain = account(

@@ -183,7 +183,7 @@ struct AccountsPane: View {
     private func perform(_ action: AccountAction) {
         switch action {
         case .use(let qualified):
-            Task { model.present(await model.use(qualified)) }
+            Task { await model.switchAsked(to: qualified) }
         case .signInAgain(let provider, let label):
             model.present(.signInAgain(provider: provider, label: label))
         case .name(let provider, let email):
@@ -196,7 +196,7 @@ struct AccountsPane: View {
     private func perform(_ action: Notice.Action) {
         switch action {
         case .use(let qualified, _):
-            Task { model.present(await model.use(qualified)) }
+            Task { await model.switchAsked(to: qualified) }
         case .dismissSwitch(let provider):
             model.forgetSwitch(of: provider)
         case .giveUp:

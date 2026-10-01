@@ -14,6 +14,7 @@ typealias Limits = PitboardBindings.Window
 @Observable
 public final class AppModel {
     private let service: any Core
+    private let appControl: any AppControl
     /// Every tool pitboard handles, in the order a listing shows them.
     let tools: [Tool]
     private(set) var status: Status?
@@ -26,6 +27,13 @@ public final class AppModel {
     /// The account a switch is running for, as its label with its tool, so its row can
     /// show it.
     private(set) var switching: String?
+    /// A switch waiting for the person to let pitboard quit an app first, because the app
+    /// keeps the tool's login in memory and would go on with the account switched away
+    /// from.
+    private(set) var quitting: QuitToSwitch?
+    /// How long an app has to quit once asked. Long enough for one that asks about work in
+    /// progress to be answered; past it, nothing has changed and the switch is not made.
+    var quitWithin: Duration = .seconds(30)
     private(set) var updatedAt: Date?
     /// Whether a read is running, so the refresh buttons can say so. Reads overlap, a timer's
     /// with one somebody asked for, so they are counted rather than flagged: the first to end
@@ -119,6 +127,17 @@ public final class AppModel {
         }
     }
 
+    /// A switch that waits for an app to be quit first.
+    struct QuitToSwitch: Identifiable, Equatable {
+        /// The account to switch to, its label with its tool.
+        let qualified: String
+        /// The app, as the core names it from what it runs.
+        let bundleID: String
+        let name: String
+
+        var id: String { qualified }
+    }
+
     /// A tool's running sessions keep the account they started with.
     struct Restart: Equatable {
         /// The command a person quits and starts again.
@@ -160,7 +179,8 @@ public final class AppModel {
         self.init(
             watching: dependencies.watching, service: dependencies.core,
             defaults: dependencies.defaults, commandLineTool: dependencies.commandLineTool,
-            loginItem: dependencies.loginItem, notifies: dependencies.notifies)
+            loginItem: dependencies.loginItem, appControl: dependencies.appControl,
+            notifies: dependencies.notifies)
     }
 
     /// `watching` starts what runs by itself: the periodic read, the wake notice, the read
@@ -173,9 +193,13 @@ public final class AppModel {
         defaults: UserDefaults = .standard,
         commandLineTool: CommandLineTool = CommandLineTool(),
         loginItem: any LoginItem = MainAppLoginItem(),
+        // No default: a model made for a test must never quit an app on the machine
+        // running it.
+        appControl: any AppControl,
         notifies: Bool = false
     ) {
         self.service = service
+        self.appControl = appControl
         tools = service.tools()
         self.defaults = defaults
         notifier = Notifier(delivering: notifies)
@@ -382,13 +406,67 @@ public final class AppModel {
         showWindow()
     }
 
-    /// A switch asked for from the menu or a notification, where a failure has nowhere to be
-    /// said but the window.
+    /// A switch asked for from the window, the menu or a notification, with any failure said
+    /// in the window.
+    ///
+    /// Where an app runs the tool with its login in memory, as ChatGPT runs Codex, the switch
+    /// waits for the person to let pitboard quit it first: switched under it, the app would go
+    /// on with the account left behind, and its own sign-out would revoke the login pitboard
+    /// has just parked.
     func switchAsked(to qualified: String) async {
         // One switch at a time: the second would wait behind the first anyway, and its
         // choice was made from a menu that did not yet show the first.
-        guard switching == nil else { return }
+        guard switching == nil, quitting == nil else { return }
+        if let app = await appHolding(split(qualified).provider) {
+            quitting = QuitToSwitch(
+                qualified: qualified, bundleID: app.bundleID, name: app.name)
+            showWindow(.accounts)
+            return
+        }
         present(await use(qualified))
+    }
+
+    /// Quits the app, switches, and opens the app again. pitboard closed it, so pitboard opens
+    /// it, whether or not the switch worked, leaving the person where they were. An app that
+    /// does not quit, because it was busy or its person said no, stops everything before
+    /// anything has changed.
+    ///
+    /// Takes the switch it was asked about rather than reading `quitting`: the alert that
+    /// asks is gone, and has said so, before this runs.
+    func quitAndSwitch(_ pending: QuitToSwitch) async {
+        quitting = nil
+        switching = pending.qualified
+        guard await appControl.quit(pending.bundleID, within: quitWithin) else {
+            switching = nil
+            present(
+                ActionFailure(
+                    "Couldn’t switch to \(split(pending.qualified).label)",
+                    message: "\(pending.name) is still open, so nothing has changed. Quit it, "
+                        + "then switch again."))
+            return
+        }
+        let failure = await use(pending.qualified)
+        appControl.open(pending.bundleID)
+        present(failure)
+    }
+
+    /// The person kept the app open, so nothing is switched.
+    func keepAppOpen() {
+        quitting = nil
+    }
+
+    /// An app on this Mac running `provider`'s tool with its login in memory, that pitboard
+    /// may quit and open again. Asked of the core, which reads the process list, and only
+    /// taken where the app is running: what is left of one that has gone cannot be quit.
+    private func appHolding(_ provider: String) async -> (bundleID: String, name: String)? {
+        for held in await service.holding(provider) {
+            if case .reopenApp(let bundleID, let name) = held.remedy,
+                appControl.isRunning(bundleID)
+            {
+                return (bundleID, name)
+            }
+        }
+        return nil
     }
 
     // MARK: - What the app shows

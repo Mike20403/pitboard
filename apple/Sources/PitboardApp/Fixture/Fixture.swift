@@ -25,6 +25,8 @@
         case readFailure
         /// An interrupted switch that cannot be finished until the service answers.
         case stuck
+        /// `twoTools`, with ChatGPT open and running Codex's login.
+        case chatGPTOpen
 
         /// The environment variable a debug build reads the fixture's name from.
         static let variable = "PITBOARD_FIXTURE"
@@ -42,10 +44,12 @@
             let defaults = given ?? UserDefaults(suiteName: Self.suite) ?? .standard
             if given == nil { defaults.removePersistentDomain(forName: Self.suite) }
             if self != .firstLaunch { defaults.set(true, forKey: DefaultsKey.hasBeenSeen) }
+            let apps = FixtureApps(running: self == .chatGPTOpen ? [FixtureApps.chatGPT] : [])
             return Dependencies(
-                core: FixtureCore(self),
+                core: FixtureCore(self, apps: apps),
                 defaults: defaults,
                 loginItem: FixtureLoginItem(),
+                appControl: FixtureAppControl(apps),
                 commandLineTool: Self.commandLineTool(),
                 notifies: false,
                 watching: true)
@@ -79,6 +83,57 @@
                     return nil
                 })
         }
+    }
+
+    /// The apps running on a fixture's machine. Its core sees them running a tool, and its
+    /// app control quits and opens them, so the two agree the way the process list and
+    /// macOS's list of apps agree on a real machine. Nothing here touches a real app.
+    final class FixtureApps: @unchecked Sendable {
+        /// ChatGPT, as the core names it from the `codex` it runs.
+        static let chatGPT = "com.openai.codex"
+
+        private let lock = NSLock()
+        private var running: Set<String>
+        private var said: [String] = []
+
+        /// Every app asked to quit and every app opened, in order, for a test to read.
+        var asked: [String] { lock.withLock { said } }
+
+        init(running: Set<String> = []) {
+            self.running = running
+        }
+
+        func isRunning(_ bundleID: String) -> Bool {
+            lock.withLock { running.contains(bundleID) }
+        }
+
+        func quit(_ bundleID: String) {
+            lock.withLock {
+                said.append("quit \(bundleID)")
+                running.remove(bundleID)
+            }
+        }
+
+        func open(_ bundleID: String) {
+            lock.withLock {
+                said.append("open \(bundleID)")
+                running.insert(bundleID)
+            }
+        }
+    }
+
+    /// Quits and opens the fixture's apps, and nothing on the machine running it.
+    @MainActor
+    final class FixtureAppControl: AppControl {
+        private let apps: FixtureApps
+
+        init(_ apps: FixtureApps) {
+            self.apps = apps
+        }
+
+        func isRunning(_ bundleID: String) -> Bool { apps.isRunning(bundleID) }
+        func requestQuit(_ bundleID: String) { apps.quit(bundleID) }
+        func open(_ bundleID: String) { apps.open(bundleID) }
     }
 
     /// A login item that remembers what it was told and registers nothing.

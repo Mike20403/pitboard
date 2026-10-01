@@ -2,7 +2,8 @@ import Foundation
 import PitboardKit
 
 /// Everything the app reaches outside itself through: the core, the defaults it keeps its
-/// own preferences in, the login item, the command line link, and Notification Center.
+/// own preferences in, the login item, other apps, the command line link, and Notification
+/// Center.
 ///
 /// Gathered in one value so a launch decides once which world the app runs in. A UI test
 /// launches the debug build into a fixture, where every one of these is a stand-in and
@@ -13,6 +14,8 @@ public struct Dependencies {
     let core: any Core
     let defaults: UserDefaults
     let loginItem: any LoginItem
+    /// Other apps pitboard may quit and open again around a switch.
+    let appControl: any AppControl
     let commandLineTool: CommandLineTool
     /// Whether notifications are posted. Off in a fixture, where asking for permission
     /// would put a system prompt in front of the test.
@@ -27,6 +30,7 @@ public struct Dependencies {
             core: PitboardService(asking: { Settings.forCurrentUserAsked() }),
             defaults: .standard,
             loginItem: MainAppLoginItem(),
+            appControl: WorkspaceAppControl(),
             commandLineTool: CommandLineTool(),
             notifies: true,
             watching: true)

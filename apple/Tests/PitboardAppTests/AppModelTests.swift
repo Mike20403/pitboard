@@ -89,6 +89,9 @@ private final class Stub: Core, @unchecked Sendable {
             ],
             healthy: true)
     }
+    /// What is running each tool with its login in memory, by the tool's code.
+    var held: [String: [Holding]] = [:]
+    func holding(_ provider: String) async -> [Holding] { held[provider] ?? [] }
     /// What happens on this machine while a switch is under way.
     var duringSwitch: (@MainActor () async -> Void)?
     func switchTo(_ label: String) async throws -> Switched {
@@ -212,9 +215,9 @@ private let stillRunning = Warning(
     code: "sessions_still_running",
     message:
         "2 `codex` sessions started before this switch are still running and still using "
-        + "`codex/personal`. Quit them and start again to use the new account. Quit rather "
-        + "than signing out inside one: signing out there revokes `codex/personal`'s login, "
-        + "which pitboard has just parked.")
+        + "`codex/personal`. Quit them and start again to use the new account. Do not sign "
+        + "out in any of them: signing out there revokes `codex/personal`'s login, which "
+        + "pitboard has just parked.")
 
 private func account(_ label: String, signedIn: Bool, percent: Double) -> Account {
     account(label, signedIn: signedIn, [window("session", percent, resets: nil)])
@@ -2252,4 +2255,123 @@ func aSignInCancelledWhileItFinishesLeavesWhatCameAfterIt(stoppedFirst: Bool) as
     model.sheet = .rename(provider: "claude", label: "personal")
     await model.rename("personal", of: "claude", to: "home")
     #expect(model.sheet == nil)
+}
+
+// MARK: - An app that holds a tool's login
+
+private let chatGPT = "com.openai.codex"
+
+private let chatGPTHolding = Holding(
+    kind: "chatgpt_app", phrase: "the ChatGPT app", pids: [4242, 4243],
+    remedy: .reopenApp(bundleId: chatGPT, name: "ChatGPT"))
+
+/// A Codex machine with ChatGPT open and running Codex's login, about to switch to `spare`.
+@MainActor
+private func chatGPTOpen(quits: Bool = true) -> (AppModel, Stub, StandInAppControl) {
+    let stub = Stub(.success(Status(now: 0, accounts: [], warnings: [])))
+    stub.held["codex"] = [chatGPTHolding]
+    stub.switched = .success(
+        Switched(
+            outcome: .switched(
+                provider: "codex", from: "codex/main", to: "codex/spare",
+                adoption: .restart(program: "codex")),
+            warnings: []))
+    let apps = StandInAppControl(running: [chatGPT], quits: quits)
+    let model = AppModel(testing: stub, appControl: apps)
+    model.quitWithin = .milliseconds(50)
+    return (model, stub, apps)
+}
+
+/// Switched under it, ChatGPT goes on with the account left behind, and its own Log Out
+/// would revoke the login pitboard has just parked. So the switch waits to be told.
+@MainActor
+@Test func aSwitchWaitsForTheAppHoldingTheLoginToBeQuit() async {
+    let (model, stub, apps) = chatGPTOpen()
+    await model.switchAsked(to: "codex/spare")
+    #expect(model.quitting?.name == "ChatGPT")
+    #expect(model.quitting?.bundleID == chatGPT)
+    #expect(stub.switchedTo.isEmpty)
+    #expect(apps.asked.isEmpty, "nothing is quit before the person says so")
+    #expect(model.requestedPane == .accounts, "asked in the window")
+}
+
+@MainActor
+@Test func quittingTheAppSwitchesAndOpensItAgain() async throws {
+    let (model, stub, apps) = chatGPTOpen()
+    await model.switchAsked(to: "codex/spare")
+    await model.quitAndSwitch(try #require(model.quitting))
+    #expect(apps.asked == ["quit \(chatGPT)", "open \(chatGPT)"])
+    #expect(stub.switchedTo == ["codex/spare"])
+    #expect(model.quitting == nil)
+    #expect(model.switching == nil)
+    #expect(model.presentedFailure == nil)
+}
+
+/// pitboard closed it, so pitboard opens it, whether or not the switch worked.
+@MainActor
+@Test func theAppIsOpenedAgainWhenTheSwitchFails() async throws {
+    let (model, stub, apps) = chatGPTOpen()
+    stub.switched = .failure(
+        PitboardError.Failed(
+            code: "parked_login_expired", cause: nil, message: "spare's login has expired.",
+            warnings: []))
+    await model.switchAsked(to: "codex/spare")
+    await model.quitAndSwitch(try #require(model.quitting))
+    #expect(apps.asked == ["quit \(chatGPT)", "open \(chatGPT)"])
+    #expect(model.presentedFailure?.message == "spare's login has expired.")
+}
+
+/// An app busy with work, or whose person said no, stays open, and nothing changes.
+@MainActor
+@Test func anAppThatDoesNotQuitStopsTheSwitchBeforeAnythingChanges() async throws {
+    let (model, stub, apps) = chatGPTOpen(quits: false)
+    await model.switchAsked(to: "codex/spare")
+    await model.quitAndSwitch(try #require(model.quitting))
+    #expect(apps.asked == ["quit \(chatGPT)"], "and it is not opened: it never closed")
+    #expect(stub.switchedTo.isEmpty)
+    #expect(model.switching == nil)
+    let failure = try #require(model.presentedFailure)
+    #expect(failure.title == "Couldn’t switch to spare")
+    #expect(failure.message.contains("ChatGPT is still open, so nothing has changed"))
+}
+
+@MainActor
+@Test func keepingTheAppOpenSwitchesNothing() async {
+    let (model, stub, apps) = chatGPTOpen()
+    await model.switchAsked(to: "codex/spare")
+    model.keepAppOpen()
+    #expect(model.quitting == nil)
+    #expect(stub.switchedTo.isEmpty)
+    #expect(apps.asked.isEmpty)
+}
+
+/// What is left of an app that has gone cannot be quit, and a tool nothing holds is
+/// switched at once.
+@MainActor
+@Test func onlyARunningAppHoldingTheToolIsAskedAbout() async {
+    let (model, stub, apps) = chatGPTOpen()
+    apps.running = []
+    await model.switchAsked(to: "codex/spare")
+    #expect(model.quitting == nil)
+    #expect(stub.switchedTo == ["codex/spare"])
+
+    apps.running = [chatGPT]
+    await model.switchAsked(to: "claude/personal")
+    #expect(model.quitting == nil, "ChatGPT holds Codex's login, not Claude Code's")
+    #expect(stub.switchedTo == ["codex/spare", "claude/personal"])
+}
+
+@MainActor
+@Test func anAppIsGivenItsTimeToQuitAndNoMore() async {
+    let apps = StandInAppControl(running: [chatGPT])
+    #expect(await apps.quit(chatGPT, within: .milliseconds(50)))
+    #expect(await apps.quit(chatGPT, within: .milliseconds(50)), "one not running is gone")
+    #expect(apps.asked == ["quit \(chatGPT)"], "and is not asked again")
+
+    let busy = StandInAppControl(running: [chatGPT], quits: false)
+    let clock = ContinuousClock()
+    let started = clock.now
+    #expect(await busy.quit(chatGPT, within: .milliseconds(100)) == false)
+    #expect(clock.now - started >= .milliseconds(100))
+    #expect(busy.isRunning(chatGPT))
 }

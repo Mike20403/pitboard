@@ -32,6 +32,21 @@ struct MainWindow: View {
             AccountSheetView(model: model, sheet: sheet)
         }
         .failureAlert($model.presentedFailure)
+        .alert(
+            "Quit \(model.quitting?.name ?? "") to switch?",
+            isPresented: Binding(
+                get: { model.quitting != nil }, set: { if !$0 { model.keepAppOpen() } }),
+            presenting: model.quitting
+        ) { quitting in
+            Button("Quit \(quitting.name) and Switch") {
+                Task { await model.quitAndSwitch(quitting) }
+            }
+            Button("Cancel", role: .cancel) { model.keepAppOpen() }
+        } message: { quitting in
+            Text(
+                "\(quitting.name) keeps using the account it started with until it quits. "
+                    + "pitboard quits it, switches, and opens it again.")
+        }
         // A request for the window from the menu or the model can want a pane: a sheet is
         // about accounts, and so is a notice. Asked for when the window opens as well, since
         // a window opened by the request is not there to see it change.
