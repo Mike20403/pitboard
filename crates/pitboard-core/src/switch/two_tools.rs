@@ -36,9 +36,14 @@ fn a_codex_switch_moves_one_login_in_and_one_out() {
     let Outcome::Switched { adoption, .. } = outcome else {
         panic!("expected a switch, got {outcome:?}");
     };
-    assert_eq!(
-        adoption,
-        Adoption::RestartRequired { program: "codex" },
+    assert!(
+        matches!(
+            adoption,
+            Adoption::RestartRequired {
+                program: "codex",
+                ..
+            }
+        ),
         "a running codex never notices, so it must not be told it will"
     );
     let state = state::load(&m.ctx).expect("state");
@@ -217,6 +222,56 @@ fn running_codex_sessions_are_counted_and_warned_about() {
     );
     assert!(
         text.contains("signing out"),
+        "and the one thing not to do: {text}"
+    );
+}
+
+/// The ChatGPT app, Codex's background app server and Codex in an editor each run a
+/// `codex` of their own, and each takes a switch its own way. Told to quit and start again,
+/// somebody closes ChatGPT's window, which leaves the app and its old login running.
+#[test]
+fn what_still_runs_the_old_login_is_told_apart_by_where_it_runs_from() {
+    let m = codex_machine("holders");
+    m.mem.runs_at(
+        "codex",
+        &[
+            "codex",
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+            "/Users/a/.codex/packages/app-server-daemon/releases/0.159.3-aarch64-apple-darwin/bin/codex",
+            "/Users/a/.vscode/extensions/openai.chatgpt-26.5.0-darwin-arm64/bin/macos-aarch64/codex",
+            "codex",
+        ],
+    );
+
+    let settled = settle(&m.ctx, Some(ProviderId::Codex))
+        .expect("nothing to recover")
+        .0;
+    let (_, warnings) = switch(settled, &m.key("there")).expect("switched");
+
+    let text = warnings
+        .iter()
+        .find(|w| w.code() == "sessions_still_running")
+        .expect("warned")
+        .to_string();
+    assert!(
+        text.starts_with(
+            "The ChatGPT app, Codex's background app server, Codex in an editor and 2 \
+             `codex` sessions started before this switch are still running"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("still using `codex/here`"), "{text}");
+    for remedy in [
+        "quit ChatGPT with Command-Q and open it again",
+        "run `codex app-server daemon restart`",
+        "run Developer: Reload Window in each editor window that uses it",
+        "quit the `codex` sessions and start them again",
+    ] {
+        assert!(text.contains(remedy), "{remedy}: {text}");
+    }
+    assert!(
+        text.contains("sign out"),
         "and the one thing not to do: {text}"
     );
 }

@@ -29,7 +29,12 @@ Code, and to OpenAI, for Codex.
   - `provider/`: one module per tool, `claude` and `codex`, each implementing the
     `Provider` trait in `provider/mod.rs`. The trait covers where the tool keeps its login,
     whose it is, how to renew it and what it has left. Each module's `assumptions.rs` is
-    that tool's register of facts.
+    that tool's register of facts. `provider/codex/holders.rs` names where a running
+    `codex` can be, and what makes each take a switch.
+  - `holder.rs`: what keeps a tool's login in memory while it runs, told apart by where
+    its program runs from. A switch's warning, `doctor` and the app's offer to quit an app
+    all read it, so they cannot disagree.
+  - `process.rs`: this user's processes of a program, with where each runs from.
   - `store/`: reading and writing logins. On macOS, parked logins are keychain items. On
     Linux, they are files in the vault.
   - `switch/`: every change to pitboard's index (switching, enrolling, adopting, renaming,
@@ -323,6 +328,18 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
 - A Codex refresh already under way when the file changes writes its own account's tokens
   under whatever account id it finds there.
 - Codex writes `auth.json` with no lock of any kind, so there is none for pitboard to share.
+- Measured on 2026-10-01 from the process list of a Mac running each of them:
+  - OpenAI's ChatGPT app for macOS 26.928.31416, bundle id `com.openai.codex`, runs a codex
+    0.159.2 of its own: two processes of
+    `ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`, children
+    of the app. That closing its windows leaves it running, and quitting it stops them, is
+    read from the app's code and not yet watched.
+  - Codex's background app server runs from
+    `$CODEX_HOME/packages/app-server-daemon/releases/<version>/bin/codex`, a child of
+    launchd, and 0.159.3 has `codex app-server daemon restart`.
+  - On macOS, `ps` gives what a process was started as. A `codex` started from a shell by
+    its bare name lists as `codex`; one started by its path lists the path. pitboard tells
+    the kinds apart by the directories in that path, and a bare name is a `codex` session.
 - The ID token names the account: `email`, and under `https://api.openai.com/auth`,
   `chatgpt_account_id` and `chatgpt_user_id`. A Team or Business workspace shares one
   `chatgpt_account_id`, and `chatgpt_user_id` is the person.

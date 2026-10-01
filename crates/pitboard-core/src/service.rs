@@ -5,6 +5,7 @@
 use crate::context::Context;
 use crate::doctor::{self, Diagnosis};
 use crate::error::{Error, Result};
+use crate::holder::{self, capitalised};
 use crate::provider::ProviderId;
 use crate::state::{self, Account, Key};
 use crate::switch::{self, Enrolled, Outcome, Recovered, Renewal, Settled, SignIn};
@@ -46,17 +47,16 @@ pub enum Warning {
     },
     /// Sessions of a tool that never follows a switch on its own were running when it
     /// happened, and go on using the account they started with until they are restarted.
+    /// `holding` is what was running, by kind, never empty.
     SessionsStillRunning {
-        program: &'static str,
-        count: usize,
         from: String,
+        holding: Vec<crate::holder::Holding>,
     },
     /// A sign-in put a new login in use in place of the old one of the same account, and
     /// sessions of a tool that never reads its login again were running with the old one.
     SessionsKeepTheOldLogin {
-        program: &'static str,
-        count: usize,
         label: String,
+        holding: Vec<crate::holder::Holding>,
     },
     /// A sign-in to the account pitboard last recorded in use was parked rather than put in
     /// use, because nobody could say whose login the tool has in use, for `why`.
@@ -132,33 +132,28 @@ impl fmt::Display for Warning {
                 names.join(" and "),
                 tool.name()
             ),
-            Warning::SessionsStillRunning {
-                program,
-                count,
-                from,
-            } => write!(
+            Warning::SessionsStillRunning { from, holding } => write!(
                 f,
-                "{count} `{program}` session{} started before this switch {} still running and \
-                 still using `{from}`. Quit {} and start again to use the new account. Quit \
-                 rather than signing out inside one: signing out there revokes `{from}`'s \
-                 login, which pitboard has just parked.",
-                if *count == 1 { "" } else { "s" },
-                if *count == 1 { "is" } else { "are" },
-                if *count == 1 { "it" } else { "them" },
+                "{} started before this switch {} still running and still using `{from}`. {} \
+                 Do not sign out in {}: signing out there revokes `{from}`'s login, which \
+                 pitboard has just parked.",
+                capitalised(&holder::described(holding)),
+                if holder::plural(holding) { "are" } else { "is" },
+                holder::remedies(holding, "to use the new account"),
+                if holder::plural(holding) {
+                    "any of them"
+                } else {
+                    "it"
+                },
             ),
-            Warning::SessionsKeepTheOldLogin {
-                program,
-                count,
-                label,
-            } => write!(
+            Warning::SessionsKeepTheOldLogin { label, holding } => write!(
                 f,
-                "{count} `{program}` session{} started before this sign-in {} still running and \
-                 still using `{label}`'s old login. Quit {} and start again to use the new one. \
-                 Otherwise one of them can put the old login back in place of the new one when \
-                 it refreshes its token.",
-                if *count == 1 { "" } else { "s" },
-                if *count == 1 { "is" } else { "are" },
-                if *count == 1 { "it" } else { "them" },
+                "{} started before this sign-in {} still running and still using `{label}`'s \
+                 old login. {} Otherwise one of them can put the old login back in place of \
+                 the new one when it refreshes its token.",
+                capitalised(&holder::described(holding)),
+                if holder::plural(holding) { "are" } else { "is" },
+                holder::remedies(holding, "to use the new one"),
             ),
             Warning::SignInParkedNotInUse { tool, label, why } => write!(
                 f,
@@ -505,6 +500,14 @@ impl Pitboard {
         self.changing("repair", "", None, |settled| {
             switch::repair(settled).map(|r| (r, Vec::new()))
         })
+    }
+
+    /// What is running `which`'s tool with a login in memory that a switch would leave it
+    /// on, by kind: for a front end to say so, or to offer to quit an app, before switching.
+    /// Empty where nothing is, where the tool follows a switch by itself, or where nobody
+    /// could tell. Reads the process list and nothing else.
+    pub fn holding(&self, which: ProviderId) -> Vec<holder::Holding> {
+        switch::still_holding(&self.ctx, which).unwrap_or_default()
     }
 
     /// When pitboard's account index last changed, for a front end that wants to know

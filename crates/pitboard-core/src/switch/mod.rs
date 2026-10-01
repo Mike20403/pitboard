@@ -40,7 +40,7 @@ use crate::context::Context;
 use crate::error::{Error, Result};
 use crate::service::Warning;
 use crate::state::{Account, Key, Park, State};
-use crate::{api, fault, home, lock, park, pending, state, store};
+use crate::{api, fault, holder, home, lock, park, pending, state, store};
 use journal::{Journal, clear_journal, reconcile, write_journal};
 use serde_json::Value;
 use std::os::unix::fs::OpenOptionsExt;
@@ -508,13 +508,13 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     clear_journal(ctx);
 
     // A tool that never follows a switch on its own goes on using the outgoing account in
-    // every session already running. Said with a count, because "restart it" means nothing
-    // to somebody who does not know one is open, and with the one thing not to do in it.
+    // everything of it already running. Said with what is running, because "restart it"
+    // means nothing to somebody who does not know one is open, with what makes each kind
+    // take the switch, and with the one thing not to do in any of them.
     let still_running =
-        running_sessions(ctx, key.provider).map(|(program, count)| Warning::SessionsStillRunning {
-            program,
-            count,
+        still_holding(ctx, key.provider).map(|holding| Warning::SessionsStillRunning {
             from: from.clone(),
+            holding,
         });
     let warnings = on_the_command_line
         .into_iter()
@@ -625,15 +625,13 @@ fn holds(which: ProviderId, live: &provider::LiveStore) -> std::result::Result<b
     })
 }
 
-/// The program and how many of it are running, for a tool whose running sessions keep the
-/// login they started with. `None` when that is none, or nobody could count.
-fn running_sessions(ctx: &Context, which: ProviderId) -> Option<(&'static str, usize)> {
+/// What is running a tool whose running sessions keep the login they started with, by
+/// kind. `None` when that is nothing, or nobody could tell.
+pub(crate) fn still_holding(ctx: &Context, which: ProviderId) -> Option<Vec<holder::Holding>> {
     match provider::of(which).adoption() {
-        provider::Adoption::RestartRequired { program } => ctx
-            .host()
-            .running(program)
-            .filter(|count| *count > 0)
-            .map(|count| (program, count)),
+        provider::Adoption::RestartRequired { program, holders } => {
+            holder::find(ctx, program, holders).filter(|holding| !holding.is_empty())
+        }
         provider::Adoption::PollingWithin(_) => None,
     }
 }

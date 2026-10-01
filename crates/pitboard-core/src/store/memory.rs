@@ -349,7 +349,7 @@ pub struct MemoryHost {
     keychain: Arc<MemoryStore>,
     vault: Arc<MemoryStore>,
     files: Mutex<HashMap<PathBuf, Arc<MemoryStore>>>,
-    running: Mutex<HashMap<String, usize>>,
+    running: Mutex<HashMap<String, Vec<crate::process::Process>>>,
     /// Whether every home parks in `vault`, the way every home on macOS parks in the login
     /// keychain. So by default, because that is where the rules about another pitboard's
     /// parks are needed.
@@ -402,12 +402,25 @@ impl MemoryHost {
             .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Say that `count` processes are running `program`.
+    /// Say that `count` processes are running `program`, each started by its bare name, the
+    /// way a shell starts one from `PATH`.
     pub fn runs(&self, program: &str, count: usize) {
+        self.runs_at(program, &vec![program; count]);
+    }
+
+    /// Say that a process is running `program` from each of `paths`.
+    pub fn runs_at(&self, program: &str, paths: &[&str]) {
+        let processes = (1..)
+            .zip(paths)
+            .map(|(pid, path)| crate::process::Process {
+                pid,
+                path: PathBuf::from(path),
+            })
+            .collect();
         self.running
             .lock()
             .expect("a poisoned test host is a failed test")
-            .insert(program.to_string(), count);
+            .insert(program.to_string(), processes);
     }
 }
 
@@ -432,14 +445,14 @@ impl Host for MemoryHost {
     }
 
     /// What a test said is running, and nothing on the machine running the tests.
-    fn running(&self, program: &str) -> Option<usize> {
+    fn processes(&self, program: &str) -> Option<Vec<crate::process::Process>> {
         Some(
             self.running
                 .lock()
                 .expect("a poisoned test host is a failed test")
                 .get(program)
-                .copied()
-                .unwrap_or(0),
+                .cloned()
+                .unwrap_or_default(),
         )
     }
 }

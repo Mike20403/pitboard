@@ -10,4 +10,5 @@
 pub mod api;
 pub mod assumptions;
 pub(crate) mod engine;
+pub(crate) mod holders;
 pub(crate) mod paths;

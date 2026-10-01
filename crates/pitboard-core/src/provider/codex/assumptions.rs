@@ -105,6 +105,35 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         absent: &[],
     },
     Assumption {
+        name: "codex_runs_inside_the_chatgpt_app",
+        fact: "OpenAI's ChatGPT app for macOS, bundle id `com.openai.codex`, runs a codex of \
+               its own: two processes of `Contents/Resources/codex-cli/CodexCLI.app/Contents/\
+               MacOS/codex` inside the app's bundle, children of the app, reading \
+               `$CODEX_HOME/auth.json` as any codex does. Closing the app's windows leaves it \
+               running; quitting it stops them",
+        read_from: "the process list, the app's Info.plist and the bundled codex-package.json \
+                    on a Mac running the app on 2026-10-01; what closing and quitting do is \
+                    read from the app's own code and not yet watched",
+        verified_against: "26.928.31416",
+        depends: "provider::codex::holders's chatgpt_app, and the app's offer to quit ChatGPT \
+                  before a Codex switch",
+        probe: &[],
+        absent: &[],
+    },
+    Assumption {
+        name: "codex_app_server_daemon",
+        fact: "codex can run on its own as a background app server, from \
+               `$CODEX_HOME/packages/app-server-daemon/releases/<version>/bin/codex`, a child \
+               of launchd that terminal sessions can share, and `codex app-server daemon \
+               restart` starts it again",
+        read_from: "the process list on 2026-10-01 and the daemon subcommands of the codex it \
+                    ran",
+        verified_against: "0.159.3",
+        depends: "provider::codex::holders's app_server_daemon",
+        probe: &["app-server daemon restart"],
+        absent: &[],
+    },
+    Assumption {
         name: "codex_home_isolates_a_sign_in",
         fact: "`CODEX_HOME` moves everything Codex keeps, and a home with no `config.toml` \
                keeps its login in the file store, so a sign-in with `CODEX_HOME` set to an \
