@@ -73,6 +73,8 @@ public final class PitboardService: Core, Sendable {
     private let askAgainAfter: TimeInterval
     private let reads = DispatchQueue(label: "com.usepitboard.reads")
     private let changes = DispatchQueue(label: "com.usepitboard.changes")
+    /// Lists processes and nothing else, so it never waits behind a read on the network.
+    private let processes = DispatchQueue(label: "com.usepitboard.processes")
 
     /// What this service makes once and keeps.
     private struct Made: Sendable {
@@ -199,7 +201,7 @@ public final class PitboardService: Core, Sendable {
     }
 
     public func holding(_ provider: String) async -> [Holding] {
-        (try? await run(on: reads) { $0.holding(provider: provider) }) ?? []
+        (try? await run(on: processes) { $0.holding(provider: provider) }) ?? []
     }
 
     public func switchTo(_ label: String) async throws -> Switched {

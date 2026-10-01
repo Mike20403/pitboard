@@ -107,8 +107,10 @@ struct AccountsPane: View {
     private var list: some View {
         List(selection: $selection) {
             ForEach(model.notices()) { notice in
-                NoticeRow(notice: notice, switching: model.switching != nil, perform: perform)
-                    .selectionDisabled()
+                NoticeRow(
+                    notice: notice, switching: model.switchUnderWay != nil, perform: perform
+                )
+                .selectionDisabled()
             }
             SetupTip(model: model)
             ForEach(model.groups) { group in
@@ -224,7 +226,7 @@ struct AccountsPane: View {
 
     private func description(of account: Account) -> AccountDescription {
         AccountDescription(
-            account, switching: model.switching, busy: model.signingIn != nil)
+            account, switching: model.switchUnderWay, busy: model.signingIn != nil)
     }
 
     private var updated: String {

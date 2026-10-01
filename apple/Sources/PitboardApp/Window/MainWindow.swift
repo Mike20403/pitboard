@@ -35,13 +35,13 @@ struct MainWindow: View {
         .alert(
             "Quit \(model.quitting?.name ?? "") to switch?",
             isPresented: Binding(
-                get: { model.quitting != nil }, set: { if !$0 { model.keepAppOpen() } }),
+                get: { model.quitting != nil }, set: { if !$0 { model.closeQuitQuestion() } }),
             presenting: model.quitting
         ) { quitting in
             Button("Quit \(quitting.name) and Switch") {
                 Task { await model.quitAndSwitch(quitting) }
             }
-            Button("Cancel", role: .cancel) { model.keepAppOpen() }
+            Button("Cancel", role: .cancel) { model.closeQuitQuestion() }
         } message: { quitting in
             Text(
                 "\(quitting.name) keeps using the account it started with until it quits. "

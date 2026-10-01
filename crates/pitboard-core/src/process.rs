@@ -182,6 +182,33 @@ mod tests {
         assert_eq!(mine.path.file_name(), me.file_name());
     }
 
+    /// Another user's processes use another user's login, which a switch here never
+    /// touches. The first process of every machine these tests run on is the system's.
+    #[test]
+    fn another_users_processes_are_not_listed() {
+        let first = if cfg!(target_os = "linux") {
+            std::fs::read_to_string("/proc/1/comm")
+                .expect("the first process")
+                .trim()
+                .to_string()
+        } else {
+            "launchd".to_string()
+        };
+        let owner = |pid: u32| {
+            let mut ps = Command::new("ps");
+            ps.args(["-o", "uid=", "-p", &pid.to_string()]);
+            output_within(ps, b"", Duration::from_secs(5))
+                .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+                .unwrap_or_default()
+        };
+        if owner(1) == owner(std::process::id()) {
+            // Run as the system's own user, as in some containers, where it is ours.
+            return;
+        }
+        let found = processes(&first).expect("readable");
+        assert!(found.iter().all(|p| p.pid != 1), "{first}: {found:?}");
+    }
+
     #[test]
     fn a_prompt_answer_is_returned_whole() {
         let mut cat = Command::new("cat");

@@ -83,14 +83,22 @@ final class StandInAppControl: AppControl {
         self.quits = quits
     }
 
-    func isRunning(_ bundleID: String) -> Bool { running.contains(bundleID) }
+    /// Where a test's app is, which is nowhere on the machine running it.
+    static func copy(of bundleID: String) -> URL {
+        URL(fileURLWithPath: "/stand-in/\(bundleID).app")
+    }
+
+    func running(_ bundleID: String) -> URL? {
+        running.contains(bundleID) ? Self.copy(of: bundleID) : nil
+    }
 
     func requestQuit(_ bundleID: String) {
         asked.append("quit \(bundleID)")
         if quits { running.remove(bundleID) }
     }
 
-    func open(_ bundleID: String) {
+    func open(_ copy: URL) {
+        let bundleID = copy.deletingPathExtension().lastPathComponent
         asked.append("open \(bundleID)")
         running.insert(bundleID)
     }

@@ -55,7 +55,8 @@ mod tests {
     use crate::process::Process;
     use std::path::PathBuf;
 
-    /// The paths this Mac's process list gave, each where it belongs.
+    /// The paths this Mac's process list gave, each where it belongs, and an editor
+    /// extension's as its packaged layout has it, since none was running there.
     #[test]
     fn every_measured_codex_is_its_own_kind() {
         let listed = [

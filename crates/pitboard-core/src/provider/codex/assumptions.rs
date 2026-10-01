@@ -1,14 +1,15 @@
 //! Every fact about Codex CLI that pitboard stands on, named and dated.
 //!
-//! Read from codex-cli 0.154.0: the binary installed on the machine this was written on,
-//! the matching public source at tag `rust-v0.154.0`, and the real `auth.json` that build
-//! had written.
+//! Read from codex-cli 0.154.0, unless an entry names another build: the binary installed
+//! on the machine this was written on, the matching public source at tag `rust-v0.154.0`,
+//! and the real `auth.json` that build had written. What runs Codex beside the CLI, the
+//! ChatGPT app and the background app server, is read from the builds its entries name.
 //!
 //! See [`crate::assumptions`] for what an entry means and how a probe reads one.
 
 use crate::assumptions::Assumption;
 
-/// The build every entry below was read from.
+/// The build every entry below was read from, unless it names its own.
 pub const VERIFIED_AGAINST: &str = "0.154.0";
 
 pub const ASSUMPTIONS: &[Assumption] = &[

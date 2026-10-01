@@ -85,7 +85,7 @@ struct MenuBarContent: View {
                             Text("Switch to \(label)")
                             Text(notice.title)
                         }
-                        .disabled(model.switching != nil)
+                        .disabled(model.switchUnderWay != nil)
                     }
                 }
                 if let first = others.first {
@@ -142,7 +142,7 @@ struct MenuBarContent: View {
         ForEach(group.accounts, id: \.id) { account in
             AccountMenuItem(
                 description: AccountDescription(
-                    account, switching: model.switching, busy: model.signingIn != nil),
+                    account, switching: model.switchUnderWay, busy: model.signingIn != nil),
                 perform: perform)
         }
     }

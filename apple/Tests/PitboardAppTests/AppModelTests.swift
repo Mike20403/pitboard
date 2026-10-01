@@ -91,7 +91,13 @@ private final class Stub: Core, @unchecked Sendable {
     }
     /// What is running each tool with its login in memory, by the tool's code.
     var held: [String: [Holding]] = [:]
-    func holding(_ provider: String) async -> [Holding] { held[provider] ?? [] }
+    /// What happens before the core says what holds a login, which a real one asks of the
+    /// process list.
+    var beforeHolding: (@MainActor () async -> Void)?
+    func holding(_ provider: String) async -> [Holding] {
+        if let beforeHolding { await beforeHolding() }
+        return held[provider] ?? []
+    }
     /// What happens on this machine while a switch is under way.
     var duringSwitch: (@MainActor () async -> Void)?
     func switchTo(_ label: String) async throws -> Switched {
@@ -2339,7 +2345,7 @@ private func chatGPTOpen(quits: Bool = true) -> (AppModel, Stub, StandInAppContr
 @Test func keepingTheAppOpenSwitchesNothing() async {
     let (model, stub, apps) = chatGPTOpen()
     await model.switchAsked(to: "codex/spare")
-    model.keepAppOpen()
+    model.closeQuitQuestion()
     #expect(model.quitting == nil)
     #expect(stub.switchedTo.isEmpty)
     #expect(apps.asked.isEmpty)
@@ -2364,14 +2370,68 @@ private func chatGPTOpen(quits: Bool = true) -> (AppModel, Stub, StandInAppContr
 @MainActor
 @Test func anAppIsGivenItsTimeToQuitAndNoMore() async {
     let apps = StandInAppControl(running: [chatGPT])
-    #expect(await apps.quit(chatGPT, within: .milliseconds(50)))
-    #expect(await apps.quit(chatGPT, within: .milliseconds(50)), "one not running is gone")
-    #expect(apps.asked == ["quit \(chatGPT)"], "and is not asked again")
+    #expect(
+        await apps.quit(chatGPT, within: .milliseconds(50))
+            == .quit(StandInAppControl.copy(of: chatGPT)))
+    #expect(await apps.quit(chatGPT, within: .milliseconds(50)) == .notRunning)
+    #expect(apps.asked == ["quit \(chatGPT)"], "one not running is not asked")
 
     let busy = StandInAppControl(running: [chatGPT], quits: false)
     let clock = ContinuousClock()
     let started = clock.now
-    #expect(await busy.quit(chatGPT, within: .milliseconds(100)) == false)
+    #expect(await busy.quit(chatGPT, within: .milliseconds(100)) == .stillRunning)
     #expect(clock.now - started >= .milliseconds(100))
-    #expect(busy.isRunning(chatGPT))
+    #expect(busy.running(chatGPT) != nil)
+}
+
+/// Somebody who quit ChatGPT themselves before answering did not ask for it back: pitboard
+/// opens only what it closed.
+@MainActor
+@Test func anAppAlreadyGoneIsNotOpenedAgain() async throws {
+    let (model, stub, apps) = chatGPTOpen()
+    await model.switchAsked(to: "codex/spare")
+    apps.running = []
+    await model.quitAndSwitch(try #require(model.quitting))
+    #expect(apps.asked.isEmpty)
+    #expect(stub.switchedTo == ["codex/spare"])
+}
+
+/// A switch is claimed before the core is asked what holds the login, so a second one asked
+/// for meanwhile waits. While the question about quitting waits, another switch brings it
+/// back to the front instead of being dropped unseen, and every account holds back.
+@MainActor
+@Test func oneSwitchAtATimeWhileTheAppQuestionWaits() async {
+    let (model, stub, _) = chatGPTOpen()
+    let gate = AsyncGate()
+    stub.beforeHolding = { await gate.wait() }
+    let first = Task { await model.switchAsked(to: "codex/spare") }
+    while model.switching == nil { await Task.yield() }
+    await model.switchAsked(to: "claude/personal")
+    #expect(stub.switchedTo.isEmpty, "the second waited for the first")
+    gate.open()
+    await first.value
+
+    #expect(model.switchUnderWay == "codex/spare")
+    model.showWindow(.machine)
+    await model.switchAsked(to: "claude/personal")
+    #expect(stub.switchedTo.isEmpty)
+    #expect(model.requestedPane == .accounts, "the question came back to the front")
+}
+
+/// Opens once, for a test to hold something back until it says so.
+@MainActor
+private final class AsyncGate {
+    private var opened = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func open() {
+        opened = true
+        for continuation in waiting { continuation.resume() }
+        waiting = []
+    }
 }

@@ -103,6 +103,11 @@
             self.running = running
         }
 
+        /// Where an app of the fixture's is, which is nowhere on the machine running it.
+        static func copy(of bundleID: String) -> URL {
+            URL(fileURLWithPath: "/fixture/\(bundleID).app")
+        }
+
         func isRunning(_ bundleID: String) -> Bool {
             lock.withLock { running.contains(bundleID) }
         }
@@ -114,7 +119,8 @@
             }
         }
 
-        func open(_ bundleID: String) {
+        func open(_ copy: URL) {
+            let bundleID = copy.deletingPathExtension().lastPathComponent
             lock.withLock {
                 said.append("open \(bundleID)")
                 running.insert(bundleID)
@@ -131,9 +137,11 @@
             self.apps = apps
         }
 
-        func isRunning(_ bundleID: String) -> Bool { apps.isRunning(bundleID) }
+        func running(_ bundleID: String) -> URL? {
+            apps.isRunning(bundleID) ? FixtureApps.copy(of: bundleID) : nil
+        }
         func requestQuit(_ bundleID: String) { apps.quit(bundleID) }
-        func open(_ bundleID: String) { apps.open(bundleID) }
+        func open(_ copy: URL) { apps.open(copy) }
     }
 
     /// A login item that remembers what it was told and registers nothing.

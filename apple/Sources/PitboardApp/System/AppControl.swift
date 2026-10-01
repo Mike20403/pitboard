@@ -9,30 +9,42 @@ import AppKit
 /// which would lose whatever the app had not saved.
 @MainActor
 public protocol AppControl: AnyObject {
-    func isRunning(_ bundleID: String) -> Bool
+    /// Where the running copy of the app was opened from, or nil when it is not running. An
+    /// app is a bundle, so a running one always says where it is.
+    func running(_ bundleID: String) -> URL?
     /// Asks the app to quit the way Command-Q does, which lets it ask about work in
     /// progress. Returns at once; the app may take a while, or decline.
     func requestQuit(_ bundleID: String)
-    /// Opens the app the way Finder would.
-    func open(_ bundleID: String)
+    /// Opens the app at `url` the way Finder would, without bringing it to the front:
+    /// whatever pitboard has to say about the switch stays in front of it.
+    func open(_ url: URL)
+}
+
+/// What came of asking an app to quit.
+enum QuitOutcome: Equatable {
+    /// It quit. The copy that was running is the one to open again.
+    case quit(URL)
+    /// It was not running, so there was nothing to quit and there is nothing to open.
+    case notRunning
+    /// It is still running, as it was.
+    case stillRunning
 }
 
 extension AppControl {
-    /// Asks the app to quit and waits until it has, for as long as `limit`. True once it is
-    /// gone, or when it was not running; false when it is still running, as it was.
+    /// Asks the app to quit and waits until it has, for as long as `limit`.
     func quit(
         _ bundleID: String, within limit: Duration,
         checkingEvery interval: Duration = .milliseconds(200)
-    ) async -> Bool {
-        guard isRunning(bundleID) else { return true }
+    ) async -> QuitOutcome {
+        guard let copy = running(bundleID) else { return .notRunning }
         requestQuit(bundleID)
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: limit)
-        while isRunning(bundleID) {
-            guard clock.now < deadline else { return false }
+        while running(bundleID) != nil {
+            guard clock.now < deadline else { return .stillRunning }
             try? await Task.sleep(for: interval)
         }
-        return true
+        return .quit(copy)
     }
 }
 
@@ -41,20 +53,22 @@ extension AppControl {
 public final class WorkspaceAppControl: AppControl {
     public init() {}
 
-    private func running(_ bundleID: String) -> [NSRunningApplication] {
+    private func apps(_ bundleID: String) -> [NSRunningApplication] {
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .filter { !$0.isTerminated }
     }
 
-    public func isRunning(_ bundleID: String) -> Bool { !running(bundleID).isEmpty }
-
-    public func requestQuit(_ bundleID: String) {
-        for app in running(bundleID) { app.terminate() }
+    public func running(_ bundleID: String) -> URL? {
+        apps(bundleID).lazy.compactMap(\.bundleURL).first
     }
 
-    public func open(_ bundleID: String) {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-        else { return }
-        NSWorkspace.shared.openApplication(at: url, configuration: .init())
+    public func requestQuit(_ bundleID: String) {
+        for app in apps(bundleID) { app.terminate() }
+    }
+
+    public func open(_ url: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 }

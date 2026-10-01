@@ -340,6 +340,8 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
   - On macOS, `ps` gives what a process was started as. A `codex` started from a shell by
     its bare name lists as `codex`; one started by its path lists the path. pitboard tells
     the kinds apart by the directories in that path, and a bare name is a `codex` session.
+  - No editor with the Codex extension was running there. Its place, a folder named
+    `openai.chatgpt-<version>`, is the extension's packaged layout, not measured.
 - The ID token names the account: `email`, and under `https://api.openai.com/auth`,
   `chatgpt_account_id` and `chatgpt_user_id`. A Team or Business workspace shares one
   `chatgpt_account_id`, and `chatgpt_user_id` is the person.
