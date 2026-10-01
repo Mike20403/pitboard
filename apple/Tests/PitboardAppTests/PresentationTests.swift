@@ -26,6 +26,7 @@ private final class StubCore: Core, @unchecked Sendable {
     func status(fresh: Bool) async throws -> Status { try answer.get() }
     func statusOffline() async throws -> Status { try offline.get() }
     func doctor() async -> Diagnosis { Diagnosis(checks: [], healthy: true) }
+    func holding(_ provider: String) async -> [Holding] { [] }
     func switchTo(_ label: String) async throws -> Switched { try switched.get() }
     func enrollCurrent(_ label: String) async throws -> Enrolled {
         Enrolled(email: "a@b.c", enrolled: .current, warnings: [])

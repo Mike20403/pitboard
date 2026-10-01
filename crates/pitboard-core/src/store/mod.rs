@@ -160,9 +160,10 @@ pub(crate) trait Host: Send + Sync + std::fmt::Debug {
     /// nothing in it can be anybody else's.
     fn vault_is_shared(&self) -> bool;
 
-    /// How many processes are running `program` on this machine, where that can be told.
-    fn running(&self, program: &str) -> Option<usize> {
-        crate::process::running(program)
+    /// The processes this user is running `program` in, with where each runs from, where
+    /// that can be told.
+    fn processes(&self, program: &str) -> Option<Vec<crate::process::Process>> {
+        crate::process::processes(program)
     }
 }
 

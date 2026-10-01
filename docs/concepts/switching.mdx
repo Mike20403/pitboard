@@ -38,7 +38,7 @@ On one Mac, switches 8, 20 and 28 seconds into a session took effect 32.3 to 33.
 
 Claude Code sessions and the daemon that refreshes their login take the same lock as pitboard. Each reads the login again under the lock, so none can write the previous account back.
 
-A running `codex` holds its login in memory until it exits, so it needs a restart. For what to do, see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
+Everything that runs Codex holds its login in memory until it stops: a `codex` session, the ChatGPT app, Codex's background app server and Codex in an editor. Each needs to be started again. For how, see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
 
 ## Why Codex logins are moved, not copied
 

@@ -12,6 +12,7 @@ enum Fixture: String {
     case onlyOne
     case readFailure
     case stuck
+    case chatGPTOpen
 }
 
 @MainActor

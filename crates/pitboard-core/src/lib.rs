@@ -51,6 +51,7 @@ pub mod usage;
 pub(crate) mod atomic;
 pub(crate) mod fault;
 pub mod history;
+pub mod holder;
 pub(crate) mod home;
 pub(crate) mod lock;
 pub(crate) mod park;

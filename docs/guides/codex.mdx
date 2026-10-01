@@ -58,7 +58,7 @@ Do not add another account by running `codex login` yourself: it revokes the log
 
 ## How Codex accounts differ
 
-- A running `codex` never picks up a switch. Quit it, without typing `/logout` in it, and start it again, as [What happens to open sessions](/guides/switch#what-happens-to-open-sessions) explains.
+- Nothing that runs Codex picks up a switch: a `codex` session, the ChatGPT app, Codex's background app server or Codex in an editor. Start each again without signing out in it, as [What happens to open sessions](/guides/switch#what-happens-to-open-sessions) explains. In the app, a switch while the ChatGPT app is open offers to quit and open it again.
 - pitboard reads the account from the login itself, without asking OpenAI. Two people in one ChatGPT Team or Business workspace are two accounts.
 - A switch still asks OpenAI whether it accepts the incoming login, by reading that account's usage. That read does not count toward your limits.
 - A [parked Codex login](/concepts/switching#parked-logins) shows `ready` with no `good for` time, because Codex states no expiry.

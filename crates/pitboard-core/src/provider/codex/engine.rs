@@ -242,9 +242,14 @@ impl Provider for Codex {
     /// A running Codex holds its login in memory for the life of the process, watches no
     /// file, and refuses a reload whose account id has changed. There is no cache to expire
     /// and no window to wait out: the only way a session sees a switch is to be started
-    /// again.
+    /// again, and what starts it again depends on where it runs, which is [`holders`].
+    ///
+    /// [`holders`]: super::holders::HOLDERS
     fn adoption(&self) -> Adoption {
-        Adoption::RestartRequired { program: "codex" }
+        Adoption::RestartRequired {
+            program: "codex",
+            holders: super::holders::HOLDERS,
+        }
     }
 
     /// A park may never be a copy.
@@ -541,10 +546,13 @@ mod tests {
     /// either is a change to a test.
     #[test]
     fn nothing_follows_a_codex_switch_and_a_park_is_never_a_copy() {
-        assert_eq!(
+        assert!(matches!(
             Codex.adoption(),
-            Adoption::RestartRequired { program: "codex" }
-        );
+            Adoption::RestartRequired {
+                program: "codex",
+                ..
+            }
+        ));
         assert_eq!(Codex.park_semantics(), ParkSemantics::MoveOnly);
     }
 

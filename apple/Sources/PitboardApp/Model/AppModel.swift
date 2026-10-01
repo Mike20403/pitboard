@@ -14,6 +14,7 @@ typealias Limits = PitboardBindings.Window
 @Observable
 public final class AppModel {
     private let service: any Core
+    private let appControl: any AppControl
     /// Every tool pitboard handles, in the order a listing shows them.
     let tools: [Tool]
     private(set) var status: Status?
@@ -26,6 +27,13 @@ public final class AppModel {
     /// The account a switch is running for, as its label with its tool, so its row can
     /// show it.
     private(set) var switching: String?
+    /// A switch waiting for the person to let pitboard quit an app first, because the app
+    /// keeps the tool's login in memory and would go on with the account switched away
+    /// from.
+    private(set) var quitting: QuitToSwitch?
+    /// How long an app has to quit once asked. Long enough for one that asks about work in
+    /// progress to be answered; past it, nothing has changed and the switch is not made.
+    var quitWithin: Duration = .seconds(30)
     private(set) var updatedAt: Date?
     /// Whether a read is running, so the refresh buttons can say so. Reads overlap, a timer's
     /// with one somebody asked for, so they are counted rather than flagged: the first to end
@@ -119,6 +127,19 @@ public final class AppModel {
         }
     }
 
+    /// A switch that waits for an app to be quit first.
+    struct QuitToSwitch {
+        /// The account to switch to, its label with its tool.
+        let qualified: String
+        /// The app, as the core names it from what it runs.
+        let bundleID: String
+        let name: String
+    }
+
+    /// The account a switch is running for, or waiting on an answer about quitting an app
+    /// for. Nothing else is switched meanwhile, so the menu and the rows hold back.
+    var switchUnderWay: String? { switching ?? quitting?.qualified }
+
     /// A tool's running sessions keep the account they started with.
     struct Restart: Equatable {
         /// The command a person quits and starts again.
@@ -160,7 +181,8 @@ public final class AppModel {
         self.init(
             watching: dependencies.watching, service: dependencies.core,
             defaults: dependencies.defaults, commandLineTool: dependencies.commandLineTool,
-            loginItem: dependencies.loginItem, notifies: dependencies.notifies)
+            loginItem: dependencies.loginItem, appControl: dependencies.appControl,
+            notifies: dependencies.notifies)
     }
 
     /// `watching` starts what runs by itself: the periodic read, the wake notice, the read
@@ -173,9 +195,13 @@ public final class AppModel {
         defaults: UserDefaults = .standard,
         commandLineTool: CommandLineTool = CommandLineTool(),
         loginItem: any LoginItem = MainAppLoginItem(),
+        // No default: a model made for a test must never quit an app on the machine
+        // running it.
+        appControl: any AppControl,
         notifies: Bool = false
     ) {
         self.service = service
+        self.appControl = appControl
         tools = service.tools()
         self.defaults = defaults
         notifier = Notifier(delivering: notifies)
@@ -382,13 +408,81 @@ public final class AppModel {
         showWindow()
     }
 
-    /// A switch asked for from the menu or a notification, where a failure has nowhere to be
-    /// said but the window.
+    /// A switch asked for from the window, the menu or a notification, with any failure said
+    /// in the window.
+    ///
+    /// Where an app runs the tool with its login in memory, as ChatGPT runs Codex, the switch
+    /// waits for the person to let pitboard quit it first: switched under it, the app would go
+    /// on with the account left behind, and its own sign-out would revoke the login pitboard
+    /// has just parked.
     func switchAsked(to qualified: String) async {
         // One switch at a time: the second would wait behind the first anyway, and its
-        // choice was made from a menu that did not yet show the first.
-        guard switching == nil else { return }
+        // choice was made from a menu that did not yet show the first. A question waiting
+        // to be answered comes back to the front rather than being left behind unseen.
+        guard switchUnderWay == nil else {
+            if quitting != nil { showWindow(.accounts) }
+            return
+        }
+        // Claimed before anything is awaited, so a second request made meanwhile waits too.
+        switching = qualified
+        if let app = await appHolding(split(qualified).provider) {
+            switching = nil
+            quitting = QuitToSwitch(
+                qualified: qualified, bundleID: app.bundleID, name: app.name)
+            showWindow(.accounts)
+            return
+        }
         present(await use(qualified))
+    }
+
+    /// Quits the app, switches, and opens the same copy of the app again: pitboard closed it,
+    /// so pitboard opens it, whether or not the switch worked, leaving the person where they
+    /// were. An app that is already gone is not opened. One that does not quit, because it
+    /// was busy or its person said no, stops everything before anything has changed.
+    ///
+    /// Takes the switch it was asked about rather than reading `quitting`: the alert that
+    /// asks is gone, and has said so, before this runs.
+    func quitAndSwitch(_ pending: QuitToSwitch) async {
+        quitting = nil
+        switching = pending.qualified
+        defer { switching = nil }
+        switch await appControl.quit(pending.bundleID, within: quitWithin) {
+        case .stillRunning:
+            present(
+                ActionFailure(
+                    "Couldn’t switch to \(split(pending.qualified).label)",
+                    message: "\(pending.name) is still open, so nothing has changed. Quit it, "
+                        + "then switch again."))
+        case .notRunning:
+            present(await use(pending.qualified))
+        case .quit(let copy):
+            // Opened as soon as the switch is made, not after the read that follows it,
+            // which can wait on the network.
+            let failure = await switchWithoutReading(to: pending.qualified)
+            appControl.open(copy)
+            if failure == nil { await refresh() }
+            present(failure)
+        }
+    }
+
+    /// The question about quitting an app is gone: answered, or cancelled. An answer to quit
+    /// has already passed its switch on.
+    func closeQuitQuestion() {
+        quitting = nil
+    }
+
+    /// An app on this Mac running `provider`'s tool with its login in memory, that pitboard
+    /// may quit and open again. Asked of the core, which reads the process list, and only
+    /// taken where the app is running: what is left of one that has gone cannot be quit.
+    private func appHolding(_ provider: String) async -> (bundleID: String, name: String)? {
+        for held in await service.holding(provider) {
+            if case .reopenApp(let bundleID, let name) = held.remedy,
+                appControl.running(bundleID) != nil
+            {
+                return (bundleID, name)
+            }
+        }
+        return nil
     }
 
     // MARK: - What the app shows
@@ -650,6 +744,13 @@ extension AppModel {
     func use(_ qualified: String) async -> ActionFailure? {
         switching = qualified
         defer { switching = nil }
+        let failure = await switchWithoutReading(to: qualified)
+        if failure == nil { await refresh() }
+        return failure
+    }
+
+    /// The switch itself, and what it says, without the read that follows it.
+    private func switchWithoutReading(to qualified: String) async -> ActionFailure? {
         do {
             let done = try await service.switchTo(qualified)
             changesSeen += 1
@@ -679,7 +780,6 @@ extension AppModel {
             let provider = split(qualified).provider
             advice.removeAll { $0.provider == provider }
             updatedAt = nil
-            await refresh()
             return nil
         } catch {
             // Nothing moved here either, so what the last switch said stands.

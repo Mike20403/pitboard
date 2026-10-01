@@ -440,7 +440,7 @@ fn use_account(pitboard: &Pitboard, label: &str) -> Report {
                     ),
                     json!({ "follows": "polling", "within_seconds": seconds }),
                 ),
-                Adoption::RestartRequired { program } => (
+                Adoption::RestartRequired { program, .. } => (
                     None,
                     format!(
                         "Restart any running `{program}` for this to take effect. \

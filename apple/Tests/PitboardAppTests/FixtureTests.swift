@@ -69,7 +69,7 @@ func eachFixtureStartsWhereItsTestsExpect(_ fixture: Fixture) async throws {
     let work = "claude/work, in use"
     let expected: (failure: String?, shown: [String]) =
         switch fixture {
-        case .twoTools:
+        case .twoTools, .chatGPTOpen:
             (
                 nil,
                 [
@@ -109,7 +109,7 @@ func eachFixtureStartsWhereItsTestsExpect(_ fixture: Fixture) async throws {
     #expect(
         Fixture.allCases.map(\.rawValue) == [
             "twoTools", "oneTool", "empty", "firstLaunch", "noClaudeCode", "unnamed",
-            "onlyOne", "readFailure", "stuck",
+            "onlyOne", "readFailure", "stuck", "chatGPTOpen",
         ])
 }
 
@@ -518,4 +518,26 @@ struct FixtureLaunchTests {
         #expect(await tool.install() == .linked)
         #expect(tool.find(in: tool.installPlaces) == .bundled(tool.link))
     }
+}
+
+// MARK: - An app that holds Codex's login
+
+/// The fixture's ChatGPT runs Codex's login while it is open, as the process list shows it,
+/// and its app control quits and opens it: a switch through the fixture quits it, switches
+/// and opens it again, which is what the UI test drives.
+@MainActor
+@Test func theChatGPTFixtureIsQuitForACodexSwitchAndOpenedAgain() async throws {
+    let apps = FixtureApps(running: [FixtureApps.chatGPT])
+    let core = FixtureCore(.chatGPTOpen, apps: apps)
+    let model = AppModel(testing: core, appControl: FixtureAppControl(apps))
+    await model.refresh()
+    #expect(await core.holding("codex").map(\.kind) == ["chatgpt_app"])
+    #expect(await core.holding("claude").isEmpty)
+
+    await model.switchAsked(to: "codex/spare")
+    let quitting = try #require(model.quitting)
+    #expect(quitting.name == "ChatGPT")
+    await model.quitAndSwitch(quitting)
+    #expect(apps.asked == ["quit \(FixtureApps.chatGPT)", "open \(FixtureApps.chatGPT)"])
+    #expect(inUse(try await core.statusOffline()).contains("codex/spare"))
 }

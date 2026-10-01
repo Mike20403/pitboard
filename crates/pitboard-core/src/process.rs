@@ -3,6 +3,7 @@
 
 // Linux reads its process list from /proc and has no keychain to call, so there only the
 // tests run a helper.
+use std::path::PathBuf;
 #[cfg(any(not(target_os = "linux"), test))]
 use std::{
     io::{self, Read, Write},
@@ -63,56 +64,76 @@ pub fn output_within(mut command: Command, input: &[u8], limit: Duration) -> io:
     })
 }
 
-/// How many processes are running a program called `program`, by the name of the file they
-/// were started from. `None` where the process list could not be read, which is not the
-/// same as none running.
+/// One process this user is running, and where its program runs from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Process {
+    pub pid: u32,
+    /// The program's path where the system says one, or its bare name where it does not.
+    /// macOS gives what the program was started as, which is its full path when whatever
+    /// started it named one; Linux gives the file it runs, where this user may read that.
+    pub path: PathBuf,
+}
+
+/// Every process this user is running whose program is called `program`. `None` where the
+/// process list could not be read, which is not the same as none running.
 ///
-/// Read from `ps`, which both platforms pitboard runs on ship with the same flags, rather
-/// than from `/proc` on one and `sysctl` on the other. What is compared is the executable's
-/// own name, so a script or a shell that merely mentions the program is not counted.
+/// What is compared is the program's own name, so a script or a shell that merely mentions
+/// the program is not counted. Only this user's: another user's sessions use another
+/// user's login, which a switch here never touches.
 #[cfg(target_os = "linux")]
-pub fn running(program: &str) -> Option<usize> {
+pub fn processes(program: &str) -> Option<Vec<Process>> {
+    use std::os::unix::fs::MetadataExt;
     // Linux says it in /proc, which every Linux has, where `/bin/ps` is not on every one:
     // a slim container or NixOS has none, and the warning this feeds would quietly vanish.
-    let mut names = String::new();
-    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
-        if entry
-            .file_name()
-            .to_string_lossy()
-            .bytes()
-            .all(|b| b.is_ascii_digit())
-            && let Ok(comm) = std::fs::read_to_string(entry.path().join("comm"))
-        {
-            names.push_str(comm.trim());
-            names.push('\n');
-        }
-    }
-    Some(count_named(&names, program))
+    let me = std::fs::metadata("/proc/self").ok()?.uid();
+    let mut found: Vec<Process> = std::fs::read_dir("/proc")
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
+            if entry.metadata().ok()?.uid() != me {
+                return None;
+            }
+            let name = std::fs::read_to_string(entry.path().join("comm")).ok()?;
+            (name.trim() == program).then(|| Process {
+                pid,
+                path: std::fs::read_link(entry.path().join("exe"))
+                    .unwrap_or_else(|_| PathBuf::from(program)),
+            })
+        })
+        .collect();
+    found.sort_unstable_by_key(|p| p.pid);
+    Some(found)
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn running(program: &str) -> Option<usize> {
+pub fn processes(program: &str) -> Option<Vec<Process>> {
+    // `-x` with no other selection is every process this user owns, with or without a
+    // terminal.
     let mut ps = Command::new("/bin/ps");
-    ps.args(["-A", "-o", "comm="]);
+    ps.args(["-x", "-o", "pid=,comm="]);
     let out = output_within(ps, b"", Duration::from_secs(5)).ok()?;
     if !out.status.success() {
         return None;
     }
-    Some(count_named(&String::from_utf8_lossy(&out.stdout), program))
+    Some(named(&String::from_utf8_lossy(&out.stdout), program))
 }
 
-/// The processes in a `ps -o comm=` listing whose executable is called `program`. macOS
-/// lists the full path and Linux the name alone, so the name is what is compared.
-fn count_named(listing: &str, program: &str) -> usize {
+/// The processes in a `ps -o pid=,comm=` listing whose program is called `program`. A path
+/// can have spaces in it, so everything after the pid is the path.
+#[cfg(any(not(target_os = "linux"), test))]
+fn named(listing: &str, program: &str) -> Vec<Process> {
     listing
         .lines()
-        .map(str::trim)
-        .filter(|line| {
-            std::path::Path::new(line)
-                .file_name()
-                .is_some_and(|name| name == program)
+        .filter_map(|line| {
+            let (pid, path) = line.trim_start().split_once(char::is_whitespace)?;
+            let path = PathBuf::from(path.trim());
+            (path.file_name()? == program).then_some(Process {
+                pid: pid.parse().ok()?,
+                path,
+            })
         })
-        .count()
+        .collect()
 }
 
 #[cfg(test)]
@@ -120,21 +141,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_program_is_counted_by_its_own_name_and_nothing_else() {
-        let listing = "/Users/a/.codex/packages/standalone/bin/codex\n\
-                       codex\n\
-                       /bin/zsh\n\
-                       /usr/bin/codex-helper\n\
+    fn a_program_is_found_by_its_own_name_and_nothing_else() {
+        let listing = "  412 /Users/a/.codex/packages/standalone/bin/codex\n\
+                       7031 codex\n\
+                       7032 /bin/zsh\n\
+                         88 /usr/bin/codex-helper\n\
+                       9001 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n\
+                       9002 /Users/a/Codex Things/bin/codex\n\
                        node\n";
-        assert_eq!(count_named(listing, "codex"), 2);
-        assert_eq!(count_named(listing, "gemini"), 0);
+        let found = named(listing, "codex");
+        assert_eq!(
+            found.iter().map(|p| p.pid).collect::<Vec<_>>(),
+            [412, 7031, 9001, 9002]
+        );
+        assert_eq!(
+            found[3].path,
+            PathBuf::from("/Users/a/Codex Things/bin/codex")
+        );
+        assert!(named(listing, "gemini").is_empty());
     }
 
     /// The list is readable on every machine these tests run on, and this test's own
-    /// process is in it, found by its own name.
+    /// process is in it, found by its own name, with where it runs from.
     #[test]
-    fn the_process_list_can_be_read() {
-        assert_eq!(running("definitely-not-a-program-name"), Some(0));
+    fn this_users_processes_can_be_read() {
+        assert_eq!(processes("definitely-not-a-program-name"), Some(Vec::new()));
         let me = std::env::current_exe().expect("this test's own binary");
         let name = me.file_name().unwrap().to_string_lossy().into_owned();
         // Linux keeps fifteen characters of a process's name, and test binaries are longer.
@@ -143,7 +174,39 @@ mod tests {
         } else {
             name
         };
-        assert!(running(&name).is_some_and(|n| n >= 1), "{name} is running");
+        let found = processes(&name).expect("readable");
+        let mine = found
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap_or_else(|| panic!("{name} is running: {found:?}"));
+        assert_eq!(mine.path.file_name(), me.file_name());
+    }
+
+    /// Another user's processes use another user's login, which a switch here never
+    /// touches. The first process of every machine these tests run on is the system's.
+    #[test]
+    fn another_users_processes_are_not_listed() {
+        let first = if cfg!(target_os = "linux") {
+            std::fs::read_to_string("/proc/1/comm")
+                .expect("the first process")
+                .trim()
+                .to_string()
+        } else {
+            "launchd".to_string()
+        };
+        let owner = |pid: u32| {
+            let mut ps = Command::new("ps");
+            ps.args(["-o", "uid=", "-p", &pid.to_string()]);
+            output_within(ps, b"", Duration::from_secs(5))
+                .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+                .unwrap_or_default()
+        };
+        if owner(1) == owner(std::process::id()) {
+            // Run as the system's own user, as in some containers, where it is ours.
+            return;
+        }
+        let found = processes(&first).expect("readable");
+        assert!(found.iter().all(|p| p.pid != 1), "{first}: {found:?}");
     }
 
     #[test]

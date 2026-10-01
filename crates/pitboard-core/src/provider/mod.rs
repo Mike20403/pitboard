@@ -235,7 +235,14 @@ pub enum Adoption {
     /// A session already running follows within this many seconds, with no action.
     PollingWithin(u32),
     /// Nothing follows until the program is started again. Never rendered as a countdown.
-    RestartRequired { program: &'static str },
+    ///
+    /// `holders` names every kind of process that runs `program`, most particular first and
+    /// ending with one that is anywhere, and what makes each take the switch: a terminal
+    /// session and an app that runs the program for itself are started again differently.
+    RestartRequired {
+        program: &'static str,
+        holders: &'static [crate::holder::Holder],
+    },
 }
 
 /// Whether a parked copy may exist while the same account is still live.
@@ -638,7 +645,7 @@ mod tests {
     /// what is true.
     #[test]
     fn a_restart_is_not_a_countdown_of_zero() {
-        let restart = Adoption::RestartRequired { program: "codex" };
+        let restart = of(ProviderId::Codex).adoption();
         assert_ne!(restart, Adoption::PollingWithin(0));
         assert!(matches!(Adoption::PollingWithin(33), Adoption::PollingWithin(s) if s == 33));
     }

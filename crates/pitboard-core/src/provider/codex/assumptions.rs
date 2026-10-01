@@ -1,14 +1,15 @@
 //! Every fact about Codex CLI that pitboard stands on, named and dated.
 //!
-//! Read from codex-cli 0.154.0: the binary installed on the machine this was written on,
-//! the matching public source at tag `rust-v0.154.0`, and the real `auth.json` that build
-//! had written.
+//! Read from codex-cli 0.154.0, unless an entry names another build: the binary installed
+//! on the machine this was written on, the matching public source at tag `rust-v0.154.0`,
+//! and the real `auth.json` that build had written. What runs Codex beside the CLI, the
+//! ChatGPT app and the background app server, is read from the builds its entries name.
 //!
 //! See [`crate::assumptions`] for what an entry means and how a probe reads one.
 
 use crate::assumptions::Assumption;
 
-/// The build every entry below was read from.
+/// The build every entry below was read from, unless it names its own.
 pub const VERIFIED_AGAINST: &str = "0.154.0";
 
 pub const ASSUMPTIONS: &[Assumption] = &[
@@ -102,6 +103,35 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             "Skipping auth reload due to account id mismatch",
             "since logged out or signed in to another account",
         ],
+        absent: &[],
+    },
+    Assumption {
+        name: "codex_runs_inside_the_chatgpt_app",
+        fact: "OpenAI's ChatGPT app for macOS, bundle id `com.openai.codex`, runs a codex of \
+               its own: two processes of `Contents/Resources/codex-cli/CodexCLI.app/Contents/\
+               MacOS/codex` inside the app's bundle, children of the app, reading \
+               `$CODEX_HOME/auth.json` as any codex does. Closing the app's windows leaves it \
+               running; quitting it stops them",
+        read_from: "the process list, the app's Info.plist and the bundled codex-package.json \
+                    on a Mac running the app on 2026-10-01; what closing and quitting do is \
+                    read from the app's own code and not yet watched",
+        verified_against: "26.928.31416",
+        depends: "provider::codex::holders's chatgpt_app, and the app's offer to quit ChatGPT \
+                  before a Codex switch",
+        probe: &[],
+        absent: &[],
+    },
+    Assumption {
+        name: "codex_app_server_daemon",
+        fact: "codex can run on its own as a background app server, from \
+               `$CODEX_HOME/packages/app-server-daemon/releases/<version>/bin/codex`, a child \
+               of launchd that terminal sessions can share, and `codex app-server daemon \
+               restart` starts it again",
+        read_from: "the process list on 2026-10-01 and the daemon subcommands of the codex it \
+                    ran",
+        verified_against: "0.159.3",
+        depends: "provider::codex::holders's app_server_daemon",
+        probe: &["app-server daemon restart"],
         absent: &[],
     },
     Assumption {

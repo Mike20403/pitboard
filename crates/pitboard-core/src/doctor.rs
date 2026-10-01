@@ -131,8 +131,9 @@ pub struct CodexFacts {
     /// Which Codex that is, read off the path it is installed at. `None` both where there
     /// is no `codex` and where its path does not say; [`CodexFacts::program`] tells which.
     pub version: Option<String>,
-    /// Every `codex` running as this user, by pid. `None` where that could not be asked.
-    pub running: Option<Vec<u32>>,
+    /// Every `codex` running as this user, by where it runs from. `None` where that could
+    /// not be asked.
+    pub running: Option<Vec<crate::holder::Holding>>,
 }
 
 /// Whose a Codex login is, as its own ID token says. Nothing in here is a secret: the
@@ -389,7 +390,7 @@ fn codex_facts(ctx: &Context, state: Option<&State>) -> CodexFacts {
         },
         version: program.as_deref().and_then(codex_version),
         program,
-        running: codex_processes(ctx),
+        running: running_codex(ctx),
         auth_file,
         home,
     }
@@ -477,49 +478,15 @@ fn codex_package_version(path: &std::path::Path) -> Option<String> {
     Some(json.get("version")?.as_str()?.to_string())
 }
 
-/// Every `codex` running as this user, by pid.
-///
-/// Asked of `pgrep`, with a deadline, because macOS offers no way to list processes that
-/// does not mean either a helper or a system call pitboard does not otherwise make.
-#[cfg(target_os = "macos")]
-fn codex_processes(ctx: &Context) -> Option<Vec<u32>> {
-    let mut command = std::process::Command::new("/usr/bin/pgrep");
-    command.arg("-x");
-    if let Some(user) = ctx.user.as_deref().filter(|u| !u.is_empty()) {
-        command.args(["-u", user]);
+/// Every `codex` running as this user, by kind, asked the way a switch asks so the two
+/// cannot disagree.
+fn running_codex(ctx: &Context) -> Option<Vec<crate::holder::Holding>> {
+    match crate::provider::of(ProviderId::Codex).adoption() {
+        crate::provider::Adoption::RestartRequired { program, holders } => {
+            crate::holder::find(ctx, program, holders)
+        }
+        crate::provider::Adoption::PollingWithin(_) => Some(Vec::new()),
     }
-    command.arg("codex");
-    let out =
-        crate::process::output_within(command, b"", std::time::Duration::from_secs(2)).ok()?;
-    match out.status.code() {
-        // Found some, or found none: both answers.
-        Some(0 | 1) => Some(
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter_map(|line| line.trim().parse().ok())
-                .collect(),
-        ),
-        _ => None,
-    }
-}
-
-/// Every `codex` running as this user, by pid, read out of `/proc`.
-#[cfg(not(target_os = "macos"))]
-fn codex_processes(_ctx: &Context) -> Option<Vec<u32>> {
-    use std::os::unix::fs::MetadataExt;
-    let me = std::fs::metadata("/proc/self").ok()?.uid();
-    let mut found: Vec<u32> = std::fs::read_dir("/proc")
-        .ok()?
-        .flatten()
-        .filter_map(|entry| {
-            let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
-            let owner = entry.metadata().ok()?.uid();
-            let name = std::fs::read_to_string(entry.path().join("comm")).ok()?;
-            (owner == me && name.trim() == "codex").then_some(pid)
-        })
-        .collect();
-    found.sort_unstable();
-    Some(found)
 }
 
 fn ok(code: &'static str, name: impl Into<String>, detail: impl Into<String>) -> Check {
@@ -1486,31 +1453,27 @@ fn judge_codex(facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> 
     checks.extend(parks.iter().filter_map(|p| judge_dormant(p, now)));
 
     checks.push(judge_codex_version(facts));
-    checks.push(ok(
-        "codex_running",
-        "running Codex",
-        match facts.running.as_deref() {
-            None => "could not tell".to_string(),
-            Some([]) => "none".to_string(),
-            Some(pids) => format!(
-                "{} running (pid {}); each keeps using the account it started with until \
-                 it is restarted",
-                pids.len(),
-                some_of(pids)
-            ),
-        },
-    ));
+    checks.push(judge_codex_running(facts.running.as_deref()));
     checks
 }
 
-/// A few pids and how many more, because somebody with twenty sessions open needs to know
-/// there are twenty, not which twenty.
-fn some_of(pids: &[u32]) -> String {
-    const SHOWN: usize = 3;
-    let named: Vec<String> = pids.iter().take(SHOWN).map(u32::to_string).collect();
-    match pids.len().saturating_sub(SHOWN) {
-        0 => named.join(", "),
-        more => format!("{} and {more} more", named.join(", ")),
+/// What is running Codex, said and never warned about: running it is the point of having
+/// it. What makes each kind take a switch is the advice, since that differs by kind.
+fn judge_codex_running(running: Option<&[crate::holder::Holding]>) -> Check {
+    let (detail, advice) = match running {
+        None => ("could not tell".to_string(), String::new()),
+        Some([]) => ("none".to_string(), String::new()),
+        Some(holding) => (
+            format!(
+                "{}; each keeps using the account it started with until it is started again",
+                crate::holder::described_with_pids(holding)
+            ),
+            crate::holder::remedies(holding, "to take a switch"),
+        ),
+    };
+    Check {
+        advice,
+        ..ok("codex_running", "running Codex", detail)
     }
 }
 
@@ -2759,21 +2722,63 @@ mod tests {
 
     /// A running codex holds the account it started with for as long as it runs, which is
     /// the one thing a switch cannot reach. Said, never warned about: running it is the
-    /// point of having it.
+    /// point of having it. What makes each kind take a switch is said beside it.
     #[test]
     fn running_codex_processes_are_reported_as_a_fact() {
+        use crate::holder::classify;
+        use crate::process::Process;
+        let at = |pid: u32, path: &str| Process {
+            pid,
+            path: PathBuf::from(path),
+        };
+        let holders = crate::provider::codex::holders::HOLDERS;
         let mut codex = with_codex();
-        codex.running = Some(vec![4321, 99]);
+        codex.running = Some(classify(&[at(4321, "codex"), at(99, "codex")], holders));
         let checks = codex_checks(&codex);
         let running = check(&checks, "codex_running");
         assert_eq!(running.level, Level::Ok);
-        assert!(running.detail.contains("4321, 99"), "{}", running.detail);
-        assert!(running.detail.contains("restarted"), "{}", running.detail);
+        assert!(
+            running
+                .detail
+                .starts_with("2 `codex` sessions (pid 4321, 99)"),
+            "{}",
+            running.detail
+        );
+        assert!(
+            running.detail.contains("started again"),
+            "{}",
+            running.detail
+        );
+        assert_eq!(
+            running.advice,
+            "Quit them and start again to take a switch."
+        );
 
-        codex.running = Some((1..=23).collect());
-        let many = check(&codex_checks(&codex), "codex_running").detail.clone();
-        assert!(many.starts_with("23 running"), "{many}");
-        assert!(many.contains("1, 2, 3 and 20 more"), "{many}");
+        let many: Vec<Process> = (1..=23).map(|pid| at(pid, "codex")).collect();
+        codex.running = Some(classify(&many, holders));
+        let detail = check(&codex_checks(&codex), "codex_running").detail.clone();
+        assert!(detail.starts_with("23 `codex` sessions"), "{detail}");
+        assert!(detail.contains("1, 2, 3 and 20 more"), "{detail}");
+
+        codex.running = Some(classify(
+            &[at(
+                7,
+                "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/\
+                 Contents/MacOS/codex",
+            )],
+            holders,
+        ));
+        let checks = codex_checks(&codex);
+        let app = check(&checks, "codex_running");
+        assert!(
+            app.detail.starts_with("the ChatGPT app (pid 7)"),
+            "{}",
+            app.detail
+        );
+        assert_eq!(
+            app.advice,
+            "Quit ChatGPT with Command-Q and open it again to take a switch."
+        );
 
         codex.running = None;
         assert!(
@@ -2781,6 +2786,30 @@ mod tests {
                 .detail
                 .contains("could not tell")
         );
+    }
+
+    /// doctor asks what runs Codex the way a switch does, through the same host, so the two
+    /// never disagree about what is still on the account a switch left. They used to count
+    /// with two different scans, and only the switch's could be stood in for.
+    #[test]
+    fn doctor_and_a_switch_see_the_same_codex_running() {
+        use crate::store::memory::MemoryHost;
+        let host = MemoryHost::new();
+        host.runs_at(
+            "codex",
+            &[
+                "codex",
+                "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/\
+                 MacOS/codex",
+            ],
+        );
+        let ctx = Context::new(std::env::temp_dir()).with_memory_stores(host);
+        let seen = running_codex(&ctx).expect("readable");
+        assert_eq!(
+            seen.iter().map(|h| h.holder.kind).collect::<Vec<_>>(),
+            ["chatgpt_app", "session"]
+        );
+        assert_eq!(Some(seen), switch::still_holding(&ctx, ProviderId::Codex));
     }
 
     #[test]

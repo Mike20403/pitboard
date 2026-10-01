@@ -323,6 +323,54 @@ pub enum Adoption {
     Restart { program: String },
 }
 
+/// What makes one kind of process take a switch.
+#[derive(uniffi::Enum)]
+pub enum Remedy {
+    /// Quit it and start it again.
+    Restart,
+    /// Quit the app the way Command-Q does, and open it again. This app may do both.
+    ReopenApp { bundle_id: String, name: String },
+    /// Run this command.
+    Run { command: String },
+    /// Do this, somewhere pitboard cannot reach.
+    Do { instruction: String },
+}
+
+/// One kind of process running a tool with a login in memory.
+#[derive(uniffi::Record)]
+pub struct Holding {
+    /// Stable, in snake case, for code to tell kinds apart by: `chatgpt_app`, `session`.
+    pub kind: String,
+    /// As a sentence names what is running: "the ChatGPT app", "2 `codex` sessions".
+    pub phrase: String,
+    pub pids: Vec<u32>,
+    pub remedy: Remedy,
+}
+
+impl From<pitboard_core::holder::Holding> for Holding {
+    fn from(held: pitboard_core::holder::Holding) -> Holding {
+        use pitboard_core::holder::Remedy as Core;
+        Holding {
+            kind: held.holder.kind.into(),
+            phrase: held.phrase(),
+            remedy: match held.holder.remedy {
+                Core::Restart => Remedy::Restart,
+                Core::ReopenApp { bundle_id, name } => Remedy::ReopenApp {
+                    bundle_id: bundle_id.into(),
+                    name: name.into(),
+                },
+                Core::Run(command) => Remedy::Run {
+                    command: command.into(),
+                },
+                Core::Do(instruction) => Remedy::Do {
+                    instruction: instruction.into(),
+                },
+            },
+            pids: held.pids,
+        }
+    }
+}
+
 #[derive(uniffi::Enum)]
 pub enum Switch {
     Switched {
@@ -605,7 +653,7 @@ impl Pitboard {
                                 within_seconds: seconds,
                             }
                         }
-                        pitboard_core::provider::Adoption::RestartRequired { program } => {
+                        pitboard_core::provider::Adoption::RestartRequired { program, .. } => {
                             Adoption::Restart {
                                 program: program.into(),
                             }
@@ -772,6 +820,22 @@ impl Pitboard {
     /// and nothing changes where the schedule already runs a command line or there is none.
     pub fn schedule_repair(&self) -> Result<bool, PitboardError> {
         Ok(self.core.schedule_repair()?)
+    }
+
+    /// What is running `provider`'s tool with a login a switch would leave it on, by kind,
+    /// for the app to say so or to offer to quit an app first. Empty where nothing is, for a
+    /// tool that follows a switch by itself, and for a provider code nobody knows. Reads the
+    /// process list and nothing else, so it answers at once.
+    pub fn holding(&self, provider: String) -> Vec<Holding> {
+        pitboard_core::provider::ProviderId::parse(&provider)
+            .map(|which| {
+                self.core
+                    .holding(which)
+                    .into_iter()
+                    .map(Holding::from)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn doctor(&self) -> Diagnosis {

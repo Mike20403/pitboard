@@ -6,6 +6,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Switching Codex in the app while OpenAI's ChatGPT app is open asks first: **Quit ChatGPT
+  and Switch** quits ChatGPT the way Command-Q does, switches, and opens ChatGPT again,
+  whether or not the switch worked. ChatGPT runs a `codex` of its own with Codex's login in
+  memory, and closing its windows leaves it running, so switched under it, it went on with
+  the account left behind, and its own **Log Out** revoked the login pitboard had just
+  parked. If ChatGPT does not quit within 30 seconds, nothing changes. The command line
+  never quits an app.
+
+### Changed
+
+- After a Codex switch or a sign-in again, pitboard names what is still running the old
+  login and what makes each take it: a `codex` session is quit and started again, the
+  ChatGPT app is quit with Command-Q and opened again, Codex's background app server takes
+  `codex app-server daemon restart`, and Codex in an editor takes **Developer: Reload
+  Window**. Each of them runs a program called `codex`, and the warning used to count them
+  all as sessions to quit and start again. `pitboard doctor`'s `codex_running` check lists
+  them the same way, with process IDs, and says what to do in its advice.
+- pitboard counts only the processes of the person running it. A switch counted every
+  user's `codex`, while `pitboard doctor` counted only theirs.
+- In `pitboard-core`, `provider::Adoption::RestartRequired` names its `holders`,
+  `service::Warning::SessionsStillRunning` and `SessionsKeepTheOldLogin` carry what is
+  running as `holding` in place of `program` and `count`, and `doctor::CodexFacts::running`
+  is by kind. The `holder` module and `service::Pitboard::holding` are new. These change the
+  crate's public API.
+
 ## [0.5.2] - 2026-09-29
 
 ### Fixed
