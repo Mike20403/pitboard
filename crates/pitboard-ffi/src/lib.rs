@@ -1,21 +1,28 @@
 //! Pitboard's core for its native apps, as UniFFI bindings.
 //!
-//! A call to a `Pitboard` or a `SignIn` is synchronous and may block on the keychain, a lock
-//! or the network, so an app makes it off its main thread. The free functions read only what
-//! they are given, and no clock, file or keychain, and return at once. Timestamps are epoch
-//! seconds.
+//! A call to a `Pitboard` or a `SignIn` is synchronous and may block on the keychain, a lock,
+//! the network or the person's login shell, so an app makes it off its main thread. Making a
+//! `Pitboard` blocks on none of them. The free functions answer at once from what they are
+//! given, apart from `can_run`, which asks the file system about one path, and
+//! `find_command_line`, which looks along a search path and is made off the main thread.
+//! Timestamps are epoch seconds.
 
-use pitboard_core::context::Context;
+use pitboard_core::app::AppContext;
+use pitboard_core::context::{Context, Environment};
+use pitboard_core::provider::ProviderId;
 use pitboard_core::service::{self, Changing};
 use pitboard_core::{doctor, status, switch, usage, words};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 uniffi::setup_scaffolding!();
 
-/// Where each tool and Pitboard keep things. An app started from Finder sees none of the
-/// shell's environment, so it passes these itself; `None` means the tool's default.
-#[derive(uniffi::Record)]
+/// Where each tool and Pitboard keep things, said outright, as a test does. The app passes
+/// the environment it was started with to [`Pitboard::for_app`] instead; `None` here means
+/// the tool's default.
+#[derive(Clone, uniffi::Record)]
 pub struct Settings {
     pub home: String,
     pub pitboard_home: Option<String>,
@@ -101,14 +108,36 @@ pub struct Tool {
 /// Every tool Pitboard handles, in the order a listing shows them.
 #[uniffi::export]
 pub fn tools() -> Vec<Tool> {
-    pitboard_core::provider::ProviderId::ALL
+    ProviderId::ALL.iter().copied().map(tool).collect()
+}
+
+fn tool(tool: ProviderId) -> Tool {
+    Tool {
+        code: tool.code().into(),
+        name: tool.name().into(),
+        program: tool.program().into(),
+        service: tool.service().into(),
+    }
+}
+
+/// The `pitboard` a terminal would run.
+#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum FoundCommandLine {
+    /// The app's own, at this path or linked to from it.
+    Bundled { path: String },
+    /// Another install, at this path.
+    Another { path: String },
+    /// None anywhere a terminal would look.
+    Nowhere,
+}
+
+/// Where each way of installing Pitboard puts `pitboard` under `home`, and where the
+/// system's package managers put programs, looked in after the login shell's `PATH`.
+#[uniffi::export]
+pub fn command_line_places(home: String) -> Vec<String> {
+    pitboard_core::app::command_line_places(Path::new(&home))
         .iter()
-        .map(|tool| Tool {
-            code: tool.code().into(),
-            name: tool.name().into(),
-            program: tool.program().into(),
-            service: tool.service().into(),
-        })
+        .map(|place| place.to_string_lossy().into_owned())
         .collect()
 }
 
@@ -138,6 +167,65 @@ pub fn sign_in_view(provider: String, said: String, pasted: bool) -> SignInView 
         url: read.url,
         wants_code: read.wants_code,
     }
+}
+
+/// The first `pitboard` a terminal would run: on `search_path`, in `PATH`'s form, then in
+/// `places`; and whether it is the command line at `helper`, the app's own, once every link
+/// is followed. Looks at the file system, so call it off the main thread.
+#[uniffi::export]
+pub fn find_command_line(
+    search_path: Option<String>,
+    places: Vec<String>,
+    helper: Option<String>,
+) -> FoundCommandLine {
+    let places: Vec<PathBuf> = places.into_iter().map(PathBuf::from).collect();
+    let shown = |path: PathBuf| path.to_string_lossy().into_owned();
+    match pitboard_core::app::find_command_line(
+        search_path.as_deref().map(std::ffi::OsStr::new),
+        &places,
+        helper.as_deref().map(Path::new),
+    ) {
+        pitboard_core::app::CommandLine::Bundled(path) => {
+            FoundCommandLine::Bundled { path: shown(path) }
+        }
+        pitboard_core::app::CommandLine::Another(path) => {
+            FoundCommandLine::Another { path: shown(path) }
+        }
+        pitboard_core::app::CommandLine::Nowhere => FoundCommandLine::Nowhere,
+    }
+}
+
+/// The command line the app at `app` comes with, which its renewal schedule runs. `None` for
+/// anything that is not an app, such as a test or a build directory.
+#[uniffi::export]
+pub fn app_command_line(app: String) -> Option<String> {
+    pitboard_core::app::app_command_line(Path::new(&app))
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// Whether `path` is a program this user may run, as the core judges every program it finds:
+/// a regular file, once every link is followed, that this user may execute. Asks the file
+/// system about that one path.
+#[uniffi::export]
+pub fn can_run(path: String) -> bool {
+    pitboard_core::app::can_run(Path::new(&path))
+}
+
+/// The home an app started with `environment` has, as the core reads it: `HOME`, or this
+/// account's own where it is unset.
+#[uniffi::export]
+pub fn home_directory(environment: HashMap<String, String>) -> String {
+    let environment: Environment = environment.into_iter().collect();
+    environment.home().to_string_lossy().into_owned()
+}
+
+/// The Pitboard directory of an app started with `environment`, as the core reads it:
+/// `PITBOARD_HOME`, or `.pitboard` in the home. The path as the environment gives it, with
+/// any `.`, `..` or trailing `/` it holds.
+#[uniffi::export]
+pub fn pitboard_directory(environment: HashMap<String, String>) -> String {
+    let environment: Environment = environment.into_iter().collect();
+    environment.pitboard_home().to_string_lossy().into_owned()
 }
 
 /// Something to know about that did not stop the operation.
@@ -661,7 +749,10 @@ pub struct SignIn {
     said: switch::Said,
     label: String,
     provider: pitboard_core::provider::ProviderId,
-    core: Arc<Pitboard>,
+    /// The core the sign-in started with, which enrols what it signed in to: one made again
+    /// meanwhile, from a login shell that answered late, may look elsewhere for programs,
+    /// but keeps its accounts in the same place.
+    made: Arc<Made>,
 }
 
 #[uniffi::export]
@@ -706,7 +797,7 @@ impl SignIn {
             })?;
         let login = watched.finish()?;
         changed(
-            self.core.core.enroll_signed_in(&self.label, login),
+            self.made.core.enroll_signed_in(&self.label, login),
             enrolled,
         )
     }
@@ -721,22 +812,205 @@ impl SignIn {
     }
 }
 
-#[derive(uniffi::Object)]
-pub struct Pitboard {
+/// What the app's core is made of. Made once, on first use, and kept: making it can mean
+/// asking the person's login shell, which takes up to five seconds.
+struct Made {
     core: service::Pitboard,
+    /// The tools a program was named or found for, which is what `installed` answers.
+    found: Vec<ProviderId>,
+    /// The login shell's `PATH` as far as it was looked in, which `search_path` answers.
+    search_path: Option<String>,
     /// Whether the app named a command line for the schedule to run. The core schedules
     /// the program asking where none is named, and that is the app, which renews nothing.
     schedules_a_command_line: bool,
 }
 
-#[uniffi::export]
-impl Pitboard {
-    #[uniffi::constructor]
-    pub fn new(settings: Settings) -> Arc<Self> {
-        Arc::new(Pitboard {
+impl Made {
+    fn from_settings(settings: Settings) -> Made {
+        Made {
+            found: ProviderId::ALL
+                .iter()
+                .copied()
+                .filter(|&tool| match tool {
+                    ProviderId::Claude => settings.claude_program.is_some(),
+                    ProviderId::Codex => settings.codex_program.is_some(),
+                    _ => false,
+                })
+                .collect(),
+            search_path: settings.search_path.clone(),
             schedules_a_command_line: settings.schedule_program.is_some(),
             core: service::Pitboard::new(settings.context()),
-        })
+        }
+    }
+
+    fn from_app(found: AppContext) -> Made {
+        Made {
+            schedules_a_command_line: found.context.schedule_program().is_some(),
+            found: found.found,
+            search_path: found.search_path,
+            core: service::Pitboard::new(found.context),
+        }
+    }
+}
+
+/// How long after a login shell too slow to answer it is asked once more.
+const ASK_AGAIN_AFTER: Duration = Duration::from_secs(60);
+
+/// A `Made` made the first time it is asked for, by whichever thread asks first. Any other
+/// thread asking meanwhile waits for that one rather than making a second.
+///
+/// One made from a login shell that answered too late is made once more when asked to, a
+/// while later, and kept in its place if that answers: startup files are slowest while the
+/// machine is busy logging in, which is when an app that opens at login first asks. Once
+/// more and no more, because a shell that is always that slow would otherwise cost its
+/// five seconds every time. A caller asking meanwhile gets what was made first rather than
+/// waiting on the second ask.
+struct Kept {
+    make: Box<dyn Fn() -> (Made, bool) + Send + Sync>,
+    again_after: Duration,
+    held: Mutex<Option<Held>>,
+}
+
+struct Held {
+    made: Arc<Made>,
+    /// What it was made from came too late.
+    late: bool,
+    at: Instant,
+    asked_again: bool,
+}
+
+impl Kept {
+    fn held(&self) -> MutexGuard<'_, Option<Held>> {
+        // A panic while making leaves nothing made, which the next ask makes again.
+        self.held
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn value(&self) -> Arc<Made> {
+        let mut held = self.held();
+        if let Some(held) = held.as_ref() {
+            return held.made.clone();
+        }
+        let (made, late) = (self.make)();
+        let made = Arc::new(made);
+        *held = Some(Held {
+            made: made.clone(),
+            late,
+            at: Instant::now(),
+            asked_again: false,
+        });
+        made
+    }
+
+    /// The value, made once more first when what it was made from came too late and at
+    /// least `again_after` has passed since.
+    fn value_asking_again(&self) -> Arc<Made> {
+        let first = self.value();
+        let due = match self.held().as_mut() {
+            Some(held)
+                if held.late && !held.asked_again && held.at.elapsed() >= self.again_after =>
+            {
+                held.asked_again = true;
+                true
+            }
+            _ => false,
+        };
+        if !due {
+            return self.value();
+        }
+        let (again, late) = (self.make)();
+        if late {
+            return first;
+        }
+        let again = Arc::new(again);
+        *self.held() = Some(Held {
+            made: again.clone(),
+            late: false,
+            at: Instant::now(),
+            asked_again: true,
+        });
+        again
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct Pitboard {
+    made: Kept,
+}
+
+impl Pitboard {
+    /// A core made by `make` on first use, which also says whether the login shell it asked
+    /// was too slow to answer.
+    fn asking(
+        make: impl Fn() -> (Made, bool) + Send + Sync + 'static,
+        again_after: Duration,
+    ) -> Pitboard {
+        Pitboard {
+            made: Kept {
+                make: Box::new(make),
+                again_after,
+                held: Mutex::new(None),
+            },
+        }
+    }
+
+    fn core(&self) -> Arc<Made> {
+        self.made.value()
+    }
+}
+
+#[uniffi::export]
+impl Pitboard {
+    /// A core over what `settings` says, made on first use.
+    #[uniffi::constructor]
+    pub fn new(settings: Settings) -> Arc<Self> {
+        Arc::new(Pitboard::asking(
+            move || (Made::from_settings(settings.clone()), false),
+            ASK_AGAIN_AFTER,
+        ))
+    }
+
+    /// The app's core. It reads `environment`, the one the app was started with, by the
+    /// code the command line reads its own with, and the schedule runs the command line that
+    /// comes with the app at `app`.
+    ///
+    /// The person's login shell is asked for its `PATH` when something first needs the core,
+    /// never here: it can take seconds, and an app makes this on its main thread. Each tool's
+    /// program is looked for on that `PATH` and then where its installers put it.
+    #[uniffi::constructor]
+    pub fn for_app(environment: HashMap<String, String>, app: Option<String>) -> Arc<Self> {
+        let environment: Environment = environment.into_iter().collect();
+        let app = app.map(PathBuf::from);
+        Arc::new(Pitboard::asking(
+            move || {
+                let found = AppContext::discover(&environment, app.as_deref());
+                let late = found.late;
+                (Made::from_app(found), late)
+            },
+            ASK_AGAIN_AFTER,
+        ))
+    }
+
+    /// The tools whose program was named or found, in the order a listing shows them. A
+    /// tool missing here may still be on some `PATH`, so this narrows what is offered and
+    /// never forbids anything. May ask the login shell again, so call it off the main
+    /// thread.
+    pub fn installed(&self) -> Vec<Tool> {
+        let made = self.made.value_asking_again();
+        ProviderId::ALL
+            .iter()
+            .copied()
+            .filter(|tool| made.found.contains(tool))
+            .map(tool)
+            .collect()
+    }
+
+    /// Where programs are looked for, in `PATH`'s form: the person's login shell's, as far as
+    /// the app looks in it. `None` when the shell could not be asked. Asked as `installed`
+    /// is.
+    pub fn search_path(&self) -> Option<String> {
+        self.made.value_asking_again().search_path.clone()
     }
 
     /// Every account of every tool and what it has left, each asked of its own service.
@@ -747,7 +1021,7 @@ impl Pitboard {
     /// again once its tightest limit could have moved by a percentage point, which is what
     /// keeps the app and the command line to one request between them.
     pub fn status(&self, fresh: bool) -> Result<Status, PitboardError> {
-        let done = self.core.status(fresh)?;
+        let done = self.core().core.status(fresh)?;
         let now = done.value.now;
         Ok(Status {
             now,
@@ -762,68 +1036,73 @@ impl Pitboard {
     }
 
     pub fn switch_to(&self, label: String) -> Result<Switched, PitboardError> {
-        changed(self.core.switch_to(&label), |outcome, warnings| Switched {
-            outcome: match outcome {
-                switch::Outcome::Switched {
-                    provider,
-                    from,
-                    to,
-                    adoption,
-                    ..
-                } => Switch::Switched {
-                    provider: provider.code().into(),
-                    from,
-                    to,
-                    adoption: match adoption {
-                        pitboard_core::provider::Adoption::PollingWithin(seconds) => {
-                            Adoption::Follows {
-                                within_seconds: seconds,
+        changed(self.core().core.switch_to(&label), |outcome, warnings| {
+            Switched {
+                outcome: match outcome {
+                    switch::Outcome::Switched {
+                        provider,
+                        from,
+                        to,
+                        adoption,
+                        ..
+                    } => Switch::Switched {
+                        provider: provider.code().into(),
+                        from,
+                        to,
+                        adoption: match adoption {
+                            pitboard_core::provider::Adoption::PollingWithin(seconds) => {
+                                Adoption::Follows {
+                                    within_seconds: seconds,
+                                }
                             }
-                        }
-                        pitboard_core::provider::Adoption::RestartRequired { program, .. } => {
-                            Adoption::Restart {
+                            pitboard_core::provider::Adoption::RestartRequired {
+                                program, ..
+                            } => Adoption::Restart {
                                 program: program.into(),
-                            }
-                        }
+                            },
+                        },
                     },
+                    switch::Outcome::AlreadyActive { label } => Switch::AlreadyActive { label },
                 },
-                switch::Outcome::AlreadyActive { label } => Switch::AlreadyActive { label },
-            },
-            warnings,
+                warnings,
+            }
         })
     }
 
     /// Enroll the account signed in now under `label`.
     pub fn enroll_current(&self, label: String) -> Result<Enrolled, PitboardError> {
-        changed(self.core.enroll_current(&label), enrolled)
+        changed(self.core().core.enroll_current(&label), enrolled)
     }
 
     /// Starts the tool's own sign-in for a new account, watched rather than inherited. The
     /// label may name the tool, as in `codex/work`; a bare one means Claude Code. The caller
     /// shows what the tool says, can paste a fallback code, and finishes it.
-    pub fn sign_in(self: Arc<Self>, label: String) -> Result<Arc<SignIn>, PitboardError> {
-        let watched = self.core.sign_in_watched(&label)?;
+    ///
+    /// May ask the login shell again first, as `installed` does: a sign-in is when a program
+    /// the first, late, ask could not find is needed.
+    pub fn sign_in(&self, label: String) -> Result<Arc<SignIn>, PitboardError> {
+        let made = self.made.value_asking_again();
+        let watched = made.core.sign_in_watched(&label)?;
         let provider = watched.provider();
         Ok(Arc::new(SignIn {
             said: watched.said(),
             watched: Mutex::new(Some(watched)),
             label,
             provider,
-            core: self,
+            made,
         }))
     }
 
     pub fn forget(&self, label: String) -> Result<Changed, PitboardError> {
-        changed(self.core.forget(&label), |email, warnings| Changed {
+        changed(self.core().core.forget(&label), |email, warnings| Changed {
             email,
             warnings,
         })
     }
 
     pub fn rename(&self, from: String, to: String) -> Result<Changed, PitboardError> {
-        changed(self.core.rename(&from, &to), |email, warnings| Changed {
-            email,
-            warnings,
+        changed(self.core().core.rename(&from, &to), |email, warnings| {
+            Changed { email, warnings }
         })
     }
 
@@ -835,7 +1114,7 @@ impl Pitboard {
     /// long as five minutes, with a button offering a switch that had already happened.
     /// Poll this, and when it moves, read `status_offline`: no network and no keychain.
     pub fn changed_at(&self) -> i64 {
-        self.core.changed_at()
+        self.core().core.changed_at()
     }
 
     /// When Pitboard's usage readings last changed, in epoch milliseconds, or 0 when there
@@ -847,7 +1126,7 @@ impl Pitboard {
     /// network and no keychain. Only the numbers: a reading moving says nothing about who is
     /// signed in, which is `changed_at`'s to say.
     pub fn readings_changed_at(&self) -> i64 {
-        self.core.readings_changed_at()
+        self.core().core.readings_changed_at()
     }
 
     /// The same report without asking anyone: the last numbers Pitboard measured, and who
@@ -856,7 +1135,7 @@ impl Pitboard {
     /// What the app shows on a plane, and what it shows while a live read is still in
     /// flight, rather than an empty panel and a spinner.
     pub fn status_offline(&self) -> Result<Status, PitboardError> {
-        let done = self.core.status_offline()?;
+        let done = self.core().core.status_offline()?;
         let now = done.value.now;
         Ok(Status {
             now,
@@ -876,7 +1155,7 @@ impl Pitboard {
     ///
     /// `None` when there was no interrupted switch.
     pub fn abandon_recovery(&self) -> Result<Option<Abandoned>, PitboardError> {
-        Ok(self.core.abandon_recovery()?.map(|a| Abandoned {
+        Ok(self.core().core.abandon_recovery()?.map(|a| Abandoned {
             from: a.from,
             to: a.to,
             logins_kept: u32::try_from(a.kept).unwrap_or(u32::MAX),
@@ -885,7 +1164,8 @@ impl Pitboard {
 
     /// What Pitboard has changed, newest last.
     pub fn log(&self, limit: u32) -> Vec<Change> {
-        self.core
+        self.core()
+            .core
             .log(limit as usize)
             .into_iter()
             .map(|e| Change {
@@ -900,7 +1180,8 @@ impl Pitboard {
 
     /// Renew every parked login that is due, and nothing else.
     pub fn renew(&self) -> Vec<Renewed> {
-        self.core
+        self.core()
+            .core
             .renew()
             .into_iter()
             .map(|(key, outcome)| Renewed {
@@ -913,7 +1194,7 @@ impl Pitboard {
 
     /// Whether anything keeps parked logins alive without a command being run.
     pub fn schedule(&self) -> Schedule {
-        match self.core.schedule() {
+        match self.core().core.schedule() {
             pitboard_core::schedule::Installed::Yes {
                 path,
                 every_seconds,
@@ -930,15 +1211,16 @@ impl Pitboard {
     /// caller is expected to say what it does before offering it. Refused where the app
     /// named no command line to run.
     pub fn schedule_install(&self) -> Result<String, PitboardError> {
-        if !self.schedules_a_command_line {
+        let made = self.core();
+        if !made.schedules_a_command_line {
             return Err(pitboard_core::error::Error::ScheduleProgramUnnamed.into());
         }
-        Ok(self.core.schedule_install()?.to_string_lossy().into_owned())
+        Ok(made.core.schedule_install()?.to_string_lossy().into_owned())
     }
 
     /// Take it away. `false` when there was nothing installed.
     pub fn schedule_uninstall(&self) -> Result<bool, PitboardError> {
-        Ok(self.core.schedule_uninstall()?)
+        Ok(self.core().core.schedule_uninstall()?)
     }
 
     /// Point a schedule an app up to 0.3.0 wrote at the command line this app comes with.
@@ -946,7 +1228,7 @@ impl Pitboard {
     /// renewing nothing. For the app to call when it starts: `true` when it repaired one,
     /// and nothing changes where the schedule already runs a command line or there is none.
     pub fn schedule_repair(&self) -> Result<bool, PitboardError> {
-        Ok(self.core.schedule_repair()?)
+        Ok(self.core().core.schedule_repair()?)
     }
 
     /// What is running `provider`'s tool with a login a switch would leave it on, by kind,
@@ -956,7 +1238,8 @@ impl Pitboard {
     pub fn holding(&self, provider: String) -> Vec<Holding> {
         pitboard_core::provider::ProviderId::parse(&provider)
             .map(|which| {
-                self.core
+                self.core()
+                    .core
                     .holding(which)
                     .into_iter()
                     .map(Holding::from)
@@ -966,7 +1249,7 @@ impl Pitboard {
     }
 
     pub fn doctor(&self) -> Diagnosis {
-        let diagnosis = self.core.doctor();
+        let diagnosis = self.core().core.doctor();
         Diagnosis {
             healthy: doctor::healthy(&diagnosis.checks),
             checks: diagnosis
@@ -1206,5 +1489,245 @@ mod tests {
             });
             assert!(!pitboard.schedule_repair().expect("nothing to repair"));
         }
+    }
+
+    /// A core over a home nothing can be written under, with a `codex` named where one is
+    /// given.
+    fn made(codex: Option<&str>) -> Made {
+        Made::from_settings(Settings {
+            home: "/dev/null".into(),
+            codex_program: codex.map(str::to_owned),
+            ..settings(None)
+        })
+    }
+
+    fn installed(pitboard: &Pitboard) -> Vec<String> {
+        pitboard
+            .installed()
+            .into_iter()
+            .map(|tool| tool.code)
+            .collect()
+    }
+
+    /// Counts how often the app's core was made.
+    #[derive(Clone, Default)]
+    struct Asks(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Asks {
+        /// One more ask, and how many there have been with it.
+        fn note(&self) -> usize {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+        }
+
+        fn count(&self) -> usize {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    /// Where the tools are can take asking the person's login shell, so the core is made when
+    /// something first needs it, and not when the app makes this object, which it does on its
+    /// main thread; and once, however many calls arrive at the same time.
+    #[test]
+    fn the_core_is_made_once_when_it_is_first_needed() {
+        let asks = Asks::default();
+        let pitboard = Arc::new(Pitboard::asking(
+            {
+                let asks = asks.clone();
+                move || {
+                    asks.note();
+                    std::thread::sleep(Duration::from_millis(100));
+                    (made(Some("/nowhere/codex")), false)
+                }
+            },
+            ASK_AGAIN_AFTER,
+        ));
+        assert_eq!(tools().len(), 2, "listing the tools asks nothing");
+        assert_eq!(asks.count(), 0, "and nor does making the object");
+        let calls: Vec<_> = (0..3)
+            .map(|which| {
+                let pitboard = pitboard.clone();
+                std::thread::spawn(move || match which {
+                    0 => drop(pitboard.installed()),
+                    1 => drop(pitboard.changed_at()),
+                    _ => drop(pitboard.search_path()),
+                })
+            })
+            .collect();
+        for call in calls {
+            call.join().expect("a call that answers");
+        }
+        assert_eq!(installed(&pitboard), ["codex"]);
+        assert_eq!(asks.count(), 1);
+    }
+
+    /// A login shell too slow to answer, which startup files are while the machine is busy
+    /// logging in, is asked once more when something next asks what is installed, a while
+    /// later, and what it answers then is what is used. Once more and no more: a shell that
+    /// is always that slow would otherwise cost its patience on every ask.
+    #[test]
+    fn a_login_shell_too_slow_to_answer_is_asked_once_more_later() {
+        let asks = Asks::default();
+        let pitboard = Pitboard::asking(
+            {
+                let asks = asks.clone();
+                move || match asks.note() {
+                    1 => (made(None), true),
+                    _ => (made(Some("/nowhere/codex")), false),
+                }
+            },
+            Duration::from_millis(200),
+        );
+        assert!(
+            installed(&pitboard).is_empty(),
+            "what the first, late, ask found"
+        );
+        assert!(
+            installed(&pitboard).is_empty(),
+            "and nothing more until the while is up"
+        );
+        assert_eq!(asks.count(), 1);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(installed(&pitboard), ["codex"]);
+        assert_eq!(asks.count(), 2);
+        assert_eq!(installed(&pitboard), ["codex"]);
+        assert_eq!(asks.count(), 2, "asked once more, and no more");
+    }
+
+    /// Not before the while is up, and never when the shell answered or could not be asked.
+    /// A second ask that is late as well leaves what the first made in its place.
+    #[test]
+    fn a_login_shell_is_not_asked_again_sooner_or_for_nothing() {
+        let soon = Asks::default();
+        let early = Pitboard::asking(
+            {
+                let soon = soon.clone();
+                move || {
+                    soon.note();
+                    (made(None), true)
+                }
+            },
+            Duration::from_secs(3600),
+        );
+        installed(&early);
+        installed(&early);
+        assert_eq!(soon.count(), 1);
+
+        let answered = Asks::default();
+        let pitboard = Pitboard::asking(
+            {
+                let answered = answered.clone();
+                move || {
+                    answered.note();
+                    (made(None), false)
+                }
+            },
+            Duration::ZERO,
+        );
+        installed(&pitboard);
+        installed(&pitboard);
+        assert_eq!(answered.count(), 1);
+
+        let late = Asks::default();
+        let again = Pitboard::asking(
+            {
+                let late = late.clone();
+                move || match late.note() {
+                    1 => (made(None), true),
+                    _ => (made(Some("/nowhere/codex")), true),
+                }
+            },
+            Duration::ZERO,
+        );
+        assert!(installed(&again).is_empty());
+        assert!(installed(&again).is_empty(), "the second ask was late too");
+        assert!(installed(&again).is_empty());
+        assert_eq!(late.count(), 2);
+    }
+
+    /// The app's core reads the environment it was started with as the command line reads its
+    /// own, and asks the login shell that environment names. A shell that cannot be run is no
+    /// answer, so nothing is said to be on its `PATH`, and a program named outright counts as
+    /// found. A custom OAuth endpoint refuses a change to a Claude Code account, and an app
+    /// outside a bundle has no command line to schedule.
+    #[test]
+    fn the_apps_core_is_made_from_the_environment_it_was_started_with() {
+        // A home of its own, so Claude Code's slot is hashed from it and nothing real is read.
+        let home = std::env::temp_dir().join(format!("pitboard-ffi-app-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).expect("a scratch home");
+        let at = |name: &str| home.join(name).to_string_lossy().into_owned();
+        let environment: HashMap<String, String> = [
+            ("HOME", at("")),
+            ("SHELL", "/nowhere/at/all/sh".into()),
+            ("PITBOARD_HOME", at("pitboard")),
+            ("CLAUDE_CONFIG_DIR", at("claude")),
+            ("CODEX_HOME", at("codex")),
+            ("PITBOARD_CODEX", "/nowhere/codex".into()),
+            (
+                "CLAUDE_CODE_CUSTOM_OAUTH_URL",
+                "https://oauth.example".into(),
+            ),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect();
+        let pitboard = Pitboard::for_app(environment, None);
+        assert!(installed(&pitboard).contains(&"codex".to_owned()));
+        assert_eq!(pitboard.search_path(), None, "the shell could not be run");
+        let Err(PitboardError::Failed { code, .. }) = pitboard.enroll_current("work".into()) else {
+            panic!("a Claude Code account was enrolled under a custom OAuth endpoint");
+        };
+        assert_eq!(code, "custom_oauth_endpoint");
+        let Err(PitboardError::Failed { code, .. }) = pitboard.schedule_install() else {
+            panic!("an app outside a bundle scheduled itself");
+        };
+        assert_eq!(code, "schedule_program_unnamed");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The command line's search crosses the bindings with its answer as the core gives it.
+    #[test]
+    fn a_command_line_found_nowhere_is_said_to_be_nowhere() {
+        assert_eq!(
+            find_command_line(
+                Some("/nowhere/at/all".into()),
+                vec!["/nowhere/else".into()],
+                None
+            ),
+            FoundCommandLine::Nowhere
+        );
+        let places = command_line_places("/Users/x".into());
+        assert_eq!(places[..2], ["/Users/x/.cargo/bin", "/Users/x/.local/bin"]);
+        assert_eq!(app_command_line("/Users/x/pitboard".into()), None);
+    }
+
+    /// Where an app's home and Pitboard directory are, and whether a path is a program, cross
+    /// the bindings as the core reads them, so the app has no rule of its own for either.
+    #[test]
+    fn the_app_asks_the_core_where_things_are_and_what_runs() {
+        let environment = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+            pairs
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect()
+        };
+        assert_eq!(
+            home_directory(environment(&[("HOME", "/Users/x")])),
+            "/Users/x"
+        );
+        assert_eq!(
+            pitboard_directory(environment(&[("HOME", "/Users/x")])),
+            "/Users/x/.pitboard"
+        );
+        assert_eq!(
+            pitboard_directory(environment(&[
+                ("HOME", "/Users/x"),
+                ("PITBOARD_HOME", "/elsewhere/./p/")
+            ])),
+            "/elsewhere/./p/"
+        );
+        assert!(can_run("/bin/sh".into()));
+        assert!(!can_run("/bin".into()), "a directory is not a program");
+        assert!(!can_run("/nowhere/at/all".into()));
     }
 }

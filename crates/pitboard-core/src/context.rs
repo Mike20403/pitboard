@@ -92,6 +92,24 @@ impl Environment {
         self.text(name).is_some_and(|v| !v.is_empty())
     }
 
+    /// The person's home: `HOME`, or, where it is unset, the account's own, as the passwd
+    /// database names it and Foundation finds it for an app. Set, even empty, it is what the
+    /// person said.
+    pub fn home(&self) -> PathBuf {
+        self.path("HOME")
+            .map(PathBuf::from)
+            .or_else(crate::host::user::home)
+            .unwrap_or_default()
+    }
+
+    /// Pitboard's own directory: `PITBOARD_HOME`, or `.pitboard` in [`Environment::home`].
+    /// The path as the environment gives it, with any `.`, `..` or trailing `/` it holds.
+    pub fn pitboard_home(&self) -> PathBuf {
+        self.path("PITBOARD_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.home().join(".pitboard"))
+    }
+
     /// Every variable, as a program started in this environment is given them.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
         self.0
@@ -402,13 +420,7 @@ impl Context {
     /// to look is all a front end adds: an app has no shell's `PATH`, and finds the
     /// programs before it runs anything.
     pub(crate) fn read(env: &Environment, caller: &str) -> Context {
-        // Unset, the home is the account's own, where Foundation finds it for an app. Set,
-        // even empty, it is what the person said.
-        let home = env
-            .path("HOME")
-            .map(PathBuf::from)
-            .or_else(crate::host::user::home)
-            .unwrap_or_default();
+        let home = env.home();
         let owned = |name: &str| env.text(name).map(str::to_owned);
         let program = |tool: ProviderId| {
             env.path(tool.program_variable())
@@ -416,10 +428,7 @@ impl Context {
                 .map_or_else(|| PathBuf::from(tool.program()), PathBuf::from)
         };
         Context {
-            pitboard_home: env
-                .path("PITBOARD_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".pitboard")),
+            pitboard_home: env.pitboard_home(),
             home,
             claude_config_dir: owned("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()),
             secure_storage_dir: owned("CLAUDE_SECURESTORAGE_CONFIG_DIR"),
@@ -572,6 +581,37 @@ mod tests {
             Context::for_command_line(&empty).home,
             PathBuf::new(),
             "set, even empty, it is what the person said"
+        );
+    }
+
+    /// The home and Pitboard directory an app asks of the environment it was started with
+    /// are the ones the context it is given reads, path for path, so an app that keys records
+    /// of its own by Pitboard's directory keys them by the core's.
+    #[test]
+    fn the_homes_an_app_asks_for_are_the_contexts() {
+        let cases: [&[(&str, &str)]; 5] = [
+            &[],
+            &[("HOME", "/Users/x")],
+            &[("HOME", "/Users/x/")],
+            &[
+                ("HOME", "/Users/x"),
+                ("PITBOARD_HOME", "/elsewhere/./pitboard/"),
+            ],
+            &[("PITBOARD_HOME", "")],
+        ];
+        for pairs in cases {
+            let env: Environment = pairs.iter().copied().collect();
+            let ctx = Context::for_command_line(&env);
+            assert_eq!(env.home(), ctx.home, "{pairs:?}");
+            assert_eq!(env.pitboard_home(), ctx.pitboard_home, "{pairs:?}");
+        }
+        let given: Environment = [("PITBOARD_HOME", "/elsewhere/./pitboard/")]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            given.pitboard_home().as_os_str(),
+            "/elsewhere/./pitboard/",
+            "as the environment gives it"
         );
     }
 }

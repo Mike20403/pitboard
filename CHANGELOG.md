@@ -41,6 +41,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   names, as the app does, to sign in, and `pitboard doctor` reports that program's build.
   Before, only the app read them, and the command line always looked on its `PATH`. Set
   but empty, either names nothing, and the program is looked for on `PATH` as before.
+- In the app, an empty `PITBOARD_CLAUDE` or `PITBOARD_CODEX` names nothing too, and the app
+  looks for the program as it does when neither is set. Before, it offered the tool, then
+  refused its sign-in because the program was not installed.
 
 ### Fixed
 
@@ -59,6 +62,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The command line takes a `claude` or `codex` to be the tool's program only when it is a
   regular file you may run, as the system judges it when it starts one, and otherwise looks
   further on `PATH`. It took a file only others may run, and then failed to start it.
+- The app reads the environment it was started with as the command line reads its own, by
+  the same code. It read only the variables that move where things are kept, and ignored
+  these, which it now reads as the command line does:
+  - `CLAUDE_CODE_CUSTOM_OAUTH_URL`: while it is set, the app refuses changes to Claude Code
+    accounts.
+  - The variables that make Claude Code sign in another way, such as `ANTHROPIC_API_KEY`:
+    the app's checks and changes warn about one that is set.
+  - `CLAUDE_CODE_HOVER_REST`, which switches on Claude Code's successor credential
+    backend: the app's checks say it is on, and warn when the login is in the plaintext
+    file, where what Pitboard reads may not be what Claude Code reads.
+  - `PITBOARD_API_BASE`, a hook for Pitboard's tests: the app sends the requests meant for
+    Anthropic and OpenAI to the loopback address it names, and ignores any other address.
+
+  An app opened from Finder has these only when they are set with `launchctl setenv`. Both
+  front ends already read the first two from Claude Code's settings files.
+- The app takes a `claude` or `codex` it finds to be the tool's program only when it is a
+  regular file you may run, as the command line does, and otherwise looks further. It took
+  a directory with that name, offered the tool, and failed to start its sign-in.
 
 ## [0.7.0] - 2026-10-04
 

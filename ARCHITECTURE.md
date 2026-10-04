@@ -130,15 +130,18 @@ pages load, as a browser would.
 ## Invariants
 
 - The core prints nothing.
-- The core reads its environment in `Context::from_env`, which the command line calls. The
-  app builds its own `Context`, because an app opened from Finder has none of the shell's
-  environment.
-- Three variables are also read straight from the process. `PATH` is read when no search
-  path was given (`context.rs`), and on Linux to find the program daily renewal runs
-  (`host/linux`). `NO_COLOR` is read by the status line (`pitboard/src/main.rs`).
-  `XPC_SERVICE_NAME`, which launchd sets, is read in `host/macos/launchd.rs`. `clippy.toml`
-  refuses `std::env::var`, `var_os`, `vars` and `vars_os` outside `context.rs`, so every
-  other read carries an `#[allow]` that says why it is meant.
+- The core reads its environment in `Context::read`, from a map of variables, the same way
+  for every front end. The command line passes its own through `Context::from_env`. An app
+  passes the one it was started with through `AppContext::discover`, which also asks the
+  person's login shell for `PATH`, because an app the system started has none of a
+  shell's.
+- Three variables are also read straight from the process. `PATH` is read when a context
+  made with `Context::new` was given no search path (`context.rs`), and on Linux to find
+  the program daily renewal runs (`host/linux`). `NO_COLOR` is read by the status line
+  (`pitboard/src/main.rs`). `XPC_SERVICE_NAME`, which launchd sets, is read in
+  `host/macos/launchd.rs`. `clippy.toml` refuses `std::env::var`, `var_os`, `vars` and
+  `vars_os` outside `context.rs`, so every other read carries an `#[allow]` that says why
+  it is meant.
 - `READ` in `context.rs` and `settings::OVERRIDING_ENV` name every variable Pitboard
   reads, and `Environment` refuses, in a build with debug assertions, to read one they do
   not name. The integration tests withhold every one of them from each command they run,
@@ -154,12 +157,21 @@ pages load, as a browser would.
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
 - `pitboard-ffi` exports records, enums, one error type, free functions and two objects,
-  `SignIn` and `Pitboard`. The free functions are `tools`, `sign_in_view`, the rule
-  `same_reset` from `usage.rs`, and `usage_level` and the sentences and column words of
-  `words.rs` the apps show. They read only what they are given, and no clock, file or
-  keychain, so a view calls them where it draws. A call to an object is synchronous and may
-  block on the keychain, a lock or the network, and `PitboardKit` makes each one off the
-  main thread.
+  `SignIn` and `Pitboard`. A call to an object is synchronous and may block on the keychain,
+  a lock, the network or the person's login shell, and `PitboardKit` makes each off the main
+  thread; making a `Pitboard` blocks on none of them, since it reads its environment on
+  first use. The free functions block on nothing, and the app makes them where it likes:
+  `tools`, `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
+  sentences and column words of `words.rs` the apps show, which read only what they are
+  given; `command_line_places` and `app_command_line`, which only join paths; `can_run`,
+  which asks the file system about one path; and `home_directory` and `pitboard_directory`,
+  which read the environment they are given and, without `HOME`, this account's passwd
+  entry. `find_command_line` looks along a search path, so the app makes it off the main
+  thread.
+- The app has no rule of its own for what the core decides: its home, Pitboard's directory
+  and whether a path is a program are asked of the core. The account windows key their
+  records by Pitboard's directory standardised as Foundation standardises a file URL, as
+  they did before the core said where it is, in `WebEnvironment.recordKey` alone.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.

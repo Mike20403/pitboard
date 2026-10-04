@@ -39,4 +39,32 @@ public sealed class BindingsTests
         Assert.AreEqual(new SignInView("https://auth.openai.com/oauth/authorize?state=x", false), codex);
         Assert.IsTrue(claude.WantsCode);
     }
+
+    /// <summary>
+    /// Where the command line is looked for crosses the bindings in the shape the core gives
+    /// it: a search path and places in, one of three answers out, here the one found nowhere.
+    /// </summary>
+    [TestMethod]
+    public void ACommandLineFoundNowhereIsSaidToBeNowhere()
+    {
+        var found = PitboardFfiMethods.FindCommandLine("/nowhere/at/all", ["/nowhere/else"], null);
+
+        Assert.IsInstanceOfType<FoundCommandLine.Nowhere>(found);
+        Assert.AreEqual("/home/x/.cargo/bin", PitboardFfiMethods.CommandLinePlaces("/home/x")[0]);
+    }
+
+    /// <summary>
+    /// Where the app's home and Pitboard's directory are, and whether a path is a program, are
+    /// the core's to say, so the app has no rule of its own for either: the environment goes
+    /// in as the app was given it, and the answer comes out as the core reads it.
+    /// </summary>
+    [TestMethod]
+    public void TheAppAsksTheCoreWhereThingsAreAndWhatRuns()
+    {
+        var environment = new Dictionary<string, string> { ["HOME"] = "/home/x" };
+
+        Assert.AreEqual("/home/x", PitboardFfiMethods.HomeDirectory(environment));
+        Assert.AreEqual("/home/x/.pitboard", PitboardFfiMethods.PitboardDirectory(environment));
+        Assert.IsFalse(PitboardFfiMethods.CanRun("/nowhere/at/all"));
+    }
 }

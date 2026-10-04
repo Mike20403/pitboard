@@ -511,10 +511,10 @@ struct FixtureLaunchTests {
         #expect(tool.linkable)
         #expect(tool.helper?.hasPrefix(temporary) == true)
         #expect(tool.link.hasPrefix(temporary))
-        #expect(tool.find(in: tool.installPlaces) == .nowhere)
+        #expect(tool.find(onPath: nil) == .nowhere)
 
         #expect(await tool.install() == .linked)
-        #expect(tool.find(in: tool.installPlaces) == .bundled(tool.link))
+        #expect(tool.find(onPath: nil) == .bundled(tool.link))
     }
 }
 

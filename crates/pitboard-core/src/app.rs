@@ -125,6 +125,14 @@ pub fn app_command_line(app: &Path) -> Option<PathBuf> {
     OS.app_command_line(app)
 }
 
+/// Whether `path` is a program this user may run, as the core judges every program it finds
+/// and the system judges one it starts: a regular file, once every link is followed, that
+/// this user may execute. An app asks this of anything it would run or link to, so it has
+/// no rule of its own.
+pub fn can_run(path: &Path) -> bool {
+    host::proc::can_run(path)
+}
+
 /// The `pitboard` a terminal would run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandLine {

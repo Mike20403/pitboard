@@ -12,8 +12,8 @@ struct CommandLineTool: Sendable {
     /// This app's own command line, or nil when the app is not running from its bundle.
     let helper: String?
     /// Where each way of installing Pitboard puts it, looked in after the login shell's
-    /// `PATH`: cargo, a copy from a release, Homebrew on either kind of Mac, and the link
-    /// made here.
+    /// `PATH`, as the core says: cargo, a copy from a release, Homebrew on either kind of
+    /// Mac, and the link made here.
     let installPlaces: [String]
     /// Where the link goes: `/usr/local/bin/pitboard` unless a test says otherwise, on the
     /// `PATH` macOS gives every shell and in a directory only an administrator can write to.
@@ -31,20 +31,17 @@ struct CommandLineTool: Sendable {
         self.execute = execute
     }
 
-    /// This app's, looking where a person's installs go under `home`.
+    /// This app's, looking where a person's installs go under `home`, which is the home the
+    /// core reads from this app's environment unless a test says otherwise.
     init(
         bundle: URL = Bundle.main.bundleURL,
-        home: String = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory(),
+        home: String = homeDirectory(environment: ProcessInfo.processInfo.environment),
         link: String = "/usr/local/bin/pitboard",
         execute: @escaping Runner = CommandLineTool.execute(script:)
     ) {
         self.init(
             helper: Settings.bundledCommandLine(in: bundle),
-            installPlaces: [
-                "\(home)/.cargo/bin", "\(home)/.local/bin", "/opt/homebrew/bin",
-                "/usr/local/bin",
-            ],
-            link: link, execute: execute)
+            installPlaces: commandLinePlaces(home: home), link: link, execute: execute)
     }
 
     /// The first `pitboard` found.
@@ -64,23 +61,16 @@ struct CommandLineTool: Sendable {
         case failed(String)
     }
 
-    /// Where a terminal would find `pitboard`, in the order it would: the login shell's
-    /// `PATH`, nil when the shell could not be asked, and then where each way of installing
-    /// Pitboard puts it.
-    func directories(onPath path: String?) -> [String] {
-        (path?.split(separator: ":").map(String.init) ?? []) + installPlaces
-    }
-
-    /// The first `pitboard` in `directories` that can be run, and whether it is this app's
-    /// own once every link on the way to it is followed.
-    func find(in directories: [String]) -> Found {
-        guard
-            let found = directories.lazy.map({ "\($0)/pitboard" }).first(where: Self.runnable)
-        else { return .nowhere }
-        guard let helper, let own = Self.resolved(helper), Self.resolved(found) == own else {
-            return .another(found)
+    /// The `pitboard` a terminal would run, found where it would find one: on the login
+    /// shell's `PATH`, nil when the shell could not be asked, and then where each way of
+    /// installing Pitboard puts it; and whether it is this app's own once every link on the
+    /// way to it is followed. The core looks, on the file system, so not on the main thread.
+    func find(onPath path: String?) -> Found {
+        switch findCommandLine(searchPath: path, places: installPlaces, helper: helper) {
+        case .bundled(let found): .bundled(found)
+        case .another(let found): .another(found)
+        case .nowhere: .nowhere
         }
-        return .bundled(found)
     }
 
     /// macOS runs an app opened where it was downloaded from a temporary copy until it is
@@ -89,10 +79,11 @@ struct CommandLineTool: Sendable {
 
     /// Whether there is a command line in this app that a link would keep reaching. A build
     /// run from Xcode has no command line inside it, and a link to where one would be would
-    /// cost an administrator's password for a link that runs nothing.
+    /// cost an administrator's password for a link that runs nothing. Whether the one inside
+    /// can run is the core's to say, as it says of every program it finds.
     var linkable: Bool {
         guard let helper, !translocated else { return false }
-        return FileManager.default.isExecutableFile(atPath: helper)
+        return canRun(path: helper)
     }
 
     /// Links `link` to this app's command line once macOS has asked for an administrator's
@@ -152,19 +143,5 @@ struct CommandLineTool: Sendable {
         if error[NSAppleScript.errorNumber] as? Int == userCanceledErr { return .cancelled }
         return .failed(
             error[NSAppleScript.errorMessage] as? String ?? "The link could not be made.")
-    }
-
-    /// A file, not a directory, that this user may run, once every link is followed.
-    private static func runnable(_ path: String) -> Bool {
-        var directory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &directory)
-            && !directory.boolValue && FileManager.default.isExecutableFile(atPath: path)
-    }
-
-    /// `path` with every link on the way followed, as `realpath` gives it.
-    private static func resolved(_ path: String) -> String? {
-        guard let real = realpath(path, nil) else { return nil }
-        defer { free(real) }
-        return String(cString: real)
     }
 }
