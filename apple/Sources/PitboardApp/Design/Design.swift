@@ -121,6 +121,15 @@ enum Symbol {
     static let update = "arrow.down.circle"
     static let terminal = "terminal"
     static let general = "gearshape"
+    /// An account's window on its site.
+    static let site = "globe"
+    /// Back and forward in a window, which mirror for a language read right to left.
+    static let back = "chevron.backward"
+    static let forward = "chevron.forward"
+    static let stop = "xmark"
+    static let downloads = "arrow.down.circle"
+    static let warning = "exclamationmark.triangle"
+    static let note = "info.circle"
 }
 
 extension View {

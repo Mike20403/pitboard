@@ -91,6 +91,12 @@ public final class AppModel {
     /// Where pitboard keeps its own preferences, which views read through `@AppStorage`.
     let defaults: UserDefaults
 
+    /// Told each read of who is enrolled that succeeded, the full one or the one a change on
+    /// this machine starts: the account windows put away what a forgotten account's window
+    /// kept. Each lists every enrolled account, from pitboard's own index. A read that failed,
+    /// or the last numbers shown in its place, says nothing about who was forgotten.
+    @ObservationIgnored var afterRead: (@MainActor (Status) -> Void)?
+
     /// What a tool's last switch said that the read after it does not say again.
     ///
     /// One per tool. A switch of one tool says nothing about another's sessions, and a
@@ -303,6 +309,7 @@ public final class AppModel {
             lastChangedAt = changedBefore
             lastReadingsAt = readingsBefore
             advise(from: read)
+            afterRead?(read)
         } catch {
             guard changesSeen == started else { return }
             problem = Self.saying(error)
@@ -352,6 +359,7 @@ public final class AppModel {
             lastReadingsAt = measured
             forgetSwitchesUndone(by: read)
             advise(from: read)
+            afterRead?(read)
         } else if seenReadings != measured, let shown = status,
             let read = try? await service.statusOffline()
         {

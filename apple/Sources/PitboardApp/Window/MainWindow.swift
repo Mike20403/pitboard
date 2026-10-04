@@ -10,6 +10,7 @@ struct MainWindow: View {
     static let id = "main"
 
     @Bindable var model: AppModel
+    let windows: AccountWindows
     @SceneStorage("pane") private var pane = WindowPane.accounts
 
     var body: some View {
@@ -22,12 +23,13 @@ struct MainWindow: View {
             .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
         } detail: {
             switch pane {
-            case .accounts: AccountsPane(model: model)
+            case .accounts: AccountsPane(model: model, windows: windows)
             case .activity: ActivityPane(machine: model.machine)
             case .machine: MachinePane(machine: model.machine)
             }
         }
         .frame(minWidth: 640, minHeight: 440)
+        .appWindow(windows.presence)
         .sheet(item: $model.sheet) { sheet in
             AccountSheetView(model: model, sheet: sheet)
         }

@@ -11,6 +11,7 @@ import SwiftUI
 /// window, which every item here that needs one opens.
 struct MenuBarContent: View {
     let model: AppModel
+    let windows: AccountWindows
     let updates: any Updates
     @Environment(\.openURL) private var openURL
     @Environment(\.openSettings) private var openSettings
@@ -30,13 +31,18 @@ struct MenuBarContent: View {
             .keyboardShortcut("r")
             .disabled(model.reading)
         }
+        if !windows.menus.isEmpty {
+            Section {
+                SiteMenuItems(windows: windows)
+            }
+        }
         Section {
             Button("Open pitboard") { model.showWindow() }
                 .keyboardShortcut("0")
             Button("Settings…") {
                 // Choosing an item of a menu bar item's menu does not make the app active,
                 // and settings already open would come forward behind the app in front.
-                NSApp.activate()
+                windows.presence.activate()
                 openSettings()
             }
             .keyboardShortcut(",")

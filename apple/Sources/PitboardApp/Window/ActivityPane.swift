@@ -67,8 +67,13 @@ struct ActivityPane: View {
                 Label("Refresh", systemImage: Symbol.refresh)
             }
             .help("Read the log again")
-            .keyboardShortcut("r")
         }
+        .focusedSceneValue(
+            \.refresh,
+            RefreshCommand(title: "Refresh", disabled: false) {
+                Task { await machine.readChanges() }
+            }
+        )
         .task { await machine.readChanges() }
     }
 }

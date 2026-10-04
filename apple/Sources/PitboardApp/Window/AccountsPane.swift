@@ -5,9 +5,11 @@ import SwiftUI
 /// Every account, a section per tool, with what pitboard has to say above them.
 struct AccountsPane: View {
     @Bindable var model: AppModel
+    let windows: AccountWindows
     @State private var selection: String?
     @State private var forgetting: Account?
     @State private var givingUp = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         content
@@ -21,7 +23,6 @@ struct AccountsPane: View {
                         Label("Refresh", systemImage: Symbol.refresh)
                     }
                     .help("Read every account’s usage again")
-                    .keyboardShortcut("r")
                     .disabled(model.reading)
                     // Command-N is the window's own command, so it works from every pane.
                     Button {
@@ -32,6 +33,12 @@ struct AccountsPane: View {
                     .help("Sign in to another account and park its login")
                 }
             }
+            .focusedSceneValue(
+                \.refresh,
+                RefreshCommand(title: "Refresh", disabled: model.reading) {
+                    Task { await model.refresh(asked: true) }
+                }
+            )
             .task { await model.refresh(ifOlderThan: AppModel.staleAfter) }
             .alert(
                 "Forget “\(forgetting.map(model.name(of:)) ?? "")”?",
@@ -41,10 +48,8 @@ struct AccountsPane: View {
             ) { account in
                 Button("Forget", role: .destructive) { forget(account) }
                 Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text(
-                    "pitboard deletes the login it parked for this account. Using it again "
-                        + "needs a sign-in in your browser.")
+            } message: { account in
+                Text(forgetMessage(for: account, in: model.status))
             }
             .alert("Give up on the interrupted switch?", isPresented: $givingUp) {
                 Button("Give Up", role: .destructive) {
@@ -167,6 +172,16 @@ struct AccountsPane: View {
             .disabled(model.signingIn != nil)
             Button("Rename…") {
                 model.present(.rename(provider: account.provider, label: label))
+            }
+        }
+        let sites = siteWindows(of: account, in: model.status)
+        if !sites.isEmpty {
+            Divider()
+            ForEach(sites) { window in
+                Button("Open \(window.site.name)") {
+                    windows.presence.activate()
+                    openWindow(id: AccountWindowScene.id, value: window.store)
+                }
             }
         }
         if !account.email.isEmpty {

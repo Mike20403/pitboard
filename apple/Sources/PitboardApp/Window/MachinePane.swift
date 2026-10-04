@@ -31,9 +31,14 @@ struct MachinePane: View {
                 Label("Check Again", systemImage: Symbol.refresh)
             }
             .help("Make every check again")
-            .keyboardShortcut("r")
             .disabled(machine.checking)
         }
+        .focusedSceneValue(
+            \.refresh,
+            RefreshCommand(title: "Check Again", disabled: machine.checking) {
+                Task { await machine.diagnose() }
+            }
+        )
         // Every visit: a menu bar app runs for days, and a check fixed in a terminal since
         // would otherwise still read as failing. What was found stays up meanwhile.
         .task { await machine.diagnose() }

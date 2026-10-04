@@ -305,6 +305,18 @@ extension Settings {
         forCurrentUserAsked().settings
     }
 
+    /// The pitboard directory the core reads for `environment`: `PITBOARD_HOME`, or
+    /// `.pitboard` in `HOME`, from the same two values `forCurrentUser` hands the core, so the
+    /// two cannot disagree on which pitboard this is.
+    public static func pitboardDirectory(environment: [String: String]) -> String {
+        if let set = environment["PITBOARD_HOME"] {
+            return URL(fileURLWithPath: set).standardizedFileURL.path
+        }
+        let home = environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
+        return URL(fileURLWithPath: home).appendingPathComponent(".pitboard")
+            .standardizedFileURL.path
+    }
+
     /// `forCurrentUser`, and whether the login shell was too slow to answer, which asking
     /// again later may not be.
     public static func forCurrentUserAsked() -> (settings: Settings, late: Bool) {

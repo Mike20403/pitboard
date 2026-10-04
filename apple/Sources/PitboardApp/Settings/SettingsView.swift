@@ -6,6 +6,7 @@ import SwiftUI
 /// Command-comma.
 struct SettingsView: View {
     let model: AppModel
+    let presence: AppPresence
     let updates: any Updates
 
     enum Tab: String {
@@ -30,9 +31,10 @@ struct SettingsView: View {
         }
         .frame(width: 500)
         .fixedSize(horizontal: false, vertical: true)
+        .appWindow(presence)
         // An app with no Dock icon opens its settings behind everything otherwise, because
         // nothing has brought it to the front.
-        .onAppear { NSApp.activate() }
+        .onAppear { presence.activate() }
     }
 }
 
