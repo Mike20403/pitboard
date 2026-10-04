@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
+The app gives each enrolled account a window of its own on its tool's site, claude.ai or
+chatgpt.com, so every account stays signed in side by side, and a page shared from a
+browser opens as the account you choose. The command line and `pitboard-core` are
+unchanged since 0.6.0.
+
 ### Added
 
 - The app gives each enrolled account a window on its tool's site: claude.ai for a Claude
@@ -1020,7 +1027,8 @@ First release.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 
-[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/datlechin/pitboard/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/datlechin/pitboard/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/datlechin/pitboard/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/datlechin/pitboard/compare/v0.5.0...v0.5.1
