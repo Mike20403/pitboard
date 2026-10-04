@@ -46,10 +46,12 @@ pages load, as a browser would.
     system's store of secrets, files, the vault, this user's processes and the scheduler,
     reached through `Context` and faked by `host/memory.rs`. `fs`, `proc` and `user` are
     plain functions for what the system does whoever asks: private files and directories,
-    whether a process is alive, the login name. `program.rs` finds a program the way the
+    whether a process is alive, the login name, and the `PATH` the person's login shell
+    builds, which `unix/shell.rs` asks for. `program.rs` finds a program the way the
     system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
     through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
-    `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`.
+    `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`, such
+    as the folders macOS asks about before an app may look in them.
   - `store/`: reading and writing logins, whichever store holds them: the chain rules, a
     file, the vault of files and the stores in memory the tests use. On macOS, parked
     logins are keychain items. On Linux, they are files in the vault.
@@ -58,8 +60,12 @@ pages load, as a browser would.
     finishes an interrupted switch.
   - `state.rs`: `state.json`, the index of accounts and where each one's login is parked.
   - `lock.rs`: the lock Claude Code takes around credential writes, taken the same way.
-  - `context.rs`: what the core takes from its environment, apart from the `PATH` that
-    `host/linux` reads to find the program daily renewal runs.
+  - `context.rs`: what the core takes from its environment, read from a map of variables
+    by the same code for every front end, apart from the `PATH` that `host/linux` reads to
+    find the program daily renewal runs.
+  - `app.rs`: what an app finds for itself that a command typed at a prompt is given: each
+    tool's program, on the login shell's `PATH` and then where the tool's installers put
+    it, and the `pitboard` a terminal would run.
   - `api.rs`: the requests to Anthropic. The requests to OpenAI are in
     `provider/codex/api.rs`.
   - `status.rs`, `doctor.rs`, `statusline.rs` and `schedule.rs` serve the commands of the
@@ -142,6 +148,8 @@ pages load, as a browser would.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
+- No test starts the person's own login shell. A test names a shell of its own in `SHELL`,
+  one that is not there, or hands in what a shell said.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
@@ -502,6 +510,16 @@ treated, and only the macOS build shows it. The run reads both builds since.
   address again as its text. The sign-in runs with the app's whole environment, so
   `provider/printed.rs` reads what it printed as a terminal does, and the address offered
   is where the hyperlink goes.
+- Read on 5 October 2026 from the macOS builds of 2.1.283 and 2.1.289 and the Linux build of
+  2.1.289: the native installer puts its launcher at `~/.local/bin/claude`, and says so
+  when that directory is not on `PATH`. A global npm install puts `claude` in npm's global
+  `bin`, which is Homebrew's `/opt/homebrew/bin` or `/usr/local/bin` where Homebrew
+  installed Node, and `/usr/local/bin` where nodejs.org's installer did; the build lists
+  both among npm's places. Claude Code tells a global npm install by
+  `/node_modules/@anthropic-ai/` in the path the running program resolves to, and the
+  Homebrew cask's by a path through a Homebrew `Caskroom`. So an app with no shell's `PATH`
+  looks in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, after the login
+  shell's.
 
 ### Codex
 
@@ -570,6 +588,12 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
 - Read from 0.160.0 on 5 October 2026: `codex login` prints to stderr its loopback address,
   `http://localhost:<port>`, and then, bare on a line of its own, the `https` address on
   auth.openai.com to open. So the first `https` address it prints is the one to open.
+- Codex's standalone installer, `scripts/install/install.sh` at tag `rust-v0.159.2`, links
+  `~/.local/bin/codex`, or `$CODEX_INSTALL_DIR/codex`, to
+  `$CODEX_HOME/packages/standalone/current/bin/codex`; a standalone install of 0.159.2 on a
+  Mac had left that link, read on 5 October 2026. Its macOS and Linux binaries name
+  `npm install -g @openai/codex` and `brew upgrade --cask codex` as the other ways it is
+  kept up to date. 0.154.0 names those too, but not the standalone package layout.
 
 ### WebKit and SwiftUI
 

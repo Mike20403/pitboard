@@ -275,6 +275,32 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         absent: &[],
     },
     Assumption {
+        name: "install_places",
+        fact: "the native installer puts its launcher at `~/.local/bin/claude`, and says so \
+               when that directory is not on `PATH`; a global npm install puts `claude` in \
+               npm's global `bin`, which is in Homebrew's prefix, `/opt/homebrew` or \
+               `/usr/local`, or in `/usr/local` where nodejs.org's installer put Node, and \
+               Claude Code tells it is one by `/node_modules/@anthropic-ai/` in the path the \
+               running program resolves to; one whose path runs through a Homebrew \
+               `Caskroom` is the Homebrew cask's",
+        read_from: "the installation-method detection, which returns `npm-global` for an \
+                    `execPath` holding `/node_modules/@anthropic-ai/` and lists \
+                    `/opt/homebrew/bin` and `/usr/local/bin` among npm's places, \
+                    `getHomebrewCaskName`, and the native install's PATH advice",
+        // Read on 2026-10-05 from the macOS builds of 2.1.283 and 2.1.289 and the Linux build
+        // of 2.1.289, all of which hold every literal below.
+        verified_against: "2.1.289",
+        depends: "claude::paths::install_places, where an app looks for `claude` after the \
+                  login shell's PATH",
+        probe: &[
+            "Native installation exists but ~/.local/bin is not in your PATH",
+            ".local/bin/claude",
+            "/node_modules/@anthropic-ai/",
+            "Detected Homebrew cask installation: ",
+        ],
+        absent: &[],
+    },
+    Assumption {
         name: "plaintext_credential_mode",
         fact: "the plaintext credential is written and then chmod'd to 0600, in its storage \
                directory, under the fixed name `.credentials.json`",

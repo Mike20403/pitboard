@@ -9,14 +9,24 @@ mod systemd;
 pub(crate) use super::unix::{fs, proc, user};
 
 use super::unix::service;
-use super::{Host, Os, Process, Scheduler};
-use crate::context::Context;
+use super::{Host, LoginPath, Os, Process, Scheduler};
+use crate::context::{Context, Environment};
 use crate::store::vault::FileVault;
 use crate::store::{PlainFile, RawStore};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub(super) const OS: Os = Os::Linux;
+
+/// What `posix_spawn` is told when Pitboard starts the person's login shell: a session of its
+/// own. Linux has no flag that keeps the rest of this process's descriptors from it; every
+/// one Rust opens is closed on exec already, and no app on Linux asks yet.
+pub(super) const SPAWN_FLAGS: libc::c_short = libc::POSIX_SPAWN_SETSID;
+
+/// Linux has a login shell to ask, as macOS does.
+pub(super) fn login_path(env: &Environment) -> LoginPath {
+    super::unix::shell::login_path(env, SPAWN_FLAGS)
+}
 
 #[derive(Debug)]
 struct Linux {

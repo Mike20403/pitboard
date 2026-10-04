@@ -9,14 +9,16 @@
 //!
 //! [`fs`], [`proc`] and [`user`] are plain functions for what the machine does the same way
 //! whoever asks, which the tests run for real: creating a file only its owner can reach,
-//! asking whether a process is still alive, naming the person signed in.
+//! asking whether a process is still alive, naming the person signed in. [`login_path`] is
+//! one too: the `PATH` the person's login shell builds, which an app the system started
+//! does not have.
 //!
 //! The system is chosen once, in this file, and nowhere else. A fact that differs by system
 //! is a `match` on [`OS`], and [`Os`] lists every system Pitboard runs on, so a system added
 //! there does not compile until each such fact has been said for it. This replaced branches
 //! that read "macOS, or else Linux", which compiled anywhere and did the Linux thing.
 
-use crate::context::Context;
+use crate::context::{Context, Environment};
 use crate::error::Result;
 use crate::store::RawStore;
 use std::path::{Path, PathBuf};
@@ -76,6 +78,74 @@ impl Os {
             }
         }
     }
+
+    /// The folders of a home, relative to it, that the system asks the person about before
+    /// an app may look inside them. An app passes over a directory of `PATH` in one: looking
+    /// would put that question to the person for something Pitboard never needed, and a
+    /// program started from there would have it asked on its behalf.
+    ///
+    /// macOS asks for the Desktop, Documents and Downloads folders, iCloud Drive and the
+    /// folders of other cloud storage, under Privacy & Security's Files & Folders. Linux
+    /// asks nothing.
+    pub fn guarded_folders(self) -> &'static [&'static str] {
+        match self {
+            Os::MacOs => &[
+                "Desktop",
+                "Documents",
+                "Downloads",
+                "Library/Mobile Documents",
+                "Library/CloudStorage",
+            ],
+            Os::Linux => &[],
+        }
+    }
+
+    /// Where the system's package managers put the programs they install, for an app that
+    /// has no shell's `PATH` to find one on, after each tool's own installer's place.
+    ///
+    /// On a Mac, Homebrew's `bin` on Apple silicon and on Intel. npm's global `bin` is one of
+    /// them where Homebrew installed Node, and `/usr/local/bin` where nodejs.org's installer
+    /// did, so a global npm install of a tool is found there too: Claude Code 2.1.289 lists
+    /// both among npm's places. Nothing on Linux looks, since no app runs there and the
+    /// command line has a shell's `PATH`, so none is said for it.
+    pub fn package_bins(self) -> &'static [&'static str] {
+        match self {
+            Os::MacOs => &["/opt/homebrew/bin", "/usr/local/bin"],
+            Os::Linux => &[],
+        }
+    }
+
+    /// The command line an app at `app` comes with, which is what its renewal schedule runs:
+    /// the app itself is not one. A Mac app carries it at `Contents/Helpers/pitboard`, where
+    /// `build-app.sh` puts it, and anything that is not an app bundle, such as a test or a
+    /// build directory, has none. No app runs on Linux.
+    pub fn app_command_line(self, app: &Path) -> Option<PathBuf> {
+        match self {
+            Os::MacOs => (app.extension() == Some("app".as_ref()))
+                .then(|| app.join("Contents/Helpers/pitboard")),
+            Os::Linux => None,
+        }
+    }
+}
+
+/// What the person's login shell said its `PATH` is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LoginPath {
+    /// It said this.
+    Said(String),
+    /// It could not be asked, or did not say. Asking again would get the same.
+    Unknown,
+    /// It had not answered in time, and was stopped. Startup files are slowest while the
+    /// machine is busy, which is when an app that opens at login first asks, so this is not
+    /// the last word: a later ask may find what this one could not.
+    Late,
+}
+
+/// The `PATH` the person's own terminal has, which an app the system started does not: asked
+/// of their login shell where the system has one, which can take seconds, so never on an
+/// app's main thread. A system without a login shell answers with the environment's own.
+pub(crate) fn login_path(env: &Environment) -> LoginPath {
+    os::login_path(env)
 }
 
 /// Who besides a file's owner can reach it, as the system says.

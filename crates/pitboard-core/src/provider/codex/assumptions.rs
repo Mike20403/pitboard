@@ -185,6 +185,27 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         absent: &[],
     },
     Assumption {
+        name: "codex_install_places",
+        fact: "the standalone installer links `~/.local/bin/codex`, or `$CODEX_INSTALL_DIR/codex`, \
+               to `$CODEX_HOME/packages/standalone/current/bin/codex`; the build names \
+               `npm install -g @openai/codex` and `brew upgrade --cask codex` as the other ways \
+               it is kept up to date, which put `codex` in npm's and Homebrew's `bin`",
+        read_from: "`scripts/install/install.sh` at tag `rust-v0.159.2`, the link a standalone \
+                    install of 0.159.2 left on a Mac, read on 2026-10-05, and the update \
+                    commands in the macOS and Linux binaries",
+        // 0.154.0 names the installers too, but not the standalone package layout.
+        verified_against: "0.159.2",
+        depends: "codex::paths::install_places, where an app looks for `codex` after the \
+                  login shell's PATH",
+        probe: &[
+            "packages/standalone",
+            "codex/install.sh",
+            "npm install -g @openai/codex",
+            "brew upgrade --cask codex",
+        ],
+        absent: &[],
+    },
+    Assumption {
         name: "codex_login_is_driveable",
         fact: "`codex login` revokes whatever login is stored in its home before signing in, \
                opens the browser itself, prints the address to stderr for when it cannot, \

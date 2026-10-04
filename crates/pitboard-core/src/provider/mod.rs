@@ -123,6 +123,15 @@ impl ProviderId {
         }
     }
 
+    /// Where the tool's own installers put its program under `home`, for an app that has no
+    /// shell's `PATH` to find it on. Each tool says its own, read from its own build.
+    pub fn install_places(self, home: &std::path::Path) -> Vec<std::path::PathBuf> {
+        match self {
+            ProviderId::Claude => claude::paths::install_places(home),
+            ProviderId::Codex => codex::paths::install_places(home),
+        }
+    }
+
     /// The environment variable that moves where the tool keeps its login.
     pub fn home_variable(self) -> &'static str {
         match self {

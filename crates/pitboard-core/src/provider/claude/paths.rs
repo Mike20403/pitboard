@@ -34,6 +34,16 @@ pub fn program(ctx: &Context) -> Option<PathBuf> {
     crate::provider::program_of(ctx, crate::provider::ProviderId::Claude)
 }
 
+/// Where Claude Code's installers put `claude`, in the order an app looks there after the
+/// login shell's `PATH`: the native installer's launcher in `~/.local/bin`, then where the
+/// system's package managers put it, which is where its Homebrew cask goes, and a global npm
+/// install where Homebrew or nodejs.org installed Node (`install_places` in the register).
+pub(crate) fn install_places(home: &std::path::Path) -> Vec<PathBuf> {
+    std::iter::once(home.join(".local/bin"))
+        .chain(crate::host::OS.package_bins().iter().map(PathBuf::from))
+        .collect()
+}
+
 /// Which Claude Code is installed here, read off disk and never by running it.
 ///
 /// Running `claude --version` would be the obvious way and is the wrong one: it starts the

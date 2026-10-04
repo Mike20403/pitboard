@@ -29,6 +29,7 @@ compile_error!(
 );
 
 pub mod api;
+pub mod app;
 pub mod assumptions;
 pub mod audit;
 pub mod budget;

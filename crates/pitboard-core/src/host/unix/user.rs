@@ -20,6 +20,12 @@ pub(crate) fn home() -> Option<PathBuf> {
     entry(|passwd| path(passwd, passwd.pw_dir))
 }
 
+/// This user's login shell, as the passwd database names it: the one to ask when the
+/// environment names none.
+pub(crate) fn login_shell() -> Option<PathBuf> {
+    entry(|passwd| path(passwd, passwd.pw_shell))
+}
+
 /// What `read` takes from this user's passwd entry, while the buffer its strings live in is
 /// still there. `None` where there is no entry.
 fn entry<T>(read: impl FnOnce(&libc::passwd) -> Option<T>) -> Option<T> {
@@ -161,6 +167,17 @@ mod tests {
             home().is_some_and(|home| home.is_absolute()),
             "{:?}",
             home()
+        );
+    }
+
+    /// And a shell named from the root, which is what is asked for `PATH` when the
+    /// environment names none.
+    #[test]
+    fn this_account_has_a_login_shell() {
+        assert!(
+            login_shell().is_some_and(|shell| shell.is_absolute()),
+            "{:?}",
+            login_shell()
         );
     }
 }

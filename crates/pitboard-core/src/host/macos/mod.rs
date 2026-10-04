@@ -8,13 +8,25 @@ mod ps;
 pub(crate) use super::unix::{fs, proc, user};
 
 use super::unix::service;
-use super::{Host, Os, Process, Scheduler};
-use crate::context::Context;
+use super::{Host, LoginPath, Os, Process, Scheduler};
+use crate::context::{Context, Environment};
 use crate::store::{PlainFile, RawStore};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub(super) const OS: Os = Os::MacOs;
+
+/// What `posix_spawn` is told when Pitboard starts the person's login shell: a session of its
+/// own, and none of this process's descriptors but the three it is handed, whatever in the
+/// app opened the rest. `POSIX_SPAWN_SETSID` is 0x0400 in `<sys/spawn.h>` of the macOS 27
+/// SDK, and the libc crate does not name it.
+pub(super) const SPAWN_FLAGS: libc::c_short =
+    0x0400 | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+
+/// macOS has a login shell to ask.
+pub(super) fn login_path(env: &Environment) -> LoginPath {
+    super::unix::shell::login_path(env, SPAWN_FLAGS)
+}
 
 /// The keychain account Pitboard stores its own items under.
 ///

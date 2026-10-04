@@ -21,11 +21,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Every variable Pitboard reads from the environment it was started with, besides
-/// [`crate::settings::OVERRIDING_ENV`]: what [`Context::read`] consults, and the three read
-/// straight from the process: `PATH` where a context was given no search path, and where
-/// Linux's host finds the path Pitboard was started by, `NO_COLOR` by the command line's
-/// status line, and `XPC_SERVICE_NAME` by launchd's host. Each of those reads carries an
-/// `#[allow]` saying why it is not made through [`Environment`].
+/// [`crate::settings::OVERRIDING_ENV`]: what [`Context::read`] consults, the shell an app
+/// asks for its `PATH`, and the three read straight from the process: `PATH` where a context
+/// was given no search path, and where Linux's host finds the path Pitboard was started by,
+/// `NO_COLOR` by the command line's status line, and `XPC_SERVICE_NAME` by launchd's host.
+/// Each of those reads carries an `#[allow]` saying why it is not made through
+/// [`Environment`].
 ///
 /// [`Environment`] refuses, in a build with debug assertions, to read a name missing here,
 /// so every test that reads a context fails until a new variable is added. The tests take
@@ -34,6 +35,7 @@ const READ: &[&str] = &[
     "HOME",
     "USER",
     "PATH",
+    "SHELL",
     "PITBOARD_HOME",
     "PITBOARD_NO_ARGV",
     "PITBOARD_API_BASE",
@@ -88,6 +90,13 @@ impl Environment {
     /// Whether `name` holds anything: empty reads as unset.
     pub(crate) fn set(&self, name: &str) -> bool {
         self.text(name).is_some_and(|v| !v.is_empty())
+    }
+
+    /// Every variable, as a program started in this environment is given them.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
+        self.0
+            .iter()
+            .map(|(name, value)| (name.as_os_str(), value.as_os_str()))
     }
 }
 
@@ -351,6 +360,14 @@ impl Context {
         match tool {
             ProviderId::Claude => &self.claude_program,
             ProviderId::Codex => &self.codex_program,
+        }
+    }
+
+    /// Run `program` for this tool, where an app found it.
+    pub(crate) fn set_program(&mut self, tool: ProviderId, program: PathBuf) {
+        match tool {
+            ProviderId::Claude => self.claude_program = program,
+            ProviderId::Codex => self.codex_program = program,
         }
     }
 

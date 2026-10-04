@@ -24,6 +24,16 @@ pub(crate) fn auth_file(ctx: &Context) -> PathBuf {
     home(ctx).join(AUTH_FILE)
 }
 
+/// Where Codex's installers put `codex`, in the order an app looks there after the login
+/// shell's `PATH`: the link its standalone installer makes in `~/.local/bin`, then where the
+/// system's package managers put it, which is where its Homebrew cask and a global npm
+/// install go (`codex_install_places` in the register).
+pub(crate) fn install_places(home: &std::path::Path) -> Vec<PathBuf> {
+    std::iter::once(home.join(".local/bin"))
+        .chain(crate::host::OS.package_bins().iter().map(PathBuf::from))
+        .collect()
+}
+
 /// Which store this machine's Codex is configured to keep its login in.
 ///
 /// The shipped default is `file`, and it is a packaged default rather than a line in
