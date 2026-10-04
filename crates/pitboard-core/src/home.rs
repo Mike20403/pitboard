@@ -1,5 +1,6 @@
-//! pitboard's own directory. Every directory pitboard creates is 0700, whatever the umask:
-//! park file names contain account identifiers, so on a shared machine a listing would leak.
+//! pitboard's own directory. Every directory pitboard creates is private to its owner,
+//! whatever the umask: park file names contain account identifiers, so on a shared machine a
+//! listing would leak.
 
 use crate::context::Context;
 use crate::error::{Error, Result};
@@ -22,18 +23,8 @@ pub fn dir(ctx: &Context) -> PathBuf {
 
 pub fn ensure(ctx: &Context) -> io::Result<PathBuf> {
     let path = dir(ctx);
-    create_private(&path)?;
+    crate::host::fs::create_private_dir(&path)?;
     Ok(path)
-}
-
-/// Create `path` and any missing parent as 0700. A directory that already exists keeps its
-/// mode: it may be one the user named, and `pitboard doctor` reports it if others can read it.
-pub fn create_private(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
 }
 
 pub fn check_location(path: &Path) -> Result<()> {
@@ -63,30 +54,5 @@ mod tests {
         }
         assert!(check_location(Path::new("/Users/x/.pitboard")).is_ok());
         assert!(check_location(Path::new("/home/x/.pitboard")).is_ok());
-    }
-
-    #[test]
-    fn created_directories_are_private_and_existing_ones_keep_their_mode() {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        let scratch = std::env::temp_dir().join(format!("pitboard-home-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&scratch);
-
-        create_private(&scratch.join("nested")).unwrap();
-        assert_eq!(
-            mode(&scratch),
-            0o700,
-            "a created parent must be private too"
-        );
-        assert_eq!(mode(&scratch.join("nested")), 0o700);
-
-        std::fs::set_permissions(&scratch, std::fs::Permissions::from_mode(0o755)).unwrap();
-        create_private(&scratch).unwrap();
-        assert_eq!(
-            mode(&scratch),
-            0o755,
-            "a directory the user named is theirs to set"
-        );
-        std::fs::remove_dir_all(&scratch).unwrap();
     }
 }

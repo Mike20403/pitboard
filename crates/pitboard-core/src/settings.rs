@@ -12,7 +12,7 @@
 //!
 //! Files are the one thing an app launched from Finder and a shell agree about. Measured in
 //! 2.1.278: managed settings live in `/Library/Application Support/ClaudeCode` on macOS and
-//! `/etc/claude-code` elsewhere, as `managed-settings.json` and a `managed-settings.d`
+//! `/etc/claude-code` on Linux, as `managed-settings.json` and a `managed-settings.d`
 //! drop-in directory beside it; a person's own are `<config dir>/settings.json`.
 //!
 //! Project settings are deliberately not read. `.claude/settings.json` is a fact about one
@@ -55,11 +55,10 @@ impl std::fmt::Display for Override {
 
 /// Where managed settings are, which is a fact about the machine and not about the person.
 fn managed_dir() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        PathBuf::from("/Library/Application Support/ClaudeCode")
-    } else {
-        PathBuf::from("/etc/claude-code")
-    }
+    PathBuf::from(match crate::host::OS {
+        crate::host::Os::MacOs => "/Library/Application Support/ClaudeCode",
+        crate::host::Os::Linux => "/etc/claude-code",
+    })
 }
 
 fn managed_files() -> Vec<PathBuf> {

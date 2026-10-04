@@ -72,7 +72,7 @@ pub fn uninstall(settled: Settled) -> Result<Removed> {
 }
 
 /// The schedule, where it is this home's. One that renews another home is that home's to
-/// take away, and a platform with no scheduler has nothing to take.
+/// take away, and a machine with no scheduler has nothing to take.
 fn remove_schedule(ctx: &Context) -> Result<bool> {
     if !schedule::serves(ctx) {
         return Ok(false);
@@ -83,8 +83,8 @@ fn remove_schedule(ctx: &Context) -> Result<bool> {
     }
 }
 
-/// The lock file this run holds lives in here too; on Unix an open file goes on existing
-/// until the last handle closes, so removing the directory now is safe.
+/// The lock file this run holds lives in here too; on macOS and Linux an open file goes on
+/// existing until the last handle closes, so removing the directory now is safe.
 fn remove_home(ctx: &Context) -> bool {
     std::fs::remove_dir_all(home::dir(ctx)).is_ok()
 }
@@ -95,7 +95,6 @@ mod tests {
     use super::super::settle;
     use super::*;
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn uninstalling_takes_the_renewal_schedule_with_it() {
         for make in [machine, codex_machine] {
@@ -113,24 +112,18 @@ mod tests {
 
     /// A schedule that cannot be taken away stops the uninstall before anything else is
     /// touched. Left running, it would renew logins whose index is gone.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn a_schedule_that_cannot_be_taken_away_leaves_every_login_where_it_was() {
-        use std::os::unix::fs::PermissionsExt;
+        use crate::host::fs::testing;
         for make in [machine, codex_machine] {
             let m = make("uninstall-stuck");
             schedule::install(&m.ctx).expect("scheduled");
             let dir = schedule::path(&m.ctx)
                 .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
                 .expect("where the scheduler keeps it");
-            let mode = |mode| {
-                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode))
-                    .expect("its mode changed");
-            };
-
-            mode(0o555);
+            testing::deny_changes(&dir);
             let refused = uninstall(settle(&m.ctx, None).expect("nothing to recover").0);
-            mode(0o755);
+            testing::allow_changes(&dir);
 
             let Err(error) = refused else {
                 panic!("{:?}: uninstalled with the schedule still there", m.which);
@@ -160,7 +153,6 @@ mod tests {
 
     /// launchd and systemd renew the default home, so uninstalling any other one leaves
     /// the schedule to the pitboard it serves.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn uninstalling_another_home_leaves_the_schedule_alone() {
         let m = machine("uninstall-elsewhere");

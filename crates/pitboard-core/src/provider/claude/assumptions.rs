@@ -85,7 +85,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                login to `.credentials.json`",
         read_from: "the keychain backend's update path and the fallback wrapper around it",
         verified_against: VERIFIED_AGAINST,
-        depends: "store::keychain::MAX_COMMAND_BYTES and the write path",
+        depends: "host::macos::keychain::MAX_COMMAND_BYTES and the write path",
         probe: &[
             "exceeds security -i stdin limit; using argv",
             "primary_transient_skip_fallback",
@@ -105,7 +105,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                purpose, the strict end of that",
         read_from: "the keychain backend's read path",
         verified_against: VERIFIED_AGAINST,
-        depends: "store::keychain::classify",
+        depends: "host::macos::keychain::classify",
         probe: &[
             "failureIfTransient",
             "[keychain] readAsync failed; not caching a null",
@@ -218,7 +218,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         read_from: "the secure storage module's backend list and `getSecureStorage`, and the \
                     whole build searched for every Linux keyring name",
         verified_against: VERIFIED_AGAINST,
-        depends: "store::PlainUnix, and pitboard's claim that a parked login on Linux is no \
+        depends: "host::linux, and pitboard's claim that a parked login on Linux is no \
                   less protected than the live one",
         probe: &[
             "tengu_windows_credman",

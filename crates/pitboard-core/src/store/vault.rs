@@ -1,17 +1,17 @@
-//! Where pitboard parks logins on platforms with no keychain: one 0600 file per parked
-//! login, inside pitboard's own 0700 directory.
+//! Where pitboard parks logins on a machine with no store of secrets to park them in: one
+//! private file per parked login, inside pitboard's own private directory.
 
 use super::{Backend, Error, RawStore};
+use crate::atomic;
 use crate::context::Context;
-use crate::{atomic, home};
 use std::path::PathBuf;
 
-pub(super) struct FileVault {
+pub(crate) struct FileVault {
     dir: PathBuf,
 }
 
 impl FileVault {
-    pub(super) fn new(ctx: &Context) -> FileVault {
+    pub(crate) fn new(ctx: &Context) -> FileVault {
         FileVault {
             dir: super::vault_dir(ctx),
         }
@@ -82,7 +82,7 @@ impl RawStore for FileVault {
 
     fn write(&self, service: &str, contents: &str) -> Result<(), Error> {
         let path = self.path(service)?;
-        home::create_private(&self.dir).map_err(|e| Error::Write(e.to_string()))?;
+        crate::host::fs::create_private_dir(&self.dir).map_err(|e| Error::Write(e.to_string()))?;
         atomic::write(&path, contents.as_bytes(), atomic::Perms::Secret)
             .map_err(|e| Error::Write(format!("cannot write {}: {e}", path.display())))?;
         match self.read(service)? {
@@ -129,15 +129,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// SECURITY.md tells people that a parked login here is 0600 inside a 0700 directory,
-    /// and that this is the whole of what keeps it from everyone else with an account on
-    /// the machine. Nothing checked it. `atomic::Perms::Secret` and `home::create_private`
-    /// are two other modules' promises, and a change to either would quietly widen every
-    /// parked login on Linux.
+    /// SECURITY.md tells people that a parked login here is private to its owner, inside a
+    /// directory private to its owner, and that this is the whole of what keeps it from
+    /// everyone else with an account on the machine. Nothing checked it. `atomic::Perms::Secret`
+    /// and `host::fs::create_private_dir` are two other modules' promises, and a change to
+    /// either would quietly widen every parked login on Linux.
     #[test]
     fn a_parked_login_is_readable_only_by_its_owner() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "pitboard-vault-modes-{}-{:?}",
             std::process::id(),
@@ -159,15 +157,9 @@ mod tests {
             .write(name, r#"{"claudeAiOauth":{}}"#)
             .expect("a park");
 
-        let mode = |p: &std::path::Path| {
-            std::fs::metadata(p)
-                .expect("it exists")
-                .permissions()
-                .mode()
-                & 0o777
-        };
-        assert_eq!(mode(&vault.dir), 0o700, "the vault directory");
-        assert_eq!(mode(&vault.path(name).unwrap()), 0o600, "the parked login");
+        let shared = |p: &std::path::Path| crate::host::fs::access(p).expect("it exists").shared;
+        assert!(!shared(&vault.dir), "the vault directory");
+        assert!(!shared(&vault.path(name).unwrap()), "the parked login");
     }
 
     #[test]

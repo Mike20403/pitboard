@@ -6,7 +6,6 @@ use crate::context::Context;
 use crate::{home, time};
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 /// Rotated once past this size, keeping one previous file.
@@ -43,10 +42,7 @@ fn append(ctx: &Context, line: &str) -> std::io::Result<()> {
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > LIMIT_BYTES) {
         std::fs::rename(&path, path.with_extension("log.1"))?;
     }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
+    crate::host::fs::private(OpenOptions::new().create(true).append(true))
         .open(&path)?
         .write_all(line.as_bytes())
 }

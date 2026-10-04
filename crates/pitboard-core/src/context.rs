@@ -3,8 +3,8 @@
 //! itself: an app started from Finder does not see a shell's environment.
 
 use crate::api::{Anthropic, Api};
+use crate::host::Host;
 use crate::provider::codex::api::{Network as OpenAiNetwork, OpenAi};
-use crate::store::Host;
 use crate::time::{Clock, SystemClock};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,14 +54,14 @@ pub struct Context {
     /// process's own `PATH`: an app opened from Finder has almost nothing on it, so it
     /// passes the one the person's login shell would have.
     pub(crate) search_path: Option<std::ffi::OsString>,
-    /// The launchd job this process runs as, where a test says. `None` is the one launchd
-    /// named when it started this process.
-    #[cfg(target_os = "macos")]
-    pub(crate) launchd_job: Option<String>,
+    /// The scheduler's job this process runs as, where a test says. `None` is whatever the
+    /// scheduler said when it started this process.
+    pub(crate) scheduled_job: Option<String>,
     /// Where the time comes from. The machine's clock in every real context; a test puts
     /// its own here to reach the judgements that only happen at a particular moment.
     pub(crate) clock: Arc<dyn Clock>,
-    /// The machine's credential stores. This build's host in every real context.
+    /// The machine: its stores, its processes, its scheduler. This build's host in every
+    /// real context.
     pub(crate) host: Arc<dyn Host>,
     /// Who answers for Anthropic. The network in every real context.
     pub(crate) api: Arc<dyn Api>,
@@ -85,7 +85,7 @@ impl Context {
         &self.home
     }
 
-    /// The credential stores this context reaches.
+    /// The machine this context reaches.
     pub(crate) fn host(&self) -> &dyn Host {
         self.host.as_ref()
     }
@@ -120,10 +120,9 @@ impl Context {
             codex_program: PathBuf::from("codex"),
             schedule_program: None,
             search_path: None,
-            #[cfg(target_os = "macos")]
-            launchd_job: None,
+            scheduled_job: None,
             clock: Arc::new(SystemClock),
-            host: crate::store::host(),
+            host: crate::host::current(),
             api: Arc::new(Anthropic),
             openai: Arc::new(OpenAiNetwork),
         }
@@ -241,19 +240,16 @@ impl Context {
             .unwrap_or_default()
     }
 
-    /// The label of the launchd job this process runs as, which launchd puts in
-    /// `XPC_SERVICE_NAME` when it starts one.
-    #[cfg(target_os = "macos")]
-    pub(crate) fn launchd_job(&self) -> Option<String> {
-        self.launchd_job
-            .clone()
-            .or_else(|| std::env::var("XPC_SERVICE_NAME").ok())
+    /// The scheduler's job this process runs as, where a test has said. The scheduler's own
+    /// word for it, where it has one, is its to read.
+    pub(crate) fn scheduled_job(&self) -> Option<&str> {
+        self.scheduled_job.as_deref()
     }
 
-    /// Say this process runs as the launchd job `label`, which no test does.
-    #[cfg(all(target_os = "macos", test))]
-    pub(crate) fn with_launchd_job(mut self, label: String) -> Context {
-        self.launchd_job = Some(label);
+    /// Say this process runs as the scheduler's job `label`, which no test does.
+    #[cfg(test)]
+    pub(crate) fn with_scheduled_job(mut self, label: String) -> Context {
+        self.scheduled_job = Some(label);
         self
     }
 
@@ -293,10 +289,9 @@ impl Context {
             codex_program: PathBuf::from("codex"),
             schedule_program: None,
             search_path: None,
-            #[cfg(target_os = "macos")]
-            launchd_job: None,
+            scheduled_job: None,
             clock: Arc::new(SystemClock),
-            host: crate::store::host(),
+            host: crate::host::current(),
             api: Arc::new(Anthropic),
             openai: Arc::new(OpenAiNetwork),
         }
@@ -317,7 +312,7 @@ impl Context {
     /// tests do this, which is why the trait behind it is not public.
     #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
-    pub fn with_memory_stores(mut self, memory: Arc<crate::store::memory::MemoryHost>) -> Context {
+    pub fn with_memory_stores(mut self, memory: Arc<crate::host::memory::MemoryHost>) -> Context {
         self.host = memory;
         self
     }

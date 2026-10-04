@@ -43,7 +43,6 @@ use crate::state::{Account, Key, Park, State};
 use crate::{api, fault, holder, home, lock, park, pending, state, store};
 use journal::{Journal, clear_journal, reconcile, write_journal};
 use serde_json::Value;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 /// Claude Code serves the credential from a 30 second cache whose clock restarts on every
@@ -191,13 +190,14 @@ fn lock_file(ctx: &Context) -> Result<(std::fs::File, PathBuf)> {
         source,
     };
     home::ensure(ctx).map_err(fail)?;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .mode(0o600)
-        .open(&path)
-        .map_err(fail)?;
+    let file = crate::host::fs::private(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true),
+    )
+    .open(&path)
+    .map_err(fail)?;
     Ok((file, path))
 }
 

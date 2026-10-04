@@ -474,48 +474,9 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     fn expiry(&self, slice: &Value) -> Expiry;
 }
 
-/// Where a program somebody named is: the path itself, made absolute, when it has a
-/// directory in it, or the first file on `search`, a list in `PATH`'s form, that can be run.
-///
-/// Found the way `execvp` finds one, which passes over a directory of that name and a file
-/// nobody may run, so what is found here is what starts. Only a directory named from the
-/// root is looked in: a relative one names a place relative to wherever pitboard was
-/// started, which says nothing about where a tool is installed, and a sign-in that runs
-/// from a directory of its own would read it as somewhere else again.
-pub(crate) fn find_program(
-    named: &std::path::Path,
-    search: &std::ffi::OsStr,
-) -> Option<std::path::PathBuf> {
-    find_in(named, search, runnable)
-}
-
-/// `find_program` with the question of whether a file can be run handed in, so a test can
-/// see every place it looks.
-fn find_in(
-    named: &std::path::Path,
-    search: &std::ffi::OsStr,
-    mut runnable: impl FnMut(&std::path::Path) -> bool,
-) -> Option<std::path::PathBuf> {
-    if named.components().count() > 1 {
-        let named = std::path::absolute(named).ok()?;
-        return runnable(&named).then_some(named);
-    }
-    std::env::split_paths(search)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join(named))
-        .find(|candidate| runnable(candidate))
-}
-
-/// Whether `path` is a file somebody may run.
-fn runnable(path: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .is_ok_and(|found| found.is_file() && found.permissions().mode() & 0o111 != 0)
-}
-
 /// Where `tool`'s own program is, looked for the way the context says to look.
 pub(crate) fn program_of(ctx: &Context, tool: ProviderId) -> Option<std::path::PathBuf> {
-    find_program(ctx.program_for(tool), &ctx.search_path())
+    crate::host::program::find(ctx.program_for(tool), &ctx.search_path())
 }
 
 /// A command that runs `tool`'s own program, by the path it was found at, with the search
@@ -540,17 +501,23 @@ pub(crate) fn command(ctx: &Context, tool: ProviderId) -> std::process::Command 
         command.env("PATH", search);
         return command;
     };
-    let mut path = std::ffi::OsString::new();
-    if let Some(dir) = program
+    // An empty search path has no entries. Split, it would give one empty entry, and an
+    // empty entry is the current directory.
+    let entries: Vec<std::path::PathBuf> = if search.is_empty() {
+        Vec::new()
+    } else {
+        std::env::split_paths(&search).collect()
+    };
+    let path = match program
         .parent()
-        .filter(|dir| !std::env::split_paths(&search).any(|entry| entry == *dir))
+        .filter(|dir| !entries.iter().any(|entry| entry == dir))
     {
-        path.push(dir);
-        if !search.is_empty() {
-            path.push(":");
-        }
-    }
-    path.push(&search);
+        // Each entry was read out of a search path, so they join again as they were; only
+        // the program's own directory could hold the separator, and then it is left off.
+        Some(dir) => std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(entries))
+            .unwrap_or_else(|_| search.clone()),
+        None => search.clone(),
+    };
     let mut command = std::process::Command::new(program);
     command.env("PATH", path);
     command
@@ -656,7 +623,6 @@ mod tests {
 
     impl Prefix {
         fn new(name: &str) -> Prefix {
-            use std::os::unix::fs::PermissionsExt;
             let root = std::env::temp_dir().join(format!(
                 "pitboard-search-path-{name}-{}-{:?}",
                 std::process::id(),
@@ -668,8 +634,7 @@ mod tests {
             for &tool in ProviderId::ALL {
                 let program = bin.join(tool.program());
                 std::fs::write(&program, "").expect("a program");
-                std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
-                    .expect("a program that can be run");
+                crate::host::fs::testing::make_runnable(&program);
             }
             Prefix(root)
         }
@@ -710,31 +675,13 @@ mod tests {
     fn a_program_is_looked_for_on_the_search_path_it_is_given() {
         let prefix = Prefix::new("find");
         let search = format!("/nowhere/at/all::{}", prefix.bin().display());
-        let found = find_program(std::path::Path::new("codex"), search.as_ref());
+        let found = crate::host::program::find(std::path::Path::new("codex"), search.as_ref());
         assert_eq!(found, Some(prefix.bin().join("codex")));
         assert_eq!(
-            find_program(std::path::Path::new("ls"), search.as_ref()),
+            crate::host::program::find(std::path::Path::new("ls"), search.as_ref()),
             None,
             "ls is on this process's PATH and not on the one given"
         );
-    }
-
-    /// Only a directory named from the root is looked in. An empty entry and a relative one
-    /// both name somewhere relative to wherever pitboard was started, and a sign-in that
-    /// runs from a directory of its own would start something else from there.
-    #[test]
-    fn only_a_directory_named_from_the_root_is_looked_in() {
-        let mut looked = Vec::new();
-        let found = find_in(
-            std::path::Path::new("codex"),
-            "::bin:./node_modules/.bin:/usr/bin:".as_ref(),
-            |candidate| {
-                looked.push(candidate.to_path_buf());
-                false
-            },
-        );
-        assert_eq!(found, None);
-        assert_eq!(looked, [std::path::PathBuf::from("/usr/bin/codex")]);
     }
 
     /// A directory named for the program, or a file of that name nobody may run, is passed
@@ -750,33 +697,17 @@ mod tests {
             prefix.bin().display()
         );
         assert_eq!(
-            find_program(std::path::Path::new("codex"), search.as_ref()),
+            crate::host::program::find(std::path::Path::new("codex"), search.as_ref()),
             Some(prefix.bin().join("codex"))
         );
         for decoy in [dirs.join("codex"), files.join("codex")] {
             assert_eq!(
-                find_program(&decoy, "".as_ref()),
+                crate::host::program::find(&decoy, "".as_ref()),
                 None,
                 "{}",
                 decoy.display()
             );
         }
-    }
-
-    /// A program named with a directory relative to where pitboard was started is found as
-    /// that place, by its full path, so the sign-in that runs from a directory of its own
-    /// starts the same program.
-    #[test]
-    fn a_program_named_relative_to_here_is_found_by_its_full_path() {
-        let found =
-            find_in(std::path::Path::new("./bin/codex"), "".as_ref(), |_| true).expect("found");
-        assert!(found.is_absolute(), "{}", found.display());
-        assert_eq!(
-            found,
-            std::env::current_dir()
-                .expect("a working directory")
-                .join("bin/codex")
-        );
     }
 
     /// Every tool's sign-in runs the program found, by its full path. Found on the search

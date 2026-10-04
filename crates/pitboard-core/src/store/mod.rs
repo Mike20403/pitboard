@@ -1,24 +1,26 @@
-//! Reading and writing credentials, both Claude Code's live one and pitboard's parked ones.
+//! Reading and writing credentials, both a tool's live one and pitboard's parked ones.
+//!
+//! Which store holds what is decided by the tool and by the machine: a tool's own module
+//! builds its live chain, and [`crate::host::Host`] says what this machine has. What is
+//! here holds on every machine: the chain rules, and the stores that are only files.
 
 mod file;
-#[cfg(target_os = "macos")]
-mod keychain;
 #[cfg(any(test, feature = "test-support"))]
 pub mod memory;
-#[cfg(not(target_os = "macos"))]
-mod vault;
+// macOS parks in the login keychain, so there nothing outside the tests opens a vault of
+// files; every other system parks in one.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub(crate) mod vault;
+
+pub(crate) use file::PlainFile;
 
 use crate::context::Context;
 
 use serde_json::Value;
 use std::path::PathBuf;
 
-/// The only program trusted to read Claude Code's keychain item. Named here so the backend
-/// that runs it and the doctor check that looks for it cannot drift apart.
-pub(crate) const SECURITY: &str = "/usr/bin/security";
-
-/// Where a credential lives. `Keychain` never occurs off macOS: the platform's backend list
-/// rules it out, so callers need no platform checks of their own.
+/// Where a credential lives. `Keychain` occurs only where the machine has one: its host
+/// offers no other, so callers need no checks of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Backend {
@@ -124,122 +126,6 @@ pub(crate) trait RawStore: Send + Sync {
     /// which is every store but the keychain.
     fn cost(&self, _service: &str, _contents: &str) -> Option<Cost> {
         None
-    }
-}
-
-/// The machine pitboard is standing on, as one value rather than a set of `cfg` branches
-/// spread through the module. A host answers where the live credential may be, where
-/// pitboard's own parked ones go, and how a private sign-in's credential is read and
-/// discarded. It takes the context on every call because a context is built by a builder
-/// and can still change after it exists.
-///
-/// It was called `Platform` until a second provider was on the way. The name said "which
-/// operating system", the body reached into Claude Code's own slot hashing, and once
-/// "provider" became a word this codebase uses, a reader meeting `Platform` could not tell
-/// which of the two axes it meant. The Claude Code half is on its way out of here; what
-/// stays behind this name is the machine, and only the machine.
-pub(crate) trait Host: Send + Sync + std::fmt::Debug {
-    /// Keychain items another program owns, kept under `account`. `None` on a machine with
-    /// no keychain, where a tool keeps its login in a file instead.
-    ///
-    /// Which items and which account is the other program's business, so both are handed
-    /// in. Deriving them here is how Claude Code's slot hashing came to live inside what
-    /// claimed to be an operating-system abstraction.
-    fn foreign_keychain(&self, ctx: &Context, account: &str) -> Option<Box<dyn RawStore>>;
-
-    /// The single file at `path`, as a store.
-    fn file(&self, path: PathBuf) -> Box<dyn RawStore>;
-
-    /// Where pitboard's own parked logins go: the keychain where there is one, a private
-    /// directory of files where there is not. This one really is a fact about the machine.
-    fn vault(&self, ctx: &Context) -> Box<dyn RawStore>;
-
-    /// Whether every `PITBOARD_HOME` on this machine parks its logins in the one vault. A
-    /// keychain belongs to the whole login session, so a park in it that one home cannot
-    /// account for may be another home's; a vault of files lives inside its home, and
-    /// nothing in it can be anybody else's.
-    fn vault_is_shared(&self) -> bool;
-
-    /// The processes this user is running `program` in, with where each runs from, where
-    /// that can be told.
-    fn processes(&self, program: &str) -> Option<Vec<crate::process::Process>> {
-        crate::process::processes(program)
-    }
-}
-
-/// The keychain account pitboard stores its own items under.
-///
-/// It is Claude Code's derivation, and it stays Claude Code's derivation, because every
-/// park already on every machine is filed under whatever this returned the day it was
-/// written. Changing it would not move those items; it would make them unfindable, which
-/// is the same as deleting every parked login on upgrade.
-///
-/// macOS only: a keychain item is filed under an account, and a file is not.
-#[cfg(target_os = "macos")]
-pub(crate) fn vault_account(ctx: &Context) -> String {
-    crate::provider::claude::slot::account_name(ctx)
-}
-
-/// macOS: a keychain, and files.
-#[cfg(target_os = "macos")]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct MacOs;
-
-#[cfg(target_os = "macos")]
-impl Host for MacOs {
-    fn foreign_keychain(&self, ctx: &Context, account: &str) -> Option<Box<dyn RawStore>> {
-        Some(Box::new(keychain::Keychain::foreign(
-            ctx,
-            account.to_string(),
-        )))
-    }
-
-    fn file(&self, path: PathBuf) -> Box<dyn RawStore> {
-        Box::new(file::PlainFile::at(path))
-    }
-
-    fn vault(&self, ctx: &Context) -> Box<dyn RawStore> {
-        Box::new(keychain::Keychain::vault(ctx))
-    }
-
-    fn vault_is_shared(&self) -> bool {
-        true
-    }
-}
-
-/// Everywhere else: files, and pitboard's own file vault.
-#[cfg(not(target_os = "macos"))]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct PlainUnix;
-
-#[cfg(not(target_os = "macos"))]
-impl Host for PlainUnix {
-    fn foreign_keychain(&self, _ctx: &Context, _account: &str) -> Option<Box<dyn RawStore>> {
-        None
-    }
-
-    fn file(&self, path: PathBuf) -> Box<dyn RawStore> {
-        Box::new(file::PlainFile::at(path))
-    }
-
-    fn vault(&self, ctx: &Context) -> Box<dyn RawStore> {
-        Box::new(vault::FileVault::new(ctx))
-    }
-
-    fn vault_is_shared(&self) -> bool {
-        false
-    }
-}
-
-/// The host this build is standing on, which is what every real context uses.
-pub(crate) fn host() -> std::sync::Arc<dyn Host> {
-    #[cfg(target_os = "macos")]
-    {
-        std::sync::Arc::new(MacOs)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        std::sync::Arc::new(PlainUnix)
     }
 }
 
@@ -511,22 +397,5 @@ mod tests {
         assert_eq!(fp, fingerprint("sk-ant-example"));
         assert_ne!(fp, fingerprint("sk-ant-example2"));
         assert!(!fp.contains("sk-ant"));
-    }
-
-    /// A machine without a keychain must say so rather than hand back something that
-    /// behaves like one. A tool's own module builds its chain out of this answer, so a
-    /// host that always offered a keychain would build a chain that cannot work.
-    #[test]
-    fn a_keychain_is_offered_only_where_there_is_one() {
-        let ctx = Context::from_env();
-        let offered = ctx.host().foreign_keychain(&ctx, "someone");
-        assert_eq!(
-            offered.map(|k| k.kind()),
-            cfg!(target_os = "macos").then_some(Backend::Keychain)
-        );
-        assert_eq!(
-            ctx.host().file(PathBuf::from("/nowhere/at/all")).kind(),
-            Backend::File
-        );
     }
 }

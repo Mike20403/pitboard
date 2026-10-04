@@ -40,20 +40,29 @@ pages load, as a browser would.
   - `holder.rs`: what keeps a tool's login in memory while it runs, told apart by where
     its program runs from. A switch's warning, `doctor` and the app's offer to quit an app
     all read it, so they cannot disagree.
-  - `process.rs`: this user's processes of a program, with where each runs from.
-  - `store/`: reading and writing logins. On macOS, parked logins are keychain items. On
-    Linux, they are files in the vault.
+  - `host/`: the machine, behind one seam. The `Host` trait is what a test replaces: the
+    system's store of secrets, files, the vault, this user's processes and the scheduler,
+    reached through `Context` and faked by `host/memory.rs`. `fs`, `proc` and `user` are
+    plain functions for what the system does whoever asks: private files and directories,
+    whether a process is alive, the login name. `program.rs` finds a program the way the
+    system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
+    through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
+    `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`.
+  - `store/`: reading and writing logins, whichever store holds them: the chain rules, a
+    file, the vault of files and the stores in memory the tests use. On macOS, parked
+    logins are keychain items. On Linux, they are files in the vault.
   - `switch/`: every change to pitboard's index (switching, enrolling, adopting, renaming,
     forgetting, renewing, repairing, abandoning and uninstalling), and the journal that
     finishes an interrupted switch.
   - `state.rs`: `state.json`, the index of accounts and where each one's login is parked.
   - `lock.rs`: the lock Claude Code takes around credential writes, taken the same way.
   - `context.rs`: what the core takes from its environment, apart from the `PATH` that
-    `schedule.rs` reads on Linux.
+    `host/linux` reads to find the program daily renewal runs.
   - `api.rs`: the requests to Anthropic. The requests to OpenAI are in
     `provider/codex/api.rs`.
   - `status.rs`, `doctor.rs`, `statusline.rs` and `schedule.rs` serve the commands of the
-    same names. `schedule.rs` installs daily renewal.
+    same names. `schedule.rs` decides what daily renewal runs and whose it is; the host's
+    scheduler writes it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the app.
@@ -97,8 +106,14 @@ pages load, as a browser would.
   app builds its own `Context`, because an app opened from Finder has none of the shell's
   environment.
 - Two variables are read elsewhere. `PATH` is read when no search path was given
-  (`context.rs`), and on Linux to find the program daily renewal runs (`schedule.rs`).
-  `XPC_SERVICE_NAME`, which launchd sets, is read in `context.rs`.
+  (`context.rs`), and on Linux to find the program daily renewal runs (`host/linux`).
+  `XPC_SERVICE_NAME`, which launchd sets, is read in `host/macos/launchd.rs`.
+- Which system pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
+  that differs by system is either the host's to answer or a `match` on `host::OS`, so a
+  system added to `host::Os` does not compile until it is said for every one.
+- A test never reaches the system's own scheduler. A test context schedules through
+  `MemoryHost`, which writes the files in the test's home and asks no service manager, and
+  the real hosts refuse to ask launchd or systemd from a unit test at all.
 - `pitboard-ffi` exports records, enums, one error type, the function `tools` and two
   objects, `SignIn` and `Pitboard`. Every call is synchronous and may block on the
   keychain, a lock or the network. `PitboardKit` makes each call off the main thread.
@@ -426,7 +441,7 @@ treated, and only the macOS build shows it. The run reads both builds since.
 - `secret-tool` and `kwallet-query` do appear in the bundle, in the credential helpers its
   Bash sandbox keeps out of a shell. So neither name is used to look for a keyring backend.
 - On Linux, Claude Code has no keychain backend at all: the plaintext file holds the login.
-  Claude Code writes it, then sets its mode to 0600, and pitboard's `PlainUnix` host matches
+  Claude Code writes it, then sets its mode to 0600, and pitboard's Linux host matches
   that.
 - The register holds that absence as `no_keyring_off_macos`, and the conformance run looks
   for `Bun.secrets` and each keyring name in every Linux build. A fact that rests on

@@ -24,9 +24,11 @@ sha2.workspace = true
 hex.workspace = true
 unicode-normalization.workspace = true
 machine-uid.workspace = true
-libc.workspace = true
 ureq.workspace = true
 rustls.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [lints]
 workspace = true

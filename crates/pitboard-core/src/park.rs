@@ -206,7 +206,8 @@ pub fn purge(ctx: &Context, state: &mut State) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::memory::{Fault, MemoryHost};
+    use crate::host::memory::MemoryHost;
+    use crate::store::memory::Fault;
     use crate::time::FixedClock;
     use serde_json::json;
     use std::sync::Arc;

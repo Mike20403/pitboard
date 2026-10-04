@@ -9,7 +9,8 @@ use unicode_normalization::UnicodeNormalization;
 /// The service name used when no slot is selected.
 pub const LIVE_SERVICE: &str = "Claude Code-credentials";
 
-/// The credential file used when the keychain is unavailable, and always on Linux and Windows.
+/// The credential file Claude Code falls back to where its keychain write fails, and the
+/// only store it has on Linux.
 pub const CRED_FILE: &str = ".credentials.json";
 
 /// Claude Code's fallback when no usable name can be found at all.
@@ -23,37 +24,13 @@ const FALLBACK_ACCOUNT: &str = "claude-code-user";
 /// keychain item than the one Claude Code reads.
 pub fn account_name(ctx: &Context) -> String {
     let from_env = ctx.user.as_deref().filter(|u| !u.is_empty());
-    match from_env.map(str::to_owned).or_else(login_name) {
+    match from_env
+        .map(str::to_owned)
+        .or_else(crate::host::user::login_name)
+    {
         Some(name) if is_accepted_account(&name) => name,
         _ => FALLBACK_ACCOUNT.to_string(),
     }
-}
-
-/// The name in the passwd database for this user id, as `os.userInfo()` reads it.
-fn login_name() -> Option<String> {
-    let mut buffer = [0_i8; 1024];
-    // SAFETY: an all-zero `passwd` is a valid one to hand to getpwuid_r, which fills it.
-    let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
-    let mut found: *mut libc::passwd = std::ptr::null_mut();
-    // SAFETY: getpwuid_r writes into buffers this call owns and reports through `found`,
-    // which is null when there is no entry. The name it points at lives in `buffer`, which
-    // outlives the copy made below.
-    let code = unsafe {
-        libc::getpwuid_r(
-            libc::getuid(),
-            &raw mut passwd,
-            buffer.as_mut_ptr().cast(),
-            buffer.len(),
-            &raw mut found,
-        )
-    };
-    if code != 0 || found.is_null() || passwd.pw_name.is_null() {
-        return None;
-    }
-    // SAFETY: pw_name points into `buffer` and is NUL-terminated, as getpwuid_r guarantees
-    // when it reports an entry.
-    let name = unsafe { std::ffi::CStr::from_ptr(passwd.pw_name) };
-    name.to_str().ok().map(str::to_owned)
 }
 
 /// Claude Code accepts `^[a-zA-Z0-9._-]+$` and falls back to a literal otherwise.
@@ -86,7 +63,7 @@ mod tests {
     /// reach the passwd entry rather than the literal fallback.
     #[test]
     fn an_absent_user_falls_back_to_the_passwd_name() {
-        let Some(expected) = login_name() else {
+        let Some(expected) = crate::host::user::login_name() else {
             return; // No passwd entry here; the literal is then correct.
         };
         let home = std::path::PathBuf::from("/home/x");

@@ -6,18 +6,16 @@
 //! `/usr/bin/security` takes 1-3 seconds instead of 0.02, a cost Claude Code then pays on
 //! every credential re-read. A write through `security -U` changes only the item's mtime.
 
-use super::{Backend, Error, RawStore};
 use crate::context::Context;
-use crate::process;
+use crate::host::SECURITY;
+use crate::store::{Backend, Cost, Error, RawStore};
 use std::process::{Command, Output};
 use std::time::Duration;
-
-use super::SECURITY;
 
 /// Claude Code's own ceiling on an interactive `security` command line. Past it Claude
 /// Code passes the credential as an argument instead, where `ps` can read it; pitboard
 /// refuses rather than do that, so this is a real ceiling here and not a transport choice.
-pub(super) const MAX_COMMAND_BYTES: usize = 4032;
+const MAX_COMMAND_BYTES: usize = 4032;
 
 /// `security` exits with the low byte of the `OSStatus`: `errSecItemNotFound`.
 const ITEM_NOT_FOUND: i32 = 44;
@@ -96,7 +94,7 @@ const SECURITY_TIMEOUT: Duration = Duration::from_secs(60);
 fn security(args: &[&str], input: &str) -> std::io::Result<Output> {
     let mut command = Command::new(SECURITY);
     command.args(args);
-    process::output_within(command, input.as_bytes(), SECURITY_TIMEOUT)
+    super::helper::output_within(command, input.as_bytes(), SECURITY_TIMEOUT)
 }
 
 fn run(args: &[&str], owner: Owner) -> Presence {
@@ -132,8 +130,8 @@ fn command_for(account: &str, service: &str, secret: &str) -> String {
 
 impl Keychain {
     /// What the command that writes this would cost against what `security -i` reads.
-    fn price(&self, service: &str, contents: &str) -> super::Cost {
-        super::Cost {
+    fn price(&self, service: &str, contents: &str) -> Cost {
+        Cost {
             needs: command_for(&self.account, service, contents).len(),
             limit: MAX_COMMAND_BYTES,
             second_route: self.argv_fallback,
@@ -273,7 +271,7 @@ impl RawStore for Keychain {
         Ok(Some(names))
     }
 
-    fn cost(&self, service: &str, contents: &str) -> Option<super::Cost> {
+    fn cost(&self, service: &str, contents: &str) -> Option<Cost> {
         Some(self.price(service, contents))
     }
 }

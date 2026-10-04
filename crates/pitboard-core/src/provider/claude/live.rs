@@ -29,7 +29,7 @@ pub(crate) fn credential_file(ctx: &Context) -> PathBuf {
 pub(crate) fn chain(ctx: &Context) -> Live {
     let host = ctx.host();
     let mut backends: Vec<Box<dyn RawStore>> = Vec::new();
-    if let Some(keychain) = host.foreign_keychain(ctx, &slot::account_name(ctx)) {
+    if let Some(keychain) = host.foreign_secrets(ctx, &slot::account_name(ctx)) {
         backends.push(keychain);
     }
     backends.push(host.file(credential_file(ctx)));
@@ -40,7 +40,7 @@ pub(crate) fn chain(ctx: &Context) -> Live {
 /// keychain item its own hashing names, or the file inside that directory where there is
 /// no keychain.
 pub(crate) fn read_signin(ctx: &Context, dir: &Path) -> Result<Option<String>, Error> {
-    match ctx.host().foreign_keychain(ctx, &slot::account_name(ctx)) {
+    match ctx.host().foreign_secrets(ctx, &slot::account_name(ctx)) {
         Some(keychain) => keychain.read(&slot::service_for_dir(&dir.to_string_lossy())),
         None => ctx.host().file(dir.join(slot::CRED_FILE)).read(""),
     }
@@ -56,7 +56,7 @@ pub(crate) fn discard_signin(ctx: &Context, dir: &Path) -> Result<(), Error> {
     if service == slot::LIVE_SERVICE || service == claude::live_service(ctx) {
         return Err(Error::Write(format!("refusing to delete {service}")));
     }
-    match ctx.host().foreign_keychain(ctx, &slot::account_name(ctx)) {
+    match ctx.host().foreign_secrets(ctx, &slot::account_name(ctx)) {
         Some(keychain) => keychain.delete(&service),
         None => ctx.host().file(dir.join(slot::CRED_FILE)).delete(""),
     }

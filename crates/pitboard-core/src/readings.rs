@@ -15,7 +15,6 @@ use crate::context::Context;
 use crate::usage::{Snapshot, Source};
 use crate::{atomic, home};
 use std::collections::HashMap;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 fn path(ctx: &Context) -> PathBuf {
@@ -114,13 +113,14 @@ fn fold(all: &mut HashMap<String, Snapshot>, readings: &[(String, Snapshot)], no
 /// around switches: a status line must never wait on a switch.
 pub(crate) fn exclusive(ctx: &Context) -> Option<std::fs::File> {
     home::ensure(ctx).ok()?;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .mode(0o600)
-        .open(home::dir(ctx).join("usage.lock"))
-        .ok()?;
+    let file = crate::host::fs::private(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true),
+    )
+    .open(home::dir(ctx).join("usage.lock"))
+    .ok()?;
     file.lock().ok()?;
     Some(file)
 }

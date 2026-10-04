@@ -93,7 +93,7 @@ pub fn backup(ctx: &Context, path: &Path) -> Result<PathBuf> {
         source,
     };
     let dir = backups_dir(ctx);
-    home::create_private(&dir).map_err(fail)?;
+    crate::host::fs::create_private_dir(&dir).map_err(fail)?;
     let target = dir.join(format!("claude.json.{}", ctx.now()));
     std::fs::copy(path, &target).map_err(fail)?;
 

@@ -900,8 +900,9 @@ fn assemble(
 mod tests {
     use super::*;
     use crate::api::scripted::{Asked as Question, ScriptedApi, Trouble};
+    use crate::host::memory::MemoryHost;
     use crate::state::Account;
-    use crate::store::memory::{Fault, MemoryHost};
+    use crate::store::memory::Fault;
     use crate::time::{Clock, FixedClock};
     use crate::usage::Window;
     use serde_json::json;

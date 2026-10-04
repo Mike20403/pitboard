@@ -1,5 +1,5 @@
-//! One file as a credential store. Claude Code falls back to one on macOS and uses one
-//! everywhere else; Codex and Gemini keep their whole login in one.
+//! One file as a credential store. Claude Code falls back to one on macOS and has only one
+//! on Linux; Codex keeps its whole login in one.
 
 use super::{Backend, Error, RawStore};
 use crate::atomic;
@@ -7,12 +7,12 @@ use std::path::PathBuf;
 
 /// A tool that keeps its login in a file keeps exactly one per directory, so the service
 /// name selects nothing here.
-pub(super) struct PlainFile {
+pub(crate) struct PlainFile {
     path: PathBuf,
 }
 
 impl PlainFile {
-    pub(super) fn at(path: PathBuf) -> PlainFile {
+    pub(crate) fn at(path: PathBuf) -> PlainFile {
         PlainFile { path }
     }
 }
