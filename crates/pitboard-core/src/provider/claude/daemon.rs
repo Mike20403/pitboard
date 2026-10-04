@@ -15,7 +15,6 @@
 //! is why a switch reads the slot back rather than trusting that its own write stood.
 
 use super::paths as claude;
-use crate::atomic;
 use crate::context::Context;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -43,7 +42,7 @@ pub struct Daemon {
 pub fn read(ctx: &Context) -> Option<Daemon> {
     parse(
         &std::fs::read_to_string(lock_path(ctx)).ok()?,
-        atomic::may_be_running,
+        crate::host::proc::may_be_running,
     )
 }
 

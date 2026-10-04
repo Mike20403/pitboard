@@ -114,7 +114,7 @@ pub fn record(ctx: &Context, account_uuid: &str, snapshot: &Snapshot) {
     if !worth_keeping(existing.last(), &next) {
         return;
     }
-    if home::create_private(&dir(ctx)).is_err() {
+    if crate::host::fs::create_private_dir(&dir(ctx)).is_err() {
         return;
     }
     let Ok(line) = serde_json::to_string(&next) else {
@@ -138,11 +138,8 @@ pub fn record(ctx: &Context, account_uuid: &str, snapshot: &Snapshot) {
         );
         return;
     }
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(&path)
+    if let Ok(mut file) =
+        crate::host::fs::private(std::fs::OpenOptions::new().create(true).append(true)).open(&path)
     {
         let _ = writeln!(file, "{line}");
     }
@@ -244,8 +241,6 @@ pub fn runway(points: &[Point], now: i64) -> Runway {
 pub fn runway_for(ctx: &Context, account_uuid: &str, now: i64) -> Runway {
     runway(&series(ctx, account_uuid), now)
 }
-
-use std::os::unix::fs::OpenOptionsExt;
 
 #[cfg(test)]
 mod tests {

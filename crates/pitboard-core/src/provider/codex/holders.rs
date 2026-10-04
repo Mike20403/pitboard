@@ -52,7 +52,7 @@ pub(crate) const HOLDERS: &[Holder] = &[
 mod tests {
     use super::*;
     use crate::holder::classify;
-    use crate::process::Process;
+    use crate::host::Process;
     use std::path::PathBuf;
 
     /// The paths this Mac's process list gave, each where it belongs, and an editor

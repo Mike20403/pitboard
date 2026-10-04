@@ -12,7 +12,7 @@
 //! with one that is anywhere, so every process is one kind and none is guessed to be an app.
 
 use crate::context::Context;
-use crate::process::Process;
+use crate::host::Process;
 use std::path::Path;
 
 /// One kind of process that holds a tool's login.

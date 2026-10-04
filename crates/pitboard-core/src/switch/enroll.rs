@@ -20,7 +20,6 @@ use crate::state::{Account, Key, Park, State};
 use crate::{home, lock, park, state, store};
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions, TryLockError};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -72,16 +71,13 @@ fn reserve_signin(ctx: &Context, which: ProviderId) -> Result<SignIn> {
         source,
     })?;
     let lock_path = home.join("signin.lock");
-    let one_at_a_time = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .mode(0o600)
-        .open(&lock_path)
-        .map_err(|source| Error::HomeUnwritable {
-            path: lock_path.clone(),
-            source,
-        })?;
+    let one_at_a_time =
+        crate::host::fs::private(OpenOptions::new().create(true).truncate(false).write(true))
+            .open(&lock_path)
+            .map_err(|source| Error::HomeUnwritable {
+                path: lock_path.clone(),
+                source,
+            })?;
     match one_at_a_time.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => return Err(Error::SignInInProgress),
@@ -103,7 +99,7 @@ fn reserve_signin(ctx: &Context, which: ProviderId) -> Result<SignIn> {
         provider::of(tool).discard_signin(ctx, &dir);
     }
     let _ = std::fs::remove_dir_all(&dir);
-    home::create_private(&dir).map_err(|source| Error::HomeUnwritable {
+    crate::host::fs::create_private_dir(&dir).map_err(|source| Error::HomeUnwritable {
         path: dir.clone(),
         source,
     })?;

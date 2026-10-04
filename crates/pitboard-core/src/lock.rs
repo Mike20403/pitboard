@@ -112,7 +112,7 @@ fn mtime(path: &Path) -> io::Result<SystemTime> {
 /// the value read back is the only one worth remembering. It also makes a filesystem that
 /// truncates, which a network home may, a case that needs no special handling at all.
 fn touch(path: &Path, at: SystemTime) -> io::Result<SystemTime> {
-    std::fs::File::open(path)?.set_modified(at)?;
+    crate::host::fs::touch_dir(path, at)?;
     mtime(path)
 }
 

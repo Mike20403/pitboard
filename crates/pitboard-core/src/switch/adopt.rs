@@ -75,9 +75,9 @@ pub fn adopt(ctx: &Context) -> Result<Option<Adopted>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::memory::MemoryHost;
     use crate::provider::ProviderId;
     use crate::state::{Account, State};
-    use crate::store::memory::MemoryHost;
     use crate::time::{Clock, FixedClock};
     use serde_json::json;
     use std::sync::Arc;

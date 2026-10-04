@@ -9,6 +9,7 @@
 
 use crate::context::Context;
 use crate::error::Error;
+use crate::host::{Access, Kind, Os};
 use crate::provider::ProviderId;
 use crate::provider::claude::daemon;
 use crate::provider::claude::live as claude_live;
@@ -41,6 +42,8 @@ pub struct Check {
 /// added reads something more, so it cannot be built outside this crate.
 #[non_exhaustive]
 pub struct Facts {
+    /// The system these were read on, which is what decides some of the judgements.
+    pub os: Os,
     pub security_tool: Option<String>,
     pub config_path: PathBuf,
     pub config: Result<Value, Error>,
@@ -57,11 +60,11 @@ pub struct Facts {
     /// What is taking up the room, largest first: (what it is, bytes).
     pub credential_parts: Vec<(String, usize)>,
     pub home: PathBuf,
-    pub home_mode: Option<u32>,
+    pub home_access: Option<Access>,
     /// Anything on this disk holding a login that somebody other than the owner can read:
-    /// (path, mode). Empty on a machine with a keychain and a tidy plaintext fallback,
-    /// and the whole security story on a machine without one.
-    pub readable_by_others: Vec<(String, u32)>,
+    /// (path, its access). Empty on a machine with a keychain and a tidy plaintext
+    /// fallback, and the whole security story on a machine without one.
+    pub readable_by_others: Vec<(String, Access)>,
     pub machine_id_known: bool,
     /// `CLAUDE_CODE_HOVER_REST`, which switches on the successor credential backend.
     pub hover_rest_env: bool,
@@ -121,8 +124,8 @@ pub struct CodexFacts {
     pub backend: &'static str,
     /// Where the default store keeps it.
     pub auth_file: PathBuf,
-    /// That file's mode, where there is such a file.
-    pub auth_mode: Option<u32>,
+    /// Who can reach that file, where there is such a file.
+    pub auth_access: Option<Access>,
     /// Whose login the file holds, or why that could not be told. `Ok(None)` for no file,
     /// and for a store pitboard does not read.
     pub login: Result<Option<CodexLogin>, CodexLoginTrouble>,
@@ -228,9 +231,11 @@ pub fn gather(ctx: &Context) -> Facts {
     let home = home::dir(ctx);
     let identity = config.as_ref().ok().and_then(claude::identity);
     Facts {
-        security_tool: cfg!(target_os = "macos")
-            .then(|| store::SECURITY.to_string())
-            .filter(|p| std::fs::metadata(p).is_ok()),
+        os: crate::host::OS,
+        security_tool: crate::host::OS
+            .secrets_tool()
+            .filter(|p| std::fs::metadata(p).is_ok())
+            .map(str::to_string),
         config_path: claude::config_file(ctx),
         identity: identity.clone(),
         config,
@@ -249,7 +254,7 @@ pub fn gather(ctx: &Context) -> Facts {
             .map(|doc| parts_of(&doc))
             .unwrap_or_default(),
         credential: store::read(&claude_live::chain(ctx), &service),
-        home_mode: mode_of(&home),
+        home_access: crate::host::fs::access(&home),
         readable_by_others: loose_logins(ctx),
         home,
         machine_id_known: crate::state::machine_id() != "unknown",
@@ -323,28 +328,21 @@ fn parts_of(document: &Value) -> Vec<(String, usize)> {
     parts
 }
 
-fn mode_of(path: &std::path::Path) -> Option<u32> {
-    use std::os::unix::fs::PermissionsExt;
-    Some(std::fs::metadata(path).ok()?.permissions().mode() & 0o777)
-}
-
 /// Every file on this machine that holds a usable login and is not private to its owner.
 ///
 /// Claude Code has no keyring backend outside macOS and Windows, so on Linux its own login
 /// is a plaintext file it chmods to 0600, and pitboard's parked logins are plaintext files
 /// beside it. That is not pitboard weakening anything, but it does mean the only thing
-/// between a parked OAuth token and everyone else with an account on the machine is a mode
-/// bit, and a mode bit is something a backup restore, a `cp`, an rsync or a careless umask
-/// quietly changes. So it is looked at rather than assumed.
-fn loose_logins(ctx: &Context) -> Vec<(String, u32)> {
-    // Group and other, read or write. Anything there is somebody who is not the owner.
-    const SHARED: u32 = 0o077;
+/// between a parked OAuth token and everyone else with an account on the machine is who
+/// the file lets in, and that is something a backup restore, a `cp`, an rsync or a careless
+/// umask quietly changes. So it is looked at rather than assumed.
+fn loose_logins(ctx: &Context) -> Vec<(String, Access)> {
     let mut loose = Vec::new();
     let mut look = |path: std::path::PathBuf| {
-        if let Some(mode) = mode_of(&path)
-            && mode & SHARED != 0
+        if let Some(access) = crate::host::fs::access(&path)
+            && access.shared
         {
-            loose.push((path.display().to_string(), mode));
+            loose.push((path.display().to_string(), access));
         }
     };
     look(claude_live::credential_file(ctx));
@@ -379,7 +377,7 @@ fn codex_facts(ctx: &Context, state: Option<&State>) -> CodexFacts {
                 .count()
         }),
         backend: backend_name(backend),
-        auth_mode: mode_of(&auth_file),
+        auth_access: crate::host::fs::access(&auth_file),
         // Read only from the default store. A keychain item Codex created for itself
         // trusts the `codex` binary alone, and reading it would put a permission prompt in
         // front of somebody who only asked for a diagnosis.
@@ -535,13 +533,13 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
     let codex_here = facts.codex.present || facts.codex.enrolled > 0;
     let claude_here = facts.claude_present || !codex_here;
 
-    if cfg!(target_os = "macos") {
+    if let Some(tool) = facts.os.secrets_tool() {
         checks.push(match &facts.security_tool {
             Some(path) => ok("security_tool", "security tool", path.clone()),
             None => fail(
                 "security_tool",
                 "security tool",
-                format!("{} is missing", store::SECURITY),
+                format!("{tool} is missing"),
                 "pitboard reads the keychain the same way Claude Code does. Without it, nothing works.",
             ),
         });
@@ -642,15 +640,14 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
         Ok(store::Backend::Keychain) => ok("credential_store", "credential store", "keychain"),
         Ok(store::Backend::File) => {
             let detail = format!("plaintext file  ·  {}", facts.credential_file.display());
-            if cfg!(target_os = "macos") {
-                warn(
+            match facts.os {
+                Os::MacOs => warn(
                     "credential_store",
                     "credential store",
                     detail,
                     "Claude Code fell back to a file, which means a keychain write failed at some point.",
-                )
-            } else {
-                ok("credential_store", "credential store", detail)
+                ),
+                Os::Linux => ok("credential_store", "credential store", detail),
             }
         }
         // The one wrong diagnosis in this file. If Claude Code's config names somebody as
@@ -723,21 +720,24 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
         },
     );
 
-    checks.push(match facts.home_mode {
+    checks.push(match &facts.home_access {
         None => ok(
             "home",
             "pitboard home",
             format!("{} (not created yet)", facts.home.display()),
         ),
-        Some(0o700) => ok("home", "pitboard home", facts.home.display().to_string()),
-        Some(mode) => warn(
+        Some(access) if !access.shared => {
+            ok("home", "pitboard home", facts.home.display().to_string())
+        }
+        Some(access) => warn(
             "home",
             "pitboard home",
-            format!("{} is mode {mode:o}", facts.home.display()),
+            format!("{} is {}", facts.home.display(), access.described),
             format!(
-                "Park names contain account identifiers, so only you should read it: \
-                 `chmod 700 {}`.",
-                facts.home.display()
+                "Park names contain account identifiers, so only you should read it: `{}`.",
+                facts
+                    .os
+                    .make_private_command(Kind::Directory, &[&facts.home.display().to_string()])
             ),
         ),
     });
@@ -752,20 +752,22 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
         let names: Vec<String> = facts
             .readable_by_others
             .iter()
-            .map(|(path, mode)| format!("{path} is mode {mode:o}"))
+            .map(|(path, access)| format!("{path} is {}", access.described))
             .collect();
         fail(
             "private_on_disk",
             "logins on disk",
             names.join("; "),
             format!(
-                "These hold usable OAuth tokens in plain text, which is how Claude Code                  stores them where there is no keychain. Anyone else on this machine can                  read them: `chmod go-rwx {}`.",
-                facts
-                    .readable_by_others
-                    .iter()
-                    .map(|(path, _)| path.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                "These hold usable OAuth tokens in plain text, which is how Claude Code                  stores them where there is no keychain. Anyone else on this machine can                  read them: `{}`.",
+                facts.os.make_private_command(
+                    Kind::Any,
+                    &facts
+                        .readable_by_others
+                        .iter()
+                        .map(|(path, _)| path.as_str())
+                        .collect::<Vec<_>>()
+                ),
             ),
         )
     });
@@ -846,7 +848,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
     // Only where there is a Codex to say something about. A machine that has never run it
     // reads exactly as it did before pitboard knew Codex existed.
     if codex_here || !codex_parks.is_empty() {
-        checks.extend(judge_codex(&facts.codex, &codex_parks, facts.now));
+        checks.extend(judge_codex(facts.os, &facts.codex, &codex_parks, facts.now));
     }
     if !claude_here {
         checks.retain(|check| !CLAUDE_CODES_OWN.contains(&check.code));
@@ -1228,7 +1230,7 @@ fn judge_pending(facts: &Facts) -> Check {
 /// An app up to 0.3.0 scheduled itself rather than a command line, and that app renews
 /// nothing when it is started with `renew`, so that is said as well.
 fn judge_schedule(facts: &Facts) -> Option<Check> {
-    let again = again(cfg!(target_os = "macos"));
+    let again = again(facts.os);
     let schedule = facts.schedule.as_ref()?;
     Some(match &schedule.program {
         Some(program) if !schedule.program_found => fail(
@@ -1264,13 +1266,21 @@ fn judge_schedule(facts: &Facts) -> Option<Check> {
 }
 
 /// How to write the schedule again. There is an app only on macOS.
-fn again(macos: bool) -> &'static str {
-    if macos {
+fn again(os: Os) -> &'static str {
+    if has_app(os) {
         "Turn daily renewal off and on again: in the app's Settings, or with \
          `pitboard schedule uninstall` and then `pitboard schedule install`."
     } else {
         "Turn daily renewal off and on again with `pitboard schedule uninstall` and then \
          `pitboard schedule install`."
+    }
+}
+
+/// Whether pitboard has an app for `os`, with a Settings window of its own.
+fn has_app(os: Os) -> bool {
+    match os {
+        Os::MacOs => true,
+        Os::Linux => false,
     }
 }
 
@@ -1316,7 +1326,7 @@ fn judge_daemon(facts: &Facts) -> Check {
 ///   and nothing more, so somebody who uses pitboard for Claude Code alone is not handed a
 ///   warning about a setting they chose and pitboard has no business with.
 /// - A fact, such as how many sessions are running, which is only ever stated.
-fn judge_codex(facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> {
+fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> {
     let mut checks = Vec::new();
     let enrolled = facts.enrolled > 0 || !parks.is_empty();
     let broken = |code, name: &str, detail: String, advice: String| {
@@ -1372,7 +1382,7 @@ fn judge_codex(facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> 
     // The file and what is in it are only worth a word where the file is the store: a
     // keychain store deletes it on purpose.
     if file {
-        checks.push(match facts.auth_mode {
+        checks.push(match &facts.auth_access {
             None if enrolled => warn(
                 "codex_auth_file",
                 "Codex login file",
@@ -1389,20 +1399,20 @@ fn judge_codex(facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> 
                 "Codex login file",
                 "absent; nothing is signed in to Codex",
             ),
-            Some(mode) if mode & 0o077 != 0 => warn(
+            Some(access) if access.shared => warn(
                 "codex_auth_file",
                 "Codex login file",
-                format!("{} is mode {mode:o}", facts.auth_file.display()),
+                format!("{} is {}", facts.auth_file.display(), access.described),
                 format!(
                     "It holds a usable login in plain text, and Codex sets 0600 only when it \
-                     creates the file, never on a later write: `chmod 600 {}`.",
-                    facts.auth_file.display()
+                     creates the file, never on a later write: `{}`.",
+                    os.make_private_command(Kind::File, &[&facts.auth_file.display().to_string()])
                 ),
             ),
-            Some(mode) => ok(
+            Some(access) => ok(
                 "codex_auth_file",
                 "Codex login file",
-                format!("{}  ·  mode {mode:o}", facts.auth_file.display()),
+                format!("{}  ·  {}", facts.auth_file.display(), access.described),
             ),
         });
         match &facts.login {
@@ -1532,7 +1542,7 @@ pub fn run(ctx: &Context) -> Diagnosis {
                 "backend": facts.codex.backend,
                 // Unknown for a store pitboard does not read, rather than a guess.
                 "login_present": (facts.codex.backend == "file")
-                    .then_some(facts.codex.auth_mode.is_some()),
+                    .then_some(facts.codex.auth_access.is_some()),
                 "version": facts.codex.version,
             },
         }),
@@ -1615,8 +1625,17 @@ pub fn healthy(checks: &[Check]) -> bool {
 mod tests {
     use super::*;
 
+    /// What a mode looks like as access, the way a Unix system describes one.
+    fn mode(mode: u32) -> Access {
+        Access {
+            shared: mode & 0o077 != 0,
+            described: format!("mode {mode:o}"),
+        }
+    }
+
     fn facts() -> Facts {
         Facts {
+            os: crate::host::OS,
             security_tool: Some("/usr/bin/security".into()),
             config_path: PathBuf::from("/home/x/.claude.json"),
             config: Ok(json!({"oauthAccount": {}})),
@@ -1645,7 +1664,7 @@ mod tests {
                 "refreshTokenExpiresAt": 2_000_000_000_000i64
             }}))),
             home: PathBuf::from("/home/x/.pitboard"),
-            home_mode: Some(0o700),
+            home_access: Some(mode(0o700)),
             readable_by_others: Vec::new(),
             machine_id_known: true,
             hover_rest_env: false,
@@ -1672,7 +1691,7 @@ mod tests {
             enrolled: 0,
             backend: "file",
             auth_file: PathBuf::from("/home/x/.codex/auth.json"),
-            auth_mode: None,
+            auth_access: None,
             login: Ok(None),
             program: None,
             version: None,
@@ -1682,14 +1701,14 @@ mod tests {
 
     /// Codex's section for a machine with no Codex accounts parked.
     fn codex_checks(codex: &CodexFacts) -> Vec<Check> {
-        judge_codex(codex, &[], NOW)
+        judge_codex(crate::host::OS, codex, &[], NOW)
     }
 
     /// A machine whose Codex is signed in, with its login where it should be.
     fn with_codex() -> CodexFacts {
         CodexFacts {
             present: true,
-            auth_mode: Some(0o600),
+            auth_access: Some(mode(0o600)),
             login: Ok(Some(CodexLogin {
                 email: "w@example.com".into(),
                 account_id: "work-account".into(),
@@ -1752,7 +1771,7 @@ mod tests {
     /// says would pass every one of those tests.
     #[test]
     fn a_world_readable_park_is_found_on_the_disk() {
-        use std::os::unix::fs::PermissionsExt;
+        use crate::host::fs::testing;
 
         let root = std::env::temp_dir().join(format!(
             "pitboard-doctor-modes-{}-{:?}",
@@ -1770,8 +1789,7 @@ mod tests {
 
         let ctx = Context::new(root.clone()).with_pitboard_home(root.join(".pitboard"));
         let vault = store::vault_dir(&ctx);
-        std::fs::create_dir_all(&vault).expect("a vault");
-        std::fs::set_permissions(&vault, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::host::fs::create_private_dir(&vault).expect("a vault");
         assert!(
             loose_logins(&ctx).is_empty(),
             "a private vault is not loose"
@@ -1779,14 +1797,14 @@ mod tests {
 
         let park = vault.join("pitboard-park-x.json");
         std::fs::write(&park, "{}").expect("a park");
-        std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o644)).unwrap();
+        testing::open_to_others(&park);
         let found = loose_logins(&ctx);
         assert_eq!(found.len(), 1, "{found:?}");
-        assert_eq!(found[0].1, 0o644);
+        assert_eq!(Some(&found[0].1), crate::host::fs::access(&park).as_ref());
         assert!(found[0].0.ends_with("pitboard-park-x.json"), "{found:?}");
 
-        std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(loose_logins(&ctx).is_empty(), "0600 is private");
+        testing::make_private(&park);
+        assert!(loose_logins(&ctx).is_empty(), "a private park is not loose");
     }
 
     /// On a machine with no keychain every parked login is a plaintext OAuth token in a
@@ -1799,8 +1817,11 @@ mod tests {
         assert_eq!(check(&evaluate(&f), "private_on_disk").level, Level::Ok);
 
         f.readable_by_others = vec![
-            ("/home/a/.pitboard/vault/pitboard-park-x.json".into(), 0o644),
-            ("/home/a/.claude/.credentials.json".into(), 0o640),
+            (
+                "/home/a/.pitboard/vault/pitboard-park-x.json".into(),
+                mode(0o644),
+            ),
+            ("/home/a/.claude/.credentials.json".into(), mode(0o640)),
         ];
         let checks = evaluate(&f);
         let found = check(&checks, "private_on_disk");
@@ -1846,7 +1867,7 @@ mod tests {
     #[test]
     fn a_loose_home_directory_is_flagged() {
         let mut f = facts();
-        f.home_mode = Some(0o755);
+        f.home_access = Some(mode(0o755));
         let checks = evaluate(&f);
         let home = check(&checks, "home");
         assert_eq!(home.level, Level::Warn);
@@ -2082,7 +2103,7 @@ mod tests {
         let gone = check(&checks, "schedule");
         assert_eq!(gone.level, Level::Fail, "every renewal from now on fails");
         assert!(gone.detail.contains("/opt/homebrew/bin/pitboard"));
-        assert_eq!(gone.advice, again(cfg!(target_os = "macos")));
+        assert_eq!(gone.advice, again(crate::host::OS));
 
         f.schedule = Some(ScheduleFact {
             path: PathBuf::from("/home/x/Library/LaunchAgents/com.datlechin.pitboard.renew.plist"),
@@ -2123,19 +2144,18 @@ mod tests {
     /// there is one.
     #[test]
     fn a_broken_schedule_is_written_again_by_whatever_this_machine_has() {
-        let mac = again(true);
+        let mac = again(Os::MacOs);
         assert!(
             mac.contains("the app's Settings") && mac.contains("pitboard schedule install"),
             "{mac}"
         );
-        let linux = again(false);
+        let linux = again(Os::Linux);
         assert!(linux.contains("pitboard schedule install"), "{linux}");
         assert!(!linux.contains("app"), "there is no app here: {linux}");
     }
 
     /// What the check above is given, read off a real disk: a schedule written the way
     /// `pitboard schedule install` writes it, whose pitboard is then taken away.
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn a_schedule_whose_pitboard_is_gone_is_found_on_the_disk() {
         let root = std::env::temp_dir().join(format!(
@@ -2154,7 +2174,9 @@ mod tests {
         std::fs::create_dir_all(&root).expect("a scratch home");
 
         let program = root.join("bin/pitboard");
-        let ctx = Context::new(root.clone()).with_schedule_program(program.clone());
+        let ctx = Context::new(root.clone())
+            .with_memory_stores(crate::host::memory::MemoryHost::new())
+            .with_schedule_program(program.clone());
         assert!(schedule_fact(&ctx).is_none(), "nothing installed yet");
 
         std::fs::create_dir_all(root.join("bin")).expect("a bin");
@@ -2177,7 +2199,7 @@ mod tests {
     fn every_failure_and_warning_tells_the_user_something() {
         let mut f = facts();
         f.credential = Ok(Some(json!({"slackTag": {}})));
-        f.home_mode = Some(0o755);
+        f.home_access = Some(mode(0o755));
         for c in evaluate(&f) {
             if c.level != Level::Ok {
                 assert!(!c.advice.is_empty(), "{} has no advice", c.code);
@@ -2322,7 +2344,7 @@ mod tests {
     /// parked to switch to, and the advice was to sign in again.
     #[test]
     fn an_account_is_active_by_its_own_tools_record() {
-        use crate::store::memory::MemoryHost;
+        use crate::host::memory::MemoryHost;
 
         let root = std::env::temp_dir().join(format!(
             "pitboard-doctor-active-{}-{:?}",
@@ -2639,7 +2661,7 @@ mod tests {
     /// standalone install is named without opening any file inside it.
     #[test]
     fn a_version_is_read_out_of_each_way_codex_is_installed() {
-        use std::os::unix::fs::symlink;
+        use crate::host::fs::testing::link as symlink;
 
         let root = std::env::temp_dir().join(format!(
             "pitboard-doctor-codex-version-{}-{:?}",
@@ -2671,7 +2693,7 @@ mod tests {
         .unwrap();
         let link = root.join("bin/codex");
         std::fs::create_dir_all(link.parent().unwrap()).unwrap();
-        symlink(&standalone, &link).unwrap();
+        symlink(&standalone, &link);
         assert_eq!(codex_version(&link).as_deref(), Some("0.154.0"));
 
         let cask = place("Caskroom/codex/0.153.2/codex-aarch64-apple-darwin");
@@ -2698,14 +2720,14 @@ mod tests {
     #[test]
     fn a_codex_login_anybody_can_read_or_nobody_can_parse_is_said() {
         let mut codex = with_codex();
-        codex.auth_mode = Some(0o644);
+        codex.auth_access = Some(mode(0o644));
         let checks = codex_checks(&codex);
         let file = check(&checks, "codex_auth_file");
         assert_eq!(file.level, Level::Warn);
         assert!(file.detail.contains("mode 644"), "{}", file.detail);
         assert!(file.advice.contains("chmod 600"), "{}", file.advice);
 
-        codex.auth_mode = Some(0o600);
+        codex.auth_access = Some(mode(0o600));
         codex.login = Err(CodexLoginTrouble::Unusable(
             "its id token is not readable".into(),
         ));
@@ -2726,7 +2748,7 @@ mod tests {
     #[test]
     fn running_codex_processes_are_reported_as_a_fact() {
         use crate::holder::classify;
-        use crate::process::Process;
+        use crate::host::Process;
         let at = |pid: u32, path: &str| Process {
             pid,
             path: PathBuf::from(path),
@@ -2793,7 +2815,7 @@ mod tests {
     /// with two different scans, and only the switch's could be stood in for.
     #[test]
     fn doctor_and_a_switch_see_the_same_codex_running() {
-        use crate::store::memory::MemoryHost;
+        use crate::host::memory::MemoryHost;
         let host = MemoryHost::new();
         host.runs_at(
             "codex",
@@ -2818,7 +2840,7 @@ mod tests {
             let codex = CodexFacts {
                 backend,
                 enrolled: 1,
-                auth_mode: Some(0o666),
+                auth_access: Some(mode(0o666)),
                 login: Err(CodexLoginTrouble::Unusable("unreadable".into())),
                 ..with_codex()
             };
@@ -2850,7 +2872,7 @@ mod tests {
     /// login in it, in the file Codex keeps it in.
     #[test]
     fn codex_facts_are_read_off_the_disk() {
-        use std::os::unix::fs::PermissionsExt;
+        use crate::host::fs::testing;
 
         let root = std::env::temp_dir().join(format!(
             "pitboard-doctor-codex-{}-{:?}",
@@ -2877,7 +2899,7 @@ mod tests {
         let absent = codex_facts(&ctx, None);
         assert!(!absent.present);
         assert_eq!(absent.backend, "file");
-        assert_eq!(absent.auth_mode, None);
+        assert_eq!(absent.auth_access, None);
         assert!(matches!(absent.login, Ok(None)));
         assert_eq!(absent.program, None, "the one named, and it is not there");
         assert_eq!(absent.version, None);
@@ -2886,9 +2908,9 @@ mod tests {
         std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
         std::fs::write(&installed, "").unwrap();
         // A program is what can be run, as the installer leaves it.
-        std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o755)).unwrap();
+        testing::make_runnable(&installed);
         std::fs::create_dir_all(program.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(&installed, &program).unwrap();
+        testing::link(&installed, &program);
         let found = codex_facts(&ctx, None);
         assert_eq!(found.program.as_deref(), Some(program.as_path()));
         assert_eq!(found.version.as_deref(), Some("0.154.0"));
@@ -2912,10 +2934,10 @@ mod tests {
             .to_string(),
         )
         .expect("a login");
-        std::fs::set_permissions(&auth, std::fs::Permissions::from_mode(0o644)).unwrap();
+        testing::open_to_others(&auth);
         let found = codex_facts(&ctx, None);
         assert!(found.present);
-        assert_eq!(found.auth_mode, Some(0o644));
+        assert!(found.auth_access.expect("there").shared);
         let login = found.login.expect("readable").expect("there");
         assert_eq!(login.email, "w@example.com");
         assert_eq!(login.fingerprint.len(), 16);

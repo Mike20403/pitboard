@@ -401,7 +401,7 @@ fn renewing_killed_between_the_write_and_the_record_leaves_nothing_unnamed() {
 /// it back.
 #[test]
 fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
-    use std::os::unix::fs::PermissionsExt;
+    use crate::host::fs::testing;
     let m = machine("renew-save-fails");
     let key = crate::state::Key::new(crate::provider::ProviderId::Claude, "there");
     let mut state = state::load(&m.ctx).expect("state");
@@ -442,11 +442,11 @@ fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
     let outcomes = fault::meanwhile(
         "renew.park_stored",
         move || {
-            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+            testing::deny_changes(&locked);
         },
         || renew::renew_parked(&m.ctx),
     );
-    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    testing::allow_changes(&home);
     assert!(
         outcomes
             .iter()

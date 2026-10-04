@@ -1,19 +1,19 @@
-//! The one durable write, for every file that must survive an interrupted run. The directory
-//! is synced after the rename because ext4 and xfs can lose a rename across a crash even
-//! when the contents were synced. The directory must already exist: its mode is the
-//! caller's to choose.
+//! The one durable write, for every file that must survive an interrupted run: a private
+//! temporary, its contents synced, renamed over the file, and the rename made durable as the
+//! system allows. The directory must already exist: who may reach it is the caller's to
+//! choose.
 
+use crate::host::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub enum Perms {
-    /// 0600 regardless of umask or of what is already there.
+    /// Private to its owner, whatever the umask and whatever is already there.
     Secret,
-    /// Exactly the mode of the file at the path now, tighter or looser than 0600. `Secret`
-    /// when nothing is there yet, or when the path is a symlink.
+    /// Exactly the access the file at the path has now, tighter or looser than private.
+    /// `Secret` when nothing is there yet, or when the path is a symlink.
     MatchExisting,
 }
 
@@ -33,18 +33,13 @@ pub fn write(path: &Path, contents: &[u8], perms: Perms) -> io::Result<()> {
     ));
 
     let result = (|| -> io::Result<()> {
-        // Created private and given the existing mode afterwards: too closed for a moment is
-        // safe, too open is not. A symlink's own mode says nothing about its target, and the
-        // rename replaces the link rather than following it, as Claude Code's writes do.
+        // Created private and given the existing access afterwards: too closed for a moment
+        // is safe, too open is not.
         let mut file = create_fresh(&temp)?;
         file.write_all(contents)?;
         file.sync_all()?;
-        if let Perms::MatchExisting = perms
-            && let Ok(existing) = std::fs::symlink_metadata(path)
-            && !existing.file_type().is_symlink()
-        {
-            let mode = existing.permissions().mode() & 0o777;
-            std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(mode))?;
+        if let Perms::MatchExisting = perms {
+            fs::copy_access(path, &temp)?;
         }
         std::fs::rename(&temp, path)
     })();
@@ -53,8 +48,7 @@ pub fn write(path: &Path, contents: &[u8], perms: Perms) -> io::Result<()> {
         let _ = std::fs::remove_file(&temp);
         return result;
     }
-    // Best effort: the data is already durable, this makes the rename durable too.
-    let _ = File::open(dir).and_then(|d| d.sync_all());
+    fs::sync_dir(dir);
     Ok(())
 }
 
@@ -81,13 +75,7 @@ fn temp_owner(file_name: &str) -> Option<u32> {
 /// A new private file at `temp`. This process never reuses a name, so a file already there
 /// was left by an earlier process that had the same pid, as happens in containers.
 fn create_fresh(temp: &Path) -> io::Result<File> {
-    let create = || {
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(temp)
-    };
+    let create = || fs::private(OpenOptions::new().write(true).create_new(true)).open(temp);
     match create() {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
             remove_stale(temp)?;
@@ -121,20 +109,10 @@ fn sweep(dir: &Path) {
         let Some(pid) = entry.file_name().to_str().and_then(temp_owner) else {
             continue;
         };
-        if pid != me && !may_be_running(pid) {
+        if pid != me && !crate::host::proc::may_be_running(pid) {
             let _ = remove_stale(&entry.path());
         }
     }
-}
-
-pub(crate) fn may_be_running(pid: u32) -> bool {
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return true;
-    };
-    // SAFETY: signal 0 is never delivered; `kill` only reports whether `pid` exists and may
-    // be signalled, and touches no memory of this process.
-    let probed = unsafe { libc::kill(pid, 0) };
-    probed == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(test)]
@@ -149,8 +127,10 @@ mod tests {
         dir
     }
 
-    fn mode_of(path: &Path) -> u32 {
-        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    use crate::host::fs::testing;
+
+    fn private(path: &Path) -> bool {
+        !fs::access(path).expect("it can be looked at").shared
     }
 
     #[test]
@@ -158,7 +138,7 @@ mod tests {
         let dir = scratch("secret");
         let path = dir.join("state.json");
         write(&path, b"{}", Perms::Secret).unwrap();
-        assert_eq!(mode_of(&path), 0o600);
+        assert!(private(&path));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -178,11 +158,12 @@ mod tests {
         let dir = scratch("match");
         let path = dir.join("claude.json");
         std::fs::write(&path, b"old").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        testing::open_to_others(&path);
+        let before = fs::access(&path);
         write(&path, b"new", Perms::MatchExisting).unwrap();
         assert_eq!(
-            mode_of(&path),
-            0o644,
+            fs::access(&path),
+            before,
             "tightening another tool's file would surprise it"
         );
         std::fs::remove_dir_all(&dir).unwrap();
@@ -193,11 +174,12 @@ mod tests {
         let dir = scratch("tighter");
         let path = dir.join("claude.json");
         std::fs::write(&path, b"old").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        testing::read_only_for_owner(&path);
+        let before = fs::access(&path);
         write(&path, b"new", Perms::MatchExisting).unwrap();
         assert_eq!(
-            mode_of(&path),
-            0o400,
+            fs::access(&path),
+            before,
             "loosening another tool's file is as wrong as tightening it"
         );
         std::fs::remove_dir_all(&dir).unwrap();
@@ -208,7 +190,7 @@ mod tests {
         let dir = scratch("fresh");
         let path = dir.join("new.json");
         write(&path, b"{}", Perms::MatchExisting).unwrap();
-        assert_eq!(mode_of(&path), 0o600);
+        assert!(private(&path));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -243,7 +225,12 @@ mod tests {
     fn temporaries_left_by_runs_that_are_gone_are_removed() {
         let dir = scratch("orphans");
         let exited = {
-            let mut child = std::process::Command::new("true").spawn().unwrap();
+            // This test's own program, which lists its tests and exits.
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--list")
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
             let pid = child.id();
             child.wait().unwrap();
             pid
@@ -286,7 +273,7 @@ mod tests {
         assert_eq!(std::fs::read(&temp).unwrap(), b"new");
 
         let link = dir.join(".usage.json.1.0.pitboard");
-        std::os::unix::fs::symlink(dir.join("elsewhere"), &link).unwrap();
+        testing::link(&dir.join("elsewhere"), &link);
         assert!(
             create_fresh(&link).is_err(),
             "a planted link is never removed"
@@ -335,15 +322,14 @@ mod tests {
         let dir = scratch("symlink");
         let target = dir.join("elsewhere");
         std::fs::write(&target, b"x").unwrap();
-        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o666)).unwrap();
+        testing::open_to_others(&target);
         let path = dir.join("link.json");
-        std::os::unix::fs::symlink(&target, &path).unwrap();
+        testing::link(&target, &path);
 
         write(&path, b"{}", Perms::MatchExisting).unwrap();
-        assert_eq!(
-            mode_of(&path),
-            0o600,
-            "a symlink's own mode is 0777 and must never be borrowed"
+        assert!(
+            private(&path),
+            "a link's own access says nothing about its target, and must never be borrowed"
         );
         assert!(
             !std::fs::symlink_metadata(&path)

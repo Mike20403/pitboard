@@ -22,10 +22,10 @@
 //! Every change goes through [`switch`], which records what it is about to do first and
 //! finishes an interrupted one before starting another.
 
-#[cfg(not(unix))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 compile_error!(
-    "pitboard supports macOS and Linux. Claude Code stores its login differently on \
-     Windows, and pitboard has not been written for it."
+    "pitboard runs on macOS and Linux. Another system needs a host of its own in \
+     `host/`, saying where its stores, processes and scheduler are."
 );
 
 pub mod api;
@@ -53,10 +53,10 @@ pub(crate) mod fault;
 pub mod history;
 pub mod holder;
 pub(crate) mod home;
+pub mod host;
 pub(crate) mod lock;
 pub(crate) mod park;
 pub(crate) mod pending;
-pub(crate) mod process;
 pub(crate) mod readings;
 pub(crate) mod sessions;
 pub(crate) mod store;
@@ -67,9 +67,10 @@ pub(crate) mod store;
 #[doc(hidden)]
 pub mod testing {
     pub use crate::api::scripted::{Answer, Asked, ScriptedApi, Trouble};
+    pub use crate::host::memory::MemoryHost;
     pub use crate::provider::claude::paths::live_service;
     pub use crate::provider::claude::slot::{LIVE_SERVICE, dir_hash, service_for_dir};
-    pub use crate::store::memory::{Fault, MemoryHost, MemoryStore};
+    pub use crate::store::memory::{Fault, MemoryStore};
     pub use crate::store::{vault_delete, vault_read, vault_write};
     pub use crate::time::{Clock, FixedClock};
 }
