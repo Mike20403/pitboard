@@ -1,4 +1,4 @@
-//! Everything pitboard takes from its environment, read in one place. The CLI builds a
+//! Everything Pitboard takes from its environment, read in one place. The CLI builds a
 //! `Context` from the process environment once. A program linking the library builds one
 //! itself: an app started from Finder does not see a shell's environment.
 
@@ -21,10 +21,10 @@ pub struct Context {
     /// `$USER`, which names Claude Code's keychain account once screened by `slot`.
     pub(crate) user: Option<String>,
     /// `CLAUDE_CODE_CUSTOM_OAUTH_URL`. Set, it renames both the keychain item and the config
-    /// file Claude Code uses, so pitboard would be reading and writing the wrong ones.
+    /// file Claude Code uses, so Pitboard would be reading and writing the wrong ones.
     pub(crate) custom_oauth: bool,
     /// Environment variables this process was started with that make Claude Code use
-    /// something other than the login pitboard moves. Only half the answer: the rest is in
+    /// something other than the login Pitboard moves. Only half the answer: the rest is in
     /// files, which [`crate::settings::overrides`] reads and an app can see too.
     pub(crate) overriding_auth: Vec<String>,
     /// Whether a login too large for `security -i` may be written the way Claude Code
@@ -45,7 +45,7 @@ pub struct Context {
     pub(crate) codex_home: Option<String>,
     /// The `codex` that runs a sign-in; a bare name is looked up on the search path.
     pub(crate) codex_program: PathBuf,
-    /// The pitboard the daily renewal schedule runs. `None` is this program, which is right
+    /// The Pitboard the daily renewal schedule runs. `None` is this program, which is right
     /// for the command line and wrong for an app: the schedule runs `pitboard renew`, so an
     /// app names the command line it comes with.
     pub(crate) schedule_program: Option<PathBuf>,
@@ -168,7 +168,7 @@ impl Context {
         self.custom_oauth
     }
 
-    /// The `claude` pitboard would run to sign someone in.
+    /// The `claude` Pitboard would run to sign someone in.
     pub fn claude_program(&self) -> &std::path::Path {
         &self.claude_program
     }
@@ -206,7 +206,7 @@ impl Context {
         self
     }
 
-    /// The `codex` pitboard would run to sign someone in.
+    /// The `codex` Pitboard would run to sign someone in.
     pub fn codex_program(&self) -> &std::path::Path {
         &self.codex_program
     }
@@ -218,7 +218,7 @@ impl Context {
         self
     }
 
-    /// The pitboard the daily renewal schedule is written to run, where one was named.
+    /// The Pitboard the daily renewal schedule is written to run, where one was named.
     pub fn schedule_program(&self) -> Option<&std::path::Path> {
         self.schedule_program.as_deref()
     }

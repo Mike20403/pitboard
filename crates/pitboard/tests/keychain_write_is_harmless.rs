@@ -112,7 +112,7 @@ fn writing_preserves_attributes_and_does_not_slow_later_reads() {
 /// A login past what `security` reads from stdin has one route left, the argument line,
 /// which is what Claude Code uses for the same login. What matters is that taking it costs
 /// nothing afterwards: the item must still read as fast as one written any other way, or
-/// Claude Code pays for pitboard's write on every re-read.
+/// Claude Code pays for Pitboard's write on every re-read.
 #[test]
 fn a_credential_past_the_stdin_limit_is_written_without_taxing_later_reads() {
     let svc = format!("{}-oversize", service());

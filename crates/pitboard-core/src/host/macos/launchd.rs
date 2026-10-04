@@ -9,7 +9,7 @@ use crate::schedule::EVERY_SECONDS;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// What launchd calls the job, so a person can find it without pitboard telling them.
+/// What launchd calls the job, so a person can find it without Pitboard telling them.
 const LABEL: &str = "com.datlechin.pitboard.renew";
 
 const LAUNCHCTL: &str = "/bin/launchctl";
@@ -102,7 +102,7 @@ impl Scheduler for Launchd {
 /// launchd's own format. `RunAtLoad` is off: installing this is not a reason to talk to
 /// Anthropic that second, and the first run comes at the first interval.
 ///
-/// `argument_line` is whether the pitboard installing it may write a login on the argument
+/// `argument_line` is whether the Pitboard installing it may write a login on the argument
 /// line. The job runs with launchd's environment, not the person's shell, so a
 /// `PITBOARD_NO_ARGV` they set would not reach it; where it is set, the job is given it.
 fn plist(program: &Path, argument_line: bool) -> String {
@@ -166,7 +166,7 @@ mod tests {
             std::thread::current().id()
         ));
         let _ = std::fs::remove_dir_all(&home);
-        std::fs::create_dir_all(home.join(".pitboard")).expect("a pitboard home");
+        std::fs::create_dir_all(home.join(".pitboard")).expect("a Pitboard home");
         let app = home.join("Applications/Pitboard.app/Contents/MacOS/Pitboard");
         let bundled = home.join("Applications/Pitboard.app/Contents/Helpers/pitboard");
         for program in [&app, &bundled] {
@@ -248,7 +248,7 @@ mod tests {
     }
 
     /// The job runs with launchd's environment, not the shell's, so a `PITBOARD_NO_ARGV`
-    /// the installing pitboard has is written into it, and nothing is written otherwise.
+    /// the installing Pitboard has is written into it, and nothing is written otherwise.
     /// The program is still read back from what was written.
     #[test]
     fn the_agent_keeps_a_refusal_of_the_argument_line() {

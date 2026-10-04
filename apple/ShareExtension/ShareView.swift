@@ -5,18 +5,18 @@ import SwiftUI
 @Observable
 final class ShareState {
     enum Phase: Equatable {
-        /// Handing the link to pitboard.
+        /// Handing the link to Pitboard.
         case opening
-        /// Not a link pitboard opens, and why.
+        /// Not a link Pitboard opens, and why.
         case refused(String)
-        /// pitboard could not be opened, and why.
+        /// Pitboard could not be opened, and why.
         case failed(String)
     }
 
     var phase = Phase.opening
 }
 
-/// What the share sheet shows while pitboard is handed the link, or why it was not.
+/// What the share sheet shows while Pitboard is handed the link, or why it was not.
 struct ShareView: View {
     let state: ShareState
     let done: () -> Void
@@ -27,12 +27,12 @@ struct ShareView: View {
             case .opening:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Opening in pitboard…")
+                    Text("Opening in Pitboard…")
                 }
             case .refused(let reason):
                 said("Can’t Open This Link", reason)
             case .failed(let reason):
-                said("Couldn’t Open pitboard", reason)
+                said("Couldn’t Open Pitboard", reason)
             }
             if state.phase != .opening {
                 HStack {

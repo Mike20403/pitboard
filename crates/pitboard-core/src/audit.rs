@@ -1,4 +1,4 @@
-//! One line per change pitboard makes: when, which front end asked, what was asked, of
+//! One line per change Pitboard makes: when, which front end asked, what was asked, of
 //! what, and how it ended. Labels, codes and times only, no email addresses or account
 //! identifiers, so it is safe to paste into a bug report.
 

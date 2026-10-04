@@ -1,33 +1,33 @@
 ---
 title: "How usage is read"
-description: "pitboard reads usage from Anthropic and OpenAI, rereads it only once it could have moved, and estimates how long accounts last."
+description: "Pitboard reads usage from Anthropic and OpenAI, rereads it only once it could have moved, and estimates how long accounts last."
 ---
 
-pitboard asks Anthropic and OpenAI how much of each limit your accounts have used, all at once.
+Pitboard asks Anthropic and OpenAI how much of each limit your accounts have used, all at once.
 
 ## Where the numbers come from
 
-For the Claude Code account in use, pitboard asks Anthropic with Claude Code's login; for any other, with its [parked login](/concepts/switching#parked-logins).
+For the Claude Code account in use, Pitboard asks Anthropic with Claude Code's login; for any other, with its [parked login](/concepts/switching#parked-logins).
 
-For accounts used with OpenAI's Codex CLI, pitboard sends OpenAI Codex's own usage request, which counts against no limit. Until you enrol a Codex account, pitboard asks OpenAI nothing.
+For accounts used with OpenAI's Codex CLI, Pitboard sends OpenAI Codex's own usage request, which counts against no limit. Until you enrol a Codex account, Pitboard asks OpenAI nothing.
 
 Work on other machines counts too, as [What a switch costs you](/concepts/limits#what-a-switch-costs-you) explains.
 
-Between answers, pitboard shows its newest numbers and when they were measured. For the Claude Code account in use, those can be Claude Code's own: `from Claude Code, measured 14:02`.
+Between answers, Pitboard shows its newest numbers and when they were measured. For the Claude Code account in use, those can be Claude Code's own: `from Claude Code, measured 14:02`.
 
-## How often pitboard asks
+## How often Pitboard asks
 
-pitboard asks about an account again only once 1% of its shortest limit's window has passed. That is 3 minutes for a five-hour limit, about 1 hour 41 minutes for a weekly one and 1 minute with no reading yet.
+Pitboard asks about an account again only once 1% of its shortest limit's window has passed. That is 3 minutes for a five-hour limit, about 1 hour 41 minutes for a weekly one and 1 minute with no reading yet.
 
 The command line and the app share one record of when each account was asked. Running `pitboard` twice in a row asks about each account at most once.
 
-When a service asks for less traffic, pitboard waits the time it names, or else 1 minute, doubling up to 1 hour. If it is unreachable or returns an error, the wait is 30 seconds, doubling up to 15 minutes.
+When a service asks for less traffic, Pitboard waits the time it names, or else 1 minute, doubling up to 1 hour. If it is unreachable or returns an error, the wait is 30 seconds, doubling up to 15 minutes.
 
-The app reads usage when it starts, every 5 minutes and when your Mac wakes. Clicking pitboard's item in the menu bar reads again if the last read is at least a minute old.
+The app reads usage when it starts, every 5 minutes and when your Mac wakes. Clicking Pitboard's item in the menu bar reads again if the last read is at least a minute old.
 
-Within seconds, and without asking any service, the app shows a switch made in a terminal and numbers that other runs of pitboard record.
+Within seconds, and without asking any service, the app shows a switch made in a terminal and numbers that other runs of Pitboard record.
 
-`pitboard status --fresh` and **Refresh** in pitboard's menu or the **Accounts** pane ask about every account anyway, and try again a service that could not be reached. They do not ask through a wait a service asked for.
+`pitboard status --fresh` and **Refresh** in Pitboard's menu or the **Accounts** pane ask about every account anyway, and try again a service that could not be reached. They do not ask through a wait a service asked for.
 
 ## One reading per account
 
@@ -35,7 +35,7 @@ The command line and the app record into one reading per account and show it. Cl
 
 A reading only moves forward. A later reset is a newer window. A session's numbers do not say when they were measured, so within one window, the higher percentage from a session is the newer.
 
-pitboard's own answer from a service does say when it was taken. One taken after everything recorded for the account replaces it, even with a lower percentage. So when a limit falls in the middle of its window, after a banked reset on claude.ai or a plan upgrade, pitboard shows the lower percentage the next time it asks. The app asks every 5 minutes.
+Pitboard's own answer from a service does say when it was taken. One taken after everything recorded for the account replaces it, even with a lower percentage. So when a limit falls in the middle of its window, after a banked reset on claude.ai or a plan upgrade, Pitboard shows the lower percentage the next time it asks. The app asks every 5 minutes.
 
 ## How long an account lasts
 
@@ -43,12 +43,12 @@ A line under each account says how long it lasts at its recent rate.
 
 At 73% of its weekly limit, an account can last days if it was at 70% this morning, or hours if it was at 40%.
 
-From the past 14 days of readings, pitboard works out when each limit fills. The line shows that or a reset, whichever comes first: `about 48m left at this rate` or `resets in 3h 02m`.
+From the past 14 days of readings, Pitboard works out when each limit fills. The line shows that or a reset, whichever comes first: `about 48m left at this rate` or `resets in 3h 02m`.
 
-pitboard shows no estimate until it has three readings over at least 15 minutes. A wrong one would tell you to switch needlessly.
+Pitboard shows no estimate until it has three readings over at least 15 minutes. A wrong one would tell you to switch needlessly.
 
 ## What the status line adds
 
-When Claude Code's [status line](/guides/status-line) runs `pitboard statusline`, each session passes it the account's usage. pitboard records it, so `pitboard`, the app and idle sessions show what busy sessions report.
+When Claude Code's [status line](/guides/status-line) runs `pitboard statusline`, each session passes it the account's usage. Pitboard records it, so `pitboard`, the app and idle sessions show what busy sessions report.
 
-A session's numbers do not name their account. pitboard records them only if they moved since the session's last run and Claude Code's config named the same account both times. It records nothing in the 33 seconds an [open session](/concepts/switching#open-sessions) can take to follow a switch.
+A session's numbers do not name their account. Pitboard records them only if they moved since the session's last run and Claude Code's config named the same account both times. It records nothing in the 33 seconds an [open session](/concepts/switching#open-sessions) can take to follow a switch.

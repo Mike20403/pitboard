@@ -1,5 +1,5 @@
 //! Running a helper program with a deadline. A helper that never answers must not hold
-//! pitboard's lock, or an app's worker, forever.
+//! Pitboard's lock, or an app's worker, forever.
 //!
 //! macOS is the system whose answers come from helpers: `security` for the keychain and
 //! `ps` for the process list. Linux reads `/proc` and has no keychain to call.

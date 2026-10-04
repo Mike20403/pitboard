@@ -11,7 +11,7 @@ public struct ActionFailure: Identifiable, Equatable, Sendable {
     public let id = UUID()
     /// What was being done, as an alert's title says it: "Couldn't switch to personal".
     public let title: String
-    /// What went wrong. pitboard's errors already say what to do, so they are shown as
+    /// What went wrong. Pitboard's errors already say what to do, so they are shown as
     /// they are.
     public let message: String
     /// The stable code behind it, for deciding what to offer.

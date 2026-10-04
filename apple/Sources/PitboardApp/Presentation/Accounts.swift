@@ -115,7 +115,7 @@ enum AccountAction: Equatable {
     case signInAgain(provider: String, label: String)
     /// It is signed in and has no name yet: name it.
     case name(provider: String, email: String)
-    /// Nothing: it is the one in use, a switch is running, or pitboard cannot use it.
+    /// Nothing: it is the one in use, a switch is running, or Pitboard cannot use it.
     case none
 }
 
@@ -157,7 +157,7 @@ struct AccountDescription: Equatable {
         limits = account.usage?.windows ?? []
         self.switching = account.qualified != nil && account.qualified == switching
         if account.unplaced {
-            title = "Login pitboard can’t use"
+            title = "Login Pitboard can’t use"
         } else {
             title = account.label ?? account.email
         }

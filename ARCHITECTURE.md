@@ -1,18 +1,18 @@
 # Architecture
 
-This file describes how pitboard's code is organised and what must stay true in it. It
+This file describes how Pitboard's code is organised and what must stay true in it. It
 also holds the measured facts the design rests on, about macOS, WebKit, Claude Code,
 OpenAI's Codex CLI and the sites the app's account windows open. It changes when the layout
 changes or a tool build moves a fact, not with each commit.
 
 ## Bird's eye view
 
-pitboard switches Claude Code or Codex between a person's own accounts on one machine. It
+Pitboard switches Claude Code or Codex between a person's own accounts on one machine. It
 also shows how much of each account's limits is left. A switch parks the login in use and
 puts another account's parked login in its place.
 
 One crate, `pitboard-core`, does this for both tools. It reads and writes each tool's login,
-keeps pitboard's index of accounts, and asks each tool's service for usage.
+keeps Pitboard's index of accounts, and asks each tool's service for usage.
 
 Two front ends use the core: the command line, `pitboard`, on macOS and Linux, and the menu
 bar app on macOS 14 or later. The app calls the core through UniFFI bindings. The command
@@ -24,7 +24,7 @@ chatgpt.com, where the site's own pages run in WebKit. The windows take the list
 accounts from the core, and nothing else. [Account windows](#account-windows) describes
 them.
 
-pitboard has no server of its own. The core sends requests only to Anthropic, for Claude
+Pitboard has no server of its own. The core sends requests only to Anthropic, for Claude
 Code, and to OpenAI, for Codex. An account's window loads its site, and whatever the site's
 pages load, as a browser would.
 
@@ -51,7 +51,7 @@ pages load, as a browser would.
   - `store/`: reading and writing logins, whichever store holds them: the chain rules, a
     file, the vault of files and the stores in memory the tests use. On macOS, parked
     logins are keychain items. On Linux, they are files in the vault.
-  - `switch/`: every change to pitboard's index (switching, enrolling, adopting, renaming,
+  - `switch/`: every change to Pitboard's index (switching, enrolling, adopting, renaming,
     forgetting, renewing, repairing, abandoning and uninstalling), and the journal that
     finishes an interrupted switch.
   - `state.rs`: `state.json`, the index of accounts and where each one's login is parked.
@@ -108,7 +108,7 @@ pages load, as a browser would.
 - Two variables are read elsewhere. `PATH` is read when no search path was given
   (`context.rs`), and on Linux to find the program daily renewal runs (`host/linux`).
   `XPC_SERVICE_NAME`, which launchd sets, is read in `host/macos/launchd.rs`.
-- Which system pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
+- Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
 - A test never reaches the system's own scheduler. A test context schedules through
@@ -118,22 +118,22 @@ pages load, as a browser would.
   objects, `SignIn` and `Pitboard`. Every call is synchronous and may block on the
   keychain, a lock or the network. `PitboardKit` makes each call off the main thread.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
-  pitboard's parked items. No keychain item is touched through the Security framework. The
+  Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.
-- pitboard takes Claude Code's write lock, the same way Claude Code takes it, before writing
+- Pitboard takes Claude Code's write lock, the same way Claude Code takes it, before writing
   Claude Code's login. It writes the login where it already lives.
 - Codex takes no lock on `auth.json`, so a switch reads the file again before replacing
   it. Every switch reads the live login back rather than trusting its own write.
-- pitboard never answers a failed keychain write by writing Claude Code's plaintext file.
+- Pitboard never answers a failed keychain write by writing Claude Code's plaintext file.
   That demotion is Claude Code's to make.
 - A Codex login is moved, never copied (`ParkSemantics::MoveOnly`). The parked login is
   read back before the incoming login is written. Codex's own sign-in and sign-out revoke
   the stored refresh token, so two usable copies of one login must never be at rest.
-- No login moves until pitboard knows whose it is. A Claude Code login's account is asked of
+- No login moves until Pitboard knows whose it is. A Claude Code login's account is asked of
   Anthropic; a Codex login's is read from its ID token.
-- pitboard never renews the login in use. That is the tool's own job, and a second renewer
+- Pitboard never renews the login in use. That is the tool's own job, and a second renewer
   would break it.
-- Nothing outside `pitboard-core` writes pitboard's index. Every change goes through
+- Nothing outside `pitboard-core` writes Pitboard's index. Every change goes through
   `switch`, which records what it is about to do first and finishes an interrupted change
   before starting another.
 - Additive writes become durable before destructive ones. A run that dies midway leaves a
@@ -149,49 +149,49 @@ pages load, as a browser would.
   modules are public only so the front ends in this repository can reach them, and may
   change in any release.
 - In that interface, adding an error, warning or check code is not a breaking change.
-  Renaming or removing one is. While pitboard is at 0.x, a breaking change gets a new minor
+  Renaming or removing one is. While Pitboard is at 0.x, a breaking change gets a new minor
   version, as in 0.3.0, and after 1.0 a new major version.
-- pitboard and each tool meet at the tool's register. What pitboard relies on about a tool
+- Pitboard and each tool meet at the tool's register. What Pitboard relies on about a tool
   is written there, and the conformance run checks it against the tool's newest build twice
   a week.
-- pitboard and each service meet at a few requests. The list, with what each request
+- Pitboard and each service meet at a few requests. The list, with what each request
   carries, is in
   [What leaves your machine](https://docs.usepitboard.com/security#what-leaves-your-machine).
-- pitboard and claude.ai or chatgpt.com meet at an account's window, which a person opens.
+- Pitboard and claude.ai or chatgpt.com meet at an account's window, which a person opens.
   The site's own pages sign the window in, WebKit keeps that sign-in in the account's
-  store, and pitboard decides only where each navigation goes.
-- pitboard and a browser meet at the Share extension, which hands the app the one link the
-  browser shares, as a pitboard link. pitboard reads nothing a browser keeps.
+  store, and Pitboard decides only where each navigation goes.
+- Pitboard and a browser meet at the Share extension, which hands the app the one link the
+  browser shares, as a Pitboard link. Pitboard reads nothing a browser keeps.
 - The code and the release meet at a `v` tag, which `.github/workflows/release.yml` turns
   into a release. [RELEASING.md](RELEASING.md) has the procedure.
 
 ## The state file
 
-`~/.pitboard/state.json` is pitboard's index: which accounts it knows, and where each one's
+`~/.pitboard/state.json` is Pitboard's index: which accounts it knows, and where each one's
 login is parked. It carries a `schema` number.
 
 The app and the command line inside it update together. A command line installed another
-way updates by its own route. So on one machine, an older pitboard can meet a file a newer
+way updates by its own route. So on one machine, an older Pitboard can meet a file a newer
 one wrote.
 
 Reading forwards is `state::migrate`. Each schema bump adds an arm that rewrites the
 document and falls through to the next. A file two versions behind comes forward in one
 read.
 
-Reading backwards is not possible. The older pitboard refuses the file and says to update
+Reading backwards is not possible. The older Pitboard refuses the file and says to update
 it. A bump needs a test that loads a file the previous version wrote.
 
 Schema 4 records each account's tool, and which account is signed in for each tool. A
 schema 3 file is brought forward on its first read, with no keychain item or vault file
 touched.
 
-A file naming a tool this build does not know is reported as written by a newer pitboard,
+A file naming a tool this build does not know is reported as written by a newer Pitboard,
 not as corrupt. The advice for a corrupt file is to delete it, and following that here would
 orphan every parked login.
 
 ## Tool registers
 
-Every fact pitboard relies on about a tool was read out of one build of that tool. Each tool
+Every fact Pitboard relies on about a tool was read out of one build of that tool. Each tool
 keeps its facts in a register, `crates/pitboard-core/src/provider/<tool>/assumptions.rs`,
 dated with the build they were read from.
 
@@ -233,7 +233,7 @@ How to run the checker and add a fact is in
 The app gives each enrolled account a window on its tool's site: claude.ai for a Claude
 Code account, and chatgpt.com for a Codex account. The site's own pages run in it, in
 WebKit, with a store of website data that belongs to that account alone. A page shared from
-a browser's Share menu reaches the app as a pitboard link, and the person chooses which
+a browser's Share menu reaches the app as a Pitboard link, and the person chooses which
 account's window opens it.
 
 The windows read the accounts from the app's last read. No window is ever given a Claude
@@ -252,7 +252,7 @@ Code or Codex login. The facts this rests on are under
   - `SiteLink.swift` checks a link from outside: a site's own host or alias, over `https`,
     with no port or user information, and never a sign-in path. `LinkRefusal` says why one
     is refused.
-  - `Handoff.swift` writes and reads the pitboard link, `<scheme>://open?url=<link>`, and
+  - `Handoff.swift` writes and reads the Pitboard link, `<scheme>://open?url=<link>`, and
     names the Info.plist key `PitboardURLScheme` that gives each build its scheme.
 - `apple/Sources/PitboardApp/AccountWindows`: the windows.
   - `WindowAccount.swift` lists the accounts that have a window and derives each one's
@@ -282,7 +282,7 @@ Code or Codex login. The facts this rests on are under
     `AccountPicker.swift` is the **Open Link** window that asks which account opens it.
 - `apple/Sources/PitboardApp/System/WebsiteData.swift`: WebKit's persistent stores, behind
   the `WebsiteDataStores` protocol. Beside them, two records kept in the app's preferences
-  under each pitboard directory's path: `StoreRecord`, the stores the directory made, under
+  under each Pitboard directory's path: `StoreRecord`, the stores the directory made, under
   `webStores`, and `PageRecord`, the page each account's window was last on, under
   `windowPages`, by store.
 - `apple/Sources/PitboardApp/App`: `AppDelegate.swift` owns the app's models and answers
@@ -290,12 +290,12 @@ Code or Codex login. The facts this rests on are under
   while a download runs. `AppPresence.swift` gives the app a Dock icon and its menus while
   any of its windows is open. `RefreshCommand.swift` is **View** > **Refresh**, whose
   title and action the window in front gives. `PitboardScenes.swift` adds the account
-  windows' scene and the **Open Link** window, the one scene that takes a pitboard link.
+  windows' scene and the **Open Link** window, the one scene that takes a Pitboard link.
 - `apple/Sources/PitboardApp/Fixture/FixtureWeb.swift`: a fixture's stand-in pages for each
   site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
   anywhere else recorded and opened nowhere.
 - `apple/ShareExtension`: the `PitboardShare` target. It checks the shared page with
-  `SiteLink`, then opens a pitboard link with the app it is inside, not whichever copy
+  `SiteLink`, then opens a Pitboard link with the app it is inside, not whichever copy
   Launch Services would pick.
 
 ### What must stay true
@@ -306,21 +306,21 @@ Code or Codex login. The facts this rests on are under
   names, `claude` and `codex`, never change: a change would leave every window without its
   data, and the next sweep would delete that data. Golden tests pin them.
 - A store is recorded before WebKit makes it, in the app's preferences, under the path of
-  the pitboard directory the app reads. A store WebKit made and nobody recorded would never
+  the Pitboard directory the app reads. A store WebKit made and nobody recorded would never
   be deleted.
-- A store is deleted only when this pitboard directory recorded it, and a read that
+- A store is deleted only when this Pitboard directory recorded it, and a read that
   succeeded no longer derives it from any enrolled account. Every read that succeeds lists
   every enrolled account, from `state.json`, so that is a forgotten account, forgotten in
   the app or with `pitboard forget`. Nothing is deleted before the first read that
   succeeds, or after one that failed.
-- A store that another pitboard directory recorded too is never deleted while that
+- A store that another Pitboard directory recorded too is never deleted while that
   directory exists. The same account enrolled in both derives the same store, so deleting
   it would sign the other directory's window out. Forgetting the account in one removes
   only that directory's record.
 - A store nobody recorded is left alone. WebKit keeps every store of one bundle under the
   person's own Library, whatever `HOME` says, so it can belong to a copy run with another
   home. A store something still holds is left recorded, and tried again at the next read.
-- Nothing from outside opens a window by itself. A pitboard link only shows the **Open
+- Nothing from outside opens a window by itself. A Pitboard link only shows the **Open
   Link** window, and only a person's choice there opens a window, on the link's own site.
   The app checks the link as strictly as the extension did, since anything on the Mac can
   open one. A site's sign-in link is refused, since it would sign the window in as whoever
@@ -341,11 +341,11 @@ Code or Codex login. The facts this rests on are under
   never its opener. It saves nothing and opens no window.
 - Only a site's own pages are kept as a window's last page. **Remove Website Data** takes
   it away, and so does a read that succeeded and no longer lists the account.
-- Hands off the session. pitboard makes a store, wipes one when asked and deletes one when
+- Hands off the session. Pitboard makes a store, wipes one when asked and deletes one when
   its account is forgotten. It never reads, copies or changes what a site keeps there,
   adds no script or message handler to a page and sets no user agent of its own. No web
   session is made from a Claude Code or Codex login.
-- The pitboard link's format is a contract between the Share extension and the app, pinned
+- The Pitboard link's format is a contract between the Share extension and the app, pinned
   by a golden test. A release claims `pitboard://` and a debug build `pitboard-debug://`,
   so a debug build never answers a link meant for an installed copy. A release build from
   `build-app.sh` claims `pitboard://` like the installed copy, until it is unregistered.
@@ -373,14 +373,14 @@ a scratch item.
   Every later read of it by `security` takes about a second instead of 0.01 seconds. On a
   scratch item, reads went from 0.01 seconds to 20.55, then settled around 0.8.
 - Claude Code reads its login on every cache miss, so writing its item through the framework
-  would slow Claude Code for good. pitboard writes a large login on the argument line
+  would slow Claude Code for good. Pitboard writes a large login on the argument line
   instead, where `ps` can see it for the length of one call.
 - Undoing the framework's change needs `security set-key-partition-list`, which asks for the
   keychain password.
 - APFS keeps a directory's mtime in nanoseconds, but not exactly: setting one and reading it
   straight back gives a value 18 to 60 nanoseconds away. A lock that remembered the value it
   asked for would abandon every switch, so `lock.rs` keeps the value read back.
-- pitboard lists its parked items with `security dump-keychain` without `-d`. It never
+- Pitboard lists its parked items with `security dump-keychain` without `-d`. It never
   prompts, and emits attributes only, no secret of any item. It exits 0 in 0.06 seconds
   against a keychain of 362 items.
 - Reads after a `dump-keychain` take the usual 0.016 seconds, so listing has none of the
@@ -405,7 +405,7 @@ treated, and only the macOS build shows it. The run reads both builds since.
   and abandons the write when that read fails. A stale account cannot be written back. From
   2.1.281, a locked keychain counts as a failed read here once the process has seen its
   item; before, it read as empty.
-- Claude Code treats its own lock going missing as a warning and keeps writing. pitboard
+- Claude Code treats its own lock going missing as a warning and keeps writing. Pitboard
   cannot expect the other side to stop.
 - A write can be marked as already locked without the lock being taken. `/logout` does this
   after retrying for 7.5 seconds, and deletes the login with no lock held.
@@ -416,13 +416,13 @@ treated, and only the macOS build shows it. The run reads both builds since.
   timed out or, from 2.1.281, when it exited 36 after the process had seen its item. Any
   other failure moves the login to the file.
 - The login goes hex-encoded, two characters a byte, so standard input carries about 2 KB of
-  it. A larger login is on Claude Code's own argument line at every token refresh. pitboard
+  it. A larger login is on Claude Code's own argument line at every token refresh. Pitboard
   keeps its `security -i` command within the same 4032 bytes, the limit its messages give.
 - The keychain read is `find-generic-password -a <account> -w -s <service>`. Exit 0 with
   output is the login; exit 0 with nothing, 44, or output that is not JSON is absent. Exit
   36, a locked keychain, is absent to an ordinary read, a failed read to a write once the
   process has seen its item (from 2.1.281), and a failed read outright only when a caller
-  asks. pitboard reads 36 as unreadable on purpose, the strict end of that.
+  asks. Pitboard reads 36 as unreadable on purpose, the strict end of that.
   `security show-keychain-info` exiting 36 only adds an unlock hint.
 - On macOS the live chain is the keychain, with the plaintext file `.credentials.json`
   behind it. The successor backend, behind the `tengu_hover_rest` flag, replaces only the
@@ -441,7 +441,7 @@ treated, and only the macOS build shows it. The run reads both builds since.
 - `secret-tool` and `kwallet-query` do appear in the bundle, in the credential helpers its
   Bash sandbox keeps out of a shell. So neither name is used to look for a keyring backend.
 - On Linux, Claude Code has no keychain backend at all: the plaintext file holds the login.
-  Claude Code writes it, then sets its mode to 0600, and pitboard's Linux host matches
+  Claude Code writes it, then sets its mode to 0600, and Pitboard's Linux host matches
   that.
 - The register holds that absence as `no_keyring_off_macos`, and the conformance run looks
   for `Bun.secrets` and each keyring name in every Linux build. A fact that rests on
@@ -450,12 +450,12 @@ treated, and only the macOS build shows it. The run reads both builds since.
   document. On one real account, measured on 22 September 2026, the slice was 524 bytes
   against 506 for the OAuth block alone. An account holding a device token has not been
   measured.
-- Claude Code's config file can be a day behind the login it describes, so pitboard asks
+- Claude Code's config file can be a day behind the login it describes, so Pitboard asks
   Anthropic whose a login is. This was written down on 21 September 2026, with no build
   named.
 - On 22 September 2026, the machine measured sat within 0.75 seconds of the `Date` header
   of api.anthropic.com across eight requests. `Date` has a granularity of one second.
-- That spread is inside the noise, so pitboard keeps no estimate of clock skew. A renewal's
+- That spread is inside the noise, so Pitboard keeps no estimate of clock skew. A renewal's
   expiries are counted from the `Date` of the answer that carried them.
 
 ### Codex
@@ -464,13 +464,13 @@ Read against codex-cli 0.154.0: the binary, its public source at tag `rust-v0.15
 real `auth.json` that build wrote. The register is `provider/codex/assumptions.rs`.
 
 - The login is `$CODEX_HOME/auth.json`, by default `~/.codex/auth.json`, at mode 0600.
-- `file` is the packaged default store on every platform, and the only one pitboard
+- `file` is the packaged default store on every platform, and the only one Pitboard
   supports. `keyring`, `auto` and `ephemeral` are the others.
 - `keyring` and `auto` keep the login in a keychain item, `Codex Auth`, that Codex makes
   through the Security framework. With either of those, the `secret_auth_storage` feature
   keeps it in `secrets/codex_auth.age` instead, under a keychain key.
 - Those items trust only `codex`. A read by another program brings up a permission prompt,
-  and choosing **Always Allow** would change Codex's item. So pitboard refuses `keyring`
+  and choosing **Always Allow** would change Codex's item. So Pitboard refuses `keyring`
   and `auto`, with or without that feature.
 - The login document holds `auth_mode`, `OPENAI_API_KEY`, `last_refresh`, and `tokens` with
   `id_token`, `access_token`, `refresh_token` and `account_id`. `OPENAI_API_KEY` can hold an
@@ -483,7 +483,7 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
   never picks up a switch.
 - A Codex refresh already under way when the file changes writes its own account's tokens
   under whatever account id it finds there.
-- Codex writes `auth.json` with no lock of any kind, so there is none for pitboard to share.
+- Codex writes `auth.json` with no lock of any kind, so there is none for Pitboard to share.
 - Measured on 2026-10-01 from the process list of a Mac running each of them:
   - OpenAI's ChatGPT app for macOS 26.928.31416, bundle id `com.openai.codex`, runs a codex
     0.159.2 of its own: two processes of
@@ -494,14 +494,14 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
     `$CODEX_HOME/packages/app-server-daemon/releases/<version>/bin/codex`, a child of
     launchd, and 0.159.3 has `codex app-server daemon restart`.
   - On macOS, `ps` gives what a process was started as. A `codex` started from a shell by
-    its bare name lists as `codex`; one started by its path lists the path. pitboard tells
+    its bare name lists as `codex`; one started by its path lists the path. Pitboard tells
     the kinds apart by the directories in that path, and a bare name is a `codex` session.
   - No editor with the Codex extension was running there. Its place, a folder named
     `openai.chatgpt-<version>`, is the extension's packaged layout, not measured.
 - The ID token names the account: `email`, and under `https://api.openai.com/auth`,
   `chatgpt_account_id` and `chatgpt_user_id`. A Team or Business workspace shares one
   `chatgpt_account_id`, and `chatgpt_user_id` is the person.
-- pitboard identifies a Codex account by that pair, with no network call.
+- Pitboard identifies a Codex account by that pair, with no network call.
 - Renewal is `POST https://auth.openai.com/oauth/token` with a JSON body
   `{client_id, grant_type, refresh_token}` and client id `app_EMoamEEZ73f0CkXaXp7hrann`.
   Each token in the answer is written only if present.
@@ -515,7 +515,7 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
 - The usage answer's shape was read from a live answer. A parser written from the source
   looked for the windows in the wrong place, and returned nothing while the request
   succeeded.
-- `CODEX_HOME` moves everything Codex keeps, and an empty one means unset. pitboard's own
+- `CODEX_HOME` moves everything Codex keeps, and an empty one means unset. Pitboard's own
   sign-in, the one `enroll --sign-in` runs, sets it to a directory that exists, and runs
   `codex login` from inside it.
 - The sign-in starts inside that directory because Codex also reads `.codex/config.toml`
@@ -573,18 +573,18 @@ one, measure it again.
 - SwiftUI hands a URL to the `Window` scene that has `.handlesExternalEvents(matching:)`,
   through its `onOpenURL`, whether the app was running or not. It opens that window when
   none is open, reuses one that is, and opens no other window. With no scene claiming the
-  URL, it went to the first window scene, the pitboard window's, and opened that window.
+  URL, it went to the first window scene, the Pitboard window's, and opened that window.
 - With an app delegate's `application(_:open:)` as well, the claiming scene's `onOpenURL`
   gets the URL and the delegate is then called with an empty list. With no scene claiming
   it, only the delegate gets it, and no window opens. So the **Open Link** window alone
-  takes pitboard links, and `AppDelegate` has no `application(_:open:)`.
+  takes Pitboard links, and `AppDelegate` has no `application(_:open:)`.
 - Those URLs were sent with `open -a` from a terminal. A cold launch that way left the app
-  inactive, behind the terminal, so the **Open Link** window brings pitboard forward when a
+  inactive, behind the terminal, so the **Open Link** window brings Pitboard forward when a
   link arrives. `AppPresence.comeForward` records that a link from the Share extension at a
-  launch left pitboard in the background too. A link opened from a browser was not measured.
+  launch left Pitboard in the background too. A link opened from a browser was not measured.
 - In CI, on macOS 26.6.2, the running app's **Open Link** window took each link too.
   `XCUIApplication.open(_:)` sent them, and it launched a second copy of the app rather
-  than handing the link to the one running: the picker opened in one copy and the pitboard
+  than handing the link to the one running: the picker opened in one copy and the Pitboard
   window in the one the test watched. The copy left running kept its menu bar item, and
   with a few of those a later test's own item sat under the menus, out of reach. So the
   UI tests share a link through `XCUIDevice.shared.system.open(_:)`, which opens it with
@@ -613,8 +613,8 @@ one, measure it again.
 - Measured on 4 October 2026 with a probe app driven by `open -g`: `NSApp.activate()` from
   an app in the background, with no click in it, is refused. Launch Services opening the
   app, `NSWorkspace.openApplication` with `activates` set, brings it forward. So
-  `AppPresence.comeForward` asks Launch Services to open pitboard when a shared link arrives
-  while pitboard is in the background.
+  `AppPresence.comeForward` asks Launch Services to open Pitboard when a shared link arrives
+  while Pitboard is in the background.
 - The macOS 27 SDK has no SwiftUI API for a Dock menu. `applicationDockMenu(_:)` on the app
   delegate is the API.
 - Measured on 29 September 2026: WebKit keeps the persistent stores of an app that is not
@@ -623,7 +623,7 @@ one, measure it again.
   app, and Foundation does not read `HOME`. With `HOME` pointed at a scratch directory,
   `NSHomeDirectory()`, `.libraryDirectory` and `homeDirectoryForCurrentUser` all still gave
   the real home. The core reads `HOME` and `PITBOARD_HOME`, so the record of stores is kept
-  per pitboard directory.
+  per Pitboard directory.
 
 ### claude.ai and chatgpt.com
 

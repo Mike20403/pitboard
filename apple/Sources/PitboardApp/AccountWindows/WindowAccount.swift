@@ -19,12 +19,12 @@ struct WindowAccount: Hashable, Identifiable {
     var id: UUID { store }
 }
 
-/// pitboard's namespace for the windows' stores. It never changes, and neither does the name
+/// Pitboard's namespace for the windows' stores. It never changes, and neither does the name
 /// hashed in it: a change would leave every window without its data, and the next sweep would
 /// delete that data. A golden test pins both.
 let storeNamespace = UUID(uuidString: "674b09f3-8d37-4e48-a361-5af2a6856773")!
 
-/// A version 5 UUID (RFC 9562, SHA-1) of `<store name>:<account id>` in pitboard's namespace,
+/// A version 5 UUID (RFC 9562, SHA-1) of `<store name>:<account id>` in Pitboard's namespace,
 /// for the window of the account `accountUuid` names on `site`.
 ///
 /// Derived rather than stored, so there is nothing to keep in step with the accounts: a
@@ -48,7 +48,7 @@ func storeID(site: Site, accountUuid: String) -> UUID {
 /// menus, the shortcut menu and the picker offer, so they cannot disagree.
 ///
 /// An account has a window when its tool has a site, it has a label and an account id, and
-/// pitboard can place it. A login pitboard has no name for, or a Codex API key, has none.
+/// Pitboard can place it. A login Pitboard has no name for, or a Codex API key, has none.
 func windowAccounts(in status: Status?) -> [WindowAccount] {
     let eligible = (status?.accounts ?? []).filter { account in
         account.label != nil && !account.unplaced && !account.accountUuid.isEmpty
@@ -117,10 +117,10 @@ func siteMenus(in status: Status?) -> [SiteMenu] {
 func forgetMessage(for account: Account, in status: Status?) -> String {
     let sites = siteWindows(of: account, in: status).map(\.site.name)
     guard !sites.isEmpty else {
-        return "pitboard deletes the login it parked for this account. Using it again needs a "
+        return "Pitboard deletes the login it parked for this account. Using it again needs a "
             + "sign-in in your browser."
     }
-    return "pitboard deletes the login it parked for this account, and everything its "
+    return "Pitboard deletes the login it parked for this account, and everything its "
         + "\(sites.formatted(.list(type: .and))) window keeps on this Mac, its sign-in "
         + "included. Using it again needs a sign-in in your browser."
 }

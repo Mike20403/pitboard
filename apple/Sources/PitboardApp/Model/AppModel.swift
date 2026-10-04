@@ -15,7 +15,7 @@ typealias Limits = PitboardBindings.Window
 public final class AppModel {
     private let service: any Core
     private let appControl: any AppControl
-    /// Every tool pitboard handles, in the order a listing shows them.
+    /// Every tool Pitboard handles, in the order a listing shows them.
     let tools: [Tool]
     private(set) var status: Status?
     /// What went wrong with the last read, when it did not answer. The numbers shown are
@@ -27,7 +27,7 @@ public final class AppModel {
     /// The account a switch is running for, as its label with its tool, so its row can
     /// show it.
     private(set) var switching: String?
-    /// A switch waiting for the person to let pitboard quit an app first, because the app
+    /// A switch waiting for the person to let Pitboard quit an app first, because the app
     /// keeps the tool's login in memory and would go on with the account switched away
     /// from.
     private(set) var quitting: QuitToSwitch?
@@ -85,15 +85,15 @@ public final class AppModel {
     private(set) var requestedPane: WindowPane?
 
     /// Everything about this machine rather than its accounts: the renewal schedule, the
-    /// command line, opening at login, what doctor finds and what pitboard has changed.
+    /// command line, opening at login, what doctor finds and what Pitboard has changed.
     let machine: MachineModel
 
-    /// Where pitboard keeps its own preferences, which views read through `@AppStorage`.
+    /// Where Pitboard keeps its own preferences, which views read through `@AppStorage`.
     let defaults: UserDefaults
 
     /// Told each read of who is enrolled that succeeded, the full one or the one a change on
     /// this machine starts: the account windows put away what a forgotten account's window
-    /// kept. Each lists every enrolled account, from pitboard's own index. A read that failed,
+    /// kept. Each lists every enrolled account, from Pitboard's own index. A read that failed,
     /// or the last numbers shown in its place, says nothing about who was forgotten.
     @ObservationIgnored var afterRead: (@MainActor (Status) -> Void)?
 
@@ -420,8 +420,8 @@ public final class AppModel {
     /// in the window.
     ///
     /// Where an app runs the tool with its login in memory, as ChatGPT runs Codex, the switch
-    /// waits for the person to let pitboard quit it first: switched under it, the app would go
-    /// on with the account left behind, and its own sign-out would revoke the login pitboard
+    /// waits for the person to let Pitboard quit it first: switched under it, the app would go
+    /// on with the account left behind, and its own sign-out would revoke the login Pitboard
     /// has just parked.
     func switchAsked(to qualified: String) async {
         // One switch at a time: the second would wait behind the first anyway, and its
@@ -443,8 +443,8 @@ public final class AppModel {
         present(await use(qualified))
     }
 
-    /// Quits the app, switches, and opens the same copy of the app again: pitboard closed it,
-    /// so pitboard opens it, whether or not the switch worked, leaving the person where they
+    /// Quits the app, switches, and opens the same copy of the app again: Pitboard closed it,
+    /// so Pitboard opens it, whether or not the switch worked, leaving the person where they
     /// were. An app that is already gone is not opened. One that does not quit, because it
     /// was busy or its person said no, stops everything before anything has changed.
     ///
@@ -479,7 +479,7 @@ public final class AppModel {
         quitting = nil
     }
 
-    /// An app on this Mac running `provider`'s tool with its login in memory, that pitboard
+    /// An app on this Mac running `provider`'s tool with its login in memory, that Pitboard
     /// may quit and open again. Asked of the core, which reads the process list, and only
     /// taken where the app is running: what is left of one that has gone cannot be quit.
     private func appHolding(_ provider: String) async -> (bundleID: String, name: String)? {
@@ -512,11 +512,11 @@ public final class AppModel {
     /// too: the bar follows whichever account is closest to running out, and two tools can
     /// each have a `work`.
     var spokenTitle: String {
-        guard !title.isEmpty else { return "pitboard" }
+        guard !title.isEmpty else { return "Pitboard" }
         guard showsTools, let account = titled(status?.accounts ?? [], order: tools),
             let tool = tool(account.provider)
-        else { return "pitboard, \(title)" }
-        return "pitboard, \(title), \(tool.name)"
+        else { return "Pitboard, \(title)" }
+        return "Pitboard, \(title), \(tool.name)"
     }
 
     /// The tools a new account can be added for: each whose program was found or that
@@ -539,7 +539,7 @@ public final class AppModel {
         guard !missing.isEmpty else { return nil }
         let names = missing.map(\.name).joined(separator: " and ")
         let programs = missing.map(\.program).joined(separator: " or ")
-        return "\(names) \(missing.count == 1 ? "is" : "are") not offered: pitboard did not "
+        return "\(names) \(missing.count == 1 ? "is" : "are") not offered: Pitboard did not "
             + "find \(programs) on this Mac."
     }
 
@@ -581,7 +581,7 @@ public final class AppModel {
     }
 
     /// Logins signed in to a tool and not enrolled: the ones the app can name by itself.
-    /// A login pitboard could not read or cannot switch is not one of them, however it
+    /// A login Pitboard could not read or cannot switch is not one of them, however it
     /// looks: naming it would enrol something that can never be switched to.
     var unnamed: [Account] {
         status?.accounts.filter { $0.signedIn && $0.label == nil && !$0.unplaced } ?? []
@@ -590,19 +590,19 @@ public final class AppModel {
     /// A login signed in now that is not enrolled, in any tool.
     var unenrolled: Bool { !unnamed.isEmpty }
 
-    /// How far along setting pitboard up this machine is.
+    /// How far along setting Pitboard up this machine is.
     ///
-    /// Somebody who installed only the app has never typed a pitboard command and may never
+    /// Somebody who installed only the app has never typed a Pitboard command and may never
     /// want to. Every state before `ready` used to show either a line naming a command to run
     /// or nothing at all, which is the same as telling them the app does not work.
     enum Footing: Equatable {
-        /// No tool pitboard works with was found on this machine, and none has an account
-        /// or a login here. Nothing pitboard does means anything without a tool, and
-        /// pitboard cannot install one. Claude Code is the tool it names.
+        /// No tool Pitboard works with was found on this machine, and none has an account
+        /// or a login here. Nothing Pitboard does means anything without a tool, and
+        /// Pitboard cannot install one. Claude Code is the tool it names.
         case noClaudeCode
         /// No tool has anybody signed in, and nothing is enrolled.
         case noOneSignedIn
-        /// Somebody is signed in to a tool and pitboard has not been told what to call them.
+        /// Somebody is signed in to a tool and Pitboard has not been told what to call them.
         /// Their login cannot be parked until it has a name. The tool's code, and the email.
         case unnamed(provider: String, email: String)
         /// A tool has one account, so there is nothing yet to switch to in it, and nobody
@@ -658,7 +658,7 @@ public final class AppModel {
 
     // MARK: - Errors
 
-    /// pitboard's errors already say what to do, so they are shown as they are.
+    /// Pitboard's errors already say what to do, so they are shown as they are.
     nonisolated static func saying(_ error: Error) -> String {
         if case PitboardError.Failed(_, _, let message, _) = error {
             return message

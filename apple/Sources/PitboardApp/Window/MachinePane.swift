@@ -1,7 +1,7 @@
 import PitboardKit
 import SwiftUI
 
-/// What pitboard finds about this Mac, the checks `pitboard doctor` makes, for when
+/// What Pitboard finds about this Mac, the checks `pitboard doctor` makes, for when
 /// something is wrong at machine level and a failed switch's one line is not enough to act
 /// on.
 struct MachinePane: View {
@@ -50,7 +50,7 @@ struct MachinePane: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(
                     failing == 0
-                        ? "Everything pitboard checks is in order."
+                        ? "Everything Pitboard checks is in order."
                         : failing == 1
                             ? "One thing is worth looking at."
                             : "\(failing) things are worth looking at."

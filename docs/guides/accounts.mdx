@@ -3,7 +3,7 @@ title: "Add and manage accounts"
 description: "Enrol the account you are signed in to, sign in to more, and rename or forget them."
 ---
 
-pitboard switches only between accounts you enrol. Enrol the account each tool is signed in to, then sign in to the others through pitboard.
+Pitboard switches only between accounts you enrol. Enrol the account each tool is signed in to, then sign in to the others through Pitboard.
 
 Before you start, run Claude Code once and sign in. For OpenAI's Codex CLI, see [Before you enrol a Codex account](/guides/codex#before-you-enrol-a-codex-account) first.
 
@@ -11,7 +11,7 @@ Before you start, run Claude Code once and sign in. For OpenAI's Codex CLI, see 
 
 <Tabs>
   <Tab title="App">
-    The pitboard window opens by itself the first time you open the app. Later, click pitboard's item in the menu bar, then choose **Open pitboard**.
+    The Pitboard window opens by itself the first time you open the app. Later, click Pitboard's item in the menu bar, then choose **Open Pitboard**.
 
     1. In the **Accounts** pane, find the tip **Give this account a name** and click **Name**.
     2. In **Name This Account**, enter a name such as `personal`, then click **Save**. The account appears under that name.
@@ -31,17 +31,17 @@ Before you start, run Claude Code once and sign in. For OpenAI's Codex CLI, see 
   </Tab>
 </Tabs>
 
-When you switch away from an account, pitboard parks its login: it keeps the login so you can switch back. Enrolling this account parks nothing.
+When you switch away from an account, Pitboard parks its login: it keeps the login so you can switch back. Enrolling this account parks nothing.
 
-Enrolling a Claude Code account needs the network: pitboard asks Anthropic whose login it is.
+Enrolling a Claude Code account needs the network: Pitboard asks Anthropic whose login it is.
 
 ## Add another account
 
-pitboard runs the tool's own sign-in in a separate directory, so the account in use stays signed in.
+Pitboard runs the tool's own sign-in in a separate directory, so the account in use stays signed in.
 
 <Tabs>
   <Tab title="App">
-    1. In pitboard's menu, choose **Add Account**. The **Add Account** dialog opens.
+    1. In Pitboard's menu, choose **Add Account**. The **Add Account** dialog opens.
     2. If the dialog has a **Tool** pop-up menu, click it, then choose **Claude Code** or **Codex**. For which tools it offers, see [Dialogs and alerts](/reference/app#dialogs-and-alerts).
     3. Enter a name such as `work`, then click **Sign In**. Your browser opens.
     4. Sign in as the account you are adding. The dialog closes and the account appears in the list.
@@ -54,7 +54,7 @@ pitboard runs the tool's own sign-in in a separate directory, so the account in 
     pitboard enroll codex/work --sign-in    # Codex
     ```
 
-    Your browser opens. Sign in as the account you are adding. pitboard then prints:
+    Your browser opens. Sign in as the account you are adding. Pitboard then prints:
 
     ```text
     Enrolled work (me@company.com). Switch to it with: pitboard use work
@@ -62,15 +62,15 @@ pitboard runs the tool's own sign-in in a separate directory, so the account in 
   </Tab>
 </Tabs>
 
-If the browser signs you in as an account already enrolled, pitboard refuses and names its label. For what `--sign-in` runs, see [Account commands](/reference/account-commands#enroll).
+If the browser signs you in as an account already enrolled, Pitboard refuses and names its label. For what `--sign-in` runs, see [Account commands](/reference/account-commands#enroll).
 
 <Warning>
-  Do not add an account with Claude Code's `/login` or with `codex login`. Both replace the login in use without pitboard parking it, so the account that was in use needs a browser sign-in again. `codex login` also revokes the login it replaces.
+  Do not add an account with Claude Code's `/login` or with `codex login`. Both replace the login in use without Pitboard parking it, so the account that was in use needs a browser sign-in again. `codex login` also revokes the login it replaces.
 </Warning>
 
 ## Choose a label
 
-A label is the one-word name pitboard knows an account by, such as `work`. When you enrol an account or sign in to it again, `work` means Claude Code and `codex/work` means Codex. In the app, you choose the tool and enter the name without `codex/`.
+A label is the one-word name Pitboard knows an account by, such as `work`. When you enrol an account or sign in to it again, `work` means Claude Code and `codex/work` means Codex. In the app, you choose the tool and enter the name without `codex/`.
 
 In `pitboard use`, `pitboard forget` and `pitboard rename`, `work` alone is enough while only one tool has a `work` account. Otherwise, write `claude/work` or `codex/work`. For the full rules, see [Labels](/reference/commands#labels).
 
@@ -108,13 +108,13 @@ Forgetting an account deletes its parked login, so adding it again needs a brows
     pitboard forget old
     ```
 
-    pitboard asks first:
+    Pitboard asks first:
 
     ```text
     Forget old and delete its parked login? Adding it again needs a browser sign-in. [y/N]
     ```
 
-    Type `y`, then press Return. pitboard prints:
+    Type `y`, then press Return. Pitboard prints:
 
     ```text
     Forgot old (old@example.com).

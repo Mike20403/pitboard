@@ -1,13 +1,13 @@
-//! Parked logins `repair` gave back that this pitboard never wrote.
+//! Parked logins `repair` gave back that this Pitboard never wrote.
 //!
 //! On macOS every `PITBOARD_HOME` shares the login keychain, so a park this home never wrote
-//! down may be another pitboard's. Giving one back to the account whose name it carries is
+//! down may be another Pitboard's. Giving one back to the account whose name it carries is
 //! additive and safe; what was not safe was what followed. Once given back it was this
 //! home's to delete, so the next switch away from its account, a forget or an uninstall
-//! deleted another pitboard's parked login. Now only using one deletes it. Every case runs
+//! deleted another Pitboard's parked login. Now only using one deletes it. Every case runs
 //! for both tools, because who wrote a park is a fact about the store and not about a tool.
-//! Off macOS the vault is a directory inside the home, which no other pitboard parks in, so
-//! there a park `repair` finds is this pitboard's own.
+//! Off macOS the vault is a directory inside the home, which no other Pitboard parks in, so
+//! there a park `repair` finds is this Pitboard's own.
 
 use super::harness::{
     Machine, NOW, account, codex_access, codex_account, codex_id, codex_login, codex_machine,
@@ -82,7 +82,7 @@ fn enrol_away(m: &Machine) {
     state::save(&m.ctx, &state).expect("saved");
 }
 
-/// Another pitboard on the same machine, with a home of its own and the same keychain,
+/// Another Pitboard on the same machine, with a home of its own and the same keychain,
 /// parks a login of `who`'s and records it, the way its own switch would have.
 fn parked_elsewhere(m: &Machine, who: &str, document: &Value) -> (Context, Park) {
     let other = m
@@ -101,10 +101,10 @@ fn repair_here(m: &Machine) -> Reclaimed {
     repair(settle(&m.ctx, None).expect("nothing to recover").0).expect("repaired")
 }
 
-/// The whole of what went wrong. Another pitboard has `here` parked; this one has `here`
+/// The whole of what went wrong. Another Pitboard has `here` parked; this one has `here`
 /// signed in and so holds nothing for it; `repair` gives the other's park to `here`; and
 /// the next switch away parks the live login in its place. That park was never used here,
-/// so it is still where the other pitboard left it, and still loads there.
+/// so it is still where the other Pitboard left it, and still loads there.
 #[test]
 fn a_park_repair_gave_back_outlives_a_switch_away_from_its_account() {
     for make in MACHINES {
@@ -132,7 +132,7 @@ fn a_park_repair_gave_back_outlives_a_switch_away_from_its_account() {
         assert!(state.foreign.is_empty(), "nothing here holds it now");
         assert!(!state.discarded.contains(&recorded.service));
         assert_eq!(
-            park::load(&other, &m.key("here"), &recorded).expect("the other pitboard's park"),
+            park::load(&other, &m.key("here"), &recorded).expect("the other Pitboard's park"),
             theirs,
             "{:?}",
             m.which
@@ -157,13 +157,13 @@ fn forgetting_its_account_leaves_a_park_repair_gave_back() {
         assert!(!state.discarded.contains(&recorded.service));
         assert!(
             m.mem.vault().peek(&recorded.service).is_some(),
-            "{:?}: it is still where the other pitboard left it",
+            "{:?}: it is still where the other Pitboard left it",
             m.which
         );
     }
 }
 
-/// Uninstalling deletes what this pitboard wrote and leaves the rest, and says how many it
+/// Uninstalling deletes what this Pitboard wrote and leaves the rest, and says how many it
 /// left, because somebody told their logins were removed would otherwise not look for them.
 #[test]
 fn uninstalling_leaves_a_park_repair_gave_back_and_says_so() {
@@ -176,12 +176,12 @@ fn uninstalling_leaves_a_park_repair_gave_back_and_says_so() {
         let removed =
             uninstall(settle(&m.ctx, None).expect("nothing to recover").0).expect("uninstalled");
 
-        assert_eq!(removed.parks, 1, "`there`'s, which this pitboard wrote");
+        assert_eq!(removed.parks, 1, "`there`'s, which this Pitboard wrote");
         assert_eq!(removed.left, 1);
         assert_eq!(removed.pending, 0);
         assert!(
             removed.home_removed,
-            "a login left for another pitboard does not keep this one's home"
+            "a login left for another Pitboard does not keep this one's home"
         );
         assert_eq!(
             m.mem.vault().services(),
@@ -223,7 +223,7 @@ fn a_park_repair_gave_back_is_deleted_once_a_switch_installs_it() {
 }
 
 /// A renewal spends the refresh token it presents, so the copy it renewed is used up
-/// whoever wrote it, and what it writes is this pitboard's own.
+/// whoever wrote it, and what it writes is this Pitboard's own.
 #[test]
 fn a_park_repair_gave_back_is_deleted_once_a_renewal_spends_it() {
     for make in MACHINES {
@@ -252,7 +252,7 @@ fn a_park_repair_gave_back_is_deleted_once_a_renewal_spends_it() {
 /// Killed after the service answered and before the answer was recorded, a renewal leaves
 /// the fresh copy for the next change to give back in place of the one it spent. That one
 /// was saved as used before the answer was written, so giving the fresh one back deletes it
-/// rather than letting it go for a pitboard that would present a spent token.
+/// rather than letting it go for a Pitboard that would present a spent token.
 #[test]
 fn a_park_repair_gave_back_is_deleted_once_a_killed_renewal_spends_it() {
     for make in MACHINES {
@@ -286,7 +286,7 @@ fn a_park_repair_gave_back_is_deleted_once_a_killed_renewal_spends_it() {
     }
 }
 
-/// Refused is not spent: presenting it took nothing from it. The pitboard that wrote it is
+/// Refused is not spent: presenting it took nothing from it. The Pitboard that wrote it is
 /// refused the same way and drops it itself.
 #[test]
 fn a_park_repair_gave_back_that_the_service_refuses_is_let_go_and_left() {
@@ -316,9 +316,9 @@ fn a_park_repair_gave_back_that_the_service_refuses_is_let_go_and_left() {
     }
 }
 
-/// What this pitboard wrote down itself is its own, however it was found again. Written
+/// What this Pitboard wrote down itself is its own, however it was found again. Written
 /// down, written to, and killed before anything recorded it, it is given back like the
-/// other pitboard's, and the same switch away deletes it as it always did.
+/// other Pitboard's, and the same switch away deletes it as it always did.
 #[test]
 fn a_park_this_pitboard_wrote_down_and_lost_is_still_deleted_when_replaced() {
     for make in MACHINES {
@@ -335,7 +335,7 @@ fn a_park_this_pitboard_wrote_down_and_lost_is_still_deleted_when_replaced() {
                 .map(|p| p.service.as_str()),
             Some(service.as_str())
         );
-        assert!(state.foreign.is_empty(), "this pitboard wrote it down");
+        assert!(state.foreign.is_empty(), "this Pitboard wrote it down");
 
         switch(settled, &m.key("there")).expect("switched");
 
@@ -354,8 +354,8 @@ fn lost(m: &Machine, who: &str, document: &Value) -> Park {
     park::store_at(&m.ctx, m.which, &service, document).expect("parked")
 }
 
-/// Off macOS the vault is a directory inside pitboard's own, which no other pitboard parks
-/// in. A park `repair` finds there is this pitboard's even when nothing here wrote its name
+/// Off macOS the vault is a directory inside Pitboard's own, which no other Pitboard parks
+/// in. A park `repair` finds there is this Pitboard's even when nothing here wrote its name
 /// down, so it is deleted like any other once it is let go, and `uninstall` leaves nothing
 /// behind and does not say it did.
 #[test]
@@ -371,7 +371,7 @@ fn a_park_found_in_a_vault_of_this_homes_own_is_this_pitboards() {
         switch(settled, &m.key("there")).expect("switched");
         assert!(
             m.mem.vault().peek(&found.service).is_none(),
-            "{:?}: replaced, and this pitboard's, so deleted",
+            "{:?}: replaced, and this Pitboard's, so deleted",
             m.which
         );
         super::harness::hold(&m, &format!("{:?}, after the switch away", m.which));

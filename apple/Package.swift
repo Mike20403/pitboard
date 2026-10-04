@@ -24,7 +24,7 @@ let package = Package(
         ),
         .target(name: "PitboardKit", dependencies: ["PitboardBindings"]),
         // The sites an account's window opens, what a link from outside may be, and the
-        // pitboard link the Share extension hands one over in: Foundation only, and nothing
+        // Pitboard link the Share extension hands one over in: Foundation only, and nothing
         // an app extension may not use.
         .target(name: "PitboardSites"),
         .target(name: "PitboardApp", dependencies: ["PitboardKit", "PitboardSites"]),

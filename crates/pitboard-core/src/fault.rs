@@ -77,7 +77,7 @@ thread_local! {
 /// `Err(point)` is where it died.
 ///
 /// The one difference from a real kill: a value dropped while the panic unwinds still runs
-/// its destructor, so pitboard's own exclusivity lock and Claude Code's write lock are
+/// its destructor, so Pitboard's own exclusivity lock and Claude Code's write lock are
 /// released here where a killed process would leave the lock directory for staleness to
 /// reclaim. That is the gentler of the two, and the lock protocol has its own tests.
 #[cfg(test)]

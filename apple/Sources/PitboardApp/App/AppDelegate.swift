@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// What only an app delegate can do for pitboard: the Dock icon's menu, a click on the Dock
+/// What only an app delegate can do for Pitboard: the Dock icon's menu, a click on the Dock
 /// icon with no window open, and asking before quitting stops a download.
 ///
 /// It owns the app's models, since AppKit asks it these at any time and it has to answer
@@ -21,8 +21,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    /// The Dock icon's menu, while pitboard has one: each account's window, as the File menu
-    /// offers them, and the pitboard window. macOS lists the windows open above it.
+    /// The Dock icon's menu, while Pitboard has one: each account's window, as the File menu
+    /// offers them, and the Pitboard window. macOS lists the windows open above it.
     public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         for entry in windows.menus {
@@ -41,7 +41,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
         let main = NSMenuItem(
-            title: "Open pitboard", action: #selector(openMainWindow), keyEquivalent: "")
+            title: "Open Pitboard", action: #selector(openMainWindow), keyEquivalent: "")
         main.target = self
         menu.addItem(main)
         return menu
@@ -65,8 +65,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         model.showWindow()
     }
 
-    /// Opening pitboard again from Finder, Spotlight or Launchpad with no window open shows
-    /// the pitboard window. A Dock click with every window minimised brings one back instead,
+    /// Opening Pitboard again from Finder, Spotlight or Launchpad with no window open shows
+    /// the Pitboard window. A Dock click with every window minimised brings one back instead,
     /// as AppKit does by itself.
     public func applicationShouldHandleReopen(
         _ sender: NSApplication, hasVisibleWindows flag: Bool
@@ -86,7 +86,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             running == 1
             ? "A download is in progress. Quit anyway?"
             : "\(running) downloads are in progress. Quit anyway?"
-        alert.informativeText = "Quitting pitboard stops them, and they will not resume."
+        alert.informativeText = "Quitting Pitboard stops them, and they will not resume."
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
         // Quit is often chosen from the menu bar item's menu, which leaves the app behind

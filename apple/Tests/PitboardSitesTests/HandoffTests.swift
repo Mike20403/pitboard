@@ -6,7 +6,7 @@ private func link(_ text: String) -> SiteLink {
     try! SiteLink(text)
 }
 
-/// The link a pitboard link `text` carries, as its address, or why it carries none.
+/// The link a Pitboard link `text` carries, as its address, or why it carries none.
 private func carried(_ text: String, scheme: String = "pitboard") -> Result<String, LinkRefusal>
 {
     Result { () throws(LinkRefusal) in
@@ -61,7 +61,7 @@ func handingALinkOverGivesTheSameLink(_ original: String) {
     #expect(carried(built.absoluteString) == .success("https://chatgpt.com/c/x"))
 }
 
-/// Anything on the Mac can open a pitboard link, so one carrying a link no site opens is
+/// Anything on the Mac can open a Pitboard link, so one carrying a link no site opens is
 /// refused for the same reason the link itself would be.
 @Test func whatAPitboardLinkCarriesIsCheckedAsALinkFromOutside() {
     #expect(

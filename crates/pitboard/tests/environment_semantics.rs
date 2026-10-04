@@ -23,7 +23,7 @@ fn environment(home: &PathBuf, config_dir: Option<&str>) -> serde_json::Value {
         Some(v) => command.env("CLAUDE_CONFIG_DIR", v),
         None => command.env_remove("CLAUDE_CONFIG_DIR"),
     };
-    let out = command.output().expect("run pitboard");
+    let out = command.output().expect("run Pitboard");
     let envelope: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("doctor --json should be valid JSON");
     assert_eq!(envelope["v"], 1, "the contract version must be present");
@@ -51,7 +51,7 @@ fn an_empty_config_dir_means_unset() {
     );
     assert_eq!(
         empty["credential_service"], "Claude Code-credentials",
-        "and must leave pitboard on the default credential slot"
+        "and must leave Pitboard on the default credential slot"
     );
     let _ = std::fs::remove_dir_all(&home);
 }

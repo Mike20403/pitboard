@@ -1,4 +1,4 @@
-//! pitboard's own directory. Every directory pitboard creates is private to its owner,
+//! Pitboard's own directory. Every directory Pitboard creates is private to its owner,
 //! whatever the umask: park file names contain account identifiers, so on a shared machine a
 //! listing would leak.
 

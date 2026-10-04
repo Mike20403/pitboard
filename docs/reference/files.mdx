@@ -1,38 +1,38 @@
 ---
 title: "Files and environment variables"
 sidebarTitle: "Files and variables"
-description: "pitboard keeps its files in `~/.pitboard`, parked logins in the keychain or a vault, and reads these environment variables."
+description: "Pitboard keeps its files in `~/.pitboard`, parked logins in the keychain or a vault, and reads these environment variables."
 ---
 
 The paths shown are defaults that [environment variables](/reference/files#environment-variables) can move.
 
-## The pitboard directory
+## The Pitboard directory
 
-pitboard's directory is `~/.pitboard`, or the path in `PITBOARD_HOME`. The command line and the app share it.
+Pitboard's directory is `~/.pitboard`, or the path in `PITBOARD_HOME`. The command line and the app share it.
 
-pitboard creates each directory at mode 0700 and each file at 0600, except those in `backups/`. An existing directory keeps its mode.
+Pitboard creates each directory at mode 0700 and each file at 0600, except those in `backups/`. An existing directory keeps its mode.
 
-pitboard refuses a directory whose path contains `Dropbox`, `Google Drive`, `OneDrive`, `com~apple~CloudDocs` or `Sync`, because parked logins belong to one machine.
+Pitboard refuses a directory whose path contains `Dropbox`, `Google Drive`, `OneDrive`, `com~apple~CloudDocs` or `Sync`, because parked logins belong to one machine.
 
 | File | Holds | Written by |
 | --- | --- | --- |
-| `state.json` | The enrolled accounts: label, tool, email address, account identifiers, a Codex account's ChatGPT plan such as `plus` or `team`, and each parked login's name and expiry | Every change pitboard makes, and renewals |
-| `state.lock` | The lock that lets one change or renewal run at a time | Every change pitboard makes, and renewals |
-| `journal.json` | The record of a switch while it runs. An interrupted switch leaves it behind, and the next change pitboard makes finishes or undoes it; see [Interrupted switches](/concepts/switching#interrupted-switches). | A switch |
-| `pending` | Names of parked logins about to be written, one per line. If a run is killed midway, the next change pitboard makes finds each login by its name here. Absent when there are none. | Switches, sign-ins and renewals |
+| `state.json` | The enrolled accounts: label, tool, email address, account identifiers, a Codex account's ChatGPT plan such as `plus` or `team`, and each parked login's name and expiry | Every change Pitboard makes, and renewals |
+| `state.lock` | The lock that lets one change or renewal run at a time | Every change Pitboard makes, and renewals |
+| `journal.json` | The record of a switch while it runs. An interrupted switch leaves it behind, and the next change Pitboard makes finishes or undoes it; see [Interrupted switches](/concepts/switching#interrupted-switches). | A switch |
+| `pending` | Names of parked logins about to be written, one per line. If a run is killed midway, the next change Pitboard makes finds each login by its name here. Absent when there are none. | Switches, sign-ins and renewals |
 | `signin.lock` | The lock that allows one sign-in at a time | A sign-in |
-| `signin/` | The config directory a tool is given during a sign-in, so the login in use is left alone. Removed when the sign-in ends, or by the next sign-in if pitboard was stopped during one. | A sign-in |
+| `signin/` | The config directory a tool is given during a sign-in, so the login in use is left alone. Removed when the sign-in ends, or by the next sign-in if Pitboard was stopped during one. | A sign-in |
 | `vault/` | Linux only: parked logins, one file each | Switches, sign-ins and renewals |
 | `usage.json` | The newest usage reading for each account | Reading usage, and the status line |
 | `usage.lock` | The lock around `usage.json` and `sessions.json` | Reading usage, and the status line |
 | `readings/` | One file per account, with 14 days of readings, to work out how long the account lasts | Reading usage |
-| `asking.json` | When pitboard last asked Anthropic or OpenAI for each account's usage, and how long to wait before asking again | Reading usage |
+| `asking.json` | When Pitboard last asked Anthropic or OpenAI for each account's usage, and how long to wait before asking again | Reading usage |
 | `sessions.json` | The usage each Claude Code session last gave `pitboard statusline`, and the account in use then. A session not seen for 7 days is dropped. | The status line |
 | `backups/` | Copies of Claude Code's config from before each switch rewrote it. Each is named after the time it was made, in seconds since 1 January 1970, such as `claude.json.1790000000`. The 10 newest are kept. They hold no login, but do hold your email address, your Anthropic account and organisation identifiers, and the path of each project Claude Code has opened. Each keeps the mode of Claude Code's file. | A Claude Code switch |
-| `audit.log` | One tab-separated line per change or renewal: the time, `cli` or `app` for where it was made, the verb such as `use`, the subject and the outcome. It holds no email address, and holds an account id only in a `reclaim` line with the outcome `discarded`, whose subject is a parked login's name. [`pitboard log`](/reference/maintenance-commands#log) prints it. | Every change pitboard makes, and renewals |
-| `audit.log.1` | The previous `audit.log`, moved aside once it passed 256 KiB | Every change pitboard makes, and renewals |
+| `audit.log` | One tab-separated line per change or renewal: the time, `cli` or `app` for where it was made, the verb such as `use`, the subject and the outcome. It holds no email address, and holds an account id only in a `reclaim` line with the outcome `discarded`, whose subject is a parked login's name. [`pitboard log`](/reference/maintenance-commands#log) prints it. | Every change Pitboard makes, and renewals |
+| `audit.log.1` | The previous `audit.log`, moved aside once it passed 256 KiB | Every change Pitboard makes, and renewals |
 
-Only files in `vault/` and `signin/` can hold a login. To delete the directory, see [Remove pitboard](/install/remove#delete-parked-logins-and-pitboards-files).
+Only files in `vault/` and `signin/` can hold a login. To delete the directory, see [Remove Pitboard](/install/remove#delete-parked-logins-and-pitboards-files).
 
 ## Parked logins
 
@@ -46,21 +46,21 @@ For why parked logins are kept there, see [Security and privacy](/security#where
 
 ## Claude Code and Codex files
 
-| Path | What pitboard does with it |
+| Path | What Pitboard does with it |
 | --- | --- |
 | `~/.claude.json` | Reads the account the file records as in use. After a Claude Code switch, copies it to `backups/` and writes the incoming account into it. A `~/.claude/.config.json`, where one exists, is used instead. |
 | Keychain item `Claude Code-credentials` | macOS: the Claude Code login in use. A switch reads and replaces it. With `CLAUDE_CONFIG_DIR` set, the name ends in `-` and 8 hex characters from a hash of the directory's path. |
-| `~/.claude/.credentials.json` | Linux: the Claude Code login in use. macOS: Claude Code's fallback when a keychain write fails for good, which pitboard reads after the keychain item. A locked keychain whose item Claude Code has seen does not count, from Claude Code 2.1.281. |
-| `~/.claude/.storage-write.lock` | The lock Claude Code takes around each write of its login. pitboard takes it during a switch. |
+| `~/.claude/.credentials.json` | Linux: the Claude Code login in use. macOS: Claude Code's fallback when a keychain write fails for good, which Pitboard reads after the keychain item. A locked keychain whose item Claude Code has seen does not count, from Claude Code 2.1.281. |
+| `~/.claude/.storage-write.lock` | The lock Claude Code takes around each write of its login. Pitboard takes it during a switch. |
 | `~/.claude/settings.json` | Read for `apiKeyHelper`, and for an `env` block that sets `CLAUDE_CODE_CUSTOM_OAUTH_URL` or a variable that overrides Claude Code's login, listed in [Environment variables](/reference/files#environment-variables). Managed settings are read too: `managed-settings.json` and `managed-settings.d/*.json` in `/Library/Application Support/ClaudeCode` on macOS or `/etc/claude-code` on Linux. A project's settings are not read. |
 | `~/.codex/auth.json` | The Codex login in use. A switch reads and replaces it. |
-| `~/.codex/config.toml` | Read for `cli_auth_credentials_store`. For the values pitboard refuses, see [Use pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account). |
+| `~/.codex/config.toml` | Read for `cli_auth_credentials_store`. For the values Pitboard refuses, see [Use Pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account). |
 
 For how a switch changes these files, see [How switching works](/concepts/switching#what-a-switch-does).
 
 ## Renewal schedule
 
-`pitboard schedule install`, or turning on **Renew parked logins daily** in **Settings** > **General**, writes these files. `pitboard schedule uninstall`, or turning it off, removes them. So does `pitboard uninstall` when pitboard's directory is `~/.pitboard`.
+`pitboard schedule install`, or turning on **Renew parked logins daily** in **Settings** > **General**, writes these files. `pitboard schedule uninstall`, or turning it off, removes them. So does `pitboard uninstall` when Pitboard's directory is `~/.pitboard`.
 
 | Item | macOS | Linux |
 | --- | --- | --- |
@@ -79,7 +79,7 @@ The app is `Pitboard.app`, with the bundle identifier `com.usepitboard.Pitboard`
 | `Contents/Helpers/pitboard` | The command line |
 | `Contents/Resources/man/pitboard.1` | The man page |
 | `Contents/Resources/completions/pitboard.bash`, `pitboard.zsh` and `pitboard.fish` | Shell completions |
-| `Contents/PlugIns/PitboardShare.appex` | The [Share extension](/reference/app#share-extension), **pitboard** in a browser's Share menu |
+| `Contents/PlugIns/PitboardShare.appex` | The [Share extension](/reference/app#share-extension), **Pitboard** in a browser's Share menu |
 
 The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.plist`:
 
@@ -89,13 +89,13 @@ The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.pli
 | `secondAccountDeclined` | The tools for which you clicked **Not Now** when the **Accounts** pane suggested a second account |
 | `menuBarShows` | **Menu bar shows**: `nameAndUsage`, `usage` or `icon` |
 | `settingsTab` | The Settings tab shown last: `general`, `commandLine` or `updates` |
-| `webStores` | The [account windows'](#account-windows) data folders the app made, listed under the path of the pitboard directory it made them for. The app deletes only these. |
-| `windowPages` | The page each account's window was last on, by the pitboard directory's path and the window's folder. Only a site's own pages are kept. Removing a window's data or forgetting its account takes its page away. |
+| `webStores` | The [account windows'](#account-windows) data folders the app made, listed under the path of the Pitboard directory it made them for. The app deletes only these. |
+| `windowPages` | The page each account's window was last on, by the Pitboard directory's path and the window's folder. Only a site's own pages are kept. Removing a window's data or forgetting its account takes its page away. |
 | Keys of Sparkle, the app's updater | Its update settings and when it last checked |
 
-macOS keeps **Open pitboard at login** as a login item, outside this file.
+macOS keeps **Open Pitboard at login** as a login item, outside this file.
 
-The app's files can also be in `~/Library/Application Support`, `~/Library/Caches`, `~/Library/HTTPStorages` and `~/Library/Saved Application State`, named after `com.usepitboard.Pitboard`. In `Saved Application State`, macOS keeps the windows that were open, to restore them. To remove these files, see [Remove pitboard](/install/remove#remove-pitboard-itself).
+The app's files can also be in `~/Library/Application Support`, `~/Library/Caches`, `~/Library/HTTPStorages` and `~/Library/Saved Application State`, named after `com.usepitboard.Pitboard`. In `Saved Application State`, macOS keeps the windows that were open, to restore them. To remove these files, see [Remove Pitboard](/install/remove#remove-pitboard-itself).
 
 ### Account windows
 
@@ -103,17 +103,17 @@ The [account windows](/reference/app#account-windows) and the Share extension ke
 
 | Path | What it is |
 | --- | --- |
-| `~/Library/WebKit/com.usepitboard.Pitboard/WebsiteDataStore/<id>` | One account window's website data: the site's cookies, the sign-in among them, its storage and its caches. WebKit writes it, and a sign-in window shares its account's folder. pitboard never reads, copies or changes what is in it. |
-| `~/Library/Containers/com.usepitboard.Pitboard.share` and `~/Library/Application Scripts/com.usepitboard.Pitboard.share` | Folders macOS makes for the sandboxed Share extension. pitboard writes nothing there. |
+| `~/Library/WebKit/com.usepitboard.Pitboard/WebsiteDataStore/<id>` | One account window's website data: the site's cookies, the sign-in among them, its storage and its caches. WebKit writes it, and a sign-in window shares its account's folder. Pitboard never reads, copies or changes what is in it. |
+| `~/Library/Containers/com.usepitboard.Pitboard.share` and `~/Library/Application Scripts/com.usepitboard.Pitboard.share` | Folders macOS makes for the sandboxed Share extension. Pitboard writes nothing there. |
 | `~/Downloads` | Where account windows save downloads. A name already taken gets a number, as in `report 2.pdf`. |
 
 `<id>` is a version 5 UUID made from `claude:` or `codex:` and the account's id, so the folder's name does not show the id. A renamed account keeps its folder, and with it the window's sign-in.
 
-WebKit keeps the windows' folders under your own `~/Library`, whatever `HOME` says. So the app records in `webStores` the folders it made for its pitboard directory, `~/.pitboard` or `PITBOARD_HOME`. It deletes only those, and a copy run with another `HOME` or `PITBOARD_HOME` leaves them alone.
+WebKit keeps the windows' folders under your own `~/Library`, whatever `HOME` says. So the app records in `webStores` the folders it made for its Pitboard directory, `~/.pitboard` or `PITBOARD_HOME`. It deletes only those, and a copy run with another `HOME` or `PITBOARD_HOME` leaves them alone.
 
 The app deletes a folder once a successful read of the accounts no longer lists its account. That happens after you forget the account, in the app or with `pitboard forget`. A folder WebKit still holds is tried a few more times, then again at the next read.
 
-A folder that another pitboard directory also recorded is kept, and only the record of the directory the app reads is removed. Both record it when the same account's window has opened from each. If that other directory no longer exists, the app deletes the folder.
+A folder that another Pitboard directory also recorded is kept, and only the record of the directory the app reads is removed. Both record it when the same account's window has opened from each. If that other directory no longer exists, the app deletes the folder.
 
 **Remove Website Data** in the **File** menu removes the data in a folder and keeps the folder.
 
@@ -124,14 +124,14 @@ Opened from Finder, the app does not see your shell's variables, so the defaults
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `HOME` | Both | Your home directory, the `~` in every path here. |
-| `PITBOARD_HOME` | Both | pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`. |
-| `PITBOARD_NO_ARGV` | Both | On macOS, when it is `1`, pitboard refuses to write a large login on `security`'s argument line, and does not renew a parked login it could not write back. A renewal schedule installed while it is set keeps it. See [Large logins on macOS](/security#large-logins-on-macos). |
-| `PITBOARD_API_BASE` | Command line | For pitboard's tests. Sends the requests meant for Anthropic and OpenAI to this URL, if it is an `http` URL whose host is a loopback IP address, such as `http://127.0.0.1:8080`. |
+| `PITBOARD_HOME` | Both | Pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`. |
+| `PITBOARD_NO_ARGV` | Both | On macOS, when it is `1`, Pitboard refuses to write a large login on `security`'s argument line, and does not renew a parked login it could not write back. A renewal schedule installed while it is set keeps it. See [Large logins on macOS](/security#large-logins-on-macos). |
+| `PITBOARD_API_BASE` | Command line | For Pitboard's tests. Sends the requests meant for Anthropic and OpenAI to this URL, if it is an `http` URL whose host is a loopback IP address, such as `http://127.0.0.1:8080`. |
 | `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Empty counts as unset. |
 | `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Both | The directory that picks Claude Code's keychain item, `.credentials.json` and lock, in place of the config directory. Set but empty, it picks `~/.claude` and `Claude Code-credentials`. |
 | `USER` | Both | macOS: the keychain account of Claude Code's item and of parked logins. Unset or empty, your login name is used. A name with characters other than letters, digits, `.`, `_` and `-` becomes `claude-code-user`. |
-| `CLAUDE_CODE_CUSTOM_OAUTH_URL` | Command line | Not empty: pitboard refuses every change to a Claude Code account, and refuses `repair`, `uninstall` and `abandon`, with the error `custom_oauth_endpoint`. Claude Code then keeps its login under a name pitboard does not read. The command line and the app also read it from an `env` block in Claude Code's settings. |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_GATEWAY`, `CLAUDE_CODE_USE_ANTHROPIC_AWS`, `CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD` | Command line | Any of these not empty: Claude Code uses something other than the login pitboard switches. Changes to Claude Code accounts warn with `auth_overridden`, and `pitboard doctor` warns. The command line and the app also read these, and `apiKeyHelper`, from Claude Code's settings. |
+| `CLAUDE_CODE_CUSTOM_OAUTH_URL` | Command line | Not empty: Pitboard refuses every change to a Claude Code account, and refuses `repair`, `uninstall` and `abandon`, with the error `custom_oauth_endpoint`. Claude Code then keeps its login under a name Pitboard does not read. The command line and the app also read it from an `env` block in Claude Code's settings. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_GATEWAY`, `CLAUDE_CODE_USE_ANTHROPIC_AWS`, `CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD` | Command line | Any of these not empty: Claude Code uses something other than the login Pitboard switches. Changes to Claude Code accounts warn with `auth_overridden`, and `pitboard doctor` warns. The command line and the app also read these, and `apiKeyHelper`, from Claude Code's settings. |
 | `CODEX_HOME` | Both | Codex's directory, in place of `~/.codex`. Empty counts as unset. |
 | `PATH` | Command line | Where the command line looks for `claude` and `codex`, which it runs to sign in. Only absolute directories are searched. |
 | `NO_COLOR` | Command line | Not empty: no colour in any output. `pitboard statusline` also drops its colour when `NO_COLOR` is set but empty. |

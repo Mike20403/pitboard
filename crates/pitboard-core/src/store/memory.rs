@@ -1,6 +1,6 @@
 //! Credential stores that live in memory and fail when they are told to.
 //!
-//! The interesting half of pitboard is what happens when a step fails partway through, and
+//! The interesting half of Pitboard is what happens when a step fails partway through, and
 //! against a real keychain none of it can be produced: a write cannot be made to fail, an
 //! item cannot be made to disappear between two calls, and a read cannot be made to say it
 //! could not tell. So the tests that mattered most were the ones that could not be written.
@@ -33,7 +33,7 @@ pub enum Fault {
     LocksOnWrite,
     /// The write lands, and the item is gone by the time anything reads it back. Claude
     /// Code's `/logout` deletes the credential with no lock held once it has given up
-    /// waiting, which is the one write pitboard cannot exclude.
+    /// waiting, which is the one write Pitboard cannot exclude.
     DeletedAfterWrite,
     /// The write lands and the store locks before the write can read it back, so the write
     /// says it could not tell, and so does every read after it. The same screen lock as
@@ -131,7 +131,7 @@ impl MemoryStore {
             .expect("a poisoned test store is a failed test") = Some(fault);
     }
 
-    /// Empty the store, as a Claude Code that keeps its login somewhere pitboard has never
+    /// Empty the store, as a Claude Code that keeps its login somewhere Pitboard has never
     /// heard of would look from here.
     pub fn delete_everything(&self) {
         self.items

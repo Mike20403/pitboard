@@ -223,7 +223,7 @@ private let stillRunning = Warning(
         "2 `codex` sessions started before this switch are still running and still using "
         + "`codex/personal`. Quit them and start again to use the new account. Do not sign "
         + "out in any of them: signing out there revokes `codex/personal`'s login, which "
-        + "pitboard has just parked.")
+        + "Pitboard has just parked.")
 
 private func account(_ label: String, signedIn: Bool, percent: Double) -> Account {
     account(label, signedIn: signedIn, [window("session", percent, resets: nil)])
@@ -244,7 +244,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     #expect(model.problem == nil)
 }
 
-/// pitboard's errors already say what to do, so the panel shows the message as it is.
+/// Pitboard's errors already say what to do, so the panel shows the message as it is.
 @MainActor
 @Test func aFailedReadIsShownAsItsOwnMessage() async {
     let model = AppModel(
@@ -837,7 +837,7 @@ func anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel() async throws
 }
 
 /// A stand-in `Pitboard.app` in `directory`, with a command line inside it that can be run.
-/// Made by the test, so nothing depends on whether the Mac running it has pitboard
+/// Made by the test, so nothing depends on whether the Mac running it has Pitboard
 /// installed. The test removes `directory`.
 private func standInApp(in directory: URL) throws -> URL {
     let app = directory.appendingPathComponent("Pitboard.app")
@@ -851,7 +851,7 @@ private func standInApp(in directory: URL) throws -> URL {
 
 /// The settings say which `pitboard` a terminal runs, looking where the login shell's
 /// `PATH` says before anywhere else, and whether it is this app's own. Where the shell could
-/// not be asked, it is the first one found where a way of installing pitboard puts it.
+/// not be asked, it is the first one found where a way of installing Pitboard puts it.
 @MainActor
 @Test func theSettingsLookForTheCommandLineWhereTheLoginShellSays() async throws {
     let root = FileManager.default.temporaryDirectory
@@ -957,7 +957,7 @@ private func standInApp(in directory: URL) throws -> URL {
     let (downloaded, temporary) = model(
         "/private/var/folders/xy/abc/T/AppTranslocation/0A1B2C/d/Pitboard.app")
     #expect(
-        downloaded.machine.cannotSchedule?.hasPrefix("Move pitboard to your Applications")
+        downloaded.machine.cannotSchedule?.hasPrefix("Move Pitboard to your Applications")
             == true)
     let (built, unbundled) = model("/Users/x/pitboard/apple/.build/debug")
     #expect(built.machine.cannotSchedule?.contains("no command line inside it") == true)
@@ -1341,7 +1341,7 @@ private func standInApp(in directory: URL) throws -> URL {
     #expect(model.footing == .ready)
 }
 
-/// The one state pitboard cannot do anything about. It has to say so rather than show an
+/// The one state Pitboard cannot do anything about. It has to say so rather than show an
 /// empty panel, which reads as an app that does not work. The core's read succeeds with
 /// nothing to list on such a machine, so what says it is that no tool was found. It was told
 /// by a read failing for a missing program, which no read does, and was never shown.
@@ -1400,7 +1400,7 @@ private func standInApp(in directory: URL) throws -> URL {
 }
 
 /// A login with no name cannot be parked, so this is the step between signing in and
-/// pitboard being able to do anything at all. Until it has one it is called by its email
+/// Pitboard being able to do anything at all. Until it has one it is called by its email
 /// address, which is how the person knows it.
 @MainActor
 @Test func anAccountSignedInWithoutANameIsAskedForOne() async throws {
@@ -1439,7 +1439,7 @@ private func standInApp(in directory: URL) throws -> URL {
 
 /// Mid-switch, and a login signed out from somewhere else, both leave accounts enrolled
 /// with nobody signed in. Neither is a machine that needs setting up, and asking somebody
-/// to sign in again there would have them sign in over an account pitboard already holds.
+/// to sign in again there would have them sign in over an account Pitboard already holds.
 @MainActor
 @Test func enrolledAccountsWithNobodySignedInAreNotAskedToStartOver() async {
     let model = AppModel(
@@ -1507,7 +1507,7 @@ private func standInApp(in directory: URL) throws -> URL {
     #expect(model.footing == .onlyOne(provider: "codex", label: "job"))
 }
 
-/// A login pitboard could not read, or cannot switch, has no account behind it. Offering
+/// A login Pitboard could not read, or cannot switch, has no account behind it. Offering
 /// to name it would enrol something that can never be switched to.
 @MainActor
 @Test func anUnplacedLoginIsNeitherUnenrolledNorOfferedAName() async {
@@ -1567,7 +1567,7 @@ private func standInApp(in directory: URL) throws -> URL {
     await model.refresh()
     #expect(model.addable == [claudeCode])
     #expect(
-        model.notOffered == "Codex is not offered: pitboard did not find codex on this Mac.")
+        model.notOffered == "Codex is not offered: Pitboard did not find codex on this Mac.")
 
     stub.found = [codex]
     let codexOnly = AppModel(testing: stub)
@@ -1723,9 +1723,9 @@ private func standInApp(in directory: URL) throws -> URL {
 @Test func theMenuBarSaysWhichToolItIsAboutOnceThereAreTwo() async {
     let stub = Stub(.success(status([account("work", signedIn: true, percent: 42)])))
     let model = AppModel(testing: stub)
-    #expect(model.spokenTitle == "pitboard")
+    #expect(model.spokenTitle == "Pitboard")
     await model.refresh()
-    #expect(model.spokenTitle == "pitboard, work 42%")
+    #expect(model.spokenTitle == "Pitboard, work 42%")
 
     stub.answer = .success(
         status([
@@ -1734,7 +1734,7 @@ private func standInApp(in directory: URL) throws -> URL {
                 "work", of: "codex", signedIn: true, [window("five_hour", 80, resets: nil)]),
         ]))
     await model.refresh()
-    #expect(model.spokenTitle == "pitboard, work 80%, Codex")
+    #expect(model.spokenTitle == "Pitboard, work 80%, Codex")
 }
 
 // MARK: - A read that lands after a change
@@ -2289,7 +2289,7 @@ private func chatGPTOpen(quits: Bool = true) -> (AppModel, Stub, StandInAppContr
 }
 
 /// Switched under it, ChatGPT goes on with the account left behind, and its own Log Out
-/// would revoke the login pitboard has just parked. So the switch waits to be told.
+/// would revoke the login Pitboard has just parked. So the switch waits to be told.
 @MainActor
 @Test func aSwitchWaitsForTheAppHoldingTheLoginToBeQuit() async {
     let (model, stub, apps) = chatGPTOpen()
@@ -2313,7 +2313,7 @@ private func chatGPTOpen(quits: Bool = true) -> (AppModel, Stub, StandInAppContr
     #expect(model.presentedFailure == nil)
 }
 
-/// pitboard closed it, so pitboard opens it, whether or not the switch worked.
+/// Pitboard closed it, so Pitboard opens it, whether or not the switch worked.
 @MainActor
 @Test func theAppIsOpenedAgainWhenTheSwitchFails() async throws {
     let (model, stub, apps) = chatGPTOpen()
@@ -2384,7 +2384,7 @@ private func chatGPTOpen(quits: Bool = true) -> (AppModel, Stub, StandInAppContr
     #expect(busy.running(chatGPT) != nil)
 }
 
-/// Somebody who quit ChatGPT themselves before answering did not ask for it back: pitboard
+/// Somebody who quit ChatGPT themselves before answering did not ask for it back: Pitboard
 /// opens only what it closed.
 @MainActor
 @Test func anAppAlreadyGoneIsNotOpenedAgain() async throws {

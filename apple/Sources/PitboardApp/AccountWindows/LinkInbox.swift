@@ -5,7 +5,7 @@ import PitboardSites
 /// The link the Share extension handed over, waiting for the person to choose which
 /// account's window opens it.
 ///
-/// Anything on the Mac can open a pitboard link, so nothing opens by itself: every link waits
+/// Anything on the Mac can open a Pitboard link, so nothing opens by itself: every link waits
 /// here until somebody chooses an account and clicks Open, even with one account.
 @MainActor
 @Observable
@@ -26,12 +26,12 @@ final class LinkInbox {
     private(set) var lastChosen: [Site.ID: UUID] = [:]
     @ObservationIgnored private let scheme: String
 
-    /// An inbox for pitboard links of `scheme`, this build's.
+    /// An inbox for Pitboard links of `scheme`, this build's.
     init(scheme: String) {
         self.scheme = scheme
     }
 
-    /// Takes a pitboard link the app was asked to open, replacing one still waiting.
+    /// Takes a Pitboard link the app was asked to open, replacing one still waiting.
     func receive(_ url: URL) {
         arrival = Arrival(
             link: Result { () throws(LinkRefusal) in

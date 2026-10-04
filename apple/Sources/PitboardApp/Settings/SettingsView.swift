@@ -46,7 +46,7 @@ private struct GeneralSettings: View {
         Form {
             Section {
                 Toggle(
-                    "Open pitboard at login",
+                    "Open Pitboard at login",
                     isOn: Binding(
                         get: { machine.openAtLogin != .disabled },
                         set: { machine.setOpenAtLogin($0) })
@@ -56,7 +56,7 @@ private struct GeneralSettings: View {
                     LabeledContent {
                         Button("Open Login Items Settings…") { machine.openLoginItemSettings() }
                     } label: {
-                        Text("macOS is waiting for you to allow pitboard in Login Items.")
+                        Text("macOS is waiting for you to allow Pitboard in Login Items.")
                             .explanatory()
                     }
                 }
@@ -94,7 +94,7 @@ private struct GeneralSettings: View {
                             .truncationMode(.middle)
                     }
                 } else if case .unsupported = machine.schedule {
-                    Text("This Mac has no scheduler pitboard knows how to write to.")
+                    Text("This Mac has no scheduler Pitboard knows how to write to.")
                         .explanatory()
                 } else if let why = machine.cannotSchedule {
                     Text(why).explanatory()
@@ -114,7 +114,7 @@ private struct GeneralSettings: View {
                 Text("While you’re away")
             } footer: {
                 Text(
-                    "A parked login is renewed whenever pitboard runs, and otherwise not, so "
+                    "A parked login is renewed whenever Pitboard runs, and otherwise not, so "
                         + "one you leave alone for weeks expires and needs a browser sign-in. "
                         + "Daily renewal hands that to your Mac’s own scheduler. It renews "
                         + "your parked logins and does nothing else: it never switches account "
@@ -127,7 +127,7 @@ private struct GeneralSettings: View {
         .task {
             machine.readLoginItem()
             await machine.readSchedule()
-            // Approving pitboard in Login Items happens in System Settings, and coming back
+            // Approving Pitboard in Login Items happens in System Settings, and coming back
             // from there makes the app active again without showing this tab anew.
             for await _ in NotificationCenter.default.notifications(
                 named: NSApplication.didBecomeActiveNotification)
@@ -175,7 +175,7 @@ private struct CommandLineSettings: View {
                         }
                     } else if machine.commandLineTool.translocated {
                         Text(
-                            "Move pitboard to your Applications folder first. Until then macOS "
+                            "Move Pitboard to your Applications folder first. Until then macOS "
                                 + "runs it from a temporary copy, and a link to that would break."
                         )
                         .explanatory()
@@ -196,7 +196,7 @@ private struct CommandLineSettings: View {
                         """
                         The command line does everything the app does, and more: \
                         `pitboard status` in a script, and `pitboard repair` for a parked \
-                        login pitboard’s records have lost track of.
+                        login Pitboard’s records have lost track of.
                         """
                     )
                     .footnote()
@@ -231,7 +231,7 @@ private struct UpdatesSettings: View {
                         Button("Check Now") { updates.check() }
                     } label: {
                         Text(
-                            updates.waiting.map { "pitboard \($0) is ready to install." }
+                            updates.waiting.map { "Pitboard \($0) is ready to install." }
                                 ?? version)
                     }
                 }
@@ -242,7 +242,7 @@ private struct UpdatesSettings: View {
                     // A build from a clone carries no update key and cannot update itself, so
                     // saying nothing would look like a setting that does not work.
                     Text(
-                        "This copy of pitboard can’t update itself: it was built from source "
+                        "This copy of Pitboard can’t update itself: it was built from source "
                             + "and carries no update key. A copy from a release keeps itself up "
                             + "to date."
                     )
@@ -256,6 +256,6 @@ private struct UpdatesSettings: View {
     private var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? ""
-        return short.isEmpty ? "pitboard" : "pitboard \(short)"
+        return short.isEmpty ? "Pitboard" : "Pitboard \(short)"
     }
 }

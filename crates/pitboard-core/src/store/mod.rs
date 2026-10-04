@@ -1,4 +1,4 @@
-//! Reading and writing credentials, both a tool's live one and pitboard's parked ones.
+//! Reading and writing credentials, both a tool's live one and Pitboard's parked ones.
 //!
 //! Which store holds what is decided by the tool and by the machine: a tool's own module
 //! builds its live chain, and [`crate::host::Host`] says what this machine has. What is
@@ -114,7 +114,7 @@ pub(crate) trait RawStore: Send + Sync {
     fn write(&self, service: &str, contents: &str) -> Result<(), Error>;
     fn delete(&self, service: &str) -> Result<(), Error>;
 
-    /// Every name pitboard put here, where the store can be asked. `None` where it cannot,
+    /// Every name Pitboard put here, where the store can be asked. `None` where it cannot,
     /// which is what a store with no way to enumerate answers rather than an empty list:
     /// nothing found and nothing askable are different, and one of them means an item can
     /// be lost track of for good.
@@ -141,7 +141,7 @@ fn exists(path: &std::path::Path) -> Result<bool, Error> {
 }
 
 /// Where parked logins live when there is no keychain to put them in: one file each, in
-/// pitboard's own directory. Named here rather than in the backend so `doctor` can look at
+/// Pitboard's own directory. Named here rather than in the backend so `doctor` can look at
 /// what is actually on the disk without the two spellings drifting apart.
 pub fn vault_dir(ctx: &Context) -> PathBuf {
     crate::home::dir(ctx).join("vault")
@@ -202,7 +202,7 @@ fn with_live<T>(live: &Live, run: impl FnOnce(&[&dyn RawStore]) -> T) -> T {
 ///
 /// One divergence, on purpose. Claude Code demotes to the plaintext file when a keychain
 /// write fails for good, and deletes the keychain item when it does; from 2.1.281 a locked
-/// keychain whose item the process has seen is not failing for good. pitboard never
+/// keychain whose item the process has seen is not failing for good. Pitboard never
 /// demotes: see the note on `write_in`.
 pub fn resolve(live: &Live, service: &str) -> Result<Backend, Error> {
     with_live(live, |chain| {
@@ -251,7 +251,7 @@ pub fn vault_delete(ctx: &Context, service: &str) -> Result<(), Error> {
 }
 
 /// Every parked login on this machine, asked of the store rather than read out of
-/// pitboard's own index. `None` where the store cannot be enumerated.
+/// Pitboard's own index. `None` where the store cannot be enumerated.
 pub fn vault_list(ctx: &Context) -> Result<Option<Vec<String>>, Error> {
     vault(ctx).list()
 }

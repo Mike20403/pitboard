@@ -1,7 +1,7 @@
 import PitboardKit
 import SwiftUI
 
-/// pitboard's design rules, in one place.
+/// Pitboard's design rules, in one place.
 ///
 /// The app is made of the platform's own parts: a menu, a window with a sidebar, sheets,
 /// grouped forms and alerts. What is decided here is only what those parts do not decide

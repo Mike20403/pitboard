@@ -1,7 +1,7 @@
 //! The man page, with every command set out on it.
 //!
 //! clap_mangen lists each subcommand as a page of its own, `pitboard-status(1)`, which is
-//! how a program that installs a page per command is read. pitboard installs one page,
+//! how a program that installs a page per command is read. Pitboard installs one page,
 //! `pitboard.1`, so a list of references sent `man` to pages that are not there. Its own
 //! sections are kept; the commands are written here in their place.
 

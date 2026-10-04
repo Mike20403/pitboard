@@ -1,7 +1,7 @@
 import Foundation
 import ServiceManagement
 
-/// Whether pitboard opens when its person logs in.
+/// Whether Pitboard opens when its person logs in.
 ///
 /// A protocol so a UI test can turn the setting on and off without registering the test
 /// build as a login item of whoever runs the tests.

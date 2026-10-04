@@ -1,14 +1,14 @@
 ---
 title: "Quickstart"
-description: "Install pitboard, add two Claude Code accounts, see what each has left and switch between them."
+description: "Install Pitboard, add two Claude Code accounts, see what each has left and switch between them."
 ---
 
-Enrol two Claude Code accounts with pitboard's command line, switch between them and see what each account has left.
+Enrol two Claude Code accounts with Pitboard's command line, switch between them and see what each account has left.
 
 Before you start, install Claude Code, run `claude` once and sign in to one of your accounts.
 
 <Steps>
-  <Step title="Install pitboard">
+  <Step title="Install Pitboard">
     Run one of these commands, not both. The menu bar app includes the command line.
 
     ```sh
@@ -16,7 +16,7 @@ Before you start, install Claude Code, run `claude` once and sign in to one of y
     brew install --cask datlechin/tap/pitboard-app # the menu bar app, macOS 14 or later
     ```
 
-    To check the install, run `pitboard --version`. It prints `pitboard` and the version number. For other ways to install, see [Install pitboard](/install).
+    To check the install, run `pitboard --version`. It prints `pitboard` and the version number. For other ways to install, see [Install Pitboard](/install).
   </Step>
   <Step title="Add the account you are signed in to">
     Enrol the account Claude Code is signed in to, under the label `personal`. A label is the short name you give an account.
@@ -37,13 +37,13 @@ Before you start, install Claude Code, run `claude` once and sign in to one of y
     pitboard enroll work --sign-in
     ```
 
-    pitboard prints this line:
+    Pitboard prints this line:
 
     ```text
     Opening Claude Code's sign-in. Sign in as the account to add; the account in use now stays signed in.
     ```
 
-    Claude Code's sign-in opens in your browser. Sign in there as your second account. pitboard keeps that account's login until you switch to it, and prints:
+    Claude Code's sign-in opens in your browser. Sign in there as your second account. Pitboard keeps that account's login until you switch to it, and prints:
 
     ```text
     Enrolled work (me@company.com). Switch to it with: pitboard use work
@@ -61,7 +61,7 @@ Before you start, install Claude Code, run `claude` once and sign in to one of y
     Claude Code sessions already running follow within 33 seconds.
     ```
 
-    `work` is the account in use. `personal`'s login is parked: pitboard keeps it until you switch back with `pitboard use personal`.
+    `work` is the account in use. `personal`'s login is parked: Pitboard keeps it until you switch back with `pitboard use personal`.
 
     A Claude Code session that is already open picks up the switch within about 33 seconds. You do not have to restart it.
   </Step>
@@ -86,8 +86,8 @@ Before you start, install Claude Code, run `claude` once and sign in to one of y
 
     Under each account, `5h` is its five-hour limit and `week` is its weekly limit. Each line shows how much of the limit is used and when it resets.
 
-    Once pitboard has read an account three times over at least 15 minutes, a last line under it says how long the account lasts. For what each line means, see [Check what each account has left](/guides/usage#read-the-lines-under-each-account).
+    Once Pitboard has read an account three times over at least 15 minutes, a last line under it says how long the account lasts. For what each line means, see [Check what each account has left](/guides/usage#read-the-lines-under-each-account).
   </Step>
 </Steps>
 
-Next, to switch OpenAI's Codex CLI between your ChatGPT accounts, see [Use pitboard with Codex](/guides/codex). To add accounts in the menu bar app, see [Add and manage accounts](/guides/accounts).
+Next, to switch OpenAI's Codex CLI between your ChatGPT accounts, see [Use Pitboard with Codex](/guides/codex). To add accounts in the menu bar app, see [Add and manage accounts](/guides/accounts).

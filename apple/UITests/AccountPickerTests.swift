@@ -1,6 +1,6 @@
 import XCTest
 
-/// A page shared from a browser, as the Share extension hands it over: a pitboard link of the
+/// A page shared from a browser, as the Share extension hands it over: a Pitboard link of the
 /// debug build, which opens the account picker and nothing else until somebody chooses.
 final class AccountPickerTests: XCTestCase {
     override func setUp() {
@@ -39,7 +39,7 @@ final class AccountPickerTests: XCTestCase {
         XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
     }
 
-    /// A link of a site pitboard does not open is refused in the picker, saying why.
+    /// A link of a site Pitboard does not open is refused in the picker, saying why.
     @MainActor
     func testALinkToAnotherSiteIsRefused() {
         let app = XCUIApplication.launched(.twoTools)
@@ -86,7 +86,7 @@ final class AccountPickerTests: XCTestCase {
         let picker = app.picker
         XCTAssertTrue(picker.text("==", "Can’t Open This Link").waitForExistence(timeout: 10))
         XCTAssertTrue(
-            picker.text("BEGINSWITH", "pitboard doesn’t open claude.ai sign-in links").exists)
+            picker.text("BEGINSWITH", "Pitboard doesn’t open claude.ai sign-in links").exists)
         picker.buttons["OK"].click()
     }
 }

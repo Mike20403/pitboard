@@ -67,7 +67,7 @@ for scheme in \
 done
 
 # The command line comes inside the app, so one update moves both, and the renewal
-# schedule has a pitboard to run: the app has no renewal of its own.
+# schedule has a Pitboard to run: the app has no renewal of its own.
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
     cargo build --locked --release -p pitboard --target "$target"
 done

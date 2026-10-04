@@ -78,7 +78,7 @@ fn repair() {
         value["data"]["deleted"]
             .as_array()
             .is_some_and(Vec::is_empty),
-        "this pitboard wrote nothing down that nothing recorded, so it deletes nothing"
+        "this Pitboard wrote nothing down that nothing recorded, so it deletes nothing"
     );
 }
 

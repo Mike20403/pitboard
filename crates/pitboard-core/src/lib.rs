@@ -1,5 +1,5 @@
-//! The engine behind pitboard: parking and restoring a person's own Claude Code and Codex
-//! logins, and reading what each has left. It serves pitboard's own front ends, the command
+//! The engine behind Pitboard: parking and restoring a person's own Claude Code and Codex
+//! logins, and reading what each has left. It serves Pitboard's own front ends, the command
 //! line and the native apps, which reach it through [`service::Pitboard`] with an explicit
 //! [`context::Context`].
 //!
@@ -14,17 +14,17 @@
 //! kept. Adding an error, warning or check code is not a breaking change, which is why every
 //! enum a caller reads codes out of is `#[non_exhaustive]` and every such caller needs a
 //! fallback arm. Renaming or removing a code is a breaking change: a new minor version
-//! while pitboard is at 0.x, as Cargo reads one, and a new major version after 1.0.
+//! while Pitboard is at 0.x, as Cargo reads one, and a new major version after 1.0.
 //! A report a caller reads, such as what `uninstall` returns, may likewise say more in a
 //! later release, so those structs are `#[non_exhaustive]` too.
 //!
-//! What is deliberately not reachable: nothing outside this crate may write pitboard's index.
+//! What is deliberately not reachable: nothing outside this crate may write Pitboard's index.
 //! Every change goes through [`switch`], which records what it is about to do first and
 //! finishes an interrupted one before starting another.
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 compile_error!(
-    "pitboard runs on macOS and Linux. Another system needs a host of its own in \
+    "Pitboard runs on macOS and Linux. Another system needs a host of its own in \
      `host/`, saying where its stores, processes and scheduler are."
 );
 

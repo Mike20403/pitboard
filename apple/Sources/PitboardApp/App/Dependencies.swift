@@ -15,7 +15,7 @@ public struct Dependencies {
     let core: any Core
     let defaults: UserDefaults
     let loginItem: any LoginItem
-    /// Other apps pitboard may quit and open again around a switch.
+    /// Other apps Pitboard may quit and open again around a switch.
     let appControl: any AppControl
     let commandLineTool: CommandLineTool
     /// Whether notifications are posted. Off in a fixture, where asking for permission
@@ -27,7 +27,7 @@ public struct Dependencies {
     /// The account windows' world: the sites, WebKit's stores and the Downloads folder, or a
     /// fixture's stand-ins.
     let web: WebEnvironment
-    /// The scheme of the pitboard links this build answers, which its Share extension hands
+    /// The scheme of the Pitboard links this build answers, which its Share extension hands
     /// links over in: `pitboard`, or `pitboard-debug` in a debug build.
     let linkScheme: String
 

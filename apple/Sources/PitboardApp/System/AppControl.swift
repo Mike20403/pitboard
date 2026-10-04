@@ -1,6 +1,6 @@
 import AppKit
 
-/// Another app on this Mac, by its bundle id, that pitboard may quit and open again around a
+/// Another app on this Mac, by its bundle id, that Pitboard may quit and open again around a
 /// switch: one that runs a tool for itself and keeps the tool's login in memory while it is
 /// open, as ChatGPT does with Codex's.
 ///
@@ -16,7 +16,7 @@ public protocol AppControl: AnyObject {
     /// progress. Returns at once; the app may take a while, or decline.
     func requestQuit(_ bundleID: String)
     /// Opens the app at `url` the way Finder would, without bringing it to the front:
-    /// whatever pitboard has to say about the switch stays in front of it.
+    /// whatever Pitboard has to say about the switch stays in front of it.
     func open(_ url: URL)
 }
 

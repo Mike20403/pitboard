@@ -258,7 +258,7 @@ mod tests {
         );
         assert!(
             unrelated.exists(),
-            "only pitboard's own temporaries are touched"
+            "only Pitboard's own temporaries are touched"
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

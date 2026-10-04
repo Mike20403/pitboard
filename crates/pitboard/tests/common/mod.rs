@@ -139,7 +139,7 @@ pub struct Env {
     /// Stands in for Anthropic. It answers who a token belongs to exactly the way the real
     /// profile endpoint does, so the binary identifies accounts through its real code path.
     server: mockito::ServerGuard,
-    /// The usage endpoint, kept apart so a test can say how often pitboard asked it. How
+    /// The usage endpoint, kept apart so a test can say how often Pitboard asked it. How
     /// often is a design question here, not an accident, so it is worth counting.
     usage: mockito::Mock,
     mocks: Vec<mockito::Mock>,
@@ -201,7 +201,7 @@ impl Env {
         }
     }
 
-    /// Count how often pitboard asks Anthropic what an account has left, from here on.
+    /// Count how often Pitboard asks Anthropic what an account has left, from here on.
     ///
     /// How often is a design question in this project rather than an accident, so it is
     /// worth a test. The expectation has to be set when the mock is made, so this replaces
@@ -238,7 +238,7 @@ impl Env {
         c.args(args)
             .env("CLAUDE_CONFIG_DIR", &self.root)
             .env_remove("CLAUDE_SECURESTORAGE_CONFIG_DIR")
-            // Every tool pitboard reads gets a scratch home of its own, empty unless a
+            // Every tool Pitboard reads gets a scratch home of its own, empty unless a
             // test puts something in it. Without this the suite reads whatever the person
             // running it happens to be signed in to, which is both a flaky test and a real
             // login no test may touch.
@@ -257,7 +257,7 @@ impl Env {
     }
 
     pub fn run(&self, args: &[&str]) -> (String, String, i32) {
-        let out = self.command(args).output().expect("run pitboard");
+        let out = self.command(args).output().expect("run Pitboard");
         (
             String::from_utf8_lossy(&out.stdout).into_owned(),
             String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -325,13 +325,13 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     }
 
     /// Park a login where the binary under test will look for it. On macOS that is the
-    /// keychain; elsewhere it is this test's own pitboard home, never the machine's.
+    /// keychain; elsewhere it is this test's own Pitboard home, never the machine's.
     pub fn write_park(&self, service: &str, contents: &str) {
         guard_not_live(service);
         if cfg!(target_os = "macos") {
             pitboard_core::testing::vault_write(&ctx(), service, contents).unwrap();
         } else {
-            // The modes pitboard's own file vault writes, for the same reason: a parked
+            // The modes Pitboard's own file vault writes, for the same reason: a parked
             // login is a plaintext token and `doctor` fails on one anybody can read.
             use std::os::unix::fs::PermissionsExt;
             let vault = self.root.join("pitboard/vault");
@@ -355,8 +355,8 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         }
     }
 
-    /// Take a parked login out of the store behind pitboard's back, which is how a test
-    /// says "this one is gone" without pitboard's own records agreeing.
+    /// Take a parked login out of the store behind Pitboard's back, which is how a test
+    /// says "this one is gone" without Pitboard's own records agreeing.
     ///
     /// The Linux half was missing, so on Linux this deleted nothing and every test that
     /// used it went on with the park still there. `use` then gave it back, which is
@@ -456,7 +456,7 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
 
     /// Sign Codex in to `account` the way `codex login` leaves it: an `auth.json` in this
     /// test's own `CODEX_HOME`, mode 0600, whose ID token names the account. The token is
-    /// signed by nothing, and nothing in pitboard checks a signature: it reads the claims.
+    /// signed by nothing, and nothing in Pitboard checks a signature: it reads the claims.
     pub fn sign_in_codex(&self, account: &str, email: &str, refresh: &str) {
         let login = codex_login(account, email, refresh);
         use std::os::unix::fs::PermissionsExt;
@@ -466,7 +466,7 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     }
 
     /// Stand in for `codex login`: signs `login` into whichever `CODEX_HOME` it is run with,
-    /// the private directory pitboard makes for a sign-in, and does nothing else. Every
+    /// the private directory Pitboard makes for a sign-in, and does nothing else. Every
     /// test that runs a Codex sign-in installs this first, because the harness keeps the
     /// real `PATH` behind its own `bin`, and the real `codex login` must never run here.
     pub fn install_fake_codex_login(&self, login: &serde_json::Value) {
@@ -587,7 +587,7 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// shape rather than whatever a sign-in produced.
     ///
     /// Written the way Claude Code writes a large one, through `security`'s argument line,
-    /// because pitboard itself refuses to and that refusal is what some of these tests are
+    /// because Pitboard itself refuses to and that refusal is what some of these tests are
     /// about. The item is this test's own, guarded like every other write here.
     pub fn replace_live(&self, credential: &serde_json::Value) {
         let body = credential.to_string();
@@ -705,7 +705,7 @@ impl Drop for Env {
 }
 
 /// A Codex login the way `codex login` writes one, for `account`: an ID token naming it,
-/// signed by nothing, and nothing in pitboard checks a signature: it reads the claims.
+/// signed by nothing, and nothing in Pitboard checks a signature: it reads the claims.
 pub fn codex_login(account: &str, email: &str, refresh: &str) -> serde_json::Value {
     let claims = serde_json::json!({
         "email": email,

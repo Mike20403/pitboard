@@ -37,7 +37,7 @@ struct MenuBarContent: View {
             }
         }
         Section {
-            Button("Open pitboard") { model.showWindow() }
+            Button("Open Pitboard") { model.showWindow() }
                 .keyboardShortcut("0")
             Button("Settings…") {
                 // Choosing an item of a menu bar item's menu does not make the app active,
@@ -51,12 +51,12 @@ struct MenuBarContent: View {
             }
         }
         Section {
-            Button("About pitboard") {
+            Button("About Pitboard") {
                 NSApp.activate()
                 NSApp.orderFrontStandardAboutPanel(nil)
             }
-            Link("pitboard Help", destination: Links.documentation)
-            Button("Quit pitboard") { NSApp.terminate(nil) }
+            Link("Pitboard Help", destination: Links.documentation)
+            Button("Quit Pitboard") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         }
     }
@@ -102,7 +102,7 @@ struct MenuBarContent: View {
                         Text(
                             others.count == 1
                                 ? first.title : "\(others.count) things to look at")
-                        Text(others.count == 1 ? "Show in pitboard" : first.title)
+                        Text(others.count == 1 ? "Show in Pitboard" : first.title)
                     }
                     .help(others.count == 1 ? first.lines.joined(separator: " ") : "")
                 }
@@ -111,7 +111,7 @@ struct MenuBarContent: View {
                         updates.check()
                     } label: {
                         Image(systemName: Symbol.update)
-                        Text("Install pitboard \(waiting)…")
+                        Text("Install Pitboard \(waiting)…")
                     }
                 }
             }

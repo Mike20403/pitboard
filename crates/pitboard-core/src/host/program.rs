@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Found the way `execvp` finds one, which passes over a directory of that name and a file
 /// nobody may run, so what is found here is what starts. Only a directory named from the
-/// root is looked in: a relative one names a place relative to wherever pitboard was
+/// root is looked in: a relative one names a place relative to wherever Pitboard was
 /// started, which says nothing about where a tool is installed, and a sign-in that runs
 /// from a directory of its own would read it as somewhere else again.
 pub(crate) fn find(named: &Path, search: &OsStr) -> Option<PathBuf> {
@@ -37,7 +37,7 @@ mod tests {
     use super::*;
 
     /// Only a directory named from the root is looked in. An empty entry and a relative one
-    /// both name somewhere relative to wherever pitboard was started, and a sign-in that
+    /// both name somewhere relative to wherever Pitboard was started, and a sign-in that
     /// runs from a directory of its own would start something else from there.
     #[test]
     fn only_a_directory_named_from_the_root_is_looked_in() {
@@ -58,7 +58,7 @@ mod tests {
         assert_eq!(looked, [root.join("codex")]);
     }
 
-    /// A program named with a directory relative to where pitboard was started is found as
+    /// A program named with a directory relative to where Pitboard was started is found as
     /// that place, by its full path, so the sign-in that runs from a directory of its own
     /// starts the same program.
     #[test]

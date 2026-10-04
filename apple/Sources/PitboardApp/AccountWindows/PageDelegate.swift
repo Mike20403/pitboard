@@ -194,7 +194,7 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         await PageDialogs.chooseFiles(parameters, in: webView.window)
     }
 
-    /// The camera and the microphone are never given to a page: pitboard asks macOS for
+    /// The camera and the microphone are never given to a page: Pitboard asks macOS for
     /// neither, and a voice conversation belongs in the site's own app.
     func webView(
         _ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin,

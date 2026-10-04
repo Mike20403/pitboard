@@ -1,4 +1,4 @@
-//! Every way pitboard can fail. Each variant has a message naming the cause and an action,
+//! Every way Pitboard can fail. Each variant has a message naming the cause and an action,
 //! a stable code for programs to branch on, and an exit code.
 
 use crate::provider::ProviderId;
@@ -20,9 +20,9 @@ impl std::fmt::Display for Enrolled {
     }
 }
 
-/// Why a request to Anthropic did not produce an answer pitboard could use.
+/// Why a request to Anthropic did not produce an answer Pitboard could use.
 ///
-/// The code on an error says what pitboard was doing; this says what went wrong underneath
+/// The code on an error says what Pitboard was doing; this says what went wrong underneath
 /// it, and whether trying again is worth anything. Without it every failure that was not a
 /// 401 arrived at a front end as one code with a sentence of prose, so neither the command
 /// line nor the app could tell being offline from being rate limited from a login Anthropic
@@ -37,7 +37,7 @@ pub enum Cause {
     RateLimited,
     /// Anthropic answered, badly, and may answer well later.
     ServerError,
-    /// Anthropic answered something pitboard does not understand, which means its shape
+    /// Anthropic answered something Pitboard does not understand, which means its shape
     /// moved. Trying again will produce the same thing.
     AnswerNotUnderstood,
     /// This login is finished: revoked, or already used somewhere else.
@@ -121,8 +121,8 @@ pub enum Error {
     },
 
     #[error(
-        "`{program}` is not on this machine, and pitboard signs in with {}'s own sign-in. \
-         Install {}, or point pitboard at it.",
+        "`{program}` is not on this machine, and Pitboard signs in with {}'s own sign-in. \
+         Install {}, or point Pitboard at it.",
         tool.name(),
         tool.name()
     )]
@@ -130,11 +130,11 @@ pub enum Error {
 
     #[error(
         "CLAUDE_CODE_CUSTOM_OAUTH_URL is set, so Claude Code keeps its login under a \
-         different name than the one pitboard reads. Unset it to use pitboard."
+         different name than the one Pitboard reads. Unset it to use Pitboard."
     )]
     CustomOauthEndpoint,
 
-    #[error("could not read pitboard's account list at {path}: {source}")]
+    #[error("could not read Pitboard's account list at {path}: {source}")]
     StateUnreadable {
         path: PathBuf,
         #[source]
@@ -142,7 +142,7 @@ pub enum Error {
     },
 
     #[error(
-        "pitboard's account list at {path} is corrupt ({source}). \
+        "Pitboard's account list at {path} is corrupt ({source}). \
          Delete it and enroll your accounts again; parked logins will be lost."
     )]
     StateCorrupt {
@@ -152,8 +152,8 @@ pub enum Error {
     },
 
     #[error(
-        "{path} was written by a newer pitboard (its format is {found}, this one reads \
-         {expected}). Update this pitboard the way you installed it. The app, and the command \
+        "{path} was written by a newer Pitboard (its format is {found}, this one reads \
+         {expected}). Update this Pitboard the way you installed it. The app, and the command \
          line inside it, update with the app's Check for Updates."
     )]
     StateFromNewerVersion {
@@ -163,14 +163,14 @@ pub enum Error {
     },
 
     #[error(
-        "{path} is in a format ({found}) no version of pitboard has ever written. Delete it \
+        "{path} is in a format ({found}) no version of Pitboard has ever written. Delete it \
          and enroll your accounts again."
     )]
     StateVersionUnknown { path: PathBuf, found: u32 },
 
     #[error(
-        "{path} has an account for `{tool}`, a tool this pitboard does not know, so it was \
-         written by a newer one. Update this pitboard the way you installed it. The app, and \
+        "{path} has an account for `{tool}`, a tool this Pitboard does not know, so it was \
+         written by a newer one. Update this Pitboard the way you installed it. The app, and \
          the command line inside it, update with the app's Check for Updates."
     )]
     StateNamesUnknownTool { path: PathBuf, tool: String },
@@ -184,7 +184,7 @@ pub enum Error {
     StateWrongMachine { path: PathBuf },
 
     #[error(
-        "this platform has no scheduler pitboard knows how to write. Keeping parked logins \
+        "this platform has no scheduler Pitboard knows how to write. Keeping parked logins \
          alive here means running `pitboard` yourself from time to time."
     )]
     ScheduleUnsupported,
@@ -199,24 +199,24 @@ pub enum Error {
     /// temporary, which is there while the app runs and gone once it quits.
     #[error(
         "the renewal schedule would run {path}, which is in a temporary copy macOS made of \
-         the app and is gone once the app quits. Move pitboard to your Applications folder, \
+         the app and is gone once the app quits. Move Pitboard to your Applications folder, \
          open it from there, and turn on daily renewal again."
     )]
     ScheduleProgramTemporary { path: PathBuf },
 
     /// An app that names no command line for the schedule, where the only other thing to
     /// schedule is the app itself, which renews nothing.
-    #[error("this copy of pitboard has no command line inside it for the renewal schedule to run.")]
+    #[error("this copy of Pitboard has no command line inside it for the renewal schedule to run.")]
     ScheduleProgramUnnamed,
 
-    #[error("could not write to pitboard's directory at {path}: {source}")]
+    #[error("could not write to Pitboard's directory at {path}: {source}")]
     HomeUnwritable {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
 
-    #[error("could not save pitboard's account list at {path}: {source}")]
+    #[error("could not save Pitboard's account list at {path}: {source}")]
     StateWriteFailed {
         path: PathBuf,
         #[source]
@@ -254,10 +254,10 @@ pub enum Error {
     LiveCredentialAbsent { tool: ProviderId },
 
     #[error(
-        "Claude Code's config says {email} is signed in, but pitboard cannot find that \
+        "Claude Code's config says {email} is signed in, but Pitboard cannot find that \
          login in the keychain or in the file it also reads. It will not write a login \
          where nobody reads it. This usually means Claude Code has started keeping logins \
-         somewhere pitboard does not know about yet: check for a pitboard update, and \
+         somewhere Pitboard does not know about yet: check for a Pitboard update, and \
          report it with `pitboard doctor --json` if there is none."
     )]
     LiveCredentialElsewhere { email: String },
@@ -269,7 +269,7 @@ pub enum Error {
     )]
     LiveCredentialShapeUnexpected { tool: ProviderId, detail: String },
 
-    /// The tool is configured to keep its login somewhere pitboard does not handle.
+    /// The tool is configured to keep its login somewhere Pitboard does not handle.
     #[error("{reason}.")]
     LiveStoreUnsupported { tool: ProviderId, reason: String },
 
@@ -319,7 +319,7 @@ pub enum Error {
     LabelTaken { label: String, email: String },
 
     #[error(
-        "`{typed}` is not a tool pitboard knows. It knows: {}.",
+        "`{typed}` is not a tool Pitboard knows. It knows: {}.",
         known.join(", ")
     )]
     ProviderUnknown { typed: String, known: Vec<String> },
@@ -343,7 +343,7 @@ pub enum Error {
     ParkedCredentialMissing { label: String },
 
     #[error(
-        "the parked login for `{label}` is not the one pitboard recorded ({detail}). Run \
+        "the parked login for `{label}` is not the one Pitboard recorded ({detail}). Run \
          `pitboard enroll {label} --sign-in` to replace it."
     )]
     ParkedCredentialCorrupt { label: String, detail: String },
@@ -363,7 +363,7 @@ pub enum Error {
     ConfigWriteFailed { path: PathBuf, detail: String },
 
     #[error(
-        "{}'s session has expired, so pitboard cannot confirm which account is signed in. \
+        "{}'s session has expired, so Pitboard cannot confirm which account is signed in. \
          Run `{}` once so it refreshes, then try again.",
         tool.name(),
         tool.program()
@@ -371,7 +371,7 @@ pub enum Error {
     SessionExpired { tool: ProviderId },
 
     #[error(
-        "pitboard could not confirm with {} which account is signed in ({detail}), and will \
+        "Pitboard could not confirm with {} which account is signed in ({detail}), and will \
          not move a login it cannot identify. Check the connection and try again.",
         tool.service()
     )]
@@ -385,7 +385,7 @@ pub enum Error {
     SignedInAccountChanged,
 
     #[error(
-        "an earlier switch from `{from}` to `{to}` was interrupted, and pitboard cannot yet \
+        "an earlier switch from `{from}` to `{to}` was interrupted, and Pitboard cannot yet \
          tell whether it finished ({detail}). Nothing was changed. Run `{}` once so its \
          session is current, then try again.",
         tool.program()
@@ -407,7 +407,7 @@ pub enum Error {
     },
 
     #[error(
-        "{} no longer accepts `{label}`'s parked login, so pitboard did not move anything. \
+        "{} no longer accepts `{label}`'s parked login, so Pitboard did not move anything. \
          The copy has been dropped; sign in to that account again with \
          `pitboard enroll {label} --sign-in`.",
         tool.service()
@@ -415,14 +415,14 @@ pub enum Error {
     ParkedLoginRefused { tool: ProviderId, label: String },
 
     #[error(
-        "`{label}`'s parked login belongs to {email}, not to the account pitboard has \
+        "`{label}`'s parked login belongs to {email}, not to the account Pitboard has \
          under that label. Nothing was moved. Run `pitboard doctor`, then \
          `pitboard enroll {label} --sign-in` to replace it."
     )]
     ParkedLoginBelongsElsewhere { label: String, email: String },
 
     #[error(
-        "signed in as `{to}`, and the login was gone again before pitboard finished. {}",
+        "signed in as `{to}`, and the login was gone again before Pitboard finished. {}",
         after_it_did_not_hold(*tool, from, to)
     )]
     SwitchDidNotHold {
@@ -459,7 +459,7 @@ pub enum Error {
     },
 
     #[error(
-        "signed in to `{label}` again, and pitboard could not confirm that its new login \
+        "signed in to `{label}` again, and Pitboard could not confirm that its new login \
          took the place of the one in use ({detail}), so {} may have no login for it now. {}",
         tool.name(),
         not_in_use(*tool, label, *parked)
@@ -488,7 +488,7 @@ pub enum Error {
     },
 
     #[error(
-        "the record of an interrupted switch at {path} is damaged ({source}), so pitboard \
+        "the record of an interrupted switch at {path} is damaged ({source}), so Pitboard \
          cannot tell what that switch did. Nothing was changed. Check that `pitboard status` \
          shows the account you expect, then delete the file to continue."
     )]
@@ -501,7 +501,7 @@ pub enum Error {
     #[error(
         "an earlier switch of {} from `{from}` to `{to}` was interrupted while its login was \
          at {slot}, and this run reads it from somewhere else, so it cannot tell what that \
-         switch did. Nothing was changed. Run pitboard with {} pointing where it did to \
+         switch did. Nothing was changed. Run Pitboard with {} pointing where it did to \
          finish it, or `pitboard abandon` to keep every login it names and move on.",
         tool.name(),
         tool.home_variable()
@@ -513,7 +513,7 @@ pub enum Error {
         slot: String,
     },
 
-    #[error("could not read or write pitboard's recovery record at {path}: {source}")]
+    #[error("could not read or write Pitboard's recovery record at {path}: {source}")]
     RecoveryFailed {
         path: PathBuf,
         #[source]
@@ -542,9 +542,9 @@ pub enum Error {
 
     /// Signing in to a second account works by pointing the tool's own login at a scratch
     /// directory. Where that does not isolate it from the live login, running one would
-    /// write over the account somebody is using, so pitboard will not.
+    /// write over the account somebody is using, so Pitboard will not.
     #[error(
-        "pitboard will not sign in to a second account on this machine: {reason} Signing \
+        "Pitboard will not sign in to a second account on this machine: {reason} Signing \
          in would write over the login you are using."
     )]
     SignInNotIsolated { reason: String },
@@ -642,7 +642,7 @@ impl Error {
     }
 
     /// 1 when a request could not be met; 2 when the command line was wrong; 3 when a login
-    /// or Claude Code's files are in a state pitboard cannot safely act on: an unexpected
+    /// or Claude Code's files are in a state Pitboard cannot safely act on: an unexpected
     /// format, or a login that could not be put back.
     /// What went wrong underneath, where the failure came from a request to Anthropic.
     /// `None` where nothing was asked.
@@ -668,7 +668,7 @@ impl Error {
     pub fn exit_code(&self) -> u8 {
         use Error::*;
         match self {
-            // A login or Claude Code's files in a state pitboard will not act on, which is
+            // A login or Claude Code's files in a state Pitboard will not act on, which is
             // what exit 3 means: not a failure of the attempt, a refusal to attempt.
             LiveCredentialShapeUnexpected { .. }
             | LiveStoreUnsupported { .. }
@@ -704,7 +704,7 @@ fn smaller(tool: ProviderId) -> &'static str {
         ProviderId::Claude => {
             "Unset it, or sign out of MCP servers you no longer use to make the login smaller."
         }
-        ProviderId::Codex => "Unset it to let pitboard write it.",
+        ProviderId::Codex => "Unset it to let Pitboard write it.",
     }
 }
 
@@ -714,7 +714,7 @@ fn after_it_did_not_hold(tool: ProviderId, from: &str, to: &str) -> String {
     match tool {
         ProviderId::Claude => format!(
             "Claude Code removes a login without taking the write lock when `/logout` has \
-             given up waiting, which is the one write pitboard cannot exclude. Nothing was \
+             given up waiting, which is the one write Pitboard cannot exclude. Nothing was \
              lost: both `{from}` and `{to}` are parked. Run `claude` and sign in to any \
              enrolled account, then `pitboard use {to}`."
         ),
@@ -909,7 +909,7 @@ mod tests {
         assert_eq!(absent(ProviderId::Codex), "codex_program_missing");
     }
 
-    /// A pitboard that finds its files written by a newer one is updated by the route it
+    /// A Pitboard that finds its files written by a newer one is updated by the route it
     /// came by. The app's Check for Updates moves only the app and the command line inside
     /// it, so it is not offered as another way to update this one.
     #[test]
@@ -929,7 +929,7 @@ mod tests {
             .to_string(),
         ] {
             assert!(
-                message.contains("Update this pitboard the way you installed it."),
+                message.contains("Update this Pitboard the way you installed it."),
                 "{message}"
             );
             assert!(

@@ -14,7 +14,7 @@
 //! Two things this lock does not give, and both matter more than the lock itself.
 //!
 //! Claude Code treats its own lock going missing as a warning and carries on writing, so
-//! pitboard cannot expect the other side to stop when a lock is broken. Whatever pitboard
+//! Pitboard cannot expect the other side to stop when a lock is broken. Whatever Pitboard
 //! does about a compromised lock, it has to do alone.
 //!
 //! And one write path skips the lock entirely. A write can be marked as already inside the

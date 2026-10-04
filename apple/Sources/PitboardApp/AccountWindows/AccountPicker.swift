@@ -5,7 +5,7 @@ import SwiftUI
 /// Choose Library: a list, Cancel, and a default button named for what it does.
 ///
 /// Every link from outside waits here until somebody chooses, even with one account, so no
-/// page can open an account's window by sharing a link with pitboard.
+/// page can open an account's window by sharing a link with Pitboard.
 struct AccountPicker: View {
     /// The scene's id, named once so the scene and the code that opens it cannot drift apart.
     static let id = "open-link"
@@ -40,7 +40,7 @@ struct AccountPicker: View {
                 ContentUnavailableView(
                     "No Link to Open", systemImage: Symbol.site,
                     description: Text(
-                        "Share a \(Site.names(.or)) page with pitboard from your browser’s "
+                        "Share a \(Site.names(.or)) page with Pitboard from your browser’s "
                             + "Share menu to open it as one of your accounts."))
                 HStack {
                     Spacer()
@@ -99,7 +99,7 @@ struct AccountPicker: View {
             Text("No \(link.site.name) Account").font(.headline)
             LinkLine(link: link)
             Text(
-                "None of the accounts pitboard has opens \(link.site.name). Add one, and this "
+                "None of the accounts Pitboard has opens \(link.site.name). Add one, and this "
                     + "link waits here until you choose it."
             )
             .explanatory()

@@ -55,11 +55,11 @@ struct SignInSheet: View {
         SheetLayout(
             title: again.map { "Sign In to \($0) Again" } ?? "Add Account",
             message: again == nil
-                ? "pitboard opens \(toolName)’s own sign-in in your browser. Sign in as the "
-                    + "account you’re adding, and pitboard parks its login beside the one "
+                ? "Pitboard opens \(toolName)’s own sign-in in your browser. Sign in as the "
+                    + "account you’re adding, and Pitboard parks its login beside the one "
                     + "in use."
-                : "pitboard opens \(toolName)’s own sign-in in your browser. Sign in as "
-                    + "\(again ?? "") to give pitboard a new login for it."
+                : "Pitboard opens \(toolName)’s own sign-in in your browser. Sign in as "
+                    + "\(again ?? "") to give Pitboard a new login for it."
         ) {
             Section {
                 if again == nil, model.addable.count > 1 {
@@ -80,7 +80,7 @@ struct SignInSheet: View {
                 }
             } footer: {
                 if again == nil, let missing = model.notOffered {
-                    // Said rather than left out without a word, which read as pitboard not
+                    // Said rather than left out without a word, which read as Pitboard not
                     // handling the tool at all.
                     Text(missing).footnote()
                 }

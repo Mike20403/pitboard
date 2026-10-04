@@ -5,13 +5,13 @@ description: "Look up each menu item, window, account action, dialog and keyboar
 
 The menu bar app calls the same core as the command line rather than running `pitboard`. It uses the same accounts, [parked logins](/concepts/switching#parked-logins) and log of changes.
 
-The app has a Dock icon only while one of its windows is open. Its windows are the pitboard window, Settings, each [account's window](#account-windows) and the [**Open Link** window](#open-link-window). While one is open, the app is also in the Command-Tab switcher and shows [its menus](#app-menus) in the menu bar.
+The app has a Dock icon only while one of its windows is open. Its windows are the Pitboard window, Settings, each [account's window](#account-windows) and the [**Open Link** window](#open-link-window). While one is open, the app is also in the Command-Tab switcher and shows [its menus](#app-menus) in the menu bar.
 
-The first time it runs, it opens the pitboard window by itself.
+The first time it runs, it opens the Pitboard window by itself.
 
 ## Menu bar item
 
-pitboard's item in the menu bar shows a speedometer symbol and text such as **work 42%**:
+Pitboard's item in the menu bar shows a speedometer symbol and text such as **work 42%**:
 
 | Part | Shows |
 | --- | --- |
@@ -22,15 +22,15 @@ When both tools have accounts, the item shows one account in use: the enrolled o
 
 ## Menu
 
-Clicking pitboard's item in the menu bar opens pitboard's menu. It lists what needs attention, then the accounts, then the commands.
+Clicking Pitboard's item in the menu bar opens Pitboard's menu. It lists what needs attention, then the accounts, then the commands.
 
 What needs attention appears as these items:
 
 | Item | Appears when | Choosing it |
 | --- | --- | --- |
 | **Switch to personal** | The account in use has used all of a limit, and `personal` has room in the same limit. The line under the item names the limit. | Switches to `personal`. |
-| The title of a notice, such as **Couldn't read usage**, or **2 things to look at** when there are several | pitboard has a warning or a problem to show. | Opens the pitboard window on the **Accounts** pane, which shows each notice in full. |
-| **Install pitboard** `<version>` | A copy from a release has found an update. | Opens the update window. |
+| The title of a notice, such as **Couldn't read usage**, or **2 things to look at** when there are several | Pitboard has a warning or a problem to show. | Opens the Pitboard window on the **Accounts** pane, which shows each notice in full. |
+| **Install Pitboard** `<version>` | A copy from a release has found an update. | Opens the update window. |
 | **Claude Code isn't installed** | The app found neither `claude` nor `codex`, and no tool has a login or an account. | Opens Claude Code's setup page in your browser. |
 
 The accounts are under a heading per tool once both tools have accounts. A check mark shows the account in use in each tool. The line under each account is one of these:
@@ -41,10 +41,10 @@ The accounts are under a heading per tool once both tools have accounts. A check
 | **5-hour used up until 22:12** | The limit is used up until it resets at 22:12. A reset on a later day adds the weekday, as in **Tue 09:00**. |
 | **5-hour used up** | The limit was used up when last read, and its reset time has passed since. |
 | **Switching** | A switch to the account is running. |
-| **Not named yet** | The tool is signed in to the account, and pitboard has not enrolled it. The item shows its email address in place of a label. |
-| **Needs signing in again** | pitboard holds no parked login it can use for the account. |
-| A reason that ends in `run pitboard doctor` | The item is **Login pitboard can't use**: the tool holds a login that pitboard could not read or use. |
-| The email address | pitboard has no usage for the account yet. |
+| **Not named yet** | The tool is signed in to the account, and Pitboard has not enrolled it. The item shows its email address in place of a label. |
+| **Needs signing in again** | Pitboard holds no parked login it can use for the account. |
+| A reason that ends in `run pitboard doctor` | The item is **Login Pitboard can't use**: the tool holds a login that Pitboard could not read or use. |
+| The email address | Pitboard has no usage for the account yet. |
 
 In place of the accounts, the menu can show one of these:
 
@@ -52,36 +52,36 @@ In place of the accounts, the menu can show one of these:
 | --- | --- |
 | **Reading accounts** | The first read has not finished. |
 | **No accounts yet** | No tool is signed in and no account is enrolled. |
-| **No accounts to show** | Reading failed, and pitboard has nothing earlier to show. |
+| **No accounts to show** | Reading failed, and Pitboard has nothing earlier to show. |
 
 Choosing an account does one of these:
 
 | Account | Choosing it |
 | --- | --- |
 | An account you can switch to | Switches to it, unless a switch is running. |
-| An account marked **Needs signing in again** | Opens the **Sign In to old Again** dialog in the pitboard window, where `old` is the account's label. |
-| The account in use, marked **Not named yet** | Opens the **Name This Account** dialog in the pitboard window. |
+| An account marked **Needs signing in again** | Opens the **Sign In to old Again** dialog in the Pitboard window, where `old` is the account's label. |
+| The account in use, marked **Not named yet** | Opens the **Name This Account** dialog in the Pitboard window. |
 | The account in use | Nothing. It stays checked. |
-| An account listed as **Login pitboard can't use** | Nothing. The line under it says why pitboard cannot read or switch this login. |
+| An account listed as **Login Pitboard can't use** | Nothing. The line under it says why Pitboard cannot read or switch this login. |
 
 The commands come last:
 
 | Item | Shortcut | What it does |
 | --- | --- | --- |
-| **Add Account** | Command-N | Opens the **Add Account** dialog in the pitboard window. |
-| **Refresh** | Command-R | Asks for every account's usage again, even if pitboard asked moments ago. The line under it says when usage was last read, as in **Updated 20:52**, or **Reading** during a read. **Not read yet** and **Showing the last numbers measured** mean no read has succeeded since the app opened or since your last change in the app. The second means the last read failed. |
+| **Add Account** | Command-N | Opens the **Add Account** dialog in the Pitboard window. |
+| **Refresh** | Command-R | Asks for every account's usage again, even if Pitboard asked moments ago. The line under it says when usage was last read, as in **Updated 20:52**, or **Reading** during a read. **Not read yet** and **Showing the last numbers measured** mean no read has succeeded since the app opened or since your last change in the app. The second means the last read failed. |
 | **Open claude.ai as work** | None | Opens the [window](#account-windows) of `work`, the only enrolled Claude Code account. With two or more, the item is **Open claude.ai**, with a submenu that lists each account. Absent when there is none. |
 | **Open chatgpt.com as main** | None | The same, for the Codex accounts and their chatgpt.com windows. |
-| **Open pitboard** | Command-0 | Opens the pitboard window. |
+| **Open Pitboard** | Command-0 | Opens the Pitboard window. |
 | **Settings** | Command-Comma | Opens [Settings](/reference/settings). |
 | **Check for Updates** | None | Opens the update window. Only in a copy from a release. |
-| **About pitboard** | None | Shows the app's version. |
-| **pitboard Help** | None | Opens this site in your browser. |
-| **Quit pitboard** | Command-Q | Quits the app. |
+| **About Pitboard** | None | Shows the app's version. |
+| **Pitboard Help** | None | Opens this site in your browser. |
+| **Quit Pitboard** | Command-Q | Quits the app. |
 
 ## Window
 
-The pitboard window has three panes, listed in its sidebar: **Accounts**, **Activity** and **This Mac**.
+The Pitboard window has three panes, listed in its sidebar: **Accounts**, **Activity** and **This Mac**.
 
 ### Accounts pane
 
@@ -95,11 +95,11 @@ When there is nothing to list, the pane shows one of these instead:
 | **Couldn't Read Accounts** | A read failed and there is no account to list. The reason is under the title. | **Try Again** |
 | **No Accounts** | No tool is signed in and no account is enrolled. | **Add Account** |
 
-A tip suggests the next step in setting up pitboard:
+A tip suggests the next step in setting up Pitboard:
 
 | Tip | Shown when | Buttons |
 | --- | --- | --- |
-| **Give this account a name** | A tool is signed in to an account pitboard has not enrolled. | **Name** opens **Name This Account**. |
+| **Give this account a name** | A tool is signed in to an account Pitboard has not enrolled. | **Name** opens **Name This Account**. |
 | **Add a second account** | A tool has one enrolled account, and it is the one in use. When both tools have accounts, the title names the tool, as in **Add a second Codex account**. | **Add Account**, or **Not Now** to stop showing the tip for that tool. |
 
 Each account's row has these parts:
@@ -117,7 +117,7 @@ Notices say what needs attention, most pressing first:
 
 | Notice | Shown when | Buttons |
 | --- | --- | --- |
-| **An interrupted switch is waiting** | A switch stopped partway, and pitboard cannot yet tell whether it finished. | **Give Up** |
+| **An interrupted switch is waiting** | A switch stopped partway, and Pitboard cannot yet tell whether it finished. | **Give Up** |
 | **Couldn't read usage** | The last read failed. The reason is under the title. | None |
 | **work has no 5-hour limit left** | The account in use has used all of a limit, and another account has room. | **Switch to personal** |
 | **Switched to work** | A switch you made in the app finished. The lines under it say what happens to open sessions. | **Dismiss** (an x) |
@@ -127,7 +127,7 @@ Notices say what needs attention, most pressing first:
 
 ### Activity pane
 
-The **Activity** pane lists the last 500 changes pitboard made, newest first, from the app and the command line. **Refresh** (Command-R) reads the log again.
+The **Activity** pane lists the last 500 changes Pitboard made, newest first, from the app and the command line. **Refresh** (Command-R) reads the log again.
 
 | Column | Shows |
 | --- | --- |
@@ -135,7 +135,7 @@ The **Activity** pane lists the last 500 changes pitboard made, newest first, fr
 | **Change** | What was done, such as **Use** for a switch, **Enrol**, **Rename**, **Forget** or **Renew**. |
 | **Account** | What the change was about, as [`pitboard log`](/reference/maintenance-commands#log) records it. For most changes it is a label, such as `work` or `codex/work`. |
 | **Result** | **Done**, or the outcome's code written out in words, such as **Renewed** or **Parked login refused**. |
-| **Asked By** | **pitboard app**, **Command line**, or **Unknown** for a change logged before pitboard recorded who asked. |
+| **Asked By** | **Pitboard app**, **Command line**, or **Unknown** for a change logged before Pitboard recorded who asked. |
 
 ### This Mac pane
 
@@ -161,7 +161,7 @@ Double-clicking a row, or selecting it and pressing Return, does what its button
 
 | Dialog | Opened by | Contents |
 | --- | --- | --- |
-| **Add Account** | **Add Account** in the menu, the toolbar or a tip; Command-N | A **Tool** pop-up menu when more than one tool is offered, a **Name** field and **Sign In**. Under the form, a line names a tool that is not offered, such as **Codex is not offered: pitboard did not find codex on this Mac.** |
+| **Add Account** | **Add Account** in the menu, the toolbar or a tip; Command-N | A **Tool** pop-up menu when more than one tool is offered, a **Name** field and **Sign In**. Under the form, a line names a tool that is not offered, such as **Codex is not offered: Pitboard did not find codex on this Mac.** |
 | **Sign In to work Again** | **Sign In Again** in a row or a shortcut menu, or an account in the menu marked **Needs signing in again** | The account's label and **Sign In** |
 | **Signing In to Claude Code**, **Signing In to Codex** | **Sign In** in **Add Account** or **Sign In to work Again**. The same dialog takes this title. | **Waiting for your browser** while you sign in there. **Browser didn't open?** with **Open Sign-In Page**, when the tool gives its sign-in address. For Claude Code, a **Code** field and **Submit Code**, if your browser could not reach Claude Code. The dialog closes when the sign-in finishes. **Cancel** stops the sign-in and adds nothing. |
 | **Name This Account** | **Name** in a tip or a shortcut menu, a double-click or Return on the account's row, or an account in the menu marked **Not named yet** | A **Name** field and **Save** |
@@ -173,13 +173,13 @@ If an action fails, the dialog stays open with what you entered. It shows the re
 
 | Alert | Opened by | Says | Buttons |
 | --- | --- | --- | --- |
-| **Forget "work"?** | **Forget** in a shortcut menu, or pressing Delete on a selected row | For an account with a [window](#account-windows): **pitboard deletes the login it parked for this account, and everything its claude.ai window keeps on this Mac, its sign-in included. Using it again needs a sign-in in your browser.** For a Codex account, it names the chatgpt.com window. Otherwise: **pitboard deletes the login it parked for this account. Using it again needs a sign-in in your browser.** | **Forget**, **Cancel** |
-| **Give up on the interrupted switch?** | **Give Up** in the notice **An interrupted switch is waiting** | **Every login is kept, and nothing is deleted. pitboard stops trying to finish it.** | **Give Up**, **Cancel** |
-| **Quit ChatGPT to switch?** | A switch to a Codex account while the ChatGPT app is open, from the window, the menu or a notification | **ChatGPT keeps using the account it started with until it quits. pitboard quits it, switches, and opens it again.** | **Quit ChatGPT and Switch**, **Cancel** |
+| **Forget "work"?** | **Forget** in a shortcut menu, or pressing Delete on a selected row | For an account with a [window](#account-windows): **Pitboard deletes the login it parked for this account, and everything its claude.ai window keeps on this Mac, its sign-in included. Using it again needs a sign-in in your browser.** For a Codex account, it names the chatgpt.com window. Otherwise: **Pitboard deletes the login it parked for this account. Using it again needs a sign-in in your browser.** | **Forget**, **Cancel** |
+| **Give up on the interrupted switch?** | **Give Up** in the notice **An interrupted switch is waiting** | **Every login is kept, and nothing is deleted. Pitboard stops trying to finish it.** | **Give Up**, **Cancel** |
+| **Quit ChatGPT to switch?** | A switch to a Codex account while the ChatGPT app is open, from the window, the menu or a notification | **ChatGPT keeps using the account it started with until it quits. Pitboard quits it, switches, and opens it again.** | **Quit ChatGPT and Switch**, **Cancel** |
 | **Couldn't switch to work**, **Couldn't forget work**, **Couldn't give up on the interrupted switch** | A switch, forget or give-up that failed, including one started from the menu or a notification | The reason, then any warnings | **OK** |
-| **Remove claude.ai data for "work"?**, or **chatgpt.com** for a Codex account | **File** > **Remove Website Data**, with the account's window in front | **pitboard removes the cookies and everything else claude.ai keeps in this window on this Mac, which signs this window out. claude.ai is not told: the account stays signed in on your other devices and browsers.** | **Remove**, **Cancel** |
+| **Remove claude.ai data for "work"?**, or **chatgpt.com** for a Codex account | **File** > **Remove Website Data**, with the account's window in front | **Pitboard removes the cookies and everything else claude.ai keeps in this window on this Mac, which signs this window out. claude.ai is not told: the account stays signed in on your other devices and browsers.** | **Remove**, **Cancel** |
 | **Download "report.csv" from example.com?**, or **Download "report.csv"?** when the host is not known | A download in an account's window that another site, or a frame inside the page such as an artifact, starts | **A page inside the site, such as an artifact, asked to save this file in your Downloads folder.** | **Download**, **Cancel** |
-| **A download is in progress. Quit anyway?**, or **2 downloads are in progress. Quit anyway?** | Quitting pitboard while a download from an account's window runs | **Quitting pitboard stops them, and they will not resume.** | **Quit**, **Cancel** |
+| **A download is in progress. Quit anyway?**, or **2 downloads are in progress. Quit anyway?** | Quitting Pitboard while a download from an account's window runs | **Quitting Pitboard stops them, and they will not resume.** | **Quit**, **Cancel** |
 
 For when to give up on an interrupted switch, see [Recover after a crash, a restore or a move](/troubleshooting/recovery#an-interrupted-switch-cannot-be-finished).
 
@@ -191,7 +191,7 @@ The window opens from these items. Opening it again brings the open window to th
 
 | Where | Item |
 | --- | --- |
-| pitboard's [menu](#menu) | **Open claude.ai as work**, or **Open claude.ai** and then the account |
+| Pitboard's [menu](#menu) | **Open claude.ai as work**, or **Open claude.ai** and then the account |
 | The **File** menu and the Dock icon's menu | The same items |
 | An account's [shortcut menu](#account-actions) in the **Accounts** pane | **Open claude.ai** or **Open chatgpt.com** |
 | The [**Open Link** window](#open-link-window) | **Open**, which opens the window on the shared page |
@@ -214,12 +214,12 @@ Pinching zooms the page, and **View** > **Actual Size** undoes it. The page's sh
 
 ### Notes
 
-A note at the top of the window says what pitboard did or what you need to know. The next note replaces it, and **Dismiss** (an x) closes it. In this table, the account is `work`, with the email address `me@example.com`:
+A note at the top of the window says what Pitboard did or what you need to know. The next note replaces it, and **Dismiss** (an x) closes it. In this table, the account is `work`, with the email address `me@example.com`:
 
 | Note | Shown when |
 | --- | --- |
 | **Sign in to claude.ai as me@example.com. Google's sign-in does not work inside apps.**, then the site's steps | The account's window opens for the first time on this Mac, and after **Remove Website Data** |
-| **Google does not allow its pages inside apps, so pitboard stopped it. Sign in as me@example.com another way.**, then the site's steps and the Google services it cannot connect | A page went to Google's sign-in, `accounts.google.com`. pitboard does not send it to your browser either. |
+| **Google does not allow its pages inside apps, so Pitboard stopped it. Sign in as me@example.com another way.**, then the site's steps and the Google services it cannot connect | A page went to Google's sign-in, `accounts.google.com`. Pitboard does not send it to your browser either. |
 | **claude.ai opened a page in your browser. Anything you connect there goes to the claude.ai account your browser is signed in to, which may not be "work".** | The site sent a web page to your browser without a click |
 | **This window doesn't open links to other apps, such as this vscode: link.** | You clicked a link to another app, or the page opened one in a new window |
 
@@ -253,7 +253,7 @@ If a page does not load, the window shows **Couldn't Load the Page**, the reason
 
 ### Sign-in window
 
-pitboard opens a sign-in window when the site's own page opens one of its sign-in pages in a new window. It does the same when the page opens an empty window and gives it an address afterwards.
+Pitboard opens a sign-in window when the site's own page opens one of its sign-in pages in a new window. It does the same when the page opens an empty window and gives it an address afterwards.
 
 A sign-in page shown in the account's window opens a sign-in window the same way. A frame inside the page, such as an artifact, cannot open one.
 
@@ -269,7 +269,7 @@ Whether chatgpt.com's **Continue with Microsoft** and **Continue with Apple** op
 
 ### Downloads
 
-An account's window saves downloads in your Downloads folder. macOS may ask once whether pitboard can use that folder, saying **pitboard saves what you download in an account's window to your Downloads folder.** A download never replaces a file: a second `report.pdf` is saved as `report 2.pdf`, then `report 3.pdf`.
+An account's window saves downloads in your Downloads folder. macOS may ask once whether Pitboard can use that folder, saying **Pitboard saves what you download in an account's window to your Downloads folder.** A download never replaces a file: a second `report.pdf` is saved as `report 2.pdf`, then `report 3.pdf`.
 
 A download that the site's own page starts is saved at once. One that another site, or a frame inside the page such as an artifact, starts asks first, in the [download alert](#dialogs-and-alerts). A sign-in window saves nothing.
 
@@ -277,7 +277,7 @@ A download that the site's own page starts is saved at once. One that another si
 
 While one runs, **Cancel** (an x) stops it and deletes the part of the file it wrote. A download that fails has its partly written file deleted too. Once one is done, **Show in Finder** (a magnifying glass) shows the file.
 
-Downloads go on after the window closes. Quitting pitboard stops them and deletes what they wrote, after the [quit alert](#dialogs-and-alerts) asks. WebKit quarantines each downloaded file, as it does for a browser.
+Downloads go on after the window closes. Quitting Pitboard stops them and deletes what they wrote, after the [quit alert](#dialogs-and-alerts) asks. WebKit quarantines each downloaded file, as it does for a browser.
 
 ### Remove a window's data
 
@@ -285,7 +285,7 @@ Downloads go on after the window closes. Quitting pitboard stops them and delete
 
 Forgetting an account, in the app or with `pitboard forget`, deletes its window's data too. The app deletes it after its next read of the accounts that succeeds. If WebKit still holds the data, the app tries a few more times, then again at the next read.
 
-For where the data is kept, and when the app keeps it for another pitboard directory, see [Account windows](/reference/files#account-windows).
+For where the data is kept, and when the app keeps it for another Pitboard directory, see [Account windows](/reference/files#account-windows).
 
 ## Open Link window
 
@@ -294,11 +294,11 @@ The **Open Link** window asks which account's window opens a page you shared fro
 | Shows | When | Buttons |
 | --- | --- | --- |
 | **Open this claude.ai link as:**, the link and the site's accounts | A link arrived, and its site has at least one account with a window | **Cancel**, **Open** |
-| **No claude.ai Account**, the link and **None of the accounts pitboard has opens claude.ai. Add one, and this link waits here until you choose it.** | No enrolled account has a window on the link's site | **Open in Browser**, **Cancel**, **Add Account** |
+| **No claude.ai Account**, the link and **None of the accounts Pitboard has opens claude.ai. Add one, and this link waits here until you choose it.** | No enrolled account has a window on the link's site | **Open in Browser**, **Cancel**, **Add Account** |
 | **Can't Open This Link** and the reason | The link is [refused](#refused-links) | **OK** |
 | **Reading accounts** | The app has not read the accounts yet | **Cancel** |
 | **Couldn't Read Accounts** and the reason | The first read failed | **Cancel**, **Try Again** |
-| **No Link to Open** and **Share a claude.ai or chatgpt.com page with pitboard from your browser's Share menu to open it as one of your accounts.** | No link is waiting, as in a window macOS restored | **Close** |
+| **No Link to Open** and **Share a claude.ai or chatgpt.com page with Pitboard from your browser's Share menu to open it as one of your accounts.** | No link is waiting, as in a window macOS restored | **Close** |
 
 The link is on one line, without `https://`. Holding the pointer over it shows all of it. Each account shows its label and email address, as in **me@example.com, window open** when its window is open.
 
@@ -306,11 +306,11 @@ The window first selects the account you chose last for the site since the app s
 
 Click **Open**, press Return or double-click an account to open the link as that account. For 750 ms after the accounts appear, **Open** is dimmed and a double-click opens nothing. So a Return typed for another app as the window comes forward does nothing.
 
-When a link arrives while pitboard is in the background, the **Open Link** window comes to the front. Where the window shows **Cancel**, pressing Esc clicks it.
+When a link arrives while Pitboard is in the background, the **Open Link** window comes to the front. Where the window shows **Cancel**, pressing Esc clicks it.
 
 If the account's window is open, the link loads there, and **Back** returns to the page before. Otherwise the account's window opens on the link. A second link replaces the first, and the selection and the 750 ms wait start again.
 
-**Open in Browser** opens the link in your default browser. **Add Account** opens the **Add Account** dialog in the pitboard window, set to the site's tool. The link waits, and the window lists the account once it is added.
+**Open in Browser** opens the link in your default browser. **Add Account** opens the **Add Account** dialog in the Pitboard window, set to the site's tool. The link waits, and the window lists the account once it is added.
 
 ### Refused links
 
@@ -318,50 +318,50 @@ The Share extension and the **Open Link** window refuse a link for these reasons
 
 | Link | Reason |
 | --- | --- |
-| On another site, or on a subdomain of either site | **pitboard opens claude.ai and chatgpt.com links only. This link is on example.com.** |
-| With a port, such as `claude.ai:8443` | **pitboard opens claude.ai and chatgpt.com links only. This link is on claude.ai:8443.** |
-| With a user name before the host | **pitboard opens claude.ai and chatgpt.com links only.** |
-| A sign-in link: a path under `/magic-link` on claude.ai, or under `/api/auth` on chatgpt.com | **pitboard doesn't open claude.ai sign-in links from outside: one would sign the window in as whoever the link belongs to. Sign in inside the account's claude.ai window.** |
+| On another site, or on a subdomain of either site | **Pitboard opens claude.ai and chatgpt.com links only. This link is on example.com.** |
+| With a port, such as `claude.ai:8443` | **Pitboard opens claude.ai and chatgpt.com links only. This link is on claude.ai:8443.** |
+| With a user name before the host | **Pitboard opens claude.ai and chatgpt.com links only.** |
+| A sign-in link: a path under `/magic-link` on claude.ai, or under `/api/auth` on chatgpt.com | **Pitboard doesn't open claude.ai sign-in links from outside: one would sign the window in as whoever the link belongs to. Sign in inside the account's claude.ai window.** |
 | Not an `http` or `https` link, or a path with a `.` or `..` segment | **There is no claude.ai or chatgpt.com link in what was shared.** |
 | Longer than 8192 characters | **What was shared is too long to be a claude.ai or chatgpt.com link.** |
-| A pitboard link this version cannot read | **This pitboard link isn't one this version of pitboard can read. Update pitboard and share the page again.** |
+| A Pitboard link this version cannot read | **This Pitboard link isn't one this version of Pitboard can read. Update Pitboard and share the page again.** |
 
-pitboard opens an `http` link as `https`. A link on `chat.openai.com`, `www.chatgpt.com` or `chat.com` opens as the same link on `chatgpt.com`. Each of those hosts sends a browser there with the path kept, measured on 29 September 2026.
+Pitboard opens an `http` link as `https`. A link on `chat.openai.com`, `www.chatgpt.com` or `chat.com` opens as the same link on `chatgpt.com`. Each of those hosts sends a browser there with the path kept, measured on 29 September 2026.
 
-### pitboard links
+### Pitboard links
 
-The Share extension hands a page to the app as a pitboard link: `pitboard://open?url=` followed by the page's link, encoded.
+The Share extension hands a page to the app as a Pitboard link: `pitboard://open?url=` followed by the page's link, encoded.
 
 ```text
 pitboard://open?url=https%3A%2F%2Fclaude.ai%2Fchat%2F0e5a
 ```
 
-A debug build uses `pitboard-debug://`. Anything on your Mac can open a pitboard link, so one only ever shows the **Open Link** window. A pitboard link with a fragment, or with anything but one encoded `url`, is refused.
+A debug build uses `pitboard-debug://`. Anything on your Mac can open a Pitboard link, so one only ever shows the **Open Link** window. A Pitboard link with a fragment, or with anything but one encoded `url`, is refused.
 
 ## Share extension
 
-The app includes a Share extension, **pitboard** in a browser's Share menu.
+The app includes a Share extension, **Pitboard** in a browser's Share menu.
 
 In Safari, it is in the toolbar's **Share** button and in **File** > **Share**. In Chrome and Firefox, it is in **File** > **Share**. Whether other browsers list it is not known.
 
-It is offered for one web page at a time. It checks that the page is on claude.ai or chatgpt.com, then hands it to the app it came in, as a [pitboard link](#pitboard-links). The [**Open Link** window](#open-link-window) then asks which account opens it.
+It is offered for one web page at a time. It checks that the page is on claude.ai or chatgpt.com, then hands it to the app it came in, as a [Pitboard link](#pitboard-links). The [**Open Link** window](#open-link-window) then asks which account opens it.
 
 | Shows | When | Buttons |
 | --- | --- | --- |
-| **Opening in pitboard** | While it hands the page to the app | None |
-| **Can't Open This Link** and the [reason](#refused-links) | The page is not one pitboard opens. pitboard does not start. | **OK** |
-| **Couldn't Open pitboard** and the reason | macOS could not open the app. When the extension cannot find the app it came in, the reason is **pitboard couldn't find the app this extension came with.** | **OK** |
+| **Opening in Pitboard** | While it hands the page to the app | None |
+| **Can't Open This Link** and the [reason](#refused-links) | The page is not one Pitboard opens. Pitboard does not start. | **OK** |
+| **Couldn't Open Pitboard** and the reason | macOS could not open the app. When the extension cannot find the app it came in, the reason is **Pitboard couldn't find the app this extension came with.** | **OK** |
 
-The extension is sandboxed, with no network or file access, and keeps nothing. A debug build's extension is **pitboard Debug**, and it hands pages to the debug build.
+The extension is sandboxed, with no network or file access, and keeps nothing. A debug build's extension is **Pitboard Debug**, and it hands pages to the debug build.
 
 ## App menus
 
-While a pitboard window is open, the app's own menus are in the menu bar. pitboard adds these items to them:
+While a Pitboard window is open, the app's own menus are in the menu bar. Pitboard adds these items to them:
 
 | Menu | Item | Shortcut | What it does |
 | --- | --- | --- | --- |
-| **File** | **Add Account** | Command-N | Opens the **Add Account** dialog in the pitboard window. |
-| **File** | **Open claude.ai as work**, **Open chatgpt.com as main**, or a submenu for a site with several accounts | None | Opens that account's window, as the same items in [pitboard's menu](#menu) do. |
+| **File** | **Add Account** | Command-N | Opens the **Add Account** dialog in the Pitboard window. |
+| **File** | **Open claude.ai as work**, **Open chatgpt.com as main**, or a submenu for a site with several accounts | None | Opens that account's window, as the same items in [Pitboard's menu](#menu) do. |
 | **File** | **Remove Website Data** | None | Asks, then [removes the data](#remove-a-windows-data) of the account's window in front. Dimmed unless an account's window is in front. |
 | **Edit** > **Find** | **Find** | Command-F | Shows the find bar at the top of an account's window. The search runs when you press Return. |
 | **Edit** > **Find** | **Find Next**, **Find Previous** | Command-G, Shift-Command-G | Shows the next or previous match. |
@@ -370,13 +370,13 @@ While a pitboard window is open, the app's own menus are in the menu bar. pitboa
 | **View** | **Actual Size** | Command-0 | Sets the page in the account's window in front to 100%, and undoes a pinch. |
 | **View** | **Zoom In**, **Zoom Out** | Command-Plus, Command-Minus | Zooms the page through Safari's steps, from 50% to 300%. The zoom lasts until the window closes or its data is removed. |
 | **Go** | **Back**, **Forward** | Command-Left Bracket, Command-Right Bracket | Shows the previous or next page in the account's window in front. |
-| **Help** | **pitboard Help** | None | Opens this site in your browser. |
+| **Help** | **Pitboard Help** | None | Opens this site in your browser. |
 
 ### Dock menu
 
-The Dock icon's menu has the items that open an account's window, as the **File** menu has them, then **Open pitboard**. macOS adds the open windows to it.
+The Dock icon's menu has the items that open an account's window, as the **File** menu has them, then **Open Pitboard**. macOS adds the open windows to it.
 
-Clicking the Dock icon brings back a minimised window. Opening pitboard again from Finder or Spotlight with no window open opens the pitboard window.
+Clicking the Dock icon brings back a minimised window. Opening Pitboard again from Finder or Spotlight with no window open opens the Pitboard window.
 
 ## Notifications
 
@@ -387,7 +387,7 @@ For when the app sends a notification, see [When an account runs out](/guides/sw
 | Title | **work has no 5-hour limit left** |
 | Subtitle | **Claude Code** or **Codex**, once both tools have accounts |
 | Body | **personal has 58% of its own left.** |
-| Button | **Switch**, which switches to `personal`. If the switch fails, the pitboard window opens with an alert. |
+| Button | **Switch**, which switches to `personal`. If the switch fails, the Pitboard window opens with an alert. |
 
 Clicking the notification itself does nothing. Notifications play no sound and set no badge.
 
@@ -395,20 +395,20 @@ Clicking the notification itself does nothing. Notifications play no sound and s
 
 | Keys | Where | What it does |
 | --- | --- | --- |
-| Command-N | pitboard's menu while it is open, or any pitboard window | **Add Account** |
-| Command-R | pitboard's menu while it is open, or the **Accounts** pane | **Refresh** |
+| Command-N | Pitboard's menu while it is open, or any Pitboard window | **Add Account** |
+| Command-R | Pitboard's menu while it is open, or the **Accounts** pane | **Refresh** |
 | Command-R | **Activity** pane | **Refresh**, which reads the log again |
 | Command-R | **This Mac** pane | **Check Again** |
 | Command-R | An account's window | **Reload Page** |
-| Command-0 | pitboard's menu, while it is open | **Open pitboard** |
+| Command-0 | Pitboard's menu, while it is open | **Open Pitboard** |
 | Command-0 | An account's window | **Actual Size** |
 | Command-Plus, Command-Minus | An account's window | **Zoom In**, **Zoom Out** |
 | Command-Left Bracket, Command-Right Bracket | An account's window | **Back**, **Forward** |
 | Command-F | An account's window | **Find** |
 | Command-G, Shift-Command-G | An account's window | **Find Next**, **Find Previous** |
 | Command-E | An account's window | **Use Selection for Find** |
-| Command-Comma | pitboard's menu, while it is open | **Settings** |
-| Command-Q | pitboard's menu, while it is open | **Quit pitboard** |
+| Command-Comma | Pitboard's menu, while it is open | **Settings** |
+| Command-Q | Pitboard's menu, while it is open | **Quit Pitboard** |
 | Return, or double-click | A row in the **Accounts** pane | **Use** or **Sign In Again**, as the row's button does. On the account in use that has no label, **Name This Account**. |
 | Delete | A row in the **Accounts** pane | **Forget**, after asking |
 | Return, or double-click | An account in the **Open Link** window, from 750 ms after the accounts appear | **Open** |

@@ -11,7 +11,7 @@ import PitboardKit
 struct CommandLineTool: Sendable {
     /// This app's own command line, or nil when the app is not running from its bundle.
     let helper: String?
-    /// Where each way of installing pitboard puts it, looked in after the login shell's
+    /// Where each way of installing Pitboard puts it, looked in after the login shell's
     /// `PATH`: cargo, a copy from a release, Homebrew on either kind of Mac, and the link
     /// made here.
     let installPlaces: [String]
@@ -66,7 +66,7 @@ struct CommandLineTool: Sendable {
 
     /// Where a terminal would find `pitboard`, in the order it would: the login shell's
     /// `PATH`, nil when the shell could not be asked, and then where each way of installing
-    /// pitboard puts it.
+    /// Pitboard puts it.
     func directories(onPath path: String?) -> [String] {
         (path?.split(separator: ":").map(String.init) ?? []) + installPlaces
     }
@@ -100,7 +100,7 @@ struct CommandLineTool: Sendable {
     /// that is not a link is somebody's own, and is left where it is.
     func install() async -> Linked {
         guard let helper, linkable else {
-            return .failed("This copy of pitboard cannot link the command line inside it.")
+            return .failed("This copy of Pitboard cannot link the command line inside it.")
         }
         let type = try? FileManager.default.attributesOfItem(atPath: link)[.type]
         if let type, type as? FileAttributeType != .typeSymbolicLink {

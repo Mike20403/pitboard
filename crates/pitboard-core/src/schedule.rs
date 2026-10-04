@@ -5,7 +5,7 @@
 //! installed the app and leaves it running, and quietly unsafe for everyone else: the
 //! whole of Linux, and any macOS user on the command line alone. Go away for the refresh
 //! window, come back, and every parked login is dead and each account needs a browser
-//! sign-in, which is precisely the cost pitboard exists to spare people.
+//! sign-in, which is precisely the cost Pitboard exists to spare people.
 //!
 //! This is opt-in, and stays opt-in. A background process that talks to Anthropic on a
 //! schedule is the shape most likely to be read as automation, so it is something a person
@@ -16,7 +16,7 @@
 //! What it installs is the system's own scheduler, never a homemade daemon: a LaunchAgent
 //! on macOS, which runs inside the login session so the keychain is unlocked, and a systemd
 //! user timer on Linux, which is that system's answer. How each is asked is
-//! [`crate::host::Scheduler`]'s; what is decided here is which pitboard it runs, how often,
+//! [`crate::host::Scheduler`]'s; what is decided here is which Pitboard it runs, how often,
 //! and whether it is this home's to change. Where there is no scheduler, it says so rather
 //! than inventing one.
 
@@ -25,7 +25,7 @@ use crate::error::{Error, Result};
 use crate::host::Scheduler;
 use std::path::{Path, PathBuf};
 
-/// Once a day. A refresh token's life is measured in weeks and pitboard starts renewing
+/// Once a day. A refresh token's life is measured in weeks and Pitboard starts renewing
 /// three days out, so a daily check has three chances to catch each one, and a machine
 /// that was asleep for one of them still has two.
 pub(crate) const EVERY_SECONDS: u32 = 86_400;
@@ -39,7 +39,7 @@ pub enum Installed {
         every_seconds: u32,
     },
     No,
-    /// This machine has no scheduler pitboard knows how to ask.
+    /// This machine has no scheduler Pitboard knows how to ask.
     Unsupported,
 }
 
@@ -66,20 +66,20 @@ pub fn status(ctx: &Context) -> Installed {
 /// Whether the schedule is this context's to look after.
 ///
 /// The scheduler starts `renew` without `PITBOARD_HOME`, so the schedule always renews the
-/// default `~/.pitboard`. A pitboard pointed at another home has none of its own: the one
+/// default `~/.pitboard`. A Pitboard pointed at another home has none of its own: the one
 /// there is belongs to the default home.
 pub(crate) fn serves(ctx: &Context) -> bool {
     crate::home::dir(ctx) == ctx.home().join(".pitboard")
 }
 
-/// The pitboard the schedule should run: the one the context names, or this one, by the
+/// The Pitboard the schedule should run: the one the context names, or this one, by the
 /// path it was started by.
 fn program(ctx: &Context) -> Result<PathBuf> {
     if let Some(program) = ctx.schedule_program() {
         return lasting(program).map(Path::to_path_buf);
     }
     crate::host::current_program().map_err(|source| Error::HomeUnwritable {
-        path: PathBuf::from("the running pitboard"),
+        path: PathBuf::from("the running Pitboard"),
         source,
     })
 }
@@ -107,7 +107,7 @@ fn lasting(program: &Path) -> Result<&Path> {
     Ok(program)
 }
 
-/// The pitboard the installed schedule runs, read back from what `install` wrote. `None`
+/// The Pitboard the installed schedule runs, read back from what `install` wrote. `None`
 /// where nothing is installed, and where what is there does not name one the way `install`
 /// writes it.
 pub fn installed_program(ctx: &Context) -> Option<PathBuf> {
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn a_repair_the_scheduler_will_not_start_leaves_the_schedule_as_it_was() {
         let home = Scratch::new("repair-refused");
-        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a pitboard home");
+        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a Pitboard home");
         let app = home
             .0
             .join("Applications/Pitboard.app/Contents/MacOS/Pitboard");
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(installed_program(&ctx), None);
     }
 
-    /// A machine with no scheduler pitboard knows says so, and writes nothing.
+    /// A machine with no scheduler Pitboard knows says so, and writes nothing.
     #[test]
     fn a_machine_with_no_scheduler_says_so() {
         let home = Scratch::new("unsupported");
@@ -324,7 +324,7 @@ mod tests {
         );
     }
 
-    /// A pitboard that is named is written down only where it will still be there when the
+    /// A Pitboard that is named is written down only where it will still be there when the
     /// scheduler runs it. macOS runs an app opened where it was downloaded from a temporary
     /// copy, which is there while the app runs and gone once it quits, so being there now
     /// is not enough.
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn a_schedule_that_runs_an_app_is_pointed_at_its_command_line() {
         let home = Scratch::new("repair");
-        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a pitboard home");
+        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a Pitboard home");
         let app = home
             .0
             .join("Applications/Pitboard.app/Contents/MacOS/Pitboard");
@@ -417,7 +417,7 @@ mod tests {
         assert!(
             !repair(&the_app.clone().with_pitboard_home(home.0.join("elsewhere")))
                 .expect("nothing to do"),
-            "a schedule another home's pitboard looks after"
+            "a schedule another home's Pitboard looks after"
         );
         assert_eq!(installed_program(&ctx), Some(app.clone()));
 
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn a_process_another_job_started_still_repairs() {
         let home = Scratch::new("another-job");
-        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a pitboard home");
+        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a Pitboard home");
         let app = home
             .0
             .join("Applications/Pitboard.app/Contents/MacOS/Pitboard");
@@ -494,7 +494,7 @@ mod tests {
         assert_eq!(installed_program(&ctx), None);
     }
 
-    /// The scheduler starts `renew` with the default home, so a pitboard pointed anywhere
+    /// The scheduler starts `renew` with the default home, so a Pitboard pointed anywhere
     /// else leaves the schedule alone.
     #[test]
     fn the_schedule_belongs_to_the_default_home_alone() {

@@ -1,14 +1,14 @@
 //! Reading the claims out of a JSON Web Token, without checking who signed it.
 //!
 //! Two of the three tools put a signed token in the login they store, and its claims name
-//! the account. Reading them is how pitboard can label a parked login with no network call
+//! the account. Reading them is how Pitboard can label a parked login with no network call
 //! at all, which is better than it manages for Claude Code.
 //!
 //! The signature is deliberately not checked, and none of this may be used to decide
 //! whether a token is genuine. What it reads are facts out of a token the person's own tool
 //! put on their own disk, which is the same trust as reading any other file there.
 //! Verifying would mean fetching and pinning somebody else's signing keys in order to learn
-//! an email address that pitboard is about to send the same token to a server to confirm.
+//! an email address that Pitboard is about to send the same token to a server to confirm.
 //!
 //! The base64url decode is written out rather than taken as a dependency. It is twenty
 //! lines, it is the only thing a crate would have been for, and a login document is exactly
@@ -204,7 +204,7 @@ mod tests {
                 &["https://api.openai.com/auth", "chatgpt_account_id"]
             )
             .is_some(),
-            "the account id claim is where pitboard reads it"
+            "the account id claim is where Pitboard reads it"
         );
         assert!(
             expires_at(token).is_some(),

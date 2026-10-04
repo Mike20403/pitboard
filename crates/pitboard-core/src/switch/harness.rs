@@ -171,7 +171,7 @@ pub(crate) fn machine(name: &str) -> Machine {
     api.owned_by("access-there-refresh", owner("there"));
 
     // `there` holds a parked login, written the way a switch would have written it.
-    std::fs::create_dir_all(root.join(".pitboard")).expect("a pitboard home");
+    std::fs::create_dir_all(root.join(".pitboard")).expect("a Pitboard home");
     let parked_service = park::reserve(&ctx, "there").expect("a free name");
     let parked = park::store_at(
         &ctx,
@@ -291,7 +291,7 @@ pub(crate) fn codex_machine(name: &str) -> Machine {
         );
     }
 
-    std::fs::create_dir_all(machine.root.join(".pitboard")).expect("a pitboard home");
+    std::fs::create_dir_all(machine.root.join(".pitboard")).expect("a Pitboard home");
     let parked_service = park::reserve(&machine.ctx, &codex_id("there")).expect("a free name");
     let parked = park::store_at(
         &machine.ctx,

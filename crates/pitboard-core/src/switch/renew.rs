@@ -1,5 +1,5 @@
 //! Keeping parked logins alive, so their usage can be asked and they do not lapse. A parked
-//! login is held by pitboard alone, so renewing it puts no second holder on its refresh
+//! login is held by Pitboard alone, so renewing it puts no second holder on its refresh
 //! chain. The login signed in is Claude Code's, and is never renewed here.
 
 use super::{journal, purge, try_exclusive};
@@ -75,7 +75,7 @@ impl Due {
 }
 
 /// Renew every parked login whose access token has expired or is about to. Nothing is done
-/// while another pitboard run holds the lock or a switch waits to be finished: a renewal
+/// while another Pitboard run holds the lock or a switch waits to be finished: a renewal
 /// replaces the refresh token, and nothing may install the old copy meanwhile.
 pub fn renew_parked(ctx: &Context) -> Vec<(Key, Renewal)> {
     renew_due(ctx, Due::ToBeAsked)
@@ -230,7 +230,7 @@ fn apply(
     let asked = asked?;
     if asked.refused {
         // Refused, not spent: nothing was taken from it. One `repair` gave back is left for
-        // the pitboard that wrote it, which will be refused the same way.
+        // the Pitboard that wrote it, which will be refused the same way.
         state.release(&held.service);
         state::save(ctx, state)?;
         return Ok(Renewal::Refused);
@@ -238,10 +238,10 @@ fn apply(
     let Some(next) = asked.renewed else {
         return Ok(Renewal::Deferred);
     };
-    // A copy `repair` gave back is left for the pitboard that wrote it only while it is
+    // A copy `repair` gave back is left for the Pitboard that wrote it only while it is
     // unused, and the service has just spent it. Saved as used before the answer is
     // written, so a run killed between writing the answer and recording it leaves a spent
-    // copy the next change deletes, rather than one it lets go for a pitboard that would
+    // copy the next change deletes, rather than one it lets go for a Pitboard that would
     // present a spent token. A save that fails here must not stop the answer being written:
     // that is the account's only working login now.
     if state.is_foreign(&held.service) {
@@ -262,7 +262,7 @@ fn apply(
     let parked = match store().or_else(|_| store()) {
         Ok(parked) => parked,
         Err(e) => {
-            // Anthropic has already spent the old refresh token, so the copy pitboard holds
+            // Anthropic has already spent the old refresh token, so the copy Pitboard holds
             // is dead whatever happens next. Dropping it now means status stops offering a
             // login that cannot work and says to sign in again instead.
             state.discard(&held.service);
@@ -280,7 +280,7 @@ fn apply(
     // rather than merely replaced.
     state.discard(&held.service);
     state.park(key, parked.clone());
-    // A save that fails leaves the fresh copy where it is. Its name is on pitboard's own
+    // A save that fails leaves the fresh copy where it is. Its name is on Pitboard's own
     // list of names it wrote, so the next command gives it back to the account in place of
     // the spent one. Deleting it here, as this once did, threw away the only login the
     // account had left: the service had already spent the one the record still names.
@@ -582,7 +582,7 @@ mod tests {
 
     /// The failure this module's comments describe and no test could reach: Anthropic has
     /// already spent the old refresh token, and the fresh one cannot be written down. The
-    /// copy pitboard holds is dead either way, so it is dropped rather than left to be
+    /// copy Pitboard holds is dead either way, so it is dropped rather than left to be
     /// offered as a login that cannot work.
     #[test]
     fn a_renewal_whose_answer_cannot_be_stored_drops_the_spent_park() {

@@ -1,6 +1,6 @@
 [package]
 name = "pitboard-conformance"
-description = "Checks pitboard's facts about Claude Code against a Claude Code build."
+description = "Checks Pitboard's facts about Claude Code against a Claude Code build."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

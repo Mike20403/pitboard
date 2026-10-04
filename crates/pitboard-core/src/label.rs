@@ -2,12 +2,12 @@
 //!
 //! A label was a name unique across the whole machine, because there was one tool and one
 //! set of accounts. With three, `work` is a name somebody will want for their work account
-//! on each of them, and refusing the second one would be pitboard imposing a namespace
+//! on each of them, and refusing the second one would be Pitboard imposing a namespace
 //! nobody asked for.
 //!
 //! So a label is unique within a provider, and `codex/work` says which. A bare `work` still
 //! works and still means what it always did, as long as it names one account; where it
-//! names two, pitboard says so and lists them rather than picking.
+//! names two, Pitboard says so and lists them rather than picking.
 
 use crate::error::{Enrolled, Error, Result};
 use crate::provider::ProviderId;
@@ -147,7 +147,7 @@ pub struct Chosen {
 
 /// The tool a bare name is for.
 ///
-/// Claude Code, because a bare name is what every pitboard command before this took and it
+/// Claude Code, because a bare name is what every Pitboard command before this took and it
 /// meant Claude Code. Adding a second tool must not change what somebody's existing script
 /// does.
 pub const DEFAULT: ProviderId = ProviderId::Claude;
@@ -163,7 +163,7 @@ pub fn choose(typed: &str) -> std::result::Result<Chosen, String> {
             let provider = ProviderId::parse(prefix).ok_or_else(|| {
                 let known: Vec<&str> = ProviderId::ALL.iter().map(|p| p.code()).collect();
                 format!(
-                    "`{prefix}` is not a tool pitboard knows. It knows: {}",
+                    "`{prefix}` is not a tool Pitboard knows. It knows: {}",
                     known.join(", ")
                 )
             })?;
@@ -305,7 +305,7 @@ mod tests {
         );
     }
 
-    /// pitboard picking one would switch an account the person did not name.
+    /// Pitboard picking one would switch an account the person did not name.
     #[test]
     fn a_bare_label_two_providers_share_is_refused_and_both_are_named() {
         let state = state(&[(ProviderId::Claude, "work"), (ProviderId::Codex, "work")]);
@@ -353,7 +353,7 @@ mod tests {
         );
     }
 
-    /// A bare name meant Claude Code in every pitboard anybody has run. A second tool must
+    /// A bare name meant Claude Code in every Pitboard anybody has run. A second tool must
     /// not change what a script somebody already wrote does.
     #[test]
     fn a_bare_name_still_means_what_it_always_did() {

@@ -108,7 +108,7 @@ private func emptyWindow(asker: NavigationRequest.Asker = .site) -> NavigationRe
 }
 
 /// An address goes to the email app only when somebody asked, as a browser does. A web page
-/// never launches another app through pitboard, and one a person clicked says so.
+/// never launches another app through Pitboard, and one a person clicked says so.
 @Test func onlyAskedForAddressesLeaveAndOtherAppsAreRefused() {
     let mail = URL(string: "mailto:help@example.com")!
     #expect(

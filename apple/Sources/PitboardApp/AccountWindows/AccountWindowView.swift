@@ -127,7 +127,7 @@ private struct SessionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "pitboard removes the cookies and everything else \(account.site.name) keeps "
+                "Pitboard removes the cookies and everything else \(account.site.name) keeps "
                     + "in this window on this Mac, which signs this window out. "
                     + "\(account.site.name) is not told: the account stays signed in on your "
                     + "other devices and browsers.")

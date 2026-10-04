@@ -28,7 +28,7 @@ pub(crate) const ACCOUNT_SCOPED: [&str; 4] = [
 /// This is what gets parked. Parking the OAuth block alone meant a switch away deleted the
 /// rest of the account's keys and a switch back could not put them there, so an account
 /// came back to Claude Code slightly less than it left. Whether that costs a device
-/// re-verification is not something pitboard has measured, and it is not claimed anywhere;
+/// re-verification is not something Pitboard has measured, and it is not claimed anywhere;
 /// what is claimed is that restoring an account restores what was there.
 ///
 /// Measured on one real account: the slice is 524 bytes against 506 for the OAuth block
@@ -78,7 +78,7 @@ pub(crate) fn splice(before: &Value, incoming: &Value) -> Result<Value, String> 
 /// `claudeAiOauth` plus whatever else of [`ACCOUNT_SCOPED`] was there. A park written
 /// before that held the OAuth block alone, so a document with no `claudeAiOauth` key is one
 /// of those and is the block itself. Reading either shape is what lets a park from an older
-/// pitboard still be restored.
+/// Pitboard still be restored.
 pub(crate) fn oauth_in(document: &Value) -> &Value {
     document.get("claudeAiOauth").unwrap_or(document)
 }
@@ -96,7 +96,7 @@ pub(crate) fn fingerprint_of(document: &Value) -> String {
 /// so it reads the same to Claude Code once restored. With no refresh-token lifetime in the
 /// answer Claude Code keeps the date it already had (`refreshTokenExpiresAt ?? previous`,
 /// measured in 2.1.278); dropping it instead would make a lapsed park look immortal, and
-/// pitboard would keep offering and renewing it forever.
+/// Pitboard would keep offering and renewing it forever.
 pub(crate) fn renewed(document: &Value, fresh: &api::Renewed, now_millis: i64) -> Value {
     let mut next = document.clone();
     // Whatever else the slice holds is kept; only the tokens move.

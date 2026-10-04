@@ -14,7 +14,7 @@ pub struct Window {
     pub resets_at: Option<i64>,
     pub is_active: bool,
     /// How Anthropic grades this row, when it grades it. Its word, not a threshold of
-    /// pitboard's own, and absent in a reading taken before pitboard read this field.
+    /// Pitboard's own, and absent in a reading taken before Pitboard read this field.
     #[serde(default)]
     pub severity: Option<String>,
     /// How long the window runs, in seconds, where that is known.
@@ -22,7 +22,7 @@ pub struct Window {
     /// What makes a limit comparable to itself over time: a reset time alone cannot say
     /// how long a window is, because the time left shrinks as the window runs out. Stated
     /// outright by OpenAI, implied by the kind for Anthropic, and absent from a reading
-    /// taken before pitboard kept it.
+    /// taken before Pitboard kept it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_seconds: Option<i64>,
 }
@@ -31,7 +31,7 @@ pub struct Window {
 ///
 /// Anthropic names its windows rather than timing them: `session` and the older
 /// `five_hour` are the five-hour limit, and every `weekly_` kind, like the older
-/// `seven_day`, runs a week. A kind not listed here has no length pitboard can vouch for.
+/// `seven_day`, runs a week. A kind not listed here has no length Pitboard can vouch for.
 pub fn anthropic_window_length(kind: &str) -> Option<i64> {
     match kind {
         "session" | "five_hour" => Some(5 * 3600),
@@ -49,7 +49,7 @@ pub enum Source {
     Live,
     /// Copied from Claude Code's own cache, which it refreshes only when it asks.
     ClaudeCodeCache,
-    /// The last live reading pitboard took itself.
+    /// The last live reading Pitboard took itself.
     Remembered,
 }
 

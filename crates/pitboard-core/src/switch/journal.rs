@@ -75,7 +75,7 @@ impl std::fmt::Display for Recovered {
             self.from,
             self.to,
             if self.finished {
-                "it had in fact finished, and pitboard has recorded that"
+                "it had in fact finished, and Pitboard has recorded that"
             } else {
                 "it had not finished, and nothing was lost"
             }
@@ -221,7 +221,7 @@ fn live_owner(ctx: &Context, which: ProviderId) -> std::result::Result<String, S
 ///
 /// Recovery needs to know which side of the switch the live credential came from, and
 /// asking Anthropic is the only answer that survives Claude Code rotating a token. But the
-/// two candidates are both pitboard's own documents and their refresh tokens were
+/// two candidates are both Pitboard's own documents and their refresh tokens were
 /// fingerprinted when the record was written, so the common case is a comparison and not a
 /// round trip. That is what lets a switch be recovered on a plane.
 ///

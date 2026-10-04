@@ -180,19 +180,19 @@ private func refusal(_ text: String) -> LinkRefusal? {
 @Test func eachRefusalSaysWhy() {
     #expect(
         LinkRefusal.notASite(host: "example.com").errorDescription
-            == "pitboard opens claude.ai and chatgpt.com links only. This link is on "
+            == "Pitboard opens claude.ai and chatgpt.com links only. This link is on "
             + "example.com.")
     #expect(
         LinkRefusal.notASite(host: nil).errorDescription
-            == "pitboard opens claude.ai and chatgpt.com links only.")
+            == "Pitboard opens claude.ai and chatgpt.com links only.")
     #expect(
         LinkRefusal.signInLink(.chatGPT).errorDescription
-            == "pitboard doesn’t open chatgpt.com sign-in links from outside: one would sign "
+            == "Pitboard doesn’t open chatgpt.com sign-in links from outside: one would sign "
             + "the window in as whoever the link belongs to. Sign in inside the account’s "
             + "chatgpt.com window.")
     #expect(
         LinkRefusal.noLink.errorDescription
             == "There is no claude.ai or chatgpt.com link in what was shared.")
     #expect(LinkRefusal.tooLong.errorDescription?.contains("too long") == true)
-    #expect(LinkRefusal.unreadable.errorDescription?.contains("Update pitboard") == true)
+    #expect(LinkRefusal.unreadable.errorDescription?.contains("Update Pitboard") == true)
 }

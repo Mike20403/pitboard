@@ -1,6 +1,6 @@
-//! The boundary between pitboard's own machinery and one particular coding tool's login.
+//! The boundary between Pitboard's own machinery and one particular coding tool's login.
 //!
-//! pitboard was written against Claude Code, and for a long time that was the whole of it:
+//! Pitboard was written against Claude Code, and for a long time that was the whole of it:
 //! the keychain slot hashing, the five keys a logout deletes, the write lock and its
 //! constants, the config file whose identity cache has to be spliced after a switch. None
 //! of that is a fact about parking a login. It is a fact about Claude Code.
@@ -26,13 +26,13 @@
 //!
 //! Four pure functions over a login document: which part of it belongs to the account,
 //! how to put another account's part in, a non-secret handle on its refresh token, and when
-//! it stops working. These are here because pitboard's own bookkeeping needs them and they
+//! it stops working. These are here because Pitboard's own bookkeeping needs them and they
 //! are genuinely different per tool: Claude Code's login sits in a document the machine
 //! shares with unrelated keys, while Codex and Gemini keep one account per file. They were
 //! not in the first sketch of this trait, which is how it came to be a boundary nothing
 //! could actually park through.
 //!
-//! What is not here: a `park` method. Parking is pitboard's own bookkeeping, built out of
+//! What is not here: a `park` method. Parking is Pitboard's own bookkeeping, built out of
 //! the pieces above, and a method for it would have to hide the difference between splicing
 //! a shared document and replacing a whole file behind a flag. Also absent: Claude Code's
 //! config-file identity cache, its supervisor daemon, its status line hook. A method most
@@ -62,7 +62,7 @@ pub enum ProviderId {
 }
 
 impl ProviderId {
-    /// Every provider pitboard knows, in the order a listing shows them.
+    /// Every provider Pitboard knows, in the order a listing shows them.
     ///
     /// Named rather than written out at each call site, because resolving a bare label has
     /// to look at all of them and a provider missing from one such list would simply never
@@ -211,7 +211,7 @@ pub enum ProviderError {
         provider: ProviderId,
         detail: String,
     },
-    /// The tool is configured to keep its login somewhere pitboard does not handle.
+    /// The tool is configured to keep its login somewhere Pitboard does not handle.
     #[error("{reason}")]
     Unsupported {
         provider: ProviderId,
@@ -264,7 +264,7 @@ pub enum ParkSemantics {
 /// Whether signing in to a second account in a private directory really leaves the live
 /// login alone.
 ///
-/// The trick pitboard uses for enrolment is to point the tool's own sign-in at a scratch
+/// The trick Pitboard uses for enrolment is to point the tool's own sign-in at a scratch
 /// directory through its home variable, let it write there, and read back what it wrote.
 /// That works for `CLAUDE_CONFIG_DIR` and for `CODEX_HOME`. It does not work for Gemini
 /// when its optional keychain backend is in use: that backend's service and account names
@@ -290,7 +290,7 @@ pub struct Expiry {
 /// Where one tool keeps its live login: the backends it reads, in the order it reads them,
 /// and the name the login is filed under in each.
 ///
-/// Every tool pitboard knows keeps its login this way: Claude Code in a keychain item with
+/// Every tool Pitboard knows keeps its login this way: Claude Code in a keychain item with
 /// a file behind it, Codex in a file or a keychain item depending on its configuration,
 /// Gemini in a file. Handing the switch the store itself, rather than a pair of read and
 /// write methods, is what lets one switch ask the questions a store answers the same way
@@ -315,10 +315,10 @@ pub(crate) fn store_error(error: crate::store::Error) -> ProviderError {
     }
 }
 
-/// One coding tool's login, as the rest of pitboard needs to touch it.
+/// One coding tool's login, as the rest of Pitboard needs to touch it.
 ///
-/// Implementations live in `provider::<name>`. Nothing here knows about pitboard's state
-/// file, its lock, its journal or its audit log: those are pitboard's own bookkeeping and
+/// Implementations live in `provider::<name>`. Nothing here knows about Pitboard's state
+/// file, its lock, its journal or its audit log: those are Pitboard's own bookkeeping and
 /// do not vary by tool.
 pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     fn id(&self) -> ProviderId;
@@ -327,7 +327,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     ///
     /// Resolved on every call and never cached: which backend holds the login depends on
     /// the tool's own configuration and home variables, and either can change between two
-    /// commands. An error means this tool keeps nothing at rest here that pitboard could
+    /// commands. An error means this tool keeps nothing at rest here that Pitboard could
     /// park, which is not the same as nothing being signed in.
     fn live(&self, ctx: &Context) -> Result<LiveStore, ProviderError>;
 
@@ -357,7 +357,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
         self.identify(ctx, credential)
     }
 
-    /// What this credential has left, normalised into pitboard's own shape.
+    /// What this credential has left, normalised into Pitboard's own shape.
     ///
     /// Takes the whole credential and the context, not an access token, because what a
     /// usage call needs is not the same everywhere: Codex sends an account id header it
@@ -383,7 +383,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// to; Codex's is the file its home puts the login in.
     fn slot(&self, ctx: &Context) -> String;
 
-    /// The lock this tool takes around its own writes to the live login, which pitboard
+    /// The lock this tool takes around its own writes to the live login, which Pitboard
     /// must hold too while it writes there. `None` for a tool that takes none, where there
     /// is nothing to hold and nothing it could wait for.
     fn write_lock(&self, ctx: &Context) -> Option<std::path::PathBuf>;
@@ -417,7 +417,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// The tool's own sign-in, pointed at `dir` so the live login is never touched.
     ///
     /// `dir` exists and is private when this is called, and it is where the tool writes the
-    /// new login: every tool pitboard handles lets a home variable move its whole store,
+    /// new login: every tool Pitboard handles lets a home variable move its whole store,
     /// which is the only reason a second account can be signed in without signing the first
     /// one out. Whether that really isolates the live login is
     /// [`Provider::private_signin_isolation`]'s question, asked first.
@@ -435,7 +435,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     fn discard_signin(&self, ctx: &Context, dir: &std::path::Path);
 
     /// Names of whatever on this machine makes the tool sign in with something other than
-    /// the login pitboard moves: an environment variable or a setting holding a key of its
+    /// the login Pitboard moves: an environment variable or a setting holding a key of its
     /// own. Read from files as well as this process's environment, so the app, which has no
     /// shell environment at all, gets the same answer as the command line.
     fn overridden_by(&self, ctx: &Context) -> Vec<String>;

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 /// A window by how long it runs, where that is known, and otherwise by its kind.
 ///
 /// The length is what makes two tools' windows comparable: OpenAI times every window and
-/// names none, Anthropic names every window and times none, and pitboard knows the length
+/// names none, Anthropic names every window and times none, and Pitboard knows the length
 /// of each either way. A kind is only the fallback, for a reading remembered from before
 /// the length was kept.
 fn window_name(w: &Window) -> String {
@@ -65,7 +65,7 @@ fn tool_name(which: ProviderId) -> &'static str {
 
 /// Whether the account can be switched to, and what to do when it cannot.
 fn standing(row: &Row, now: i64) -> String {
-    // A login pitboard could not pin on any account: nothing to type at it but `doctor`,
+    // A login Pitboard could not pin on any account: nothing to type at it but `doctor`,
     // which the line under it says.
     if row.unplaced() {
         return paint(
@@ -278,7 +278,7 @@ pub fn human(report: &Report) -> String {
     blocks.join("\n")
 }
 
-/// The email to show, or what stands in for one on a login pitboard could not pin on any
+/// The email to show, or what stands in for one on a login Pitboard could not pin on any
 /// account.
 fn email(row: &Row) -> String {
     if row.unplaced() {
@@ -660,7 +660,7 @@ mod tests {
         assert!(!line.contains("pitboard enroll"), "{line}");
         assert!(
             text.contains(
-                "Codex's login is not one pitboard can park or switch; run `pitboard doctor`"
+                "Codex's login is not one Pitboard can park or switch; run `pitboard doctor`"
             ),
             "{text}"
         );

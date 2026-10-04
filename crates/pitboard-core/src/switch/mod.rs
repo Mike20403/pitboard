@@ -68,7 +68,7 @@ pub enum Outcome {
     AlreadyActive { label: String },
 }
 
-/// pitboard's state, held exclusively, with any interrupted switch already finished. Every
+/// Pitboard's state, held exclusively, with any interrupted switch already finished. Every
 /// command that changes state starts from one, so none acts on what a crash left behind.
 pub struct Settled {
     _exclusive: std::fs::File,
@@ -77,7 +77,7 @@ pub struct Settled {
 }
 
 /// Throws away a record of an interrupted switch that cannot be finished, keeping every
-/// copy it names. Takes pitboard's own lock but never Claude Code's: it installs nothing.
+/// copy it names. Takes Pitboard's own lock but never Claude Code's: it installs nothing.
 pub fn abandon(ctx: &Context) -> Result<Option<Abandoned>> {
     refuse_custom_oauth(ctx, None)?;
     let _exclusive = exclusive(ctx)?;
@@ -86,8 +86,8 @@ pub fn abandon(ctx: &Context) -> Result<Option<Abandoned>> {
 }
 
 /// Under a custom OAuth endpoint Claude Code's live login is in "Claude Code-custom-oauth-
-/// credentials", not the item pitboard reads. Acting on it would park nothing and restore
-/// into an item nobody reads, so pitboard does not act on Claude Code at all: not a change
+/// credentials", not the item Pitboard reads. Acting on it would park nothing and restore
+/// into an item nobody reads, so Pitboard does not act on Claude Code at all: not a change
 /// to one of its accounts, not a change that could touch every tool's, and not the
 /// recovery of an interrupted Claude Code switch. A change to another tool's account goes
 /// ahead; its login is somewhere this setting does not move.
@@ -126,7 +126,7 @@ pub fn settle(ctx: &Context, tool: Option<ProviderId>) -> Result<(Settled, Optio
 }
 
 /// Ask the store itself what parked logins are on this machine, and resolve every one the
-/// state does not name. `settle` already does this from pitboard's own list of names on
+/// state does not name. `settle` already does this from Pitboard's own list of names on
 /// every change; this is the thorough version, for a machine whose list was lost with its
 /// state file, or written by a version that kept no list.
 pub fn repair(settled: Settled) -> Result<pending::Reclaimed> {
@@ -166,7 +166,7 @@ fn purge(ctx: &Context, state: &mut State) -> usize {
     remaining
 }
 
-/// Makes pitboard runs exclusive of each other. A kernel lock, unlike the directory lock
+/// Makes Pitboard runs exclusive of each other. A kernel lock, unlike the directory lock
 /// Claude Code's protocol requires around its own writes: the operating system releases it
 /// when a process ends, so there is no staleness rule for two runs to both satisfy.
 fn exclusive(ctx: &Context) -> Result<std::fs::File> {
@@ -176,7 +176,7 @@ fn exclusive(ctx: &Context) -> Result<std::fs::File> {
     Ok(file)
 }
 
-/// `exclusive` without waiting: `None` while another pitboard run holds it.
+/// `exclusive` without waiting: `None` while another Pitboard run holds it.
 fn try_exclusive(ctx: &Context) -> Option<std::fs::File> {
     let (file, _) = lock_file(ctx).ok()?;
     file.try_lock().ok()?;
@@ -234,8 +234,8 @@ pub(super) fn identify_document(
 
 /// Nothing is signed in to this tool, said the way the tool's own files explain it.
 ///
-/// Nothing in any store pitboard reads, and the tool's own record naming somebody as signed
-/// in, are two different situations. The second means pitboard is looking in the wrong
+/// Nothing in any store Pitboard reads, and the tool's own record naming somebody as signed
+/// in, are two different situations. The second means Pitboard is looking in the wrong
 /// place, and writing a login there would put it where nobody reads.
 pub(super) fn nothing_signed_in(ctx: &Context, which: ProviderId) -> Error {
     match provider::of(which).recorded_identity(ctx) {
@@ -244,7 +244,7 @@ pub(super) fn nothing_signed_in(ctx: &Context, which: ProviderId) -> Error {
     }
 }
 
-/// Where this tool's live login is, or why pitboard cannot act on it here.
+/// Where this tool's live login is, or why Pitboard cannot act on it here.
 pub(super) fn live_store(ctx: &Context, which: ProviderId) -> Result<provider::LiveStore> {
     provider::of(which).live(ctx).map_err(|e| shape(which, e))
 }
@@ -737,7 +737,7 @@ fn to_body(document: Value) -> String {
 /// the missing one is the likeliest failure there is: on a machine whose keychain is
 /// locked, the write fails, the read-back fails too, "could not read" was taken to mean
 /// "the slot changed", a rollback was attempted, that failed as well, and the person was
-/// told pitboard could not put their login back and they should sign in again. Nothing had
+/// told Pitboard could not put their login back and they should sign in again. Nothing had
 /// been written and their login had never moved.
 fn install_with(
     tool: ProviderId,
@@ -858,7 +858,7 @@ mod tests {
     }
 
     /// The likeliest failure of all, and the one that used to produce the most alarming
-    /// message pitboard has. A locked keychain fails the write, fails the read-back, and
+    /// message Pitboard has. A locked keychain fails the write, fails the read-back, and
     /// would have failed the rollback too; "could not read" was taken to mean "the slot
     /// changed", so the person was told their login could not be put back. Nothing had been
     /// written and it had never moved.

@@ -81,7 +81,7 @@
                         code: "schedule", name: "Daily renewal", level: .warn,
                         detail: "not scheduled",
                         advice:
-                            "Turn on daily renewal in pitboard's settings, so parked logins "
+                            "Turn on daily renewal in Pitboard's settings, so parked logins "
                             + "you leave alone do not expire."),
                 ],
                 healthy: true)

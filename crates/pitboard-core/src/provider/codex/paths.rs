@@ -34,7 +34,7 @@ pub(crate) enum Backend {
     Keyring,
     /// `auto`: the keyring, falling back to the file.
     Either,
-    /// In memory for the life of one process. Nothing pitboard can park.
+    /// In memory for the life of one process. Nothing Pitboard can park.
     Ephemeral,
     /// `[features] secret_auth_storage` with a keyring store: an encrypted file whose key
     /// is in the keychain.
@@ -45,7 +45,7 @@ pub(crate) enum Backend {
 ///
 /// Read from that one file, which is where a person sets it. A store pinned by
 /// `/etc/codex/requirements.toml`, a managed profile or a trusted project's own config is
-/// not read. Guessed wrong, the file pitboard reads is one Codex has emptied, so a switch
+/// not read. Guessed wrong, the file Pitboard reads is one Codex has emptied, so a switch
 /// or an enrolment finds nobody signed in and stops, rather than writing anywhere.
 pub(crate) fn backend(ctx: &Context) -> Backend {
     std::fs::read_to_string(home(ctx).join("config.toml"))
@@ -158,7 +158,7 @@ mod tests {
     }
 
     /// A trailing comment is not part of the value. Read as part of it, a keyring store
-    /// looked like the default file, and pitboard would read a file Codex had deleted.
+    /// looked like the default file, and Pitboard would read a file Codex had deleted.
     #[test]
     fn a_comment_after_the_value_is_not_the_value() {
         assert_eq!(

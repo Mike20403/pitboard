@@ -2,7 +2,7 @@ import PitboardKit
 import UserNotifications
 
 /// Tells you once when an account in use runs out, and offers the account of the same tool
-/// with the most left. Switching is the button's job, never the notification's: pitboard
+/// with the most left. Switching is the button's job, never the notification's: Pitboard
 /// does not switch accounts on its own.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {

@@ -24,8 +24,8 @@ It prints one line: the account in use, then every other enrolled Claude Code ac
 | Part | Meaning |
 | --- | --- |
 | `work 46%·70%` | `work` has used 46% of its five-hour limit and 70% of its weekly limit. Percentages are whole numbers. |
-| `?` | pitboard has no reading of that limit. |
-| `0%` | None of that limit is used, or it has reset since pitboard last read it. |
+| `?` | Pitboard has no reading of that limit. |
+| `0%` | None of that limit is used, or it has reset since Pitboard last read it. |
 | `(3h 00m)` | The age of another account's reading, shown once it is older than 15 minutes. |
 | `unenrolled` | Shown in place of the first label when Claude Code's config names no account, or one you have not enrolled. |
 
@@ -35,11 +35,11 @@ The label of the account in use is bold. Other labels, `·`, `?` and ages are di
 
 The colour stays on through a pipe unless `NO_COLOR` is set, as [Commands](/reference/commands#output) describes. With `--json`, the [JSON output](/reference/json-output#data-by-command) field `data.line` holds the line without colour.
 
-It reads Claude Code's config to learn which account is in use. It also reads pitboard's accounts and readings, never the keychain.
+It reads Claude Code's config to learn which account is in use. It also reads Pitboard's accounts and readings, never the keychain.
 
 It keeps what each session passed at its last run in `~/.pitboard/sessions.json`. It records a session's numbers in `~/.pitboard/usage.json`, the readings `pitboard` and the app show. For when it records them, see [How usage is read](/concepts/usage#what-the-status-line-adds).
 
-At a prompt, it prints pitboard's last readings:
+At a prompt, it prints Pitboard's last readings:
 
 ```sh
 pitboard statusline
@@ -83,9 +83,9 @@ Print the man page
 Usage: pitboard manpage [OPTIONS]
 ```
 
-`pitboard manpage` prints pitboard's man page in roff on standard output. `pitboard --help` does not list it. With `--json`, it exits 2 with the error `output_is_not_a_report`.
+`pitboard manpage` prints Pitboard's man page in roff on standard output. `pitboard --help` does not list it. With `--json`, it exits 2 with the error `output_is_not_a_report`.
 
-The man page gives the synopsis, the global options, and each command with its arguments and options. It is pitboard's only man page.
+The man page gives the synopsis, the global options, and each command with its arguments and options. It is Pitboard's only man page.
 
 The Homebrew casks install it. Each release tarball includes it as `pitboard.1`, and the app as `Pitboard.app/Contents/Resources/man/pitboard.1`.
 

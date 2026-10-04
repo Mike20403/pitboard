@@ -1,6 +1,6 @@
 import Foundation
 
-/// A website pitboard opens in an account's window: whose accounts it serves, which hosts are
+/// A website Pitboard opens in an account's window: whose accounts it serves, which hosts are
 /// its own, where its sign-in goes, and what its window says about signing in.
 ///
 /// Everything that tells one site from another is a value here. The window, its navigation
@@ -9,7 +9,7 @@ import Foundation
 public struct Site: Hashable, Sendable, Identifiable {
     /// The site's own host, in lower case: where its windows start and what links to it are
     /// opened on. It is also the site's name, so a window on chatgpt.com is never confused
-    /// with OpenAI's ChatGPT app, which pitboard quits around a Codex switch.
+    /// with OpenAI's ChatGPT app, which Pitboard quits around a Codex switch.
     public let host: String
     /// The tool whose enrolled accounts get this site's windows, as the core names it in
     /// `Tool.code`.
@@ -83,7 +83,7 @@ extension Site {
     /// OpenAI's help centre names among the hosts its sign-in needs, and it offers Microsoft
     /// and Apple, whose pages these are (article 7426629, read on 29 September 2026). It comes
     /// back through `/api/auth`. A passkey needs an app macOS lets act as a browser, which
-    /// pitboard is not.
+    /// Pitboard is not.
     public static let chatGPT = Site(
         host: "chatgpt.com", tool: "codex",
         aliases: ["chat.openai.com", "www.chatgpt.com", "chat.com"],

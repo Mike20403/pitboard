@@ -1,10 +1,10 @@
 ---
-title: "Install pitboard"
+title: "Install Pitboard"
 sidebarTitle: "Install"
 description: "Get the command line or the menu bar app from Homebrew, a release download or Cargo, and keep it updated."
 ---
 
-pitboard is a command line for macOS and Linux, and a menu bar app for macOS. The app includes the command line, so install one or the other.
+Pitboard is a command line for macOS and Linux, and a menu bar app for macOS. The app includes the command line, so install one or the other.
 
 ## What you need
 
@@ -12,11 +12,11 @@ pitboard is a command line for macOS and Linux, and a menu bar app for macOS. Th
 - For the app: macOS 14 or later, on Apple silicon or Intel.
 - Claude Code or OpenAI's Codex CLI, installed and signed in to one of your accounts.
 
-For what Codex needs, see [Use pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account).
+For what Codex needs, see [Use Pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account).
 
-Linux builds are static, so one file runs on any distribution. Windows is not supported: Claude Code keeps its login differently there, and pitboard has not been written for it.
+Linux builds are static, so one file runs on any distribution. Windows is not supported: Claude Code keeps its login differently there, and Pitboard has not been written for it.
 
-pitboard is pre-release. macOS is tested. On Linux, pitboard builds and its tests pass. It has not been run with a real signed-in Claude Code or Codex.
+Pitboard is pre-release. macOS is tested. On Linux, Pitboard builds and its tests pass. It has not been run with a real signed-in Claude Code or Codex.
 
 ## Install with Homebrew
 
@@ -29,15 +29,15 @@ The `pitboard` cask installs the command line with its man page and its completi
 
 Homebrew refuses to install one while the other is installed, because both put `pitboard` on your `PATH`.
 
-To check the command line, run `pitboard --version`. The app shows pitboard's item in the menu bar, and has a Dock icon only while one of its windows is open.
+To check the command line, run `pitboard --version`. The app shows Pitboard's item in the menu bar, and has a Dock icon only while one of its windows is open.
 
 ## Install without Homebrew
 
-Without Homebrew, install pitboard with Cargo, from a release file or from source.
+Without Homebrew, install Pitboard with Cargo, from a release file or from source.
 
 ### Fetch the release build with Cargo
 
-[cargo-binstall](https://github.com/cargo-bins/cargo-binstall) downloads pitboard's own release build for your machine. Install it first, then run:
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall) downloads Pitboard's own release build for your machine. Install it first, then run:
 
 ```sh
 cargo binstall pitboard
@@ -63,17 +63,17 @@ To check a file before you run it, see [Verify a download](/install/verify).
 
 ### Build from source
 
-Building [pitboard from crates.io](https://crates.io/crates/pitboard) needs Rust 1.91 or later and a C compiler.
+Building [Pitboard from crates.io](https://crates.io/crates/pitboard) needs Rust 1.91 or later and a C compiler.
 
 ```sh
 cargo install --locked pitboard
 ```
 
-Without `--locked`, Cargo ignores the `Cargo.lock` pitboard was released with and may pick newer dependencies.
+Without `--locked`, Cargo ignores the `Cargo.lock` Pitboard was released with and may pick newer dependencies.
 
 Neither Cargo route installs the man page or the completions. `pitboard manpage` and `pitboard completions` print them; see [Integration commands](/reference/integration-commands).
 
-To build the app, you need Xcode and Rust. In a clone of [pitboard's repository](https://github.com/datlechin/pitboard), run:
+To build the app, you need Xcode and Rust. In a clone of [Pitboard's repository](https://github.com/datlechin/pitboard), run:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -87,19 +87,19 @@ An app you build does not update itself, because it carries no update key. For w
 
 The `pitboard-app` cask does this for you. Without the cask, Settings can do it when no other `pitboard` is installed:
 
-1. Click pitboard's item in the menu bar, choose **Settings**, then click **Command Line**.
+1. Click Pitboard's item in the menu bar, choose **Settings**, then click **Command Line**.
 2. Click **Install Command Line Tool**, and enter an administrator's password when macOS asks. The **In your terminal** row shows `/usr/local/bin/pitboard`.
 
 That path is a link to `Pitboard.app/Contents/Helpers/pitboard`, so the command line updates with the app.
 
 With another `pitboard` installed, the tab shows its path and no button.
 
-## Update pitboard
+## Update Pitboard
 
 | Installed with | To update |
 | --- | --- |
 | The `pitboard` cask | Run `brew upgrade`. |
-| The `pitboard-app` cask, or the app from a release | The app checks once a day, and pitboard's menu shows **Install pitboard** `<version>` when it finds an update. The update replaces the command line inside the app too. To check at once, choose **Check for Updates** in pitboard's menu. `brew upgrade` skips this cask unless you add `--greedy`. |
+| The `pitboard-app` cask, or the app from a release | The app checks once a day, and Pitboard's menu shows **Install Pitboard** `<version>` when it finds an update. The update replaces the command line inside the app too. To check at once, choose **Check for Updates** in Pitboard's menu. `brew upgrade` skips this cask unless you add `--greedy`. |
 | `cargo binstall` | Run `cargo binstall pitboard` again. |
 | `cargo install` | Run `cargo install --locked pitboard` again. |
 | A release tarball | Replace the files with those from the next release. |
@@ -107,6 +107,6 @@ With another `pitboard` installed, the tab shows its path and no button.
 
 For the app's update settings, see [Settings](/reference/settings#updates).
 
-The app and a command line installed apart from it update separately, so keep them at the same version. An older pitboard stops with an error saying a file `was written by a newer pitboard`. Update the older one the way you installed it.
+The app and a command line installed apart from it update separately, so keep them at the same version. An older Pitboard stops with an error saying a file `was written by a newer Pitboard`. Update the older one the way you installed it.
 
 Next, add your accounts: follow the [Quickstart](/quickstart) from its second step, or in the app, see [Add and manage accounts](/guides/accounts).

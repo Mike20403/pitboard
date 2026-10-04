@@ -1,4 +1,4 @@
-//! Taking over a pitboard directory that another machine wrote.
+//! Taking over a Pitboard directory that another machine wrote.
 //!
 //! The machine stamp is right and the reason for it is sound: a parked login is a refresh
 //! token, and two machines taking turns presenting one makes Claude Code drop the login on
@@ -10,7 +10,7 @@
 //!
 //! So this is that command. It keeps everything that is a fact about an account rather than
 //! about a machine: the label, the email, the account and organisation uuid, and the
-//! numbers pitboard remembers. It drops every parked login, because a login is the one
+//! numbers Pitboard remembers. It drops every parked login, because a login is the one
 //! thing that does not move. The way back is one sign-in per account.
 //!
 //! What it deliberately does not do is ask Anthropic whether a parked token still works.
@@ -34,7 +34,7 @@ pub struct Adopted {
     pub logins_dropped: Vec<String>,
 }
 
-/// Take over this pitboard directory. `None` when it was already this machine's, which is
+/// Take over this Pitboard directory. `None` when it was already this machine's, which is
 /// the ordinary case and not an error: running it when there is nothing to do says so.
 pub fn adopt(ctx: &Context) -> Result<Option<Adopted>> {
     let _exclusive = exclusive(ctx)?;
@@ -55,7 +55,7 @@ pub fn adopt(ctx: &Context) -> Result<Option<Adopted>> {
     // Listed rather than deleted outright, so a delete that fails is retried. On a machine
     // that did not receive the keychain there is nothing there to delete, and deleting what
     // is not there succeeds. Released rather than discarded, because one `repair` gave back
-    // may be another pitboard's, and that keychain may have come across too.
+    // may be another Pitboard's, and that keychain may have come across too.
     for service in &parks {
         state.release(service);
     }

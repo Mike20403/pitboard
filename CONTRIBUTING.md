@@ -1,6 +1,6 @@
 # Contributing
 
-One person maintains pitboard. Everyone taking part follows the
+One person maintains Pitboard. Everyone taking part follows the
 [code of conduct](CODE_OF_CONDUCT.md). Send a change as a pull request against `main`. CI
 runs on every pull request. To report a security problem, follow [SECURITY.md](SECURITY.md) instead
 of opening an issue. [ARCHITECTURE.md](ARCHITECTURE.md) describes how the code is organised
@@ -41,7 +41,7 @@ To work on the app, you need a Mac with Xcode, and its Swift must be 6.2 or late
 
 1. Red before green. Before changing behaviour, write or find a test that fails against
    the current code. Then watch that same test pass. A test that has never failed has
-   proved nothing. pitboard once shipped one that passed whether the code under it worked
+   proved nothing. Pitboard once shipped one that passed whether the code under it worked
    or not.
 
 2. Compiling is not evidence that an edit applied. An edit that did nothing leaves the old
@@ -151,9 +151,9 @@ fixture: sign-in windows, Google's sign-in being stopped, downloads, Find, **Rem
 Data** and links shared to the **Open Link** window.
 
 The debug build claims `pitboard-debug://` rather than `pitboard://`, and its Share
-extension shows as **pitboard Debug**. So a debug build never answers a link or a share
+extension shows as **Pitboard Debug**. So a debug build never answers a link or a share
 meant for an installed copy. A release build from `build-app.sh` claims `pitboard://` and
-shows as **pitboard**, like the installed copy. Building the app registers its scheme and
+shows as **Pitboard**, like the installed copy. Building the app registers its scheme and
 its Share extension with macOS, and they stay registered until you unregister them. After
 building the app locally, from Xcode, with `xcodebuild` or with `build-app.sh`, unregister
 each copy it built, and leave the one in `/Applications` alone:
@@ -209,10 +209,10 @@ To add a fact, add an `Assumption` to the tool's register:
 | Field | What it holds |
 | --- | --- |
 | `name` | A stable snake_case code |
-| `fact` | What pitboard believes |
+| `fact` | What Pitboard believes |
 | `read_from` | Where in the tool the fact was read, so it can be read again |
 | `verified_against` | The build it was read from, such as `2.1.284` |
-| `depends` | What in pitboard stops being true if the fact moves |
+| `depends` | What in Pitboard stops being true if the fact moves |
 | `probe` | Literals that must be in a build for the fact to still be readable there |
 | `absent` | Literals whose arrival would disprove the fact |
 
@@ -238,13 +238,13 @@ Every fact must say what it is, where it was read, which version and what depend
 
 ## Changelog
 
-Record a change that someone using pitboard would notice in [CHANGELOG.md](CHANGELOG.md),
+Record a change that someone using Pitboard would notice in [CHANGELOG.md](CHANGELOG.md),
 under `## [Unreleased]`. The file follows
 [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/).
 
 - Put each entry under one of six types, in this order: `### Added`, `### Changed`,
   `### Deprecated`, `### Removed`, `### Fixed`, `### Security`.
-- Write one change per bullet: what changed for the person using pitboard, and why.
+- Write one change per bullet: what changed for the person using Pitboard, and why.
 - Say in words when a change breaks something that worked before.
 - Put a security fix under `### Security`.
 - Make links inside an entry inline and absolute. A release's notes are cut from its
@@ -263,9 +263,9 @@ A pull request against `main` needs all of the following:
 - A changed snapshot comes with the reason the `--json` contract moved.
 - A dependency you add comes with a reason, and `cargo deny check` passes. It checks
   advisories, licences, bans and sources against `deny.toml`.
-- `CHANGELOG.md` has an entry, if someone using pitboard would notice the change.
+- `CHANGELOG.md` has an entry, if someone using Pitboard would notice the change.
 
-Since 0.3.0, most commit subjects are one present-tense sentence saying what pitboard does
+Since 0.3.0, most commit subjects are one present-tense sentence saying what Pitboard does
 after the change, with no prefix. An example is "The man page sets out every command instead
 of naming pages that are not installed". The body says why, and what was measured, if
 anything was.

@@ -174,7 +174,7 @@ fn enrolling_the_signed_in_account_again_is_not_an_error() {
     assert_eq!(code, 0, "{err}");
 
     // Nothing moves but when the account was last used, which naming the account you are
-    // signed in as is: it is how pitboard can tell an account nobody has come back to.
+    // signed in as is: it is how Pitboard can tell an account nobody has come back to.
     let forget_when = |accounts: &serde_json::Value| {
         let mut accounts = accounts.clone();
         for a in accounts.as_array_mut().expect("accounts") {
@@ -331,7 +331,7 @@ fn access_lapsed(env: &Env, label: &str) {
     });
 }
 
-/// A parked login is pitboard's alone, so status renews it once its access lapses, stores
+/// A parked login is Pitboard's alone, so status renews it once its access lapses, stores
 /// it the way Claude Code would, and a later switch installs the renewed login.
 #[test]
 fn status_renews_a_parked_login_whose_access_has_lapsed() {
@@ -488,7 +488,7 @@ fn a_home_from_another_computer_is_taken_over_rather_than_being_a_dead_end() {
 fn an_account_with_nothing_parked_is_refused_with_the_way_back() {
     let env = two_accounts("exhausted");
     // Nothing parked means nothing parked: the state must not name one, and the vault must
-    // not hold one either, or pitboard gives it back rather than refusing.
+    // not hold one either, or Pitboard gives it back rather than refusing.
     for label in ["alpha", "beta"] {
         if let Some(service) = env.parked_service(label) {
             env.delete_park(&service);
@@ -536,7 +536,7 @@ fn an_expired_parked_login_is_refused_rather_than_installed() {
     );
 }
 
-/// Two simultaneous switches must never interleave. pitboard's runs exclude each other with
+/// Two simultaneous switches must never interleave. Pitboard's runs exclude each other with
 /// a kernel lock, so the second waits for the first to finish and then finds beta already
 /// signed in.
 #[test]
@@ -649,7 +649,7 @@ fn uninstalling_takes_the_parked_logins_with_it() {
     assert!(!env.is_parked(&parked), "the parked login is gone");
     assert!(
         !env.root.join("pitboard").exists(),
-        "pitboard's own directory is gone"
+        "Pitboard's own directory is gone"
     );
     // The account that was signed in is still signed in: uninstalling is not a logout.
     assert_eq!(env.live()["claudeAiOauth"]["refreshToken"], "refresh-a");
@@ -710,7 +710,7 @@ fn the_argument_line_can_be_refused() {
     assert_eq!(env.live(), before, "nothing moved");
 }
 
-/// How often pitboard asks Anthropic is a design question, not an accident. A number is
+/// How often Pitboard asks Anthropic is a design question, not an accident. A number is
 /// only worth asking for again once the tightest limit it describes could have moved by a
 /// percentage point, which for a five-hour window is three minutes. Two runs inside that
 /// make one request between them, however many front ends are involved.

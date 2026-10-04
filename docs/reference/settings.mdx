@@ -3,15 +3,15 @@ title: "Settings"
 description: "Look up each control in the General, Command Line and Updates tabs of the app's Settings."
 ---
 
-To open Settings, click pitboard's item in the menu bar, then choose **Settings** (Command-Comma). It opens on the tab you used last.
+To open Settings, click Pitboard's item in the menu bar, then choose **Settings** (Command-Comma). It opens on the tab you used last.
 
 ## General
 
-### Open pitboard at login
+### Open Pitboard at login
 
-When this is on, macOS opens pitboard each time you log in.
+When this is on, macOS opens Pitboard each time you log in.
 
-If macOS needs your approval, the tab says **macOS is waiting for you to allow pitboard in Login Items.** Until you allow pitboard in System Settings, the switch stays on but pitboard does not open at login. **Open Login Items Settings** opens that part of System Settings.
+If macOS needs your approval, the tab says **macOS is waiting for you to allow Pitboard in Login Items.** Until you allow Pitboard in System Settings, the switch stays on but Pitboard does not open at login. **Open Login Items Settings** opens that part of System Settings.
 
 ### Menu bar shows
 
@@ -37,7 +37,7 @@ For why parked logins need renewing, see [Keep parked logins alive](/guides/rene
 
 ### Renew Now
 
-Renews every due parked login, as `pitboard renew` does, then reads usage again, as **Refresh** in pitboard's menu does. For when a parked login is due, see [Maintenance commands](/reference/maintenance-commands#renew).
+Renews every due parked login, as `pitboard renew` does, then reads usage again, as **Refresh** in Pitboard's menu does. For when a parked login is due, see [Maintenance commands](/reference/maintenance-commands#renew).
 
 The text beside the button then gives the result:
 
@@ -47,13 +47,13 @@ The text beside the button then gives the result:
 - **Renewed 2 of 3.**
 - **3 due; none could be renewed this time.**
 
-**Nothing was due.** also appears while another pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read.
+**Nothing was due.** also appears while another Pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read.
 
 ## Command Line
 
 ### In your terminal
 
-Shows the `pitboard` a terminal would run, or **Not installed**. pitboard looks on your login shell's `PATH` first, then in `~/.cargo/bin`, `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.
+Shows the `pitboard` a terminal would run, or **Not installed**. Pitboard looks on your login shell's `PATH` first, then in `~/.cargo/bin`, `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.
 
 A note under the row says how that `pitboard` is updated:
 
@@ -62,13 +62,13 @@ A note under the row says how that `pitboard` is updated:
 | The one inside the app, directly or through a link | **The one inside this app, so it updates with the app.** |
 | Any other install | **Installed apart from this app, so update it the way you installed it.** |
 
-The tab also names `pitboard status` for scripts and `pitboard repair` for a parked login pitboard's records have lost track of.
+The tab also names `pitboard status` for scripts and `pitboard repair` for a parked login Pitboard's records have lost track of.
 
 ### Install Command Line Tool
 
 Appears only when no `pitboard` is found, so it never replaces one you installed. It links `/usr/local/bin/pitboard` to `Pitboard.app/Contents/Helpers/pitboard`, the command line inside the app. macOS asks for an administrator's password first.
 
-pitboard keeps a file at `/usr/local/bin/pitboard` that is not a link, and says `/usr/local/bin/pitboard` **is already there and is not a link, so it was kept.** Any other failure shows the reason macOS gives, or **The link could not be made.**
+Pitboard keeps a file at `/usr/local/bin/pitboard` that is not a link, and says `/usr/local/bin/pitboard` **is already there and is not a link, so it was kept.** Any other failure shows the reason macOS gives, or **The link could not be made.**
 
 While the app runs from a temporary copy, the tab shows no button: a link into that copy would break.
 
@@ -78,19 +78,19 @@ In a copy from a release download or the `pitboard-app` cask, the tab has three 
 
 ### Check for updates automatically
 
-On by default. While it is on, pitboard checks GitHub for a newer version once a day. For what the check sends, see [Security and privacy](/security#what-leaves-your-machine).
+On by default. While it is on, Pitboard checks GitHub for a newer version once a day. For what the check sends, see [Security and privacy](/security#what-leaves-your-machine).
 
 ### Download and install updates automatically
 
-Off by default. When it is on, an update the daily check finds downloads in the background and installs when pitboard quits. It is dimmed while **Check for updates automatically** is off.
+Off by default. When it is on, an update the daily check finds downloads in the background and installs when Pitboard quits. It is dimmed while **Check for updates automatically** is off.
 
 ### Check Now
 
 Checks for a newer version at once, in the update window.
 
-Beside the button is the version you are running, as **pitboard** `<version>`. After the daily check finds a newer version, the text reads **pitboard** `<version>` **is ready to install.**
+Beside the button is the version you are running, as **Pitboard** `<version>`. After the daily check finds a newer version, the text reads **Pitboard** `<version>` **is ready to install.**
 
-For the **Install pitboard** `<version>` item in pitboard's menu, see [Menu bar app](/reference/app#menu).
+For the **Install Pitboard** `<version>` item in Pitboard's menu, see [Menu bar app](/reference/app#menu).
 
 ### A copy built from source
 

@@ -54,7 +54,7 @@ fn belongs_to(value: &Value, outgoing: &[&str]) -> bool {
 /// Replace the recorded identity and drop what was derived from the previous one. Leaving
 /// out `profileFetchedAt` makes Claude Code refetch its profile rather than trust ours.
 ///
-/// Returns the keys it dropped. pitboard is editing the file that holds a person's whole
+/// Returns the keys it dropped. Pitboard is editing the file that holds a person's whole
 /// Claude Code life and deciding what to remove from it by a shape rule, so what it
 /// actually removed is worth writing down rather than inferring later from a backup.
 pub fn splice_identity(
@@ -135,8 +135,8 @@ const ATTEMPTS: usize = 4;
 ///
 /// Measured on 22 September 2026 against a running session: the file is rewritten about
 /// every forty seconds and every rewrite changes something, so the window is real. Claude
-/// Code takes no lock on this file, so pitboard cannot take the same one, and inventing one
-/// would only make pitboard's runs block a session's writes. What it can do is check that
+/// Code takes no lock on this file, so Pitboard cannot take the same one, and inventing one
+/// would only make Pitboard's runs block a session's writes. What it can do is check that
 /// the bytes it parsed are still the bytes on disk and start again from the new ones when
 /// they are not. That narrows the window from a whole edit to a read and a rename; it does
 /// not close it, and nothing here claims otherwise.
@@ -175,8 +175,8 @@ pub fn update(
                 return Err(Error::ConfigWriteFailed {
                     path: path.to_path_buf(),
                     detail: format!(
-                        "Claude Code rewrote it {ATTEMPTS} times while pitboard was changing \
-                         it, so pitboard did not write rather than write over what Claude \
+                        "Claude Code rewrote it {ATTEMPTS} times while Pitboard was changing \
+                         it, so Pitboard did not write rather than write over what Claude \
                          Code had just put there"
                     ),
                 });
@@ -219,7 +219,7 @@ mod tests {
         let ctx = Context::new(root.clone())
             .with_pitboard_home(root.join(".pitboard"))
             .with_clock(Arc::new(FixedClock::at(1_760_000_000)) as Arc<dyn Clock>);
-        home::ensure(&ctx).expect("a pitboard home, which is where the record goes");
+        home::ensure(&ctx).expect("a Pitboard home, which is where the record goes");
         let path = root.join(".claude.json");
         std::fs::write(&path, serde_json::json!({"numStartups": 1}).to_string()).expect("a config");
         (ctx, path, Scratch(root))
@@ -227,7 +227,7 @@ mod tests {
 
     /// Measured against a running session on 22 September 2026: this file is rewritten
     /// about every forty seconds and every rewrite changes something. Before this, anything
-    /// Claude Code wrote between pitboard reading the file and renaming a new one over it
+    /// Claude Code wrote between Pitboard reading the file and renaming a new one over it
     /// was silently gone.
     #[test]
     fn a_write_that_would_lose_what_claude_code_just_wrote_does_not_happen() {
@@ -235,7 +235,7 @@ mod tests {
         let interfering = std::cell::Cell::new(0);
 
         let outcome = update(&ctx, &path, |config| {
-            // Claude Code writes the file while pitboard is deciding what to change.
+            // Claude Code writes the file while Pitboard is deciding what to change.
             interfering.set(interfering.get() + 1);
             std::fs::write(
                 &path,
@@ -255,7 +255,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
         assert!(
             on_disk.get("pitboardWasHere").is_none(),
-            "nothing of pitboard's was written over what Claude Code put there"
+            "nothing of Pitboard's was written over what Claude Code put there"
         );
         assert_eq!(on_disk["numStartups"], ATTEMPTS as i64 + 1);
     }
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(on_disk["oauthAccount"]["accountUuid"], NEW_ACCOUNT);
         assert_eq!(on_disk["numStartups"], 7);
 
-        // And it is in the record, so a person can see what pitboard took out of their file.
+        // And it is in the record, so a person can see what Pitboard took out of their file.
         let said = crate::audit::read(&ctx, 10);
         assert!(
             said.iter()

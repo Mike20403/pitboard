@@ -16,7 +16,7 @@ enum Main {
         case .renew(let helper):
             Launch.renew(with: helper)
         case .fail:
-            Launch.fail("this copy of pitboard has no command line inside it to renew with.")
+            Launch.fail("this copy of Pitboard has no command line inside it to renew with.")
         }
     }
 }

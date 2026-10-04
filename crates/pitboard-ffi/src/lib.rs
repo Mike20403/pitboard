@@ -1,4 +1,4 @@
-//! pitboard's core for its native apps, as UniFFI bindings.
+//! Pitboard's core for its native apps, as UniFFI bindings.
 //!
 //! Every call is synchronous and may block on the keychain, a lock or the network, so an app
 //! calls it off its main thread. Timestamps are epoch seconds.
@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 uniffi::setup_scaffolding!();
 
-/// Where each tool and pitboard keep things. An app started from Finder sees none of the
+/// Where each tool and Pitboard keep things. An app started from Finder sees none of the
 /// shell's environment, so it passes these itself; `None` means the tool's default.
 #[derive(uniffi::Record)]
 pub struct Settings {
@@ -83,7 +83,7 @@ impl Settings {
     }
 }
 
-/// A tool pitboard handles, as the app names it to a person.
+/// A tool Pitboard handles, as the app names it to a person.
 #[derive(Debug, uniffi::Record)]
 pub struct Tool {
     /// What a label's prefix and every `provider` field say: `claude`, `codex`.
@@ -96,7 +96,7 @@ pub struct Tool {
     pub service: String,
 }
 
-/// Every tool pitboard handles, in the order a listing shows them.
+/// Every tool Pitboard handles, in the order a listing shows them.
 #[uniffi::export]
 pub fn tools() -> Vec<Tool> {
     pitboard_core::provider::ProviderId::ALL
@@ -127,7 +127,7 @@ fn warnings(found: &[service::Warning]) -> Vec<Warning> {
         .collect()
 }
 
-/// One change pitboard made, as `pitboard log` shows them.
+/// One change Pitboard made, as `pitboard log` shows them.
 #[derive(Debug, uniffi::Record)]
 pub struct Change {
     /// Local time, as the log records it.
@@ -166,9 +166,9 @@ pub struct Renewed {
 pub enum Schedule {
     /// The platform's own scheduler runs `pitboard renew` every `every_seconds`.
     Installed { path: String, every_seconds: u32 },
-    /// Nothing does. Parked logins are renewed when pitboard runs, and otherwise not.
+    /// Nothing does. Parked logins are renewed when Pitboard runs, and otherwise not.
     Absent,
-    /// This platform has no scheduler pitboard knows how to write.
+    /// This platform has no scheduler Pitboard knows how to write.
     Unsupported,
 }
 
@@ -187,7 +187,7 @@ pub enum PitboardError {
     },
 }
 
-/// Why a request to Anthropic did not produce an answer pitboard could use.
+/// Why a request to Anthropic did not produce an answer Pitboard could use.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct Cause {
     /// Stable, for the app to branch on.
@@ -270,7 +270,7 @@ pub struct Parked {
 #[derive(uniffi::Record)]
 pub struct Account {
     /// Unique among the accounts of one status, and stable between two: the tool and the
-    /// account, or the tool alone for a login that belongs to no account pitboard can name.
+    /// account, or the tool alone for a login that belongs to no account Pitboard can name.
     /// Two tools' accounts can share a label, so a label cannot be an identity.
     pub id: String,
     /// Which tool the account is for, as a `Tool`'s `code`.
@@ -281,7 +281,7 @@ pub struct Account {
     /// to, forget or rename it, which names exactly one account whatever else is enrolled.
     /// `None` exactly when `label` is.
     pub qualified: Option<String>,
-    /// A login of this tool is there and belongs to no account pitboard can name: one it
+    /// A login of this tool is there and belongs to no account Pitboard can name: one it
     /// could not read, or one it cannot switch, such as an API key. Not an account to enrol.
     pub unplaced: bool,
     pub email: String,
@@ -332,7 +332,7 @@ pub enum Remedy {
     ReopenApp { bundle_id: String, name: String },
     /// Run this command.
     Run { command: String },
-    /// Do this, somewhere pitboard cannot reach.
+    /// Do this, somewhere Pitboard cannot reach.
     Do { instruction: String },
 }
 
@@ -700,7 +700,7 @@ impl Pitboard {
         })
     }
 
-    /// When pitboard's account index last changed, in epoch seconds, or 0 when there is
+    /// When Pitboard's account index last changed, in epoch seconds, or 0 when there is
     /// none.
     ///
     /// One stat of one file, so an app can ask often. A switch typed in a terminal used to
@@ -711,7 +711,7 @@ impl Pitboard {
         self.core.changed_at()
     }
 
-    /// When pitboard's usage readings last changed, in epoch milliseconds, or 0 when there
+    /// When Pitboard's usage readings last changed, in epoch milliseconds, or 0 when there
     /// are none.
     ///
     /// Every session's status line records what that session has seen, and a reading only
@@ -723,7 +723,7 @@ impl Pitboard {
         self.core.readings_changed_at()
     }
 
-    /// The same report without asking anyone: the last numbers pitboard measured, and who
+    /// The same report without asking anyone: the last numbers Pitboard measured, and who
     /// Claude Code's config says is signed in.
     ///
     /// What the app shows on a plane, and what it shows while a live read is still in
@@ -756,7 +756,7 @@ impl Pitboard {
         }))
     }
 
-    /// What pitboard has changed, newest last.
+    /// What Pitboard has changed, newest last.
     pub fn log(&self, limit: u32) -> Vec<Change> {
         self.core
             .log(limit as usize)

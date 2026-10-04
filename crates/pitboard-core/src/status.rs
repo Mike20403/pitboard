@@ -27,11 +27,11 @@ use std::collections::{BTreeMap, HashMap};
 pub enum Stale {
     NothingSignedIn,
     /// The tool's live login is there to be read and could not be: a keychain that is
-    /// locked for the moment, a store the tool's configuration puts where pitboard does not
+    /// locked for the moment, a store the tool's configuration puts where Pitboard does not
     /// reach. Never the same as nothing signed in, which would tell somebody their login is
     /// gone when it is only out of reach.
     LoginUnreadable,
-    /// The tool's live login was read and is not one account's login pitboard can park or
+    /// The tool's live login was read and is not one account's login Pitboard can park or
     /// switch: signed in with an API key rather than an account, or a Codex login whose
     /// tokens belong to one account and whose account id names another. Something is
     /// signed in, so saying nobody is would send somebody to sign in again for nothing.
@@ -46,7 +46,7 @@ pub enum Stale {
     Unreachable,
     /// The service answered badly and may answer well later.
     ServerError,
-    /// The service's answer was not in a shape pitboard understands, which means the shape
+    /// The service's answer was not in a shape Pitboard understands, which means the shape
     /// moved. Asking again produces the same thing.
     AnswerNotUnderstood,
     /// The service will not accept this parked login again.
@@ -125,8 +125,8 @@ impl Stale {
                 "Codex's login could not be read; run `pitboard doctor`",
             )),
             Stale::LoginUnusable => Some(per_tool(
-                "Claude Code's login is not one pitboard can park or switch; run `pitboard doctor`",
-                "Codex's login is not one pitboard can park or switch; run `pitboard doctor`",
+                "Claude Code's login is not one Pitboard can park or switch; run `pitboard doctor`",
+                "Codex's login is not one Pitboard can park or switch; run `pitboard doctor`",
             )),
             Stale::SessionExpired => Some(per_tool(
                 "Claude Code's session has expired; `claude` renews it",
@@ -171,7 +171,7 @@ pub struct Row {
     /// act on it. A hint that said `pitboard enroll work --sign-in` about a Codex account
     /// would have enrolled a Claude Code one.
     pub provider: ProviderId,
-    /// `None` for a login nothing has enrolled: one that is signed in, or one pitboard
+    /// `None` for a login nothing has enrolled: one that is signed in, or one Pitboard
     /// could not pin on any account (see [`Row::unplaced`]).
     pub label: Option<String>,
     pub email: String,
@@ -194,7 +194,7 @@ impl Row {
         !self.signed_in && self.parked.as_ref().is_some_and(|p| p.restorable_at(now))
     }
 
-    /// The account, the way pitboard tells accounts apart. `None` for a row nothing has
+    /// The account, the way Pitboard tells accounts apart. `None` for a row nothing has
     /// enrolled.
     pub fn key(&self) -> Option<Key> {
         self.label
@@ -208,7 +208,7 @@ impl Row {
             .and_then(|stale| stale.explanation_for(self.provider))
     }
 
-    /// A tool's live login that pitboard could not pin on any account: one it could not
+    /// A tool's live login that Pitboard could not pin on any account: one it could not
     /// read, or read and could not use. It has no email and no account id, and nothing to
     /// type about it but `pitboard doctor`, so a front end says what it is rather than
     /// showing it as an account nobody has enrolled.
@@ -264,7 +264,7 @@ struct LiveLogin {
     /// signed in from reading as though nobody is, when the service cannot be asked.
     recorded_uuid: Option<String>,
     usage: Option<Result<Snapshot, Stale>>,
-    /// There is a login and pitboard cannot use it: it could not be read, or it was read and
+    /// There is a login and Pitboard cannot use it: it could not be read, or it was read and
     /// is not one account's login. A tool in this state whose record names none of its
     /// accounts still gets a row, so that nobody reads its silence as nobody signed in.
     out_of_reach: bool,
@@ -317,7 +317,7 @@ fn slot_of(ctx: &Context) -> Slot {
 }
 
 /// What is known without asking anyone: who each tool's own record says is signed in, and
-/// the last numbers pitboard measured. Touches no network, so it answers at once and works
+/// the last numbers Pitboard measured. Touches no network, so it answers at once and works
 /// on a train.
 ///
 /// Each tool is asked for what it keeps without anybody's agreement: Claude Code's config,
@@ -325,11 +325,11 @@ fn slot_of(ctx: &Context) -> Slot {
 /// enough to say who is in use; never good enough to move a login. It used to read Claude
 /// Code's alone, so a signed-in Codex account read as parked whenever the app had no
 /// network.
-/// Which tools a report is about: the one a bare name means, which is what pitboard was
+/// Which tools a report is about: the one a bare name means, which is what Pitboard was
 /// before there was a second, and every other tool somebody has enrolled an account of.
 ///
-/// A tool is opted into by enrolling one of its accounts. Until then pitboard reads nothing
-/// of it and asks its service nothing: somebody who uses pitboard for Claude Code and also
+/// A tool is opted into by enrolling one of its accounts. Until then Pitboard reads nothing
+/// of it and asks its service nothing: somebody who uses Pitboard for Claude Code and also
 /// has Codex installed has not asked for their Codex login to be read, or sent to OpenAI on
 /// every refresh of a menu bar.
 fn in_use(state: &State) -> Vec<ProviderId> {
@@ -430,7 +430,7 @@ fn ask_usage(
     remembered: Option<&Snapshot>,
     fresh: bool,
 ) -> Asked {
-    // An account pitboard cannot name cannot be budgeted for; it is asked about, which is
+    // An account Pitboard cannot name cannot be budgeted for; it is asked about, which is
     // what always happened.
     if let Some(uuid) = account_uuid
         && let Some(held) = budget::may_ask(ctx, uuid, remembered, fresh)
@@ -486,7 +486,7 @@ fn ask_usage(
 /// is locked for the moment, and saying it is gone sends somebody to sign in again for
 /// nothing. It used to be read as exactly that.
 ///
-/// `active` is the account pitboard last recorded as signed in to this tool, which stands
+/// `active` is the account Pitboard last recorded as signed in to this tool, which stands
 /// in for the tool's own record when the login cannot be read at all. Codex keeps no
 /// record apart from the login itself, so without this a Codex login caught half written
 /// named nobody, and the account in use was told to sign in again while `doctor`, reading
@@ -527,7 +527,7 @@ fn ask_live(
         // own account's tokens under the other account's id. Something is signed in, so
         // it is not nobody; nobody is asked about it, because there is no one account's
         // token to ask with. The tool's own record says whose it most likely is, and
-        // pitboard's own record does not stand in, because what is there was read and is
+        // Pitboard's own record does not stand in, because what is there was read and is
         // not that account's.
         Err(unusable) => {
             let login = LiveLogin {
@@ -748,7 +748,7 @@ pub fn gather(ctx: &Context, state: &State, fresh: bool) -> Report {
     }
 }
 
-/// The account pitboard last recorded as signed in to this tool, by its id.
+/// The account Pitboard last recorded as signed in to this tool, by its id.
 fn active_uuid(state: &State, which: ProviderId) -> Option<&str> {
     let label = state.active_for(which)?;
     state
@@ -870,7 +870,7 @@ fn assemble(
         // A login that could not be read, or was read and is not one account's, and that no
         // record pins on any of the tool's accounts. Said, rather than left out, because
         // leaving it out reads as nobody being signed in; but only for a tool somebody uses
-        // through pitboard, so a machine that has never enrolled a Codex account sees
+        // through Pitboard, so a machine that has never enrolled a Codex account sees
         // nothing about Codex at all.
         let enrolled = state.accounts.iter().any(|a| a.provider() == which);
         let placed = rows.iter().any(|r| r.provider == which && r.signed_in);
@@ -1123,7 +1123,7 @@ mod tests {
 
     /// What the menu bar shows between its own reads, and all it shows offline. Claude Code's
     /// cache moves only when Claude Code asks, and every session records its numbers into
-    /// pitboard's readings, so showing the cache over them had the menu bar disagree with
+    /// Pitboard's readings, so showing the cache over them had the menu bar disagree with
     /// every status line on the machine.
     #[test]
     fn offline_the_account_in_use_shows_the_newer_of_claude_codes_cache_and_the_readings() {
@@ -1372,7 +1372,7 @@ mod tests {
                 Some("Claude Code's login could not be read; run `pitboard doctor`")
             }
             Stale::LoginUnusable => Some(
-                "Claude Code's login is not one pitboard can park or switch; run `pitboard doctor`",
+                "Claude Code's login is not one Pitboard can park or switch; run `pitboard doctor`",
             ),
         };
         for stale in EVERY_STALE {
@@ -1655,7 +1655,7 @@ mod tests {
 
     /// A tool whose login could not be read and whose own record names none of its
     /// accounts gets a row of its own, so its silence is not read as nobody signed in. Only
-    /// for a tool somebody uses through pitboard: a machine that has never enrolled a Codex
+    /// for a tool somebody uses through Pitboard: a machine that has never enrolled a Codex
     /// account sees nothing about Codex.
     #[test]
     fn an_unreadable_login_gets_a_row_only_for_a_tool_with_accounts() {
@@ -1838,7 +1838,7 @@ mod tests {
         .to_string()
     }
 
-    /// Two Codex accounts, `a` parked and `b` the one pitboard last switched to, which has
+    /// Two Codex accounts, `a` parked and `b` the one Pitboard last switched to, which has
     /// no park because a Codex park is moved rather than copied.
     fn codex_a_parked_b_active() -> State {
         let mut b = codex_account("b", "acc-B");
@@ -1863,7 +1863,7 @@ mod tests {
     /// middle of one: its own account's tokens under the other account's id. That is not
     /// nobody signed in, which is what status used to say while `status --offline` named
     /// the account the tokens belong to and `doctor` failed the login. Online, offline and
-    /// doctor now agree on whose it is, and online says pitboard cannot use it.
+    /// doctor now agree on whose it is, and online says Pitboard cannot use it.
     #[test]
     fn a_codex_login_that_mixes_two_accounts_is_said_rather_than_read_as_nobody() {
         let home = scratch("mixed");
@@ -1877,7 +1877,7 @@ mod tests {
         assert_eq!(a.stale, Some(Stale::LoginUnusable));
         assert_eq!(
             a.explanation(),
-            Some("Codex's login is not one pitboard can park or switch; run `pitboard doctor`")
+            Some("Codex's login is not one Pitboard can park or switch; run `pitboard doctor`")
         );
         assert!(!codex_row(&report, "b").signed_in);
         assert!(
@@ -1902,7 +1902,7 @@ mod tests {
     }
 
     /// Signed in with an API key: something is signed in, and it is no account. Not nobody,
-    /// and not the account pitboard last switched to either, whose login the key replaced.
+    /// and not the account Pitboard last switched to either, whose login the key replaced.
     #[test]
     fn a_codex_login_with_an_api_key_is_said_and_pinned_on_no_account() {
         let home = scratch("api-key");
@@ -1929,7 +1929,7 @@ mod tests {
         assert_eq!(api.calls(), 0);
     }
 
-    /// Somebody who uses pitboard for Claude Code and also has Codex signed in has not
+    /// Somebody who uses Pitboard for Claude Code and also has Codex signed in has not
     /// asked for their Codex login to be read or sent anywhere. Until a Codex account is
     /// enrolled, status says nothing about Codex and asks OpenAI nothing.
     #[test]
@@ -1956,7 +1956,7 @@ mod tests {
 
     /// Codex writes its login with a plain truncating write, so a read can catch it half
     /// written. Codex keeps no record apart from the login, so its own record names nobody
-    /// then, and pitboard's record of its last switch stands in for it the way `doctor`
+    /// then, and Pitboard's record of its last switch stands in for it the way `doctor`
     /// already lets it. Without that, the account in use was told to sign in again.
     #[test]
     fn a_codex_login_caught_half_written_still_names_the_account_in_use() {
@@ -1969,7 +1969,7 @@ mod tests {
 
         let report = gather(&ctx, &s, true);
         let b = codex_row(&report, "b");
-        assert!(b.signed_in, "the account pitboard last switched to");
+        assert!(b.signed_in, "the account Pitboard last switched to");
         assert_eq!(b.stale, Some(Stale::LoginUnreadable));
         assert!(!codex_row(&report, "a").signed_in);
         assert!(
@@ -1990,7 +1990,7 @@ mod tests {
 
     /// Only nothing at all is nobody. A Claude Code document with no account in it is what
     /// `/logout` leaves; one that is not a document of Claude Code's shape at all is a login
-    /// pitboard cannot use, and is said as one.
+    /// Pitboard cannot use, and is said as one.
     #[test]
     fn only_a_document_holding_no_login_is_nobody_signed_in() {
         let home = scratch("shapes");
@@ -2018,12 +2018,12 @@ mod tests {
         assert_eq!(
             unusable.recorded_uuid.as_deref(),
             Some("alpha-uuid"),
-            "Claude Code's config, never pitboard's record of its last switch"
+            "Claude Code's config, never Pitboard's record of its last switch"
         );
         assert_eq!(api.calls(), 0);
     }
 
-    /// A front end is told which rows are a login pitboard could not pin on any account,
+    /// A front end is told which rows are a login Pitboard could not pin on any account,
     /// so it can say so instead of showing an account nobody has enrolled.
     #[test]
     fn a_row_is_unplaced_only_when_it_is_a_login_on_no_account() {
@@ -2087,7 +2087,7 @@ mod tests {
             .with_memory_stores(Arc::clone(&mem))
             .with_scripted_api(Arc::clone(&api))
             .with_clock(Arc::new(FixedClock::at(NOW)) as Arc<dyn Clock>);
-        crate::home::ensure(&ctx).expect("a pitboard home");
+        crate::home::ensure(&ctx).expect("a Pitboard home");
         if let Some(uuid) = recorded {
             std::fs::write(
                 root.join(".claude.json"),

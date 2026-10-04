@@ -1,4 +1,4 @@
-//! `pitboard doctor`: check, on this machine, that what pitboard relies on about Claude Code
+//! `pitboard doctor`: check, on this machine, that what Pitboard relies on about Claude Code
 //! still holds, and say which assumption broke when one has. Gathering is kept apart from
 //! judging so every judgement can be tested.
 //!
@@ -70,14 +70,14 @@ pub struct Facts {
     pub hover_rest_env: bool,
     /// Claude Code's supervisor daemon, where one has ever run for this slot.
     pub daemon: Option<daemon::Daemon>,
-    /// Names pitboard wrote down before creating a park and has not resolved yet.
+    /// Names Pitboard wrote down before creating a park and has not resolved yet.
     pub pending_parks: Vec<String>,
     /// Which Claude Code is installed here, read off disk.
     pub claude_version: Option<String>,
     /// Every reason a session here would authenticate as something other than the stored
     /// login, read from settings files as well as from this process's environment.
     pub auth_overrides: Vec<crate::settings::Override>,
-    /// Accounts pitboard is not asking Anthropic about yet, and for how long: (uuid, seconds).
+    /// Accounts Pitboard is not asking Anthropic about yet, and for how long: (uuid, seconds).
     pub asking_held: Vec<(String, i64)>,
     pub state: Result<State, Error>,
     /// Each enrolled account's parked login, read back from the vault.
@@ -94,14 +94,14 @@ pub struct Facts {
     pub now: i64,
 }
 
-/// The daily renewal schedule as it is installed, read from the file pitboard wrote and
+/// The daily renewal schedule as it is installed, read from the file Pitboard wrote and
 /// never by asking the scheduler.
 pub struct ScheduleFact {
     /// The file the platform's scheduler reads.
     pub path: PathBuf,
-    /// The pitboard it runs, where the file names one the way pitboard writes it.
+    /// The Pitboard it runs, where the file names one the way Pitboard writes it.
     pub program: Option<PathBuf>,
-    /// Whether that pitboard is still there to be run.
+    /// Whether that Pitboard is still there to be run.
     pub program_found: bool,
 }
 
@@ -115,7 +115,7 @@ pub struct CodexFacts {
     pub home: PathBuf,
     /// Whether that directory exists. It does once Codex has been run here, and not before.
     pub present: bool,
-    /// How many Codex accounts pitboard has enrolled.
+    /// How many Codex accounts Pitboard has enrolled.
     pub enrolled: usize,
     /// Where Codex is configured to keep its login, in Codex's own words:
     /// `cli_auth_credentials_store`'s `file`, `keyring`, `auto` or `ephemeral`, or `secrets`
@@ -127,9 +127,9 @@ pub struct CodexFacts {
     /// Who can reach that file, where there is such a file.
     pub auth_access: Option<Access>,
     /// Whose login the file holds, or why that could not be told. `Ok(None)` for no file,
-    /// and for a store pitboard does not read.
+    /// and for a store Pitboard does not read.
     pub login: Result<Option<CodexLogin>, CodexLoginTrouble>,
-    /// Where the `codex` pitboard would run is, where it is anywhere.
+    /// Where the `codex` Pitboard would run is, where it is anywhere.
     pub program: Option<PathBuf>,
     /// Which Codex that is, read off the path it is installed at. `None` both where there
     /// is no `codex` and where its path does not say; [`CodexFacts::program`] tells which.
@@ -148,14 +148,14 @@ pub struct CodexLogin {
     pub fingerprint: String,
 }
 
-/// Why Codex's login names no account pitboard can handle.
+/// Why Codex's login names no account Pitboard can handle.
 ///
 /// Two answers rather than one, because they call for different things. A login signed in
-/// some way pitboard does not switch, such as with an API key, is somebody's choice and
+/// some way Pitboard does not switch, such as with an API key, is somebody's choice and
 /// nothing is wrong with it; a login that cannot be read, or that mixes two accounts, is.
 #[derive(Debug)]
 pub enum CodexLoginTrouble {
-    /// Signed in, and not with an account pitboard parks or switches. Says why, in Codex's
+    /// Signed in, and not with an account Pitboard parks or switches. Says why, in Codex's
     /// terms.
     NotAnAccount(String),
     /// Unreadable, or read and not one account's login.
@@ -206,7 +206,7 @@ fn park_facts(ctx: &Context, state: &State) -> Vec<ParkFact> {
             label: a.label.clone(),
             name: state.typed(&a.key()),
             last_used_at: a.last_used_at,
-            // What the account's own tool says, when it says anything. pitboard's own
+            // What the account's own tool says, when it says anything. Pitboard's own
             // record of its last switch says nothing about a sign-in made elsewhere.
             active: match recorded.get(&a.provider()).and_then(Option::as_deref) {
                 Some(uuid) => a.account_uuid == uuid,
@@ -307,7 +307,7 @@ fn schedule_fact(ctx: &Context) -> Option<ScheduleFact> {
 /// A login that will not fit is almost never the login: on one real machine the OAuth block
 /// was 506 bytes and eleven MCP server tokens were 3679. Saying "8503 of 4032 bytes" leaves
 /// a person to guess which of those to do something about, and the answer is in the
-/// document pitboard has already read.
+/// document Pitboard has already read.
 fn parts_of(document: &Value) -> Vec<(String, usize)> {
     let weigh = |value: &Value| serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
     let Some(root) = document.as_object() else {
@@ -331,8 +331,8 @@ fn parts_of(document: &Value) -> Vec<(String, usize)> {
 /// Every file on this machine that holds a usable login and is not private to its owner.
 ///
 /// Claude Code has no keyring backend outside macOS and Windows, so on Linux its own login
-/// is a plaintext file it chmods to 0600, and pitboard's parked logins are plaintext files
-/// beside it. That is not pitboard weakening anything, but it does mean the only thing
+/// is a plaintext file it chmods to 0600, and Pitboard's parked logins are plaintext files
+/// beside it. That is not Pitboard weakening anything, but it does mean the only thing
 /// between a parked OAuth token and everyone else with an account on the machine is who
 /// the file lets in, and that is something a backup restore, a `cp`, an rsync or a careless
 /// umask quietly changes. So it is looked at rather than assumed.
@@ -364,7 +364,7 @@ fn codex_facts(ctx: &Context, state: Option<&State>) -> CodexFacts {
     let backend = codex::backend(ctx);
     let auth_file = codex::auth_file(ctx);
     let home = codex::home(ctx);
-    // The program pitboard would run, as the context names it and where the context looks:
+    // The program Pitboard would run, as the context names it and where the context looks:
     // an app started from Finder has no shell `PATH` and passes the login shell's, and a
     // test names a program of its own.
     let program = crate::provider::program_of(ctx, ProviderId::Codex);
@@ -540,7 +540,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
                 "security_tool",
                 "security tool",
                 format!("{tool} is missing"),
-                "pitboard reads the keychain the same way Claude Code does. Without it, nothing works.",
+                "Pitboard reads the keychain the same way Claude Code does. Without it, nothing works.",
             ),
         });
     }
@@ -651,14 +651,14 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
             }
         }
         // The one wrong diagnosis in this file. If Claude Code's config names somebody as
-        // signed in, "nothing is signed in" is not an observation, it is pitboard looking
+        // signed in, "nothing is signed in" is not an observation, it is Pitboard looking
         // in the wrong place, and it is the failure that would follow Claude Code moving
         // where it keeps a login.
         Ok(store::Backend::Absent) if facts.identity.is_some() => fail(
             "credential_store",
             "credential store",
             format!(
-                "Claude Code's config says {} is signed in, and no store pitboard reads \
+                "Claude Code's config says {} is signed in, and no store Pitboard reads \
                  holds that login",
                 facts
                     .identity
@@ -666,7 +666,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
                     .map(|i| i.email.as_str())
                     .unwrap_or("somebody")
             ),
-            "pitboard will not write a login where nobody reads it. Check for a pitboard \
+            "Pitboard will not write a login where nobody reads it. Check for a Pitboard \
              update; if there is none, this is worth reporting.",
         ),
         Ok(store::Backend::Absent) => warn(
@@ -723,15 +723,15 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
     checks.push(match &facts.home_access {
         None => ok(
             "home",
-            "pitboard home",
+            "Pitboard home",
             format!("{} (not created yet)", facts.home.display()),
         ),
         Some(access) if !access.shared => {
-            ok("home", "pitboard home", facts.home.display().to_string())
+            ok("home", "Pitboard home", facts.home.display().to_string())
         }
         Some(access) => warn(
             "home",
-            "pitboard home",
+            "Pitboard home",
             format!("{} is {}", facts.home.display(), access.described),
             format!(
                 "Park names contain account identifiers, so only you should read it: `{}`.",
@@ -795,7 +795,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
                      logins they came with are dropped, because a login belongs to the \
                      computer that signed in."
                 }
-                _ => "pitboard will not switch until its account list can be read.",
+                _ => "Pitboard will not switch until its account list can be read.",
             },
         ),
     });
@@ -821,7 +821,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
             "discarded",
             "old parked logins",
             format!("{} waiting to be deleted", state.discarded.len()),
-            "pitboard deletes them on its next change; if they stay, check the keychain is unlocked.",
+            "Pitboard deletes them on its next change; if they stay, check the keychain is unlocked.",
         ));
     }
 
@@ -830,7 +830,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
             "machine_id",
             "machine id",
             "this machine has no stable identifier",
-            "pitboard cannot tell this machine from another that also lacks one, so it cannot \
+            "Pitboard cannot tell this machine from another that also lacks one, so it cannot \
              refuse state copied between them. Never copy ~/.pitboard between machines.",
         ));
     }
@@ -848,7 +848,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
             .filter_map(|p| judge_dormant(p, facts.now)),
     );
     // Only where there is a Codex to say something about. A machine that has never run it
-    // reads exactly as it did before pitboard knew Codex existed.
+    // reads exactly as it did before Pitboard knew Codex existed.
     if codex_here || !codex_parks.is_empty() {
         checks.extend(judge_codex(facts.os, &facts.codex, &codex_parks, facts.now));
     }
@@ -859,7 +859,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
 }
 
 /// The checks that are about Claude Code's own files and settings, rather than about
-/// pitboard or the machine. Named once, so a new one is added here or is always shown.
+/// Pitboard or the machine. Named once, so a new one is added here or is always shown.
 const CLAUDE_CODES_OWN: &[&str] = &[
     "config_file",
     "identity",
@@ -886,15 +886,15 @@ fn account_code(provider: ProviderId, claude: &'static str, codex: &'static str)
 
 /// A refresh token's own life, from a real renewal answer: thirty days. An account that has
 /// been parked for longer than that without being switched to has had its login kept alive
-/// purely by pitboard, through at least one whole token lifetime, for nobody.
+/// purely by Pitboard, through at least one whole token lifetime, for nobody.
 const A_TOKEN_LIFETIME: i64 = 30 * 86_400;
 
 /// An account nobody has come back to.
 ///
-/// pitboard renews a parked login for as long as the account is enrolled, so one enrolled
+/// Pitboard renews a parked login for as long as the account is enrolled, so one enrolled
 /// once and never used again keeps a live, continuously rotated refresh token on this
 /// machine indefinitely. That is a defensible thing to do and an indefensible thing to do
-/// silently. Nothing is dropped on a timer pitboard chose: the threshold here is the
+/// silently. Nothing is dropped on a timer Pitboard chose: the threshold here is the
 /// token's own lifetime, and all it does is say so.
 fn judge_dormant(park: &ParkFact, now: i64) -> Option<Check> {
     if park.active || park.park.is_none() {
@@ -908,7 +908,7 @@ fn judge_dormant(park: &ParkFact, now: i64) -> Option<Check> {
         account_code(park.provider, "dormant_account", "codex_dormant_account"),
         format!("account {}", park.typed()),
         format!(
-            "not switched to for {}; pitboard has kept its login alive that whole time",
+            "not switched to for {}; Pitboard has kept its login alive that whole time",
             time::span(dormant_for)
         ),
         format!(
@@ -1032,7 +1032,7 @@ fn judge_park(fact: &ParkFact, now: i64) -> Check {
 /// what backs the fallback half, and only for a caller that hands a backend in. An ordinary
 /// `claude` hands none in, so the fallback stays `<storage dir>/.credentials.json`. The
 /// combination worth saying something about is the flag on *and* the login living in the
-/// fallback, because that is the one case where what pitboard reads may not be what a
+/// fallback, because that is the one case where what Pitboard reads may not be what a
 /// session reads.
 fn judge_storage_v5(facts: &Facts) -> Check {
     let flag_on = facts
@@ -1051,7 +1051,7 @@ fn judge_storage_v5(facts: &Facts) -> Check {
             "storage_v5",
             "storage v5",
             "switched on, and this login is in the fallback store",
-            "pitboard reads the plaintext file. If Claude Code was given a backend of its \
+            "Pitboard reads the plaintext file. If Claude Code was given a backend of its \
              own, that is not the same file. Check for an update before switching.",
         ),
         _ => ok(
@@ -1077,14 +1077,14 @@ fn biggest(parts: &[(String, usize)]) -> String {
     }
 }
 
-/// Whether pitboard is waiting before asking Anthropic about anything.
+/// Whether Pitboard is waiting before asking Anthropic about anything.
 ///
 /// Ordinarily nothing is waiting: an account is asked about whenever its tightest limit
 /// could have moved by a percentage point, and that is the floor rather than a wait. A wait
 /// means Anthropic asked for less traffic or could not be reached, and a person watching a
 /// number not move deserves to know which.
 fn judge_asking(facts: &Facts) -> Check {
-    // Which services pitboard asks, named by the tools that have accounts here, and which
+    // Which services Pitboard asks, named by the tools that have accounts here, and which
     // of them are being held back: a hold is a service's answer, so blaming the wrong one
     // sends somebody to look at a service that is answering normally.
     let tool_of = |uuid: &str| {
@@ -1153,7 +1153,7 @@ fn judge_asking(facts: &Facts) -> Check {
 /// Whether moving the stored login would change anything a session sees.
 ///
 /// Claude Code resolves this from layered settings, so a managed policy or a line in a
-/// person's own `settings.json` can make every switch pitboard performs a no-op. Read from
+/// person's own `settings.json` can make every switch Pitboard performs a no-op. Read from
 /// files rather than from this process's environment, because an app launched from Finder
 /// has no environment to read and is the surface most likely to be used on a machine that
 /// needs the answer.
@@ -1162,7 +1162,7 @@ fn judge_auth(facts: &Facts) -> Check {
         return ok(
             "auth_source",
             "what a session authenticates with",
-            "the stored login, which is what pitboard moves",
+            "the stored login, which is what Pitboard moves",
         );
     }
     let named: Vec<String> = facts
@@ -1176,11 +1176,11 @@ fn judge_auth(facts: &Facts) -> Check {
         format!("something else: {}", named.join("; ")),
         "Claude Code here authenticates with that rather than with the stored login, so \
          switching accounts changes nothing a session would notice. Remove it, or accept \
-         that pitboard is moving a login nothing reads.",
+         that Pitboard is moving a login nothing reads.",
     )
 }
 
-/// Which Claude Code is installed, against which one pitboard's facts were read.
+/// Which Claude Code is installed, against which one Pitboard's facts were read.
 ///
 /// Stated rather than warned about. Claude Code ships several times a week, so a mismatch
 /// is the ordinary state of the world within days of a release and warning about it would
@@ -1192,17 +1192,17 @@ fn judge_claude_version(facts: &Facts) -> Check {
         None => ok(
             "claude_version",
             "Claude Code build",
-            format!("not found here; pitboard's facts were read from {verified}"),
+            format!("not found here; Pitboard's facts were read from {verified}"),
         ),
         Some(installed) if installed == verified => ok(
             "claude_version",
             "Claude Code build",
-            format!("{installed}, which is what pitboard's facts were read from"),
+            format!("{installed}, which is what Pitboard's facts were read from"),
         ),
         Some(installed) => ok(
             "claude_version",
             "Claude Code build",
-            format!("{installed} installed; pitboard's facts were read from {verified}"),
+            format!("{installed} installed; Pitboard's facts were read from {verified}"),
         ),
     }
 }
@@ -1217,14 +1217,14 @@ fn judge_pending(facts: &Facts) -> Check {
             "pending_parks",
             "parks being reclaimed",
             format!("{n} could not be read this time"),
-            "pitboard wrote these names down before creating a login in them and cannot \
+            "Pitboard wrote these names down before creating a login in them and cannot \
              read them back to find out what is there. Unlock the keychain and run any \
-             pitboard command; it resolves them before doing anything else.",
+             Pitboard command; it resolves them before doing anything else.",
         ),
     }
 }
 
-/// The schedule runs a pitboard by its path, and the path can stop leading anywhere after
+/// The schedule runs a Pitboard by its path, and the path can stop leading anywhere after
 /// it was written: an upgrade that deletes the version it named, an app moved or thrown
 /// away. The scheduler then fails once a day where nobody looks, and the parked logins it
 /// was keeping alive run out. Nothing is said where there is no schedule.
@@ -1259,7 +1259,7 @@ fn judge_schedule(facts: &Facts) -> Option<Check> {
             "schedule",
             "renewal schedule",
             format!(
-                "{} does not say which pitboard it runs",
+                "{} does not say which Pitboard it runs",
                 schedule.path.display()
             ),
             again,
@@ -1278,7 +1278,7 @@ fn again(os: Os) -> &'static str {
     }
 }
 
-/// Whether pitboard has an app for `os`, with a Settings window of its own.
+/// Whether Pitboard has an app for `os`, with a Settings window of its own.
 fn has_app(os: Os) -> bool {
     match os {
         Os::MacOs => true,
@@ -1313,20 +1313,20 @@ fn judge_daemon(facts: &Facts) -> Check {
     }
 }
 
-/// Codex's section: where it keeps its login, whether pitboard can read it, its accounts,
+/// Codex's section: where it keeps its login, whether Pitboard can read it, its accounts,
 /// and what a switch cannot reach.
 ///
 /// Every code starts `codex_`. Three kinds of finding, judged differently:
 ///
-/// - A fault, such as a login nobody can read. It stops pitboard handling an account it has
+/// - A fault, such as a login nobody can read. It stops Pitboard handling an account it has
 ///   enrolled, so it fails where there are Codex accounts, and is a warning where there are
-///   none, because something is wrong with Codex even if nothing pitboard does is broken.
+///   none, because something is wrong with Codex even if nothing Pitboard does is broken.
 /// - A choice, such as a keychain store or an API key. Nothing is wrong with it. Where Codex
 ///   accounts are enrolled it is still said: a keychain store puts every one of them out of
 ///   reach, which fails, and an API key only means there is nothing to switch from until
 ///   somebody signs in with an account, which is worth a look. Where none are, it is stated
-///   and nothing more, so somebody who uses pitboard for Claude Code alone is not handed a
-///   warning about a setting they chose and pitboard has no business with.
+///   and nothing more, so somebody who uses Pitboard for Claude Code alone is not handed a
+///   warning about a setting they chose and Pitboard has no business with.
 /// - A fact, such as how many sessions are running, which is only ever stated.
 fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec<Check> {
     let mut checks = Vec::new();
@@ -1353,19 +1353,19 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
             "Codex login store",
             format!("file  ·  {}", facts.auth_file.display()),
         ),
-        // A choice, and one that leaves nothing pitboard can park or switch.
+        // A choice, and one that leaves nothing Pitboard can park or switch.
         other if enrolled => fail(
             "codex_backend",
             "Codex login store",
             described,
             match other {
                 "ephemeral" => format!(
-                    "Codex keeps nothing at rest, so there is no login pitboard can park or \
+                    "Codex keeps nothing at rest, so there is no login Pitboard can park or \
                      switch. Remove the setting from {} to use Codex's default file store.",
                     config.display()
                 ),
                 _ => format!(
-                    "pitboard reads only Codex's default file store, auth.json, and will not \
+                    "Pitboard reads only Codex's default file store, auth.json, and will not \
                      touch the keychain item Codex created for itself, because every read of \
                      it would ask you for permission, so no enrolled Codex account can be \
                      switched to. Remove the setting from {} to use the file store, then sign \
@@ -1377,7 +1377,7 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
         _ => ok(
             "codex_backend",
             "Codex login store",
-            format!("{described}; pitboard switches Codex accounts only in the file store"),
+            format!("{described}; Pitboard switches Codex accounts only in the file store"),
         ),
     });
 
@@ -1434,13 +1434,13 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
             )),
             // No file, which the check above has already said.
             Ok(None) => {}
-            // Signed in on purpose some way pitboard does not switch. Nothing to sign in
+            // Signed in on purpose some way Pitboard does not switch. Nothing to sign in
             // again for, and nothing broken.
             Err(CodexLoginTrouble::NotAnAccount(why)) if enrolled => checks.push(warn(
                 "codex_login",
                 "Codex login",
                 why.clone(),
-                "pitboard parks and switches Codex's ChatGPT sign-ins, so `pitboard use \
+                "Pitboard parks and switches Codex's ChatGPT sign-ins, so `pitboard use \
                  codex/<label>` refuses while Codex is signed in this way rather than replace \
                  a login it has nowhere to park. `codex login` signs in with a ChatGPT \
                  account.",
@@ -1452,7 +1452,7 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
                 "codex_login",
                 "Codex login",
                 format!("it cannot be used: {why}"),
-                "pitboard will not park or switch a Codex login it cannot read as one \
+                "Pitboard will not park or switch a Codex login it cannot read as one \
                  account's. Signing in with `codex` again writes a fresh one."
                     .into(),
             )),
@@ -1489,7 +1489,7 @@ fn judge_codex_running(running: Option<&[crate::holder::Holding]>) -> Check {
     }
 }
 
-/// Which Codex is installed, against which one pitboard's facts were read. Stated rather
+/// Which Codex is installed, against which one Pitboard's facts were read. Stated rather
 /// than warned about, for the reason Claude Code's is.
 fn judge_codex_version(facts: &CodexFacts) -> Check {
     let verified = crate::provider::codex::assumptions::VERIFIED_AGAINST;
@@ -1497,19 +1497,19 @@ fn judge_codex_version(facts: &CodexFacts) -> Check {
         "codex_version",
         "Codex build",
         match (facts.program.as_deref(), facts.version.as_deref()) {
-            (None, _) => format!("not found here; pitboard's facts were read from {verified}"),
+            (None, _) => format!("not found here; Pitboard's facts were read from {verified}"),
             // Installed some way that does not put the version in its path, such as behind
             // a version manager's shim. Found is not the same as missing.
             (Some(program), None) => format!(
-                "{}, whose path does not say which version it is; pitboard's facts were \
+                "{}, whose path does not say which version it is; Pitboard's facts were \
                  read from {verified}",
                 program.display()
             ),
             (Some(_), Some(installed)) if installed == verified => {
-                format!("{installed}, which is what pitboard's facts were read from")
+                format!("{installed}, which is what Pitboard's facts were read from")
             }
             (Some(_), Some(installed)) => {
-                format!("{installed} installed; pitboard's facts were read from {verified}")
+                format!("{installed} installed; Pitboard's facts were read from {verified}")
             }
         },
     )
@@ -1542,7 +1542,7 @@ pub fn run(ctx: &Context) -> Diagnosis {
                 "home": facts.codex.home,
                 "present": facts.codex.present,
                 "backend": facts.codex.backend,
-                // Unknown for a store pitboard does not read, rather than a guess.
+                // Unknown for a store Pitboard does not read, rather than a guess.
                 "login_present": (facts.codex.backend == "file")
                     .then_some(facts.codex.auth_access.is_some()),
                 "version": facts.codex.version,
@@ -1812,7 +1812,7 @@ mod tests {
     /// On a machine with no keychain every parked login is a plaintext OAuth token in a
     /// file, and the only thing between it and everyone else with an account here is a
     /// mode bit. A backup restore, a `cp -r`, an rsync or a careless umask changes one
-    /// quietly, and nothing else in pitboard would ever mention it.
+    /// quietly, and nothing else in Pitboard would ever mention it.
     #[test]
     fn a_login_anyone_on_this_machine_can_read_is_a_failure() {
         let mut f = facts();
@@ -1889,7 +1889,7 @@ mod tests {
             f
         };
         for mut f in [server_on(), env_on()] {
-            // On the keychain, the flag changes nothing pitboard reads.
+            // On the keychain, the flag changes nothing Pitboard reads.
             let checks = evaluate(&f);
             assert_eq!(check(&checks, "storage_v5").level, Level::Ok);
             // In the fallback, it is the one case worth saying something about.
@@ -1912,7 +1912,7 @@ mod tests {
 
     /// The failure that would follow Claude Code moving where it keeps a login: not an
     /// absence, a mismatch, and the difference is what decides whether the advice is "sign
-    /// in" or "pitboard is looking in the wrong place".
+    /// in" or "Pitboard is looking in the wrong place".
     #[test]
     fn a_config_that_names_somebody_signed_in_with_no_login_anywhere_is_a_failure() {
         let mut f = facts();
@@ -1963,7 +1963,7 @@ mod tests {
 
     /// An account nobody has come back to keeps a live, continuously rotated refresh token
     /// on this machine for as long as it stays enrolled. Nothing is dropped on a timer
-    /// pitboard chose; the threshold is the token's own lifetime and all it does is say so.
+    /// Pitboard chose; the threshold is the token's own lifetime and all it does is say so.
     /// A login that will not fit is almost never the login. On one real machine the OAuth
     /// block was 506 bytes and eleven MCP server tokens were 3679, and the check said
     /// "8503 of 4032 bytes" and left the person to guess which of those to act on.
@@ -2157,7 +2157,7 @@ mod tests {
     }
 
     /// What the check above is given, read off a real disk: a schedule written the way
-    /// `pitboard schedule install` writes it, whose pitboard is then taken away.
+    /// `pitboard schedule install` writes it, whose Pitboard is then taken away.
     #[test]
     fn a_schedule_whose_pitboard_is_gone_is_found_on_the_disk() {
         let root = std::env::temp_dir().join(format!(
@@ -2182,7 +2182,7 @@ mod tests {
         assert!(schedule_fact(&ctx).is_none(), "nothing installed yet");
 
         std::fs::create_dir_all(root.join("bin")).expect("a bin");
-        std::fs::write(&program, "").expect("a pitboard");
+        std::fs::write(&program, "").expect("a Pitboard");
         crate::schedule::install(&ctx).expect("installed");
         let fact = schedule_fact(&ctx).expect("installed");
         assert_eq!(fact.program.as_deref(), Some(program.as_path()));
@@ -2193,7 +2193,7 @@ mod tests {
 
         assert!(
             schedule_fact(&ctx.with_pitboard_home(root.join("elsewhere"))).is_none(),
-            "a pitboard pointed at another home has no schedule"
+            "a Pitboard pointed at another home has no schedule"
         );
     }
 
@@ -2305,7 +2305,7 @@ mod tests {
         let checks = evaluate(&f);
         assert_eq!(check(&checks, "interrupted_switch").level, Level::Warn);
         assert_eq!(check(&checks, "discarded").level, Level::Warn);
-        assert!(healthy(&checks), "neither stops pitboard working");
+        assert!(healthy(&checks), "neither stops Pitboard working");
     }
 
     /// The advice has to be something a person can type and have it act on the right
@@ -2424,10 +2424,10 @@ mod tests {
                 .collect()
         };
 
-        // Nothing signed in to Codex: pitboard's own record of its last switch stands in.
+        // Nothing signed in to Codex: Pitboard's own record of its last switch stands in.
         assert_eq!(active(&park_facts(&ctx, &state)), ["alpha", "codex/home"]);
 
-        // Codex's login names `work`, whatever pitboard last recorded.
+        // Codex's login names `work`, whatever Pitboard last recorded.
         let live = crate::provider::of(ProviderId::Codex)
             .live(&ctx)
             .expect("Codex keeps its login in a file here");
@@ -2447,7 +2447,7 @@ mod tests {
         assert_eq!(active(&park_facts(&ctx, &state)), ["alpha", "codex/work"]);
     }
 
-    /// A machine that has never run Codex reads exactly as it did before pitboard knew
+    /// A machine that has never run Codex reads exactly as it did before Pitboard knew
     /// Codex existed; one that has gets a section of its own, and nothing of Claude Code's
     /// moves.
     #[test]
@@ -2502,7 +2502,7 @@ mod tests {
         );
     }
 
-    /// A keychain store is Codex's to use and pitboard's to leave alone, so it is said
+    /// A keychain store is Codex's to use and Pitboard's to leave alone, so it is said
     /// rather than read, and a store in memory holds nothing to switch. Each is a choice,
     /// not a fault: it fails for somebody with Codex accounts enrolled, because every one of
     /// them is out of reach, and is only stated for anybody else. It used to be a warning
@@ -2542,7 +2542,7 @@ mod tests {
             assert_eq!(
                 found.level,
                 Level::Ok,
-                "nothing pitboard does is broken for somebody with no Codex accounts: {store}"
+                "nothing Pitboard does is broken for somebody with no Codex accounts: {store}"
             );
             assert!(found.detail.contains(store), "{}", found.detail);
             assert!(found.detail.contains("file store"), "{}", found.detail);
@@ -2992,7 +2992,7 @@ mod tests {
                 codex_facts(&ctx, None).login,
                 Err(CodexLoginTrouble::Unusable(_))
             ),
-            "a login mixing two accounts is one pitboard cannot use"
+            "a login mixing two accounts is one Pitboard cannot use"
         );
 
         std::fs::write(
@@ -3004,7 +3004,7 @@ mod tests {
         assert_eq!(ephemeral.backend, "ephemeral");
         assert!(
             matches!(ephemeral.login, Ok(None)),
-            "a store pitboard does not handle is not read"
+            "a store Pitboard does not handle is not read"
         );
 
         // A keychain store with the encrypted-file feature is named as what it is, never as
@@ -3026,7 +3026,7 @@ mod tests {
     }
 
     /// A machine that uses only Codex is not told Claude Code is broken, nor to run a
-    /// program it does not use. Everything about pitboard itself is still checked.
+    /// program it does not use. Everything about Pitboard itself is still checked.
     #[test]
     fn a_machine_with_only_codex_is_not_judged_on_claude_code() {
         let mut facts = facts();
@@ -3044,7 +3044,7 @@ mod tests {
         }
         assert!(
             checks.iter().any(|c| c.code == "state"),
-            "pitboard's own still is"
+            "Pitboard's own still is"
         );
         assert!(checks.iter().any(|c| c.code.starts_with("codex_")));
     }

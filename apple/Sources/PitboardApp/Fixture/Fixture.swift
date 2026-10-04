@@ -17,7 +17,7 @@
         case firstLaunch
         /// Neither Claude Code nor Codex is on this machine, and nothing is signed in.
         case noClaudeCode
-        /// Somebody is signed in to Claude Code and pitboard has no name for them.
+        /// Somebody is signed in to Claude Code and Pitboard has no name for them.
         case unnamed
         /// One Claude Code account, so nothing to switch to.
         case onlyOne
@@ -58,7 +58,7 @@
                 linkScheme: Self.linkScheme)
         }
 
-        /// The pitboard link scheme a fixture answers: the debug build's, whichever build this
+        /// The Pitboard link scheme a fixture answers: the debug build's, whichever build this
         /// is, so a UI test's link never reaches a copy installed.
         static let linkScheme = "pitboard-debug"
     }

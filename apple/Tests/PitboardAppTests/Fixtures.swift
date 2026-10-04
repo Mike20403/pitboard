@@ -34,7 +34,7 @@ func account(
         staleExplanation: nil, lastsSeconds: nil, lastsBurning: false)
 }
 
-/// A tool's login that belongs to no account pitboard can name, as the core reports one:
+/// A tool's login that belongs to no account Pitboard can name, as the core reports one:
 /// no label, no email, no account id, and what is wrong with it.
 func unplaced(of provider: String, signedIn: Bool = false) -> Account {
     Account(

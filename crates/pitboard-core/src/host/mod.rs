@@ -1,4 +1,4 @@
-//! The machine pitboard runs on, behind one seam.
+//! The machine Pitboard runs on, behind one seam.
 //!
 //! Everything that differs between operating systems is answered here, so the rest of the
 //! crate asks a question and never which system it is on. The seam has two faces.
@@ -12,7 +12,7 @@
 //! asking whether a process is still alive, naming the person signed in.
 //!
 //! The system is chosen once, in this file, and nowhere else. A fact that differs by system
-//! is a `match` on [`OS`], and [`Os`] lists every system pitboard runs on, so a system added
+//! is a `match` on [`OS`], and [`Os`] lists every system Pitboard runs on, so a system added
 //! there does not compile until each such fact has been said for it. This replaced branches
 //! that read "macOS, or else Linux", which compiled anywhere and did the Linux thing.
 
@@ -39,7 +39,7 @@ use macos as os;
 
 pub(crate) use os::{fs, proc, user};
 
-/// The operating systems pitboard runs on.
+/// The operating systems Pitboard runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Os {
     MacOs,
@@ -54,7 +54,7 @@ pub const OS: Os = os::OS;
 pub const SECURITY: &str = "/usr/bin/security";
 
 impl Os {
-    /// The program pitboard reaches the system's own store of secrets through, where it goes
+    /// The program Pitboard reaches the system's own store of secrets through, where it goes
     /// through one rather than calling the system directly.
     pub fn secrets_tool(self) -> Option<&'static str> {
         match self {
@@ -107,9 +107,9 @@ pub struct Process {
     pub path: PathBuf,
 }
 
-/// The machine pitboard is standing on, as one value rather than a set of `cfg` branches
+/// The machine Pitboard is standing on, as one value rather than a set of `cfg` branches
 /// spread through the crate. A host answers where another program's secrets may be, where
-/// pitboard's own parked logins go, what this user is running and how daily renewal is
+/// Pitboard's own parked logins go, what this user is running and how daily renewal is
 /// scheduled. It takes the context on every call because a context is built by a builder
 /// and can still change after it exists.
 ///
@@ -131,7 +131,7 @@ pub(crate) trait Host: Send + Sync + std::fmt::Debug {
     /// The single file at `path`, as a store.
     fn file(&self, path: PathBuf) -> Box<dyn RawStore>;
 
-    /// Where pitboard's own parked logins go: the system's store of secrets where there is
+    /// Where Pitboard's own parked logins go: the system's store of secrets where there is
     /// one, a private directory of files where there is not. This one really is a fact
     /// about the machine.
     fn vault(&self, ctx: &Context) -> Box<dyn RawStore>;
@@ -151,14 +151,14 @@ pub(crate) trait Host: Send + Sync + std::fmt::Debug {
     fn processes(&self, program: &str) -> Option<Vec<Process>>;
 
     /// The system's own scheduler, which runs daily renewal. `None` where there is none
-    /// pitboard knows how to ask.
+    /// Pitboard knows how to ask.
     fn scheduler(&self) -> Option<&dyn Scheduler>;
 }
 
 /// The system's own scheduler, which starts `pitboard renew` once a day: launchd on macOS,
 /// a systemd user timer on Linux. Never a homemade daemon.
 ///
-/// What pitboard decides about the schedule, which program it runs, how often, and whether
+/// What Pitboard decides about the schedule, which program it runs, how often, and whether
 /// it is this home's to change, is [`crate::schedule`]'s. This is only how the system is
 /// asked, and what it says back.
 pub(crate) trait Scheduler: Send + Sync + std::fmt::Debug {
@@ -168,7 +168,7 @@ pub(crate) trait Scheduler: Send + Sync + std::fmt::Debug {
     /// Whether a schedule is there.
     fn installed(&self, ctx: &Context) -> bool;
 
-    /// The pitboard the schedule runs, read back from what [`Scheduler::put`] wrote. `None`
+    /// The Pitboard the schedule runs, read back from what [`Scheduler::put`] wrote. `None`
     /// where nothing is installed, and where what is there does not name one the way `put`
     /// writes it.
     fn program(&self, ctx: &Context) -> Option<PathBuf>;
@@ -223,7 +223,7 @@ mod tests {
         );
     }
 
-    /// Every system pitboard runs on has a scheduler of its own that pitboard writes for.
+    /// Every system Pitboard runs on has a scheduler of its own that Pitboard writes for.
     #[test]
     fn this_system_has_a_scheduler() {
         assert!(current().scheduler().is_some());

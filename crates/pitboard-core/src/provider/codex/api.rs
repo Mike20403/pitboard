@@ -1,4 +1,4 @@
-//! What pitboard asks OpenAI about a Codex login.
+//! What Pitboard asks OpenAI about a Codex login.
 //!
 //! Read from codex-cli 0.154.0. Two requests: one to exchange a refresh token, one to ask
 //! how much of a plan is left. Neither is a model request and neither costs quota.
@@ -65,7 +65,7 @@ pub struct Fresh {
     pub at: Option<i64>,
 }
 
-/// What pitboard asks OpenAI, as a seam, for the same reason Anthropic's is one: a loopback
+/// What Pitboard asks OpenAI, as a seam, for the same reason Anthropic's is one: a loopback
 /// server proves the parsing, and cannot produce on demand the timeouts, 429s and refused
 /// refresh tokens the engine has to be right about.
 pub(crate) trait OpenAi: Send + Sync + std::fmt::Debug {
@@ -223,7 +223,7 @@ fn ask_usage(
     }
 }
 
-/// OpenAI's answer in pitboard's own shape.
+/// OpenAI's answer in Pitboard's own shape.
 ///
 /// Measured against the live endpoint rather than taken from a description of it. The
 /// windows are under `rate_limit`, the length is `limit_window_seconds` and the reset is
@@ -265,7 +265,7 @@ fn window(value: &Value, which: &str) -> Option<Window> {
     })
 }
 
-/// The same vocabulary the rest of pitboard already uses where the lengths match, so a
+/// The same vocabulary the rest of Pitboard already uses where the lengths match, so a
 /// five-hour window reads as one whichever tool it came from. Anything else is named by its
 /// own length rather than forced into a word that would be wrong.
 fn kind(seconds: Option<i64>, which: &str) -> String {

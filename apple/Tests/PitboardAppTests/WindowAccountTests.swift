@@ -103,12 +103,12 @@ private func only(_ account: Account) -> WindowAccount? {
     let work = account("work", uuid: "a")
     #expect(
         forgetMessage(for: work, in: status([work]))
-            == "pitboard deletes the login it parked for this account, and everything its "
+            == "Pitboard deletes the login it parked for this account, and everything its "
             + "claude.ai window keeps on this Mac, its sign-in included. Using it again needs a "
             + "sign-in in your browser.")
     let api = unplaced(of: "codex")
     #expect(
         forgetMessage(for: api, in: status([api]))
-            == "pitboard deletes the login it parked for this account. Using it again needs a "
+            == "Pitboard deletes the login it parked for this account. Using it again needs a "
             + "sign-in in your browser.")
 }

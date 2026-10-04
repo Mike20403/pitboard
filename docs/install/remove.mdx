@@ -1,19 +1,19 @@
 ---
-title: "Remove pitboard"
-description: "Delete parked logins and pitboard's files with `pitboard uninstall`, then remove pitboard the way you installed it."
+title: "Remove Pitboard"
+description: "Delete parked logins and Pitboard's files with `pitboard uninstall`, then remove Pitboard the way you installed it."
 ---
 
-To remove pitboard and the logins it parked, run `pitboard uninstall` before you remove pitboard itself. A parked login is the login pitboard holds for an account that is not in use.
+To remove Pitboard and the logins it parked, run `pitboard uninstall` before you remove Pitboard itself. A parked login is the login Pitboard holds for an account that is not in use.
 
-## Delete parked logins and pitboard's files
+## Delete parked logins and Pitboard's files
 
-`pitboard uninstall` turns off the daily renewal schedule and deletes every parked login it wrote. Then it deletes pitboard's own directory, `~/.pitboard`.
+`pitboard uninstall` turns off the daily renewal schedule and deletes every parked login it wrote. Then it deletes Pitboard's own directory, `~/.pitboard`.
 
 <Warning>
   `pitboard uninstall` cannot be undone. Claude Code and OpenAI's Codex CLI stay signed in to the accounts in use. Every other account needs a browser sign-in before you can use it again.
 </Warning>
 
-1. If the app is open, quit it: click pitboard's item in the menu bar, then choose **Quit pitboard**. While it runs, it recreates `~/.pitboard`.
+1. If the app is open, quit it: click Pitboard's item in the menu bar, then choose **Quit Pitboard**. While it runs, it recreates `~/.pitboard`.
 2. If Claude Code's status line runs `pitboard statusline`, remove it: delete the `statusLine` field from `~/.claude/settings.json`, or the call from your own script. Claude Code runs it after each response, and each run recreates `~/.pitboard`.
 3. Run `pitboard uninstall`:
 
@@ -34,16 +34,16 @@ With two parked logins and daily renewal on, `pitboard uninstall` prints:
 ```text
 Removed 2 parked login(s). The login each tool is signed in with is untouched.
 Turned off the daily renewal schedule.
-~/.pitboard is gone. Remove pitboard itself the way you installed it.
+~/.pitboard is gone. Remove Pitboard itself the way you installed it.
 ```
 
 On macOS, deleting `~/.pitboard` by hand leaves parked logins in the keychain, still valid. Only the account list in `~/.pitboard` records their names, so without it `pitboard uninstall` cannot find them. If you already deleted `~/.pitboard`, delete the `pitboard-park-` items in Keychain Access.
 
-If a parked login cannot be deleted, pitboard keeps `~/.pitboard`. Run `pitboard uninstall` again.
+If a parked login cannot be deleted, Pitboard keeps `~/.pitboard`. Run `pitboard uninstall` again.
 
-If you set `PITBOARD_HOME` to move pitboard's directory, `pitboard uninstall` deletes that directory. It leaves the daily renewal schedule, which renews only `~/.pitboard`. If you do not use `~/.pitboard` either, turn the schedule off with `pitboard schedule uninstall`.
+If you set `PITBOARD_HOME` to move Pitboard's directory, `pitboard uninstall` deletes that directory. It leaves the daily renewal schedule, which renews only `~/.pitboard`. If you do not use `~/.pitboard` either, turn the schedule off with `pitboard schedule uninstall`.
 
-On macOS, pitboard leaves any parked login that `pitboard repair` found in the keychain but this directory did not write. Another pitboard directory on the Mac may own it. The output says how many it left.
+On macOS, Pitboard leaves any parked login that `pitboard repair` found in the keychain but this directory did not write. Another Pitboard directory on the Mac may own it. The output says how many it left.
 
 If `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set in your environment or in Claude Code's settings, `pitboard uninstall` refuses to run. Unset it, then run `pitboard uninstall` again.
 
@@ -53,9 +53,9 @@ Each [account's window](/guides/account-windows) keeps its site's cookies and st
 
 To sign one window out and keep the app, bring that account's window to the front. Choose **File** > **Remove Website Data**, then click **Remove**. The site is not told, so the account stays signed in on your other devices and browsers.
 
-To delete every window's data, remove the app's files in `~/Library` as [Remove pitboard itself](/install/remove#remove-pitboard-itself) describes.
+To delete every window's data, remove the app's files in `~/Library` as [Remove Pitboard itself](/install/remove#remove-pitboard-itself) describes.
 
-## Remove pitboard itself
+## Remove Pitboard itself
 
 | Installed with | To remove it |
 | --- | --- |

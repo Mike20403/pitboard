@@ -19,13 +19,13 @@ const OPENAI: &str = "https://api.openai.com/auth";
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Codex;
 
-/// Where Codex keeps its login, when pitboard can act on it.
+/// Where Codex keeps its login, when Pitboard can act on it.
 ///
 /// Only the default store: the file. Codex's keyring store files the login in a keychain
 /// item that Codex created through the Security framework, whose access list trusts the
-/// `codex` binary alone, so every read pitboard made would put a keychain prompt in front
+/// `codex` binary alone, so every read Pitboard made would put a keychain prompt in front
 /// of the person, from `status` as much as from a switch. Pressing Always Allow would
-/// change Codex's own item. The honest answer is to say pitboard does not handle that
+/// change Codex's own item. The honest answer is to say Pitboard does not handle that
 /// store, rather than to prompt on every refresh of a menu bar.
 fn chain(ctx: &Context) -> Live {
     Live::of(vec![ctx.host().file(paths::auth_file(ctx))])
@@ -57,7 +57,7 @@ impl Provider for Codex {
             paths::Backend::Keyring | paths::Backend::Either | paths::Backend::Secrets => {
                 unsupported(
                     "this machine's Codex keeps its login in the keychain \
-                     (cli_auth_credentials_store in config.toml). pitboard handles Codex's \
+                     (cli_auth_credentials_store in config.toml). Pitboard handles Codex's \
                      default store, the auth.json file, and does not read an item Codex \
                      created for itself, because every read would ask you for permission",
                 )
@@ -173,7 +173,7 @@ impl Provider for Codex {
     }
 
     /// Codex writes its login with a plain truncating write and takes no lock of any kind,
-    /// so there is none for pitboard to share.
+    /// so there is none for Pitboard to share.
     fn write_lock(&self, _ctx: &Context) -> Option<std::path::PathBuf> {
         None
     }
@@ -278,7 +278,7 @@ impl Provider for Codex {
     ///
     /// Nothing in a Codex login belongs to the machine rather than the account: the tokens,
     /// the mode, the API key obtained during the same sign-in and the refresh stamp are all
-    /// that account's. Keeping the whole document also means nothing pitboard does not
+    /// that account's. Keeping the whole document also means nothing Pitboard does not
     /// recognise is ever dropped.
     fn slice(&self, live: &Value) -> Result<Value, ProviderError> {
         let shape = |detail: &str| {
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(found.email, "a@b.c");
     }
 
-    /// One account per file, so nothing is filtered and nothing pitboard does not recognise
+    /// One account per file, so nothing is filtered and nothing Pitboard does not recognise
     /// is dropped on the way through.
     #[test]
     fn an_account_share_is_the_whole_file() {

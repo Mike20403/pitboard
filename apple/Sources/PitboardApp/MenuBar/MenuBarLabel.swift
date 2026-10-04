@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// What sits in the menu bar: pitboard's mark, and the account in use with its tightest
+/// What sits in the menu bar: Pitboard's mark, and the account in use with its tightest
 /// limit unless the settings say to show less.
 ///
 /// The one view alive from launch to quit, so it is also what opens a window asked for away

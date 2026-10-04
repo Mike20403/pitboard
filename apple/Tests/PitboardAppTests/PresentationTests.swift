@@ -144,12 +144,12 @@ private func described(
 // MARK: - One account, as the menu and the window describe it
 
 /// A row is called what a person called the account. One with no name yet is called by its
-/// address, the one thing about it they will recognise, and a login pitboard cannot use by
+/// address, the one thing about it they will recognise, and a login Pitboard cannot use by
 /// what is wrong with it, since it has neither.
 @Test func anAccountIsCalledByItsNameOrItsAddressOrWhatIsWrongWithIt() {
     #expect(described(account("work")).title == "work")
     #expect(described(account(nil, signedIn: true, uuid: "u")).title == "u@example.com")
-    #expect(described(unplaced(of: "codex")).title == "Login pitboard can’t use")
+    #expect(described(unplaced(of: "codex")).title == "Login Pitboard can’t use")
 }
 
 /// The window's row draws every limit and says whose address it is and whether it is in use,
@@ -298,7 +298,7 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
         ).summary == "Weekly used up until \(shortTime(today)), 5-hour 40%")
 }
 
-/// Why an account cannot be used is said in full only where it cannot be: a login pitboard
+/// Why an account cannot be used is said in full only where it cannot be: a login Pitboard
 /// cannot use, or an account that cannot be switched to. Numbers that are merely not live do
 /// not stop anybody choosing an account, and the account in use needs no switch.
 @Test func onlyAnAccountThatCannotBeUsedSaysWhy() {
@@ -484,7 +484,7 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
 
 // MARK: - Sections
 
-/// A tool pitboard does not list yet still gets a section, after the ones it lists, headed by
+/// A tool Pitboard does not list yet still gets a section, after the ones it lists, headed by
 /// its code, rather than its accounts going missing.
 @Test func aToolNobodyListsIsGroupedLastUnderItsCode() {
     let groups = grouped(
@@ -535,7 +535,7 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
     #expect(model.notices().isEmpty)
 }
 
-/// An interrupted switch nothing can finish stops pitboard working, so it is said first, with
+/// An interrupted switch nothing can finish stops Pitboard working, so it is said first, with
 /// the way out. The warning the read carries about it is the same fact and is not said a
 /// second time; anything else the read warned about still is.
 @MainActor
@@ -895,7 +895,7 @@ func aSignInNoticeNamesItsToolBesideAnother() async throws {
 @MainActor
 @Test func eachWarningAReadCarriesIsANoticeHeadedFromItsCode() async {
     let second = Warning(code: "auth_overridden", message: "CLAUDE_CODE_OAUTH_TOKEN is set")
-    let novel = Warning(code: "something_new", message: "Something pitboard does not know yet")
+    let novel = Warning(code: "something_new", message: "Something Pitboard does not know yet")
     let warned = [overridden, novel, second]
     let model = AppModel(
         testing: StubCore(.success(status([account("work", signedIn: true)], warnings: warned)))
@@ -905,7 +905,7 @@ func aSignInNoticeNamesItsToolBesideAnother() async throws {
     let notices = model.notices()
     #expect(
         notices.map(\.title) == [
-            "An environment variable overrides the login", "pitboard has a warning",
+            "An environment variable overrides the login", "Pitboard has a warning",
             "An environment variable overrides the login",
         ])
     #expect(notices.map(\.lines) == warned.map { [$0.message] })
@@ -984,7 +984,7 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     #expect(model.notices().isEmpty)
 }
 
-/// The most pressing first: what stops pitboard working, then an account that ran out, then
+/// The most pressing first: what stops Pitboard working, then an account that ran out, then
 /// what each tool's last switch said, then warnings, then what is only worth knowing.
 @MainActor
 @Test func noticesComeTheMostPressingFirst() async {
@@ -1044,8 +1044,8 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     }
     #expect(Set(headings.values).count == headings.count, "no two codes read alike")
     #expect(
-        warningTitle(Warning(code: "not_a_code_yet", message: "x")) == "pitboard has a warning")
-    #expect(warningTitle(Warning(code: "", message: "")) == "pitboard has a warning")
+        warningTitle(Warning(code: "not_a_code_yet", message: "x")) == "Pitboard has a warning")
+    #expect(warningTitle(Warning(code: "", message: "")) == "Pitboard has a warning")
 }
 
 /// What can be done about a notice is a button under it, and putting it away is the icon at
@@ -1204,7 +1204,7 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
 /// Who asked for a change: this app, a terminal, or a line written before that was recorded,
 /// and a caller the app does not know yet by its own name.
 @Test func aChangeSaysWhoAskedForIt() {
-    #expect(changeCaller("app") == "pitboard app")
+    #expect(changeCaller("app") == "Pitboard app")
     #expect(changeCaller("cli") == "Command line")
     #expect(changeCaller("unknown") == "Unknown")
     #expect(changeCaller("schedule") == "Schedule")

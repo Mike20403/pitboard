@@ -1,7 +1,7 @@
 import Foundation
 import PitboardKit
 
-/// Something pitboard has to tell somebody that is not an account: an account that ran out
+/// Something Pitboard has to tell somebody that is not an account: an account that ran out
 /// with another to switch to, what the last switch means for sessions already open, a read
 /// that could not reach a service, a warning, an interrupted switch.
 ///
@@ -41,7 +41,7 @@ struct Notice: Identifiable, Equatable {
 }
 
 extension AppModel {
-    /// Everything to tell somebody, the most pressing first: what stops pitboard working,
+    /// Everything to tell somebody, the most pressing first: what stops Pitboard working,
     /// then accounts that ran out, then what the last switch of each tool said, then any
     /// warning the last read or change carried, then what is only worth knowing.
     func notices(at now: Date = Date()) -> [Notice] {
@@ -149,6 +149,6 @@ func warningTitle(_ warning: Warning) -> String {
     case "interrupted_switch_finished": "An interrupted switch was finished"
     case "interrupted_switch_undone": "An interrupted switch was undone"
     case "recovery_undetermined": "An interrupted switch is waiting"
-    default: "pitboard has a warning"
+    default: "Pitboard has a warning"
     }
 }

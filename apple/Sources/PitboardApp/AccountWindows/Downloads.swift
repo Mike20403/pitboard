@@ -97,7 +97,7 @@ final class DownloadCenter: NSObject, WKDownloadDelegate {
         transfers.removeAll { $0.store == store && !$0.isRunning }
     }
 
-    /// Stops every download running and deletes what each had written, as pitboard quits.
+    /// Stops every download running and deletes what each had written, as Pitboard quits.
     func stopAll() {
         for transfer in running {
             transfer.download.cancel()

@@ -1,6 +1,6 @@
 //! Making a diagnosis safe to paste into a bug report.
 //!
-//! pitboard's bug template asks for `pitboard doctor --json` and tells people it prints
+//! Pitboard's bug template asks for `pitboard doctor --json` and tells people it prints
 //! "labels, codes, paths and times: no tokens, no email addresses, no account identifiers".
 //! It printed the signed-in email address and the organization uuid in the identity check,
 //! the login name in the slot check, a value derived from the refresh token in the

@@ -93,11 +93,11 @@ impl Scheduler for Systemd {
 }
 
 /// systemd's own format. `argument_line` is as for the launchd job: the service runs with
-/// systemd's environment, so a `PITBOARD_NO_ARGV` the installing pitboard has is given to it.
+/// systemd's environment, so a `PITBOARD_NO_ARGV` the installing Pitboard has is given to it.
 fn unit_file(program: &Path, argument_line: bool) -> String {
     format!(
         "[Unit]\n\
-         Description=Renew pitboard's parked logins\n\
+         Description=Renew Pitboard's parked logins\n\
          Documentation=https://docs.usepitboard.com\n\
          \n\
          [Service]\n\
@@ -116,7 +116,7 @@ fn unit_file(program: &Path, argument_line: bool) -> String {
 fn timer() -> String {
     format!(
         "[Unit]\n\
-         Description=Renew pitboard's parked logins daily\n\
+         Description=Renew Pitboard's parked logins daily\n\
          \n\
          [Timer]\n\
          OnUnitActiveSec={EVERY_SECONDS}\n\

@@ -1,4 +1,4 @@
-/// The keys pitboard keeps its own preferences under, named once so a view and the model
+/// The keys Pitboard keeps its own preferences under, named once so a view and the model
 /// cannot drift apart on one.
 enum DefaultsKey {
     /// Whether this app has ever shown anyone anything.
@@ -7,9 +7,9 @@ enum DefaultsKey {
     static let secondAccountDeclined = "secondAccountDeclined"
     /// What the menu bar item shows.
     static let menuBarShows = "menuBarShows"
-    /// The account windows' stores each pitboard directory made, by the directory's path.
+    /// The account windows' stores each Pitboard directory made, by the directory's path.
     static let webStores = "webStores"
-    /// The page each account window was last on, by the pitboard directory's path and the
+    /// The page each account window was last on, by the Pitboard directory's path and the
     /// window's store.
     static let windowPages = "windowPages"
 }

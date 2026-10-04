@@ -22,7 +22,7 @@ private final class MachineStub: Core, @unchecked Sendable {
     private(set) var renewAsks = 0
     var checks: [Check] = []
     private(set) var doctorAsks = 0
-    /// What pitboard has changed, oldest first, as the core's log keeps it.
+    /// What Pitboard has changed, oldest first, as the core's log keeps it.
     var history: [Change] = []
     private(set) var logLimits: [UInt32] = []
     /// The login shell's `PATH`, as far as the app looks in it.
@@ -144,7 +144,7 @@ extension MachineModel {
     /// The machine's model over `service`, with a login item that registers nothing and no
     /// command line inside the app unless a test gives it one. A test that needs one makes a
     /// `StandInApp`: a path to an app it did not make would pass only on a Mac that has
-    /// pitboard installed there.
+    /// Pitboard installed there.
     fileprivate convenience init(
         testing service: any Core, commandLineTool: CommandLineTool = .nowhere,
         loginItem: any LoginItem = ScriptedLoginItem()
@@ -328,10 +328,10 @@ private struct StandInApp {
     let reasons: [(String?, String)] = [
         (
             translocated,
-            "Move pitboard to your Applications folder first. Until then macOS runs it from "
-                + "a temporary copy, which is gone once pitboard quits."
+            "Move Pitboard to your Applications folder first. Until then macOS runs it from "
+                + "a temporary copy, which is gone once Pitboard quits."
         ),
-        (nil, "This copy of pitboard has no command line inside it to run on a schedule."),
+        (nil, "This copy of Pitboard has no command line inside it to run on a schedule."),
     ]
     for (app, reason) in reasons {
         let core = MachineStub()
@@ -374,14 +374,14 @@ private struct StandInApp {
 
     let core = MachineStub()
     let machine = MachineModel(testing: core, commandLineTool: tool)
-    let none = "This copy of pitboard has no command line inside it to run on a schedule."
+    let none = "This copy of Pitboard has no command line inside it to run on a schedule."
     #expect(machine.cannotSchedule == none)
     await machine.setSchedule(on: true)
     #expect(machine.scheduleFailed == none)
     #expect(core.installs == 0)
     await machine.installCommandLine()
     #expect(
-        machine.linkFailed == "This copy of pitboard cannot link the command line inside it.")
+        machine.linkFailed == "This copy of Pitboard cannot link the command line inside it.")
     #expect(scripts.ran.isEmpty)
 
     try FileManager.default.createDirectory(
@@ -507,7 +507,7 @@ private struct StandInApp {
 // MARK: - The command line
 
 /// A terminal runs the first `pitboard` on its login shell's `PATH`, then looks where each
-/// way of installing pitboard puts one, so that is the order it is looked for in here. It
+/// way of installing Pitboard puts one, so that is the order it is looked for in here. It
 /// is looked for only when the settings ask.
 @MainActor
 @Test func theCommandLineIsLookedForWhereATerminalWouldFindIt() async throws {
@@ -583,7 +583,7 @@ private struct StandInApp {
             helper: nil, installPlaces: [app.bin], link: app.link, execute: scripts.run))
     await unlinkable.installCommandLine()
     #expect(
-        unlinkable.linkFailed == "This copy of pitboard cannot link the command line inside it."
+        unlinkable.linkFailed == "This copy of Pitboard cannot link the command line inside it."
     )
     #expect(scripts.ran.count == 2)
 }
@@ -601,7 +601,7 @@ private struct StandInApp {
             advice: ""),
         Check(
             code: "schedule", name: "Daily renewal", level: .warn, detail: "not scheduled",
-            advice: "Turn on daily renewal in pitboard's settings."),
+            advice: "Turn on daily renewal in Pitboard's settings."),
     ]
     let machine = MachineModel(testing: core)
     core.busy = { machine.checking }

@@ -1,6 +1,6 @@
 ## What this changes
 
-<!-- What pitboard does differently after this change, and why. -->
+<!-- What Pitboard does differently after this change, and why. -->
 
 ## How it was checked
 
