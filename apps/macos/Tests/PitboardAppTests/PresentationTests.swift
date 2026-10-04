@@ -71,7 +71,6 @@ private final class FinishedSignIn: SignIn, @unchecked Sendable {
 
     required init(unsafeFromHandle handle: UInt64) { fatalError("not from the core") }
 
-    override func takesACode() -> Bool { false }
     override func nextLine() -> String? { nil }
     override func paste(line: String) throws {}
     override func finish() throws -> Enrolled { enrolls }

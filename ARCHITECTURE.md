@@ -34,7 +34,8 @@ pages load, as a browser would.
   The front ends reach it through `service::Pitboard`, built with a `context::Context`.
   - `provider/`: one module per tool, `claude` and `codex`, each implementing the
     `Provider` trait in `provider/mod.rs`. The trait covers where the tool keeps its login,
-    whose it is, how to renew it and what it has left. Each module's `assumptions.rs` is
+    whose it is, how to renew it, what it has left and what its sign-in prints, which
+    `provider::sign_in_view` reads for both apps. Each module's `assumptions.rs` is
     that tool's register of facts. `provider/codex/holders.rs` names where a running
     `codex` can be, and what makes each take a switch.
   - `holder.rs`: what keeps a tool's login in memory while it runs, told apart by where
@@ -127,9 +128,10 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, one error type, the function `tools` and two
-  objects, `SignIn` and `Pitboard`. Every call is synchronous and may block on the
-  keychain, a lock or the network. `PitboardKit` makes each call off the main thread.
+- `pitboard-ffi` exports records, enums, one error type, the functions `tools` and
+  `sign_in_view`, and two objects, `SignIn` and `Pitboard`. The two functions read only
+  what they are given and answer at once. Every other call is synchronous and may block on
+  the keychain, a lock or the network, and `PitboardKit` makes each off the main thread.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.
@@ -470,6 +472,13 @@ treated, and only the macOS build shows it. The run reads both builds since.
   of api.anthropic.com across eight requests. `Date` has a granularity of one second.
 - That spread is inside the noise, so Pitboard keeps no estimate of clock skew. A renewal's
   expiries are counted from the `Date` of the answer that carried them.
+- Read from 2.1.289 on 5 October 2026: before it opens the browser, `claude auth login`
+  writes an `https` address and `Paste code here if prompted > ` to stdout, and from then
+  on reads a pasted code. So the app offers the code field with the address. The address
+  is the manual one, whose page shows the code; the browser it opens goes to another,
+  which comes back to the loopback. Piped, the address is bare. It is printed as a terminal
+  hyperlink, ended by BEL, where the environment names a terminal that takes them, and the
+  app's reading then takes the BEL and what follows into the address.
 
 ### Codex
 
@@ -535,6 +544,9 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
   from a trusted project it starts in. That file could name a keychain store.
 - `codex login` revokes the login stored in its home before signing in. It opens the
   browser itself and reads nothing from standard input.
+- Read from 0.160.0 on 5 October 2026: `codex login` prints to stderr its loopback address,
+  `http://localhost:<port>`, and then, bare on a line of its own, the `https` address on
+  auth.openai.com to open. So the first `https` address it prints is the one to open.
 
 ### WebKit and SwiftUI
 

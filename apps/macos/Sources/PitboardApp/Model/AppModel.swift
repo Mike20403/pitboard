@@ -886,9 +886,10 @@ extension AppModel {
 
     /// Runs the tool's own sign-in and shows what it says, then records what it signed in to.
     /// Both tools open the browser themselves and finish through a loopback callback, so
-    /// there is nothing to hand a terminal. Claude Code's reads a code typed back when the
-    /// callback cannot be reached, which is what the code field is for; Codex's prints an
-    /// address and reads nothing.
+    /// there is nothing to hand a terminal. Claude Code's also reads a code typed back, from
+    /// the start and whether or not the callback is reached: the page at the address it
+    /// prints shows one once somebody signs in, and the code field is for it. Codex's prints
+    /// an address and reads nothing.
     ///
     /// Returns once the sign-in has finished, failed or been cancelled. The sheet that
     /// started it closes when it finishes, and says the failure when it fails. A cancelled
@@ -896,7 +897,8 @@ extension AppModel {
     @discardableResult
     func signIn(_ name: String, for provider: String) async -> ActionFailure? {
         guard signingIn == nil else { return nil }
-        let shown = SigningIn(label: name, tool: tool(provider)?.name ?? provider, from: sheet)
+        let named = tool(provider)?.name ?? provider
+        let shown = SigningIn(label: name, provider: provider, tool: named, from: sheet)
         signingIn = shown
         let title = "Couldn’t sign in to \(name)"
         do {
@@ -906,7 +908,6 @@ extension AppModel {
                 SignInCalls.run { session.cancel() }
                 return nil
             }
-            shown.takesACode = session.takesACode()
             shown.session = session
             return await watch(session, shown: shown, for: provider, failing: title)
         } catch {
@@ -984,8 +985,8 @@ extension AppModel {
         return []
     }
 
-    /// Types the fallback code back, for a browser that could not reach the callback. Off
-    /// the main thread, like everything that waits on the tool.
+    /// Types back the code the browser showed after signing in. Off the main thread, like
+    /// everything that waits on the tool.
     func paste(_ code: String) {
         guard let shown = signingIn, let session = shown.session else { return }
         shown.pasted = true
@@ -1036,19 +1037,19 @@ enum SignInCalls {
 @Observable
 final class SigningIn {
     let label: String
+    /// Which tool it is for, as a `Tool`'s `code`.
+    let provider: String
     /// The tool's name, as the app says it.
     let tool: String
     private(set) var said = ""
     var pasted = false
-    /// Whether this tool's sign-in reads a code typed back. False until the session has
-    /// started, so no field is offered for a sign-in that could not take what is typed.
-    var takesACode = false
     @ObservationIgnored var session: SignIn?
     /// The sheet it was started from, which is the one to close when it finishes.
     let from: AccountSheet?
 
-    init(label: String, tool: String, from: AccountSheet? = nil) {
+    init(label: String, provider: String, tool: String, from: AccountSheet? = nil) {
         self.label = label
+        self.provider = provider
         self.tool = tool
         self.from = from
     }
@@ -1057,20 +1058,16 @@ final class SigningIn {
         said += text
     }
 
-    /// The address the tool printed, for a browser that did not open by itself. Only
-    /// `https`, which leaves out the loopback address Codex also prints: that one is where
-    /// the browser comes back to, not where a person goes.
-    var url: URL? {
-        guard
-            let found = said.range(
-                of: "https://[^\\s\"'<>\\e]+", options: .regularExpression)
-        else {
-            return nil
-        }
-        return URL(string: String(said[found]))
+    /// What the tool has said comes to, read by the core in that tool's own words, which
+    /// its register holds: the Windows app reads it the same way.
+    private var view: SignInView {
+        signInView(provider: provider, said: said, pasted: pasted)
     }
 
-    /// Claude Code asks for a code only when its callback could not be reached, and Codex
-    /// never does.
-    var wantsCode: Bool { takesACode && said.contains("Paste code") && !pasted }
+    /// The address the tool printed, for a browser that did not open by itself.
+    var url: URL? { view.url.flatMap { URL(string: $0) } }
+
+    /// Whether to offer a field for the code the browser shows, which the tool is waiting
+    /// to have typed back.
+    var wantsCode: Bool { view.wantsCode }
 }

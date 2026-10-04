@@ -10,7 +10,7 @@ use crate::api::{self, ApiError};
 use crate::context::Context;
 use crate::provider::{
     Adoption, Credential, Expiry, Identity, Isolation, LiveStore, ParkSemantics, Provider,
-    ProviderError, ProviderId,
+    ProviderError, ProviderId, SignInView,
 };
 use crate::switch;
 use crate::usage;
@@ -25,6 +25,11 @@ pub(crate) struct Claude;
 /// picks a switch up on its own. Measured against a running session; the three seconds of
 /// margin are for the round trip that follows the cache expiring.
 const ADOPTION_SECONDS: u32 = switch::ADOPTION_CEILING_SECONDS;
+
+/// What `claude auth login` prints to say it reads a code typed back: the start of its
+/// prompt `Paste code here if prompted > `, which the register's `sign_in_output` holds
+/// whole.
+const ASKS_FOR_A_CODE: &str = "Paste code";
 
 impl Provider for Claude {
     fn id(&self) -> ProviderId {
@@ -137,8 +142,10 @@ impl Provider for Claude {
     }
 
     /// Measured in 2.1.278: `claude auth login` opens the browser itself and finishes
-    /// through a loopback callback, printing progress with `stdout.write` and reading stdin
-    /// only as the fallback for a pasted code. So it needs no terminal: pipes are enough.
+    /// through a loopback callback, printing progress with `stdout.write`. Read from
+    /// 2.1.289, as the register's `sign_in_output` holds: it also reads a pasted code from
+    /// stdin, from the start and whether or not the callback is reached. So it needs no
+    /// terminal: pipes are enough.
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` is taken away because it would pin the credential
     /// slot back to a real one whatever `CLAUDE_CONFIG_DIR` says.
     fn sign_in(&self, ctx: &Context, dir: &std::path::Path) -> std::process::Command {
@@ -162,6 +169,19 @@ impl Provider for Claude {
     /// directory unless it is deleted by name.
     fn discard_signin(&self, ctx: &Context, dir: &std::path::Path) {
         let _ = live::discard_signin(ctx, dir);
+    }
+
+    /// Read from 2.1.289. Before it opens the browser, `claude auth login` writes to stdout
+    /// `Opening browser to sign in…`, then `If the browser didn't open, visit: ` and an
+    /// address, then its prompt with no newline after it, and from then on it reads a
+    /// pasted code. So the field is offered with the address. The address it prints is the
+    /// manual one, `https`, whose page shows the code to paste; the browser it opens itself
+    /// goes to another, which comes back to the loopback callback.
+    fn read_sign_in(&self, said: &str) -> SignInView {
+        SignInView {
+            url: crate::provider::https_address(said),
+            wants_code: said.contains(ASKS_FOR_A_CODE),
+        }
     }
 
     fn overridden_by(&self, ctx: &Context) -> Vec<String> {
@@ -264,5 +284,55 @@ fn from_api(error: ApiError) -> ProviderError {
         ApiError::InvalidGrant => ProviderError::InvalidGrant {
             service: ProviderId::Claude.service(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `claude auth login` 2.1.289 writes before it opens the browser, piped, with the
+    /// address's values made up: the address bare at the end of a line, and the prompt with
+    /// no newline after it.
+    const SAID: &str = "Opening browser to sign in\u{2026}\n\
+        If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true\
+        &client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code\
+        &redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback\
+        &scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=c&code_challenge_method=S256\
+        &state=s\n\
+        Paste code here if prompted > ";
+
+    /// The address and the code field come together, because the tool prints both before
+    /// it opens the browser: the field is for the page the printed address leads to, which
+    /// shows a code.
+    #[test]
+    fn a_sign_in_offers_its_address_and_a_field_for_the_code_together() {
+        let read = Claude.read_sign_in(SAID);
+        assert_eq!(
+            read.url.as_deref(),
+            Some(
+                "https://claude.com/cai/oauth/authorize?code=true\
+                 &client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code\
+                 &redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback\
+                 &scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=c\
+                 &code_challenge_method=S256&state=s"
+            )
+        );
+        assert!(read.wants_code);
+
+        let opening = &SAID[..SAID.find('\n').expect("a first line")];
+        assert_eq!(Claude.read_sign_in(opening), SignInView::default());
+    }
+
+    /// The prompt looked for is one the conformance run reads out of every build, so a
+    /// build that words it differently is reported, rather than leaving the field unoffered.
+    #[test]
+    fn the_prompt_looked_for_is_in_the_register() {
+        let fact = crate::assumptions::named("sign_in_output").expect("listed");
+        assert!(
+            fact.probe.iter().any(|p| p.starts_with(ASKS_FOR_A_CODE)),
+            "{:?}",
+            fact.probe
+        );
     }
 }

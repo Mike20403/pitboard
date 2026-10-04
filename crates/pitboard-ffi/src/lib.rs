@@ -1,7 +1,8 @@
 //! Pitboard's core for its native apps, as UniFFI bindings.
 //!
-//! Every call is synchronous and may block on the keychain, a lock or the network, so an app
-//! calls it off its main thread. Timestamps are epoch seconds.
+//! Every call is synchronous. All but `tools` and `sign_in_view` may block on the keychain, a
+//! lock or the network, so an app calls them off its main thread. Timestamps are epoch
+//! seconds.
 
 use pitboard_core::context::Context;
 use pitboard_core::service::{self, Changing};
@@ -108,6 +109,34 @@ pub fn tools() -> Vec<Tool> {
             service: tool.service().into(),
         })
         .collect()
+}
+
+/// What a tool's sign-in has printed so far comes to, for the sheet that shows it running.
+#[derive(Debug, PartialEq, uniffi::Record)]
+pub struct SignInView {
+    /// The address the tool printed for a person to open when the browser did not open by
+    /// itself, as printed, to make a link of.
+    pub url: Option<String>,
+    /// Whether to offer a field for the code the browser shows, which the tool is waiting
+    /// to have typed back.
+    pub wants_code: bool,
+}
+
+/// What a sign-in of `provider`, a `Tool`'s `code`, has printed so far, `said`, comes to.
+/// `pasted` is whether a code has been typed back already, after which none is asked for.
+///
+/// Each tool's own module reads its own words, so both apps show the same. It reads only
+/// what it is given and answers at once, on any thread. A provider nobody knows offers
+/// nothing.
+#[uniffi::export]
+pub fn sign_in_view(provider: String, said: String, pasted: bool) -> SignInView {
+    let read = pitboard_core::provider::ProviderId::parse(&provider)
+        .map(|tool| pitboard_core::provider::sign_in_view(tool, &said, pasted))
+        .unwrap_or_default();
+    SignInView {
+        url: read.url,
+        wants_code: read.wants_code,
+    }
 }
 
 /// Something to know about that did not stop the operation.
@@ -542,19 +571,13 @@ impl SignIn {
         self.provider.code().into()
     }
 
-    /// Whether this tool's sign-in can take a code typed back, for when the browser cannot
-    /// reach its callback. Claude Code's can; Codex's prints an address instead.
-    pub fn takes_a_code(&self) -> bool {
-        self.provider == pitboard_core::provider::ProviderId::Claude
-    }
-
     /// The next thing the tool said, or nothing once it has stopped saying anything.
-    /// Blocks, so call it off the main thread.
+    /// Blocks, so call it off the main thread. `sign_in_view` reads what it all comes to.
     pub fn next_line(&self) -> Option<String> {
         self.said.next()
     }
 
-    /// Types the code back, for when the browser could not reach the callback.
+    /// Types back the code the browser showed after signing in.
     pub fn paste(&self, line: String) -> Result<(), PitboardError> {
         let mut held = self.watched.lock().map_err(|_| PitboardError::Failed {
             code: "sign_in_gone".into(),
@@ -883,6 +906,38 @@ mod tests {
             schedule_program,
             no_argv: false,
         }
+    }
+
+    /// A sign-in is read by its own tool's module, named by its code as every `provider`
+    /// field names it, and one nobody knows offers nothing rather than another tool's
+    /// reading.
+    #[test]
+    fn a_sign_in_is_read_by_its_own_tools_module() {
+        let said = "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?x\n\
+                    Paste code here if prompted > ";
+        let address = Some("https://claude.com/cai/oauth/authorize?x".to_string());
+        assert_eq!(
+            sign_in_view("claude".into(), said.into(), false),
+            SignInView {
+                url: address.clone(),
+                wants_code: true
+            }
+        );
+        assert!(!sign_in_view("claude".into(), said.into(), true).wants_code);
+        assert_eq!(
+            sign_in_view("codex".into(), said.into(), false),
+            SignInView {
+                url: address,
+                wants_code: false
+            }
+        );
+        assert_eq!(
+            sign_in_view("gemini".into(), said.into(), false),
+            SignInView {
+                url: None,
+                wants_code: false
+            }
+        );
     }
 
     /// `PITBOARD_NO_ARGV` reaches the app's core as it reaches the command line's. The app

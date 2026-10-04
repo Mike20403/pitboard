@@ -18,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - `pitboard doctor`'s advice about a login others on the machine can read is one
   sentence again, without a run of spaces in the middle of it.
+- The note under the sign-in sheet's **Code** field says what Claude Code does: it takes
+  the code shown after you sign in, whether or not your browser came back to it. The note
+  said Claude Code asked for the code only when your browser could not reach it.
 
 ## [0.7.0] - 2026-10-04
 

@@ -233,6 +233,34 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         ],
     },
     Assumption {
+        name: "sign_in_output",
+        fact: "`claude auth login` writes `Opening browser to sign in…`, then `If the browser \
+               didn't open, visit: <address>`, then `Paste code here if prompted > ` with no \
+               newline, all to stdout and before it opens the browser, and from then on reads \
+               a pasted `<code>#<state>` line from stdin. The address is the manual one: \
+               `https`, on claude.com for a claude.ai login and platform.claude.com for a \
+               Console one, coming back to platform.claude.com's page that shows the code. The \
+               browser it opens goes to another address, which comes back to the loopback. \
+               Piped, the address is bare; it is printed as a terminal hyperlink, ended by \
+               BEL, only where stdout is a terminal, or a setting, `FORCE_HYPERLINK` or a \
+               variable such as `TERM_PROGRAM` or `WT_SESSION` names one that takes them",
+        read_from: "the `auth login` command's OAuth flow and `startOAuthFlow`, the authorize \
+                    address builder and its constants, and the hyperlink helper the address \
+                    is printed through",
+        // Read from a newer build than the rest of this register.
+        verified_against: "2.1.289",
+        depends: "provider::claude::engine's read_sign_in, and the address and code field \
+                  the app's sign-in sheet offers",
+        probe: &[
+            "If the browser didn't open, visit: ",
+            "Paste code here if prompted > ",
+            r#"CLAUDE_AI_AUTHORIZE_URL:"https://"#,
+            r#"CONSOLE_AUTHORIZE_URL:"https://"#,
+            r#"MANUAL_REDIRECT_URL:"https://"#,
+        ],
+        absent: &[],
+    },
+    Assumption {
         name: "plaintext_credential_mode",
         fact: "the plaintext credential is written and then chmod'd to 0600, in its storage \
                directory, under the fixed name `.credentials.json`",

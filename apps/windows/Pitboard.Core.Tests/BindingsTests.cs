@@ -19,4 +19,24 @@ public sealed class BindingsTests
         CollectionAssert.AreEqual(Codes, tools.Select(tool => tool.Code).ToArray());
         CollectionAssert.AreEqual(Names, tools.Select(tool => tool.Name).ToArray());
     }
+
+    /// <summary>
+    /// A sign-in is read by the core in its tool's own words, so the Windows app offers the
+    /// address and the code field the macOS app does: the `https` address Codex prints after
+    /// its loopback one, and no code, since Codex reads none.
+    /// </summary>
+    [TestMethod]
+    public void ASignInIsReadAsTheCoreReadsIt()
+    {
+        const string said =
+            "Starting local login server on http://localhost:1455.\n"
+            + "If your browser did not open, navigate to this URL to authenticate:\n\n"
+            + "https://auth.openai.com/oauth/authorize?state=x\n";
+
+        var codex = PitboardFfiMethods.SignInView("codex", said, false);
+        var claude = PitboardFfiMethods.SignInView("claude", "Paste code here if prompted > ", false);
+
+        Assert.AreEqual(new SignInView("https://auth.openai.com/oauth/authorize?state=x", false), codex);
+        Assert.IsTrue(claude.WantsCode);
+    }
 }

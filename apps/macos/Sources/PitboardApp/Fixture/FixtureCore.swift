@@ -419,9 +419,9 @@
 
     /// A sign-in that prints what the tool prints and finishes the way the tool does.
     ///
-    /// Claude Code's asks for the code from the browser, as it does when its callback cannot
-    /// be reached, and finishes once one is pasted; Codex's prints its address and finishes
-    /// on its own a moment later.
+    /// Claude Code's prints its address and then asks for the code the browser shows, as
+    /// 2.1.289 does from the start whatever becomes of its callback, and finishes once one is
+    /// pasted. Codex's prints its address and finishes on its own a moment later.
     final class FixtureSignIn: SignIn, @unchecked Sendable {
         private let lock = NSLock()
         private let wake = DispatchSemaphore(value: 0)
@@ -450,8 +450,6 @@
         }
 
         required init(unsafeFromHandle handle: UInt64) { fatalError("not from the core") }
-
-        override func takesACode() -> Bool { code }
 
         override func nextLine() -> String? {
             let next: String? = lock.withLock { lines.isEmpty ? nil : lines.removeFirst() }

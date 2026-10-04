@@ -32,6 +32,11 @@
 //! not in the first sketch of this trait, which is how it came to be a boundary nothing
 //! could actually park through.
 //!
+//! One pure function over what a tool's own sign-in prints, which an app shows while it
+//! runs: the address to open and whether the tool waits for a code. Each tool prints its
+//! own words, so each reads its own, and both apps get the same answer from
+//! [`sign_in_view`].
+//!
 //! What is not here: a `park` method. Parking is Pitboard's own bookkeeping, built out of
 //! the pieces above, and a method for it would have to hide the difference between splicing
 //! a shared document and replacing a whole file behind a flag. Also absent: Claude Code's
@@ -434,6 +439,15 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// caller's to remove.
     fn discard_signin(&self, ctx: &Context, dir: &std::path::Path);
 
+    /// What the tool's own sign-in has printed so far, `said`, comes to: the address it gave
+    /// for a browser that did not open by itself, and whether it waits for a code typed
+    /// back. Everything said so far, because a tool's output arrives in pieces that need
+    /// not end where a line does.
+    ///
+    /// Whether a code was typed back already is Pitboard's to know, not the tool's, and
+    /// [`sign_in_view`] adds it.
+    fn read_sign_in(&self, said: &str) -> SignInView;
+
     /// Names of whatever on this machine makes the tool sign in with something other than
     /// the login Pitboard moves: an environment variable or a setting holding a key of its
     /// own. Read from files as well as this process's environment, so the app, which has no
@@ -472,6 +486,49 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
 
     /// When a slice stops being askable and stops being restorable.
     fn expiry(&self, slice: &Value) -> Expiry;
+}
+
+/// What a tool's sign-in has printed so far comes to, for an app showing it while it runs.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SignInView {
+    /// The address the tool printed for a person to open when the browser did not open by
+    /// itself, as printed, for the app to make a link of.
+    pub url: Option<String>,
+    /// Whether to offer a field for the code the browser shows, which the tool is waiting
+    /// to have typed back.
+    pub wants_code: bool,
+}
+
+/// What `provider`'s sign-in has printed so far, `said`, comes to. `pasted` is whether a
+/// code has been typed back already, after which none is asked for.
+pub fn sign_in_view(provider: ProviderId, said: &str, pasted: bool) -> SignInView {
+    let read = of(provider).read_sign_in(said);
+    SignInView {
+        wants_code: read.wants_code && !pasted,
+        ..read
+    }
+}
+
+/// The first `https` address in what a tool printed, up to where an address printed bare
+/// cannot go on: white space, a quote, an angle bracket, or the escape that starts a
+/// terminal's colour.
+///
+/// Only `https`: the address each tool prints for a person to open is one, and a loopback
+/// address it prints, where the browser comes back to, is `http`. The registers record
+/// both.
+pub(crate) fn https_address(said: &str) -> Option<String> {
+    const SCHEME: &str = "https://";
+    said.match_indices(SCHEME).find_map(|(at, _)| {
+        let rest = &said[at + SCHEME.len()..];
+        let length = rest.find(ends_an_address).unwrap_or(rest.len());
+        (length > 0).then(|| said[at..at + SCHEME.len() + length].to_owned())
+    })
+}
+
+/// White space is Unicode's, as `char::is_whitespace` has it, which is what the app's own
+/// pattern ended an address at before this moved here.
+fn ends_an_address(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '\u{1b}')
 }
 
 /// Where `tool`'s own program is, looked for the way the context says to look.
@@ -780,6 +837,97 @@ mod tests {
             );
             assert_eq!(of(tool).program(&ctx), None, "{tool}");
         }
+    }
+
+    /// The address to open is the first `https` one. Codex prints its loopback address
+    /// first, and that is where the browser comes back to, not where a person goes. Codex
+    /// reads nothing typed back, whatever it prints; Claude Code waits for a code once it
+    /// asks for one.
+    #[test]
+    fn the_address_to_open_is_the_one_the_person_goes_to() {
+        let mut said = String::from(
+            "Starting local login server on http://localhost:1455.\n\
+             If your browser did not open, navigate to this URL to authenticate:\n\n\
+             https://auth.openai.com/oauth/authorize?response_type=code&state=x\u{1b}[0m\n",
+        );
+        assert_eq!(
+            sign_in_view(ProviderId::Codex, &said, false).url.as_deref(),
+            Some("https://auth.openai.com/oauth/authorize?response_type=code&state=x")
+        );
+        said.push_str("Paste code here if prompted > ");
+        assert!(!sign_in_view(ProviderId::Codex, &said, false).wants_code);
+
+        let said = "Paste code here if prompted > ";
+        assert!(sign_in_view(ProviderId::Claude, said, false).wants_code);
+    }
+
+    /// A code field is offered only by a sign-in whose tool reads one, whatever the tool
+    /// prints, and once a code has been typed back it is not asked for again.
+    #[test]
+    fn a_code_is_asked_for_only_where_the_tool_takes_one() {
+        let said = "Paste code here if prompted > ";
+        for (tool, takes) in [(ProviderId::Claude, true), (ProviderId::Codex, false)] {
+            assert_eq!(sign_in_view(tool, said, false).wants_code, takes, "{tool}");
+            assert!(
+                !sign_in_view(tool, said, true).wants_code,
+                "{tool}: asked once"
+            );
+        }
+    }
+
+    /// Before a tool has said anything there is nothing to open and nothing to type.
+    #[test]
+    fn a_sign_in_that_has_said_nothing_offers_nothing() {
+        for &tool in ProviderId::ALL {
+            assert_eq!(
+                sign_in_view(tool, "", false),
+                SignInView::default(),
+                "{tool}"
+            );
+        }
+    }
+
+    /// An address printed bare ends where one cannot go on: white space, a quote, an angle
+    /// bracket, or the escape that starts a terminal's colour. White space is Unicode's, as
+    /// the app's own pattern had it: on 5 October 2026 that pattern ended an address at each
+    /// of the first characters here, and went on past each of the others.
+    #[test]
+    fn an_address_ends_where_an_address_printed_bare_cannot_go_on() {
+        let ends = [
+            '\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '"', '\'', '<', '>', '\u{1b}', '\u{85}',
+            '\u{a0}', '\u{1680}', '\u{2000}', '\u{200a}', '\u{2028}', '\u{2029}', '\u{202f}',
+            '\u{205f}', '\u{3000}',
+        ];
+        for end in ends {
+            let said = format!("x https://a.b/c{end}d e");
+            assert_eq!(
+                https_address(&said).as_deref(),
+                Some("https://a.b/c"),
+                "{:?}",
+                end
+            );
+        }
+        for kept in ['\u{1c}', '\u{7f}', '\u{180e}', '\u{200b}', '\u{feff}'] {
+            let said = format!("x https://a.b/c{kept}d e");
+            assert_eq!(
+                https_address(&said),
+                Some(format!("https://a.b/c{kept}d")),
+                "{:?}",
+                kept
+            );
+        }
+    }
+
+    /// A scheme with nothing after it is no address, and the next one is looked for. An
+    /// address that is not `https` is never the one to open.
+    #[test]
+    fn only_an_https_address_with_something_in_it_is_one_to_open() {
+        assert_eq!(
+            https_address("https:// then https://x.y").as_deref(),
+            Some("https://x.y")
+        );
+        assert_eq!(https_address("http://localhost:1455/auth/callback"), None);
+        assert_eq!(https_address("HTTPS://x.y"), None);
     }
 
     /// Without a search path of its own, a context looks where this process would, which
