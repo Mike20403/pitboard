@@ -139,14 +139,43 @@ from Xcode, it reads this Mac's accounts, as that copy does. To run it in a fixt
 add `PITBOARD_FIXTURE=twoTools` to the scheme's environment variables. The fixtures are the
 cases of `Fixture` in `apple/Sources/PitboardApp/Fixture/Fixture.swift`.
 
+In a fixture, an account's window loads a stand-in page for its site, such as
+`pitboard-fixture://claude.ai`, and each sign-in host has a stand-in on the same scheme. Its
+data stays in memory, and a link it would hand to macOS is recorded instead, so nothing
+reaches either site. Run without a fixture, the debug build loads the real sites, into
+stores of its own under `~/Library/WebKit/com.usepitboard.Pitboard.debug`.
+
+The unit tests load no page. They cover what a window decides: its navigation policy, its
+stores, its menus and the account picker. The UI tests cover what its pages do, in a
+fixture: sign-in windows, Google's sign-in being stopped, downloads, Find, **Remove Website
+Data** and links shared to the **Open Link** window.
+
+The debug build claims `pitboard-debug://` rather than `pitboard://`, and its Share
+extension shows as **pitboard Debug**. So a debug build never answers a link or a share
+meant for an installed copy. A release build from `build-app.sh` claims `pitboard://` and
+shows as **pitboard**, like the installed copy. Building the app registers its scheme and
+its Share extension with macOS, and they stay registered until you unregister them. After
+building the app locally, from Xcode, with `xcodebuild` or with `build-app.sh`, unregister
+each copy it built, and leave the one in `/Applications` alone:
+
+```sh
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$lsregister" -dump | grep -E '^path:.*(Pitboard\.app|PitboardShare\.appex)'
+pluginkit -r <build>/Pitboard.app/Contents/PlugIns/PitboardShare.appex
+"$lsregister" -u <build>/Pitboard.app
+```
+
+The `-dump` line lists the copies macOS knows. `pluginkit -m | grep usepitboard` lists the
+Share extensions it still offers.
+
 `./apple/scripts/build-app.sh` builds the release bundle the way CI and a release do.
 
 CI checks the format of the Swift written by hand, leaving out the generated bindings:
 
 ```sh
 swift format lint --strict --recursive --configuration apple/.swift-format \
-  apple/Sources/PitboardApp apple/Sources/PitboardKit apple/App apple/UITests \
-  apple/Tests apple/scripts .github/scripts
+  apple/Sources/PitboardApp apple/Sources/PitboardKit apple/Sources/PitboardSites \
+  apple/App apple/ShareExtension apple/UITests apple/Tests apple/scripts .github/scripts
 ```
 
 ## Tool registers

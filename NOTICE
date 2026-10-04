@@ -6,5 +6,11 @@ OpenAI. "Claude" and "Claude Code" are trademarks of Anthropic PBC, and "OpenAI"
 "Codex" are trademarks of OpenAI, used here only to describe interoperability, under
 nominative fair use.
 
-pitboard never performs, intermediates, or automates sign-in to a Claude or an OpenAI
-account. Signing in always happens through the tool's own flow, run by you.
+pitboard never performs or automates sign-in to a Claude or an OpenAI account, and never
+makes a sign-in from a tool's login. Signing in to Claude Code or Codex happens through the
+tool's own flow, run by you.
+
+In the app's account windows, you sign in to claude.ai or chatgpt.com on the site's own
+pages. pitboard never reads, copies or changes the session that results. WebKit, the
+system's web engine, keeps it on your computer in that account's website data, under
+pitboard's bundle identifier, as a browser keeps its own.

@@ -17,6 +17,44 @@ Claude Code keeps its login in a plaintext `~/.claude/.credentials.json`, as rea
 
 pitboard's other files hold no token, though some hold your email address, account identifiers and project paths; see [Files and environment variables](/reference/files#the-pitboard-directory).
 
+## Where account windows keep their data
+
+Each [account's window](/guides/account-windows) keeps what its site stores in a WebKit store of its own: cookies, local storage and caches, its sign-in included. WebKit writes each store as ordinary files in `~/Library/WebKit/com.usepitboard.Pitboard/WebsiteDataStore/<id>`, as a browser keeps a site's cookies.
+
+The `<id>` is derived from the tool and the account's identifier, so a rename keeps the window signed in. A sign-in window that a page opens shares its account's store.
+
+pitboard's preferences list the stores each pitboard directory made, under `webStores`. pitboard keeps the address of each account window's last page on its site under `windowPages`, so the window opens there again. macOS keeps the open windows in `~/Library/Saved Application State/com.usepitboard.Pitboard.savedState`.
+
+pitboard never reads, copies or changes a window's cookies or anything a site stores in it. It adds no script or message handler to a page, and the window sends WebKit's own user agent. pitboard never makes a web sign-in from a Claude Code or Codex login.
+
+pitboard does three things to a store:
+
+- It makes the store the first time the account's window opens.
+- It wipes the store when you choose **File** > **Remove Website Data**, which signs that window out. The site is not told, so the account stays signed in on your other devices and browsers. Signing out on the site itself is different: it tells the site.
+- It deletes the store when you forget the account, in the app or with `pitboard forget`. The app does this after its next successful read of the accounts. A store WebKit still holds is tried again a few times, then at the following read.
+
+The app deletes only the stores it recorded making for the pitboard directory it reads. A copy run with another `HOME` or `PITBOARD_HOME` leaves the other windows signed in. A store another pitboard directory also recorded is kept while that directory exists, and the app removes only its own record of it.
+
+## Links shared from a browser
+
+When you share a page with **pitboard** from a browser's Share menu, the Share extension reads the one web address the browser hands it. It checks that the address is a claude.ai or chatgpt.com page, then hands it to the app as a `pitboard://open?url=` link. The extension is sandboxed, with no network access, no file access and no folder shared with the app, and keeps nothing.
+
+Anything on your Mac can open a `pitboard://` link, so the app checks the link again. It then shows the **Open Link** window and opens nothing until you choose an account. A link that opened a window by itself could load a page of someone else's choosing in a signed-in window.
+
+The app opens only claude.ai and chatgpt.com links, and takes `chat.openai.com`, `www.chatgpt.com` and `chat.com` links as chatgpt.com's.
+
+The app refuses the sites' sign-in links, such as claude.ai's `/magic-link` and chatgpt.com's `/api/auth`. One would sign the window in as whoever the link belongs to. See [Open a page from your browser](/guides/account-windows#open-a-page-from-your-browser).
+
+## Anthropic's terms
+
+Anthropic's [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) page for Claude Code says this about signing in and using logins, as read on 4 October 2026:
+
+> Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, or Max plan credentials on behalf of their users. Moreover, developers may not collect, store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must complete through Anthropic's own flow.
+
+A claude.ai window signs in on claude.ai's own pages, and pitboard never reads or copies what the sign-in leaves. WebKit still keeps the sign-in's cookies in the account's store, under pitboard's bundle identifier. Whether Anthropic counts this under the clause is not known.
+
+pitboard's maintainer ships the claude.ai window knowing this. pitboard makes nothing for a claude.ai window until you open one.
+
 ## What leaves your machine
 
 pitboard makes only these requests. It has no server of its own and no telemetry.
@@ -28,11 +66,12 @@ pitboard makes only these requests. It has no server of its own and no telemetry
 | `platform.claude.com/v1/oauth/token` | A refresh token and the login's client id, or Claude Code's if it has none | Renewing a Claude Code parked login |
 | `chatgpt.com/backend-api/wham/usage` | An access token and the ChatGPT account id | What a Codex account has left, and whether OpenAI still accepts a login pitboard is about to switch to. It counts against no limit. |
 | `auth.openai.com/oauth/token` | A refresh token and Codex's public client id | Renewing a Codex parked login |
+| `claude.ai` or `chatgpt.com`, their sign-in pages and anything their pages load | What the site keeps in that window, as a browser sends it | An account's window you open. WebKit makes these requests, as it does in a browser. |
 | `github.com/datlechin/pitboard/releases` | Nothing of yours | The app's update check (`appcast.xml`) and update downloads, only in a copy of the app from a release. It checks once a day while **Check for updates automatically** is on, and when you choose **Check for Updates** or click **Check Now**. The command line never checks. |
 
 pitboard never renews a login a tool is using. Each renewal is the request the tool itself makes to renew its own login. Until you enrol a Codex account, pitboard sends OpenAI nothing.
 
-Every request verifies TLS against your system's trust store. Requests to Anthropic and OpenAI time out after 5 seconds.
+Every request verifies TLS against your system's trust store. pitboard's own requests to Anthropic and OpenAI time out after 5 seconds.
 
 ## Large logins on macOS
 
@@ -55,6 +94,9 @@ The command line reads the variable from your shell. The app reads it from its o
 - pitboard records a parked login's name before storing it and retries a failed delete, so no copy goes untracked.
 - A locked keychain is reported as unreadable, never as empty.
 - pitboard keeps no copy of a login in use.
+- An account's window goes only to its site and the site's sign-in pages. A link to any other web page opens in your browser. Google's sign-in is stopped rather than sent to your browser, where it would sign in the browser instead of the window.
+- An account's window saves a download at once only when the site's own page starts it. Any other, such as one an artifact starts, asks you first.
+- WebKit quarantines every download from an account's window, so Gatekeeper checks it as it checks a browser's.
 - pitboard refuses to keep its files in a synced folder, because a parked login belongs to one machine.
 - Every release is attested; see [Verify a download](/install/verify).
 - The app installs an update signed with the key it carries. A copy signed with a Developer ID also installs one whose app is signed by the same Developer ID team. The release workflow refuses a changed key unless the repository declares a rotation.
@@ -65,7 +107,8 @@ Deleting a parked login does not revoke it, and pitboard revokes no login. Its r
 
 ## What pitboard does not protect against
 
-- Another process running as you.
+- Another process running as you, which can read each account window's data as it can a browser's.
+- The site's own pages, claude.ai's or chatgpt.com's, which run in WebKit as they would in a browser.
 - Another user with administrator access to your computer.
 - A compromised Claude Code or Codex, or a compromised library that pitboard uses. CI checks pitboard's Rust libraries against known advisories, and a weekly job checks Sparkle, the app's update framework, only for a newer release. Each release lists all of them in a bill of materials.
 - Signing out in anything that ran Codex before a switch, such as `/logout` in a `codex` session or **Log Out** in the ChatGPT app, which revokes the login pitboard has parked; see [Switch accounts](/guides/switch#what-happens-to-open-sessions).

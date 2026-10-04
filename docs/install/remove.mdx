@@ -47,6 +47,14 @@ On macOS, pitboard leaves any parked login that `pitboard repair` found in the k
 
 If `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set in your environment or in Claude Code's settings, `pitboard uninstall` refuses to run. Unset it, then run `pitboard uninstall` again.
 
+## Remove the account windows' data
+
+Each [account's window](/guides/account-windows) keeps its site's cookies and storage, its claude.ai or chatgpt.com sign-in included. They are in `~/Library/WebKit/com.usepitboard.Pitboard`, and `pitboard uninstall` does not delete them.
+
+To sign one window out and keep the app, bring that account's window to the front. Choose **File** > **Remove Website Data**, then click **Remove**. The site is not told, so the account stays signed in on your other devices and browsers.
+
+To delete every window's data, remove the app's files in `~/Library` as [Remove pitboard itself](/install/remove#remove-pitboard-itself) describes.
+
 ## Remove pitboard itself
 
 | Installed with | To remove it |
@@ -57,11 +65,13 @@ If `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set in your environment or in Claude Code's
 | A release tarball | Delete `pitboard` and any man page or completion files you copied from it. |
 | The app from a release download | Quit the app, then move `Pitboard.app` to the Trash. |
 
-Adding `--zap` to either `brew uninstall` removes the daily renewal schedule, if `pitboard uninstall` left it. For `pitboard-app`, `--zap` also removes the app's files in `~/Library`. Neither cask's `--zap` deletes `~/.pitboard`.
+Adding `--zap` to either `brew uninstall` removes the daily renewal schedule, if `pitboard uninstall` left it. Neither cask's `--zap` deletes `~/.pitboard`.
+
+For `pitboard-app`, `--zap` also removes the app's files in `~/Library`. They include each account window's data, the open windows macOS saved and the folders macOS made for the Share extension.
 
 If you installed the app with the `pitboard` cask of 0.3.0 or earlier, leave out `--zap`. For the reason, see [Upgrade from 0.3.0 or earlier](/install/upgrade-from-0-3-0#from-the-old-app-cask).
 
-Moving the app to the Trash leaves its files in `~/Library`. To remove them, move each `com.usepitboard.Pitboard` item that [Files and environment variables](/reference/files#the-app) lists to the Trash.
+Moving the app to the Trash leaves its files in `~/Library`, the account windows' data in `~/Library/WebKit/com.usepitboard.Pitboard` included. To remove them, move each `com.usepitboard.Pitboard` item that [Files and environment variables](/reference/files#the-app) lists to the Trash.
 
 If you clicked **Install Command Line Tool** in **Settings** > **Command Line**, remove the link it made, because nothing else does:
 

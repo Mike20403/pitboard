@@ -164,6 +164,8 @@ Usage: pitboard forget [OPTIONS] <LABEL>
 
 `pitboard forget` drops an account from pitboard's list. It deletes the account's parked login, its last usage reading and its usage history. Deleting a parked login does not revoke it; see [Security and privacy](/security#what-pitboard-protects-against).
 
+The menu bar app then deletes the account's [window](/reference/app#account-windows) data, sign-in included, at its next successful read of the accounts.
+
 `forget` refuses the account in use, and its message says to switch to another account first. It reads which account is in use from the tool's own files, so it needs no network.
 
 | Argument | Description |

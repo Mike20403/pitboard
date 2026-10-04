@@ -111,6 +111,63 @@ The pitboard you ran is older than another using the same files. Update it: see 
 
 pitboard refuses to keep its files, `~/.pitboard` or `PITBOARD_HOME`, in a folder that syncs to other machines, such as Dropbox or iCloud Drive. Parked logins belong to one machine. Set `PITBOARD_HOME` to a local folder. For the names pitboard refuses, see [Files and environment variables](/reference/files#the-pitboard-directory).
 
+## Account windows
+
+These problems happen in an [account's window](/guides/account-windows), the claude.ai or chatgpt.com window the app opens for an account.
+
+### Google's sign-in is refused
+
+Google does not allow its sign-in pages inside apps, so the window stops them and says so. It does not send them to your browser, where they would sign in your browser instead.
+
+Sign in with the account's email address, as the note at the top of the window says. For the steps on each site, see [Sign in](/guides/account-windows#sign-in).
+
+For the same reason, Gmail, Google Drive and Google Calendar cannot be connected in the window. claude.ai's Google single sign-on does not work there either.
+
+### A passkey does not work
+
+Passkeys do not work in an account's window. macOS gives passkeys to a web page only in an app it lets act as a browser, and pitboard is not one. On chatgpt.com, sign in with the password or the code chatgpt.com emails you.
+
+### pitboard is missing from the Share menu
+
+In Safari, the Share menu is the toolbar's **Share** button or **File** > **Share**. In Chrome and Firefox, it is **File** > **Share**. If **pitboard** is not listed there, turn it on in System Settings:
+
+- macOS 15 and later: **System Settings** > **General** > **Login Items & Extensions** > **Sharing**.
+- macOS 14: **System Settings** > **Privacy & Security** > **Extensions** > **Sharing**.
+
+Whether other browsers list pitboard is not known. If your browser has no Share menu, open the account's window and go to the page there.
+
+### An account's window does not load its page
+
+When a page does not load, the window shows **Couldn't Load the Page** with the reason, such as a lost connection. Fix what the reason names, then click **Try Again**.
+
+A page that stops working is loaded again. If it stops again within 60 seconds, the window shows **Couldn't Load the Page** and **The page stopped working.**
+
+The window sends WebKit's own user agent. Whether the sites' checks for automated traffic ever stop it is not known.
+
+### Downloads are not saved
+
+An account's window saves downloads in your Downloads folder. The first time, macOS may ask whether pitboard can use that folder. If you clicked **Don't Allow**, open **System Settings** > **Privacy & Security** > **Files & Folders** and turn on **Downloads Folder** for pitboard.
+
+A download that fails shows why in the window's **Downloads** list, which the toolbar's **Downloads** button opens.
+
+### An account's window is signed in as the wrong account
+
+pitboard cannot see which account a window is signed in to, because it never reads what the window keeps. The window's title is the label of the account it belongs to, whoever signed in. To start again:
+
+<Steps>
+  <Step title="Remove the window's data">
+    With the window in front, choose **File** > **Remove Website Data**.
+  </Step>
+  <Step title="Confirm">
+    Click **Remove**. The window signs out and starts again at the site's home, with a note that names the email address to sign in as.
+  </Step>
+  <Step title="Sign in">
+    Sign in as that email address. See [Sign in](/guides/account-windows#sign-in).
+  </Step>
+</Steps>
+
+Removing the data does not tell the site, so neither account is signed out anywhere else.
+
 ## Report a problem
 
 Open a [GitHub issue](https://github.com/datlechin/pitboard/issues/new/choose) with:
