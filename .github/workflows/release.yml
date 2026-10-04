@@ -151,7 +151,7 @@ jobs:
         env:
           SIGN_IDENTITY: ${{ steps.apple.outputs.identity }}
           SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
-        run: ./apple/scripts/build-app.sh
+        run: ./apps/macos/scripts/build-app.sh
 
       # An installed copy checks the archive against the public key in the bundle it came
       # from, and takes an update whose key has changed only through the other route, which
@@ -168,7 +168,7 @@ jobs:
           VERSION: ${{ needs.guard.outputs.version }}
           ROTATION: ${{ vars.SPARKLE_KEY_ROTATION }}
         run: |
-          plist=apple/build/Pitboard.app/Contents/Info.plist
+          plist=apps/macos/build/Pitboard.app/Contents/Info.plist
           now=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$plist" 2>/dev/null || true)
           if [ -z "$now" ]; then
             echo "the app carries no update key: SPARKLE_PUBLIC_KEY is not set" >&2
@@ -215,12 +215,12 @@ jobs:
           ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           echo "$KEY" | base64 --decode > "$RUNNER_TEMP/key.p8"
-          ditto -c -k --keepParent apple/build/Pitboard.app "$RUNNER_TEMP/notarise.zip"
+          ditto -c -k --keepParent apps/macos/build/Pitboard.app "$RUNNER_TEMP/notarise.zip"
           xcrun notarytool submit "$RUNNER_TEMP/notarise.zip" \
             --key "$RUNNER_TEMP/key.p8" --key-id "$KEY_ID" --issuer "$ISSUER" --wait
           rm -f "$RUNNER_TEMP/key.p8"
           # Stapled, so the app opens on a machine that cannot reach Apple.
-          xcrun stapler staple apple/build/Pitboard.app
+          xcrun stapler staple apps/macos/build/Pitboard.app
 
       # No `if` on the appcast. Every copy already installed reads the newest release's feed,
       # so a release that skips it strands them, and a missing key has to be a red job
@@ -236,14 +236,14 @@ jobs:
           fi
           out=$RUNNER_TEMP/dist
           mkdir -p "$out"
-          ditto -c -k --keepParent apple/build/Pitboard.app \
+          ditto -c -k --keepParent apps/macos/build/Pitboard.app \
             "$out/Pitboard-${GITHUB_REF_NAME}-macos.zip"
           if [ "$PRERELEASE" = "true" ]; then
             echo "a pre-release publishes no feed, so no installed copy updates into it"
             exit 0
           fi
           printf '%s' "$SPARKLE_PRIVATE_KEY" | \
-            apple/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast \
+            apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast \
               --ed-key-file - \
               --download-url-prefix \
                 "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/" \
@@ -335,7 +335,7 @@ jobs:
             "$RUNNER_TEMP/dist/pitboard-${GITHUB_REF_NAME}-aarch64-apple-darwin.tar.gz.cdx.json"
           python3 .github/scripts/sbom-add-sparkle.py \
             "$RUNNER_TEMP/dist/Pitboard-${GITHUB_REF_NAME}-macos.zip.cdx.json" \
-            apple/Pitboard.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+            apps/macos/Pitboard.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
       # crates.io gives this job a token of its own, made from GitHub's word about which
       # workflow in which repository is running, and revokes it when the job ends. There is

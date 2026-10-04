@@ -77,8 +77,8 @@ To build the app, you need Xcode and Rust. In a clone of [Pitboard's repository]
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-./apple/scripts/build-app.sh
-cp -R apple/build/Pitboard.app /Applications/
+./apps/macos/scripts/build-app.sh
+cp -R apps/macos/build/Pitboard.app /Applications/
 ```
 
 An app you build does not update itself, because it carries no update key. For working on the app and running its tests, see [CONTRIBUTING.md](https://github.com/datlechin/pitboard/blob/main/CONTRIBUTING.md#the-app).

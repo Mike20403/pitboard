@@ -35,7 +35,7 @@ Checking a change uses these tools as well:
   `x86_64-unknown-linux-gnu` target for that.
 
 To work on the app, you need a Mac with Xcode, and its Swift must be 6.2 or later, as
-`apple/Package.swift` asks. Rust needs both Mac targets, as [The app](#the-app) shows.
+`apps/macos/Package.swift` asks. Rust needs both Mac targets, as [The app](#the-app) shows.
 
 ## Rules
 
@@ -96,7 +96,7 @@ CI also runs:
 
 - clippy and the tests on both macOS and Linux
 - `cargo check --workspace --all-targets --locked` on Rust 1.91
-- the app job: `swift format lint --strict`, `./apple/scripts/build-app.sh`, a check that
+- the app job: `swift format lint --strict`, `./apps/macos/scripts/build-app.sh`, a check that
   the command line inside the app runs and holds both architectures, `swift test` and the
   UI tests
 - `cargo semver-checks --package pitboard-core`, which reports and does not block
@@ -104,21 +104,21 @@ CI also runs:
 
 ## The app
 
-The Swift package in `apple/` links the core as `apple/PitboardFFI.xcframework`, with
-bindings generated into `apple/Sources/PitboardBindings`. Neither is committed. Build them
+The Swift package in `apps/macos/` links the core as `apps/macos/PitboardFFI.xcframework`, with
+bindings generated into `apps/macos/Sources/PitboardBindings`. Neither is committed. Build them
 before you open the project the first time, and again whenever the core changes. They are
 built for both kinds of Mac, so Rust needs both targets:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-./apple/scripts/build-xcframework.sh
-open apple/Pitboard.xcodeproj
+./apps/macos/scripts/build-xcframework.sh
+open apps/macos/Pitboard.xcodeproj
 ```
 
 Everything the app does is in the package, and its tests run without starting the app:
 
 ```sh
-swift test --package-path apple
+swift test --package-path apps/macos
 ```
 
 The UI tests start the debug build, each in a fixture. A fixture is a machine in a known
@@ -126,7 +126,7 @@ state, where nothing reaches the keychain, the network or your accounts. Run the
 from Xcode with **Product** > **Test**, or with:
 
 ```sh
-xcodebuild test -project apple/Pitboard.xcodeproj -scheme Pitboard -destination 'platform=macOS'
+xcodebuild test -project apps/macos/Pitboard.xcodeproj -scheme Pitboard -destination 'platform=macOS'
 ```
 
 macOS asks for a password before a UI test can drive the app, unless the Mac allows
@@ -137,7 +137,7 @@ The debug build's bundle identifier is `com.usepitboard.Pitboard.debug`, so it n
 preferences, a login item or notification permission with a copy you have installed. Run
 from Xcode, it reads this Mac's accounts, as that copy does. To run it in a fixture instead,
 add `PITBOARD_FIXTURE=twoTools` to the scheme's environment variables. The fixtures are the
-cases of `Fixture` in `apple/Sources/PitboardApp/Fixture/Fixture.swift`.
+cases of `Fixture` in `apps/macos/Sources/PitboardApp/Fixture/Fixture.swift`.
 
 In a fixture, an account's window loads a stand-in page for its site, such as
 `pitboard-fixture://claude.ai`, and each sign-in host has a stand-in on the same scheme. Its
@@ -168,14 +168,14 @@ pluginkit -r <build>/Pitboard.app/Contents/PlugIns/PitboardShare.appex
 The `-dump` line lists the copies macOS knows. `pluginkit -m | grep usepitboard` lists the
 Share extensions it still offers.
 
-`./apple/scripts/build-app.sh` builds the release bundle the way CI and a release do.
+`./apps/macos/scripts/build-app.sh` builds the release bundle the way CI and a release do.
 
 CI checks the format of the Swift written by hand, leaving out the generated bindings:
 
 ```sh
-swift format lint --strict --recursive --configuration apple/.swift-format \
-  apple/Sources/PitboardApp apple/Sources/PitboardKit apple/Sources/PitboardSites \
-  apple/App apple/ShareExtension apple/UITests apple/Tests apple/scripts .github/scripts
+swift format lint --strict --recursive --configuration apps/macos/.swift-format \
+  apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites \
+  apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts .github/scripts
 ```
 
 ## Tool registers

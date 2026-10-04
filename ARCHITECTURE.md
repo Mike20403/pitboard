@@ -69,7 +69,8 @@ pages load, as a browser would.
 - `crates/uniffi-bindgen-swift`: generates the Swift bindings with exactly the UniFFI
   version the library uses. The bindings check method checksums when they load.
 - `crates/pitboard-conformance`: checks a tool's register against a build of that tool.
-- `apple/`: the menu bar app. The Swift package holds it as libraries its tests load
+- `apps/`: the native apps, one directory for each system.
+- `apps/macos/`: the menu bar app. The Swift package holds it as libraries its tests load
   without starting it. `PitboardKit` calls the bindings off the main thread,
   `PitboardSites` is what the app and its Share extension both know about the sites, and
   `PitboardApp` is everything the app does. The account windows are mapped under
@@ -243,7 +244,7 @@ Code or Codex login. The facts this rests on are under
 
 ### Where the code is
 
-- `apple/Sources/PitboardSites`: what a site is, and what a link from outside may be.
+- `apps/macos/Sources/PitboardSites`: what a site is, and what a link from outside may be.
   Foundation only, so the Share extension links it and nothing else of the app's.
   - `Site.swift` declares each site as values: its host, its tool and the hosts that
     redirect to it. The hosts its sign-in goes to, the hosts it blocks, its sign-in paths,
@@ -254,7 +255,7 @@ Code or Codex login. The facts this rests on are under
     is refused.
   - `Handoff.swift` writes and reads the Pitboard link, `<scheme>://open?url=<link>`, and
     names the Info.plist key `PitboardURLScheme` that gives each build its scheme.
-- `apple/Sources/PitboardApp/AccountWindows`: the windows.
+- `apps/macos/Sources/PitboardApp/AccountWindows`: the windows.
   - `WindowAccount.swift` lists the accounts that have a window and derives each one's
     store. The menus' entries and the forget alert's text come from it too.
   - `NavigationPolicy.swift` decides where each navigation, new window, response and
@@ -280,21 +281,21 @@ Code or Codex login. The facts this rests on are under
     stand-ins.
   - `LinkInbox.swift` holds the link the Share extension handed over, and
     `AccountPicker.swift` is the **Open Link** window that asks which account opens it.
-- `apple/Sources/PitboardApp/System/WebsiteData.swift`: WebKit's persistent stores, behind
+- `apps/macos/Sources/PitboardApp/System/WebsiteData.swift`: WebKit's persistent stores, behind
   the `WebsiteDataStores` protocol. Beside them, two records kept in the app's preferences
   under each Pitboard directory's path: `StoreRecord`, the stores the directory made, under
   `webStores`, and `PageRecord`, the page each account's window was last on, under
   `windowPages`, by store.
-- `apple/Sources/PitboardApp/App`: `AppDelegate.swift` owns the app's models and answers
+- `apps/macos/Sources/PitboardApp/App`: `AppDelegate.swift` owns the app's models and answers
   what only a delegate can: the Dock icon's menu, a click on the Dock icon, and quitting
   while a download runs. `AppPresence.swift` gives the app a Dock icon and its menus while
   any of its windows is open. `RefreshCommand.swift` is **View** > **Refresh**, whose
   title and action the window in front gives. `PitboardScenes.swift` adds the account
   windows' scene and the **Open Link** window, the one scene that takes a Pitboard link.
-- `apple/Sources/PitboardApp/Fixture/FixtureWeb.swift`: a fixture's stand-in pages for each
+- `apps/macos/Sources/PitboardApp/Fixture/FixtureWeb.swift`: a fixture's stand-in pages for each
   site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
   anywhere else recorded and opened nowhere.
-- `apple/ShareExtension`: the `PitboardShare` target. It checks the shared page with
+- `apps/macos/ShareExtension`: the `PitboardShare` target. It checks the shared page with
   `SiteLink`, then opens a Pitboard link with the app it is inside, not whichever copy
   Launch Services would pick.
 

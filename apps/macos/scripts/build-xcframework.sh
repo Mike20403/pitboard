@@ -1,12 +1,12 @@
 #!/bin/sh
 # Builds Pitboard's core as PitboardFFI.xcframework, universal, with its generated Swift
-# bindings, for apple/PitboardKit. Outputs are build products and are not committed.
+# bindings, for apps/macos/PitboardKit. Outputs are build products and are not committed.
 set -eu
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 export MACOSX_DEPLOYMENT_TARGET=14.0
-out=apple/build
-package=apple
+out=apps/macos/build
+package=apps/macos
 generated=$package/Sources/PitboardBindings
 rm -rf "$out"
 mkdir -p "$out/bindings" "$out/headers" "$generated"

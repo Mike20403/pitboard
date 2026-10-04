@@ -48,8 +48,8 @@ cargo deny check
 For the app, build the core's bindings once, then run its unit tests:
 
 ```sh
-./apple/scripts/build-xcframework.sh
-swift test --package-path apple
+./apps/macos/scripts/build-xcframework.sh
+swift test --package-path apps/macos
 ```
 
 CI sets `RUSTFLAGS=-D warnings`. [Check a change](CONTRIBUTING.md#check-a-change) lists

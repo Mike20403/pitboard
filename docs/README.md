@@ -37,7 +37,7 @@ mint a11y
   `troubleshooting` and `security` sit at the top.
 - Images go in `images/` and are referenced as `/images/name.png`.
 - The site icon, `favicon.svg`, is a hand-written copy of the icon
-  `apple/scripts/make-icon.swift` draws. Nothing regenerates it, so change both together.
+  `apps/macos/scripts/make-icon.swift` draws. Nothing regenerates it, so change both together.
 - `.mintignore` lists the files Mintlify must not publish, such as `AGENTS.md`.
 
 A page that moves needs a redirect in `docs.json`, so links from outside the site keep
