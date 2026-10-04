@@ -567,6 +567,13 @@ one, measure it again.
   inactive, behind the terminal, so the **Open Link** window brings pitboard forward when a
   link arrives. `AppPresence.comeForward` records that a link from the Share extension at a
   launch left pitboard in the background too. A link opened from a browser was not measured.
+- In CI, on macOS 26.6.2, the running app's **Open Link** window took each link too.
+  `XCUIApplication.open(_:)` sent them, and it launched a second copy of the app rather
+  than handing the link to the one running: the picker opened in one copy and the pitboard
+  window in the one the test watched. The copy left running kept its menu bar item, and
+  with a few of those a later test's own item sat under the menus, out of reach. So the
+  UI tests share a link through `XCUIDevice.shared.system.open(_:)`, which opens it with
+  Launch Services, as the Share extension does, and so reaches the copy running.
 - A window's root view gets `onAppear` when its window opens and `onDisappear` when it
   closes, not when it is minimised or becomes a background tab. `AppPresence` counts open
   windows by them. `openWindow(id:value:)` with the value of an open window brings that
