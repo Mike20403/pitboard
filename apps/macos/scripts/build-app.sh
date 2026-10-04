@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds Pitboard.app, universal, from Pitboard.xcodeproj and the core's XCFramework, with
-# the command line inside it. This is the one way the app is built: here, in CI and in a
+# Builds Pitboard.app, universal, from the Xcode project XcodeGen generates out of
+# project.yml and the core's XCFramework, with the command line inside it. This is the one way the app is built: here, in CI and in a
 # release.
 #
 # Signing: set SIGN_IDENTITY to a Developer ID Application identity to make a build others
@@ -11,7 +11,7 @@
 # updater, which is what a build from a clone wants.
 set -eu
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../../.."
 export MACOSX_DEPLOYMENT_TARGET=14.0
 version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 [ -n "$version" ] || { echo "no version in Cargo.toml" >&2; exit 1; }
@@ -19,28 +19,35 @@ identity=${SIGN_IDENTITY:--}
 # GitHub serves the newest release's assets at a fixed address, so the feed has one even
 # before the site does.
 FEED=https://github.com/datlechin/pitboard/releases/latest/download/appcast.xml
-app=apple/build/Pitboard.app
+app=apps/macos/build/Pitboard.app
 # Sparkle decides what is newer by CFBundleVersion, so it counts up with the version
 # rather than staying at whatever the project says.
 rest=${version#*.}
 build=$((${version%%.*} * 10000 + ${rest%%.*} * 100 + ${rest#*.}))
 
-# This clears apple/build and makes it again, so nothing from a previous build survives.
-./apple/scripts/build-xcframework.sh
+# This clears apps/macos/build and makes it again, so nothing from a previous build survives.
+./apps/macos/scripts/build-xcframework.sh
+
+# The project is generated, never edited, so the one built is the one project.yml says.
+command -v xcodegen >/dev/null || {
+    echo "XcodeGen generates the Xcode project: install it with \`brew install xcodegen\`" >&2
+    exit 1
+}
+xcodegen generate --spec apps/macos/project.yml --quiet
 
 # Unsigned, because the bundle is not finished: the command line, the icon and the man
 # pages go in after this, and a signature covers what is inside it. Sparkle is the version
-# Package.resolved pins or the build stops, since the app's bill of materials reads it from
-# there. Packages are cloned under apple/build, where the release finds Sparkle's tools.
-xcodebuild -project apple/Pitboard.xcodeproj -scheme Pitboard -configuration Release \
+# and revision the committed Package.resolved pins or the build stops, since the app's bill
+# of materials reads it from there. Packages are cloned under apps/macos/build, where the release finds Sparkle's tools.
+xcodebuild -project apps/macos/Pitboard.xcodeproj -scheme Pitboard -configuration Release \
     -destination 'generic/platform=macOS' \
-    -derivedDataPath apple/build/DerivedData \
-    -clonedSourcePackagesDirPath apple/build/SourcePackages \
+    -derivedDataPath apps/macos/build/DerivedData \
+    -clonedSourcePackagesDirPath apps/macos/build/SourcePackages \
     -onlyUsePackageVersionsFromResolvedFile -quiet \
     ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
     MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" \
     CODE_SIGNING_ALLOWED=NO build
-ditto apple/build/DerivedData/Build/Products/Release/Pitboard.app "$app"
+ditto apps/macos/build/DerivedData/Build/Products/Release/Pitboard.app "$app"
 [ -d "$app/Contents/Frameworks/Sparkle.framework" ] || {
     echo "Xcode did not embed Sparkle.framework" >&2
     exit 1
@@ -71,7 +78,7 @@ done
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
     cargo build --locked --release -p pitboard --target "$target"
 done
-cli=apple/build/cli-universal
+cli=apps/macos/build/cli-universal
 lipo -create target/aarch64-apple-darwin/release/pitboard \
     target/x86_64-apple-darwin/release/pitboard -output "$cli"
 # Helpers, which is where a bundle keeps a tool that is not its main program. In MacOS it
@@ -80,9 +87,9 @@ mkdir -p "$app/Contents/Helpers"
 cp "$cli" "$app/Contents/Helpers/pitboard"
 
 mkdir -p "$app/Contents/Resources"
-swift apple/scripts/make-icon.swift apple/build
+swift apps/macos/scripts/make-icon.swift apps/macos/build
 iconutil --convert icns --output "$app/Contents/Resources/AppIcon.icns" \
-    apple/build/AppIcon.iconset
+    apps/macos/build/AppIcon.iconset
 # The Share menu shows the extension's own icon, which is the app's.
 mkdir -p "$appex/Contents/Resources"
 cp "$app/Contents/Resources/AppIcon.icns" "$appex/Contents/Resources/AppIcon.icns"
@@ -134,7 +141,7 @@ codesign --force $options --sign "$identity" "$app/Contents/Frameworks/Sparkle.f
 # escaped, which plutil otherwise reads as a path of four keys.
 # shellcheck disable=SC2086 # $options is a list of flags.
 codesign --force $options --sign "$identity" \
-    --entitlements apple/ShareExtension/PitboardShare.entitlements "$appex"
+    --entitlements apps/macos/ShareExtension/PitboardShare.entitlements "$appex"
 sandboxed=$(codesign -d --entitlements - --xml "$appex" 2>/dev/null |
     plutil -extract 'com\.apple\.security\.app-sandbox' raw - 2>/dev/null || true)
 [ "$sandboxed" = true ] || {

@@ -23,7 +23,7 @@ no section in [CHANGELOG.md](CHANGELOG.md).
 5. Commit the three files to `main` as `Release <version>`. Both tags in the next section
    go on this commit.
 
-Nothing in the Xcode project changes. `apple/scripts/build-app.sh` takes the app's version
+Nothing in the Xcode project changes. `apps/macos/scripts/build-app.sh` takes the app's version
 and build number from `Cargo.toml`.
 
 ## Make a release
@@ -92,7 +92,7 @@ whole. The attestation also names the workflow and commit that made it.
 | `APPLE_API_KEY_P8` | An App Store Connect team key with the Developer role, `base64` |
 | `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | Shown beside that key |
 | `APPLE_ID` | Only needed if notarisation goes back to an app-specific password |
-| `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` | `apple/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account pitboard` once, after `./apple/scripts/build-app.sh` has fetched Sparkle there, then the same with `-x <file>`, which writes the private key to that file. The secret is that file's contents. Delete the file afterwards |
+| `SPARKLE_PUBLIC_KEY`, `SPARKLE_PRIVATE_KEY` | `apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account pitboard` once, after `./apps/macos/scripts/build-app.sh` has fetched Sparkle there, then the same with `-x <file>`, which writes the private key to that file. The secret is that file's contents. Delete the file afterwards |
 | `HOMEBREW_TAP_TOKEN` | In the `homebrew-tap` environment. A fine-grained personal access token, with `datlechin/homebrew-tap` as its only repository, Contents read and write as its only permission beyond the Metadata read access GitHub requires, and an expiry the maintainer will notice |
 
 Without the Apple secrets, the command line and the app are signed ad hoc and not

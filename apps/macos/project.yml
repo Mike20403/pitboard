@@ -1,0 +1,206 @@
+# The Xcode project, as XcodeGen generates it: `xcodegen generate` in this directory writes
+# Pitboard.xcodeproj, which is not committed apart from the package pins in its
+# Package.resolved. Everything the app does is in the Swift
+# package beside this file; the project only puts it together as an app, with Sparkle, the
+# Share extension and the UI tests.
+name: Pitboard
+
+options:
+  minimumXcodeGenVersion: 2.46.0
+  settingPresets: none
+  xcodeVersion: "27.1"
+  projectFormat: xcode16_0
+  deploymentTarget:
+    macOS: "14.0"
+  developmentLanguage: en
+  useBaseInternationalization: true
+  defaultSourceDirectoryType: syncedFolder
+  localPackagesGroup: ""
+
+settings:
+  # Written out rather than left to XcodeGen's presets, which are older than the template
+  # Xcode 27.1 made this project from: these are that template's settings.
+  base:
+    ALWAYS_SEARCH_USER_PATHS: NO
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+    CLANG_ANALYZER_NONNULL: YES
+    CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION: YES_AGGRESSIVE
+    CLANG_CXX_LANGUAGE_STANDARD: gnu++20
+    CLANG_ENABLE_MODULES: YES
+    CLANG_ENABLE_OBJC_ARC: YES
+    CLANG_ENABLE_OBJC_WEAK: YES
+    CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING: YES
+    CLANG_WARN_BOOL_CONVERSION: YES
+    CLANG_WARN_COMMA: YES
+    CLANG_WARN_CONSTANT_CONVERSION: YES
+    CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS: YES
+    CLANG_WARN_DIRECT_OBJC_ISA_USAGE: YES_ERROR
+    CLANG_WARN_DOCUMENTATION_COMMENTS: YES
+    CLANG_WARN_EMPTY_BODY: YES
+    CLANG_WARN_ENUM_CONVERSION: YES
+    CLANG_WARN_INFINITE_RECURSION: YES
+    CLANG_WARN_INT_CONVERSION: YES
+    CLANG_WARN_NON_LITERAL_NULL_CONVERSION: YES
+    CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF: YES
+    CLANG_WARN_OBJC_LITERAL_CONVERSION: YES
+    CLANG_WARN_OBJC_ROOT_CLASS: YES_ERROR
+    CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: YES
+    CLANG_WARN_RANGE_LOOP_ANALYSIS: YES
+    CLANG_WARN_STRICT_PROTOTYPES: YES
+    CLANG_WARN_SUSPICIOUS_MOVE: YES
+    CLANG_WARN_UNGUARDED_AVAILABILITY: YES_AGGRESSIVE
+    CLANG_WARN_UNREACHABLE_CODE: YES
+    CLANG_WARN__DUPLICATE_METHOD_MATCH: YES
+    COPY_PHASE_STRIP: NO
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_STRICT_OBJC_MSGSEND: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GCC_C_LANGUAGE_STANDARD: gnu17
+    GCC_NO_COMMON_BLOCKS: YES
+    GCC_WARN_64_TO_32_BIT_CONVERSION: YES
+    GCC_WARN_ABOUT_RETURN_TYPE: YES_ERROR
+    GCC_WARN_UNDECLARED_SELECTOR: YES
+    GCC_WARN_UNINITIALIZED_AUTOS: YES_AGGRESSIVE
+    GCC_WARN_UNUSED_FUNCTION: YES
+    GCC_WARN_UNUSED_VARIABLE: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MTL_FAST_MATH: YES
+    SDKROOT: macosx
+  configs:
+    # A debug build answers its own scheme and has a Share menu entry of its own, so a
+    # link or a share never reaches it in place of the release, or the release in its place.
+    Debug:
+      DEBUG_INFORMATION_FORMAT: dwarf
+      ENABLE_TESTABILITY: YES
+      GCC_DYNAMIC_NO_PIC: NO
+      GCC_OPTIMIZATION_LEVEL: 0
+      GCC_PREPROCESSOR_DEFINITIONS: ["DEBUG=1", "$(inherited)"]
+      MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+      ONLY_ACTIVE_ARCH: YES
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG $(inherited)"
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+      PITBOARD_SHARE_NAME: Pitboard Debug
+      PITBOARD_URL_SCHEME: pitboard-debug
+    Release:
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+      ENABLE_NS_ASSERTIONS: NO
+      MTL_ENABLE_DEBUG_INFO: NO
+      SWIFT_COMPILATION_MODE: wholemodule
+      PITBOARD_SHARE_NAME: Pitboard
+      PITBOARD_URL_SCHEME: pitboard
+
+packages:
+  Pitboard:
+    path: .
+  # Pinned to one release, and to its revision by Package.resolved, which the build checks.
+  # `.github/workflows/sparkle.yml` compares it with Sparkle's newest so a new one is
+  # noticed.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
+
+settingGroups:
+  # Signed ad hoc here; a release is signed with the Developer ID by `scripts/build-app.sh`.
+  signing:
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+  version:
+    # `scripts/build-app.sh` writes the release's version into the built app.
+    MARKETING_VERSION: 0.0.0
+    CURRENT_PROJECT_VERSION: 1
+    PRODUCT_NAME: $(TARGET_NAME)
+    SWIFT_VERSION: "6.0"
+
+targets:
+  Pitboard:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    settings:
+      groups: [signing, version]
+      base:
+        INFOPLIST_FILE: App/Info.plist
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_PREVIEWS: YES
+        COMBINE_HIDPI_IMAGES: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/../Frameworks"]
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.usepitboard.Pitboard.debug
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.usepitboard.Pitboard
+    dependencies:
+      - package: Pitboard
+        product: PitboardApp
+      - package: Sparkle
+      - target: PitboardShare
+        embed: true
+
+  # Links PitboardSites alone: it is sandboxed, and has no business with the core, its
+  # bindings or anything else the app links.
+  PitboardShare:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: ShareExtension
+        excludes: [PitboardShare.entitlements]
+    settings:
+      groups: [signing, version]
+      base:
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/PitboardShare.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+          - "@executable_path/../../../../Frameworks"
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.usepitboard.Pitboard.debug.share
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.usepitboard.Pitboard.share
+    dependencies:
+      - package: Pitboard
+        product: PitboardSites
+
+  PitboardUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests
+    settings:
+      groups: [signing, version]
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.usepitboard.PitboardUITests
+        SWIFT_EMIT_LOC_STRINGS: NO
+        TEST_TARGET_NAME: Pitboard
+    dependencies:
+      - target: Pitboard
+
+schemes:
+  Pitboard:
+    build:
+      targets:
+        Pitboard: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        # One at a time: each test launches the app, and the app has one menu bar item.
+        - name: PitboardUITests
+          parallelizable: false
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

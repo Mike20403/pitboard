@@ -66,22 +66,23 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # PitboardBindings is generated, so only what is written by hand is checked.
       - run: >
-          swift format lint --strict --recursive --configuration apple/.swift-format
-          apple/Sources/PitboardApp apple/Sources/PitboardKit apple/Sources/PitboardSites
-          apple/App apple/ShareExtension apple/UITests apple/Tests apple/scripts
+          swift format lint --strict --recursive --configuration apps/macos/.swift-format
+          apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites
+          apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts
           .github/scripts
+      - uses: ./.github/actions/xcodegen
       # Proves the core still links into the app, that its bindings still match, and that
       # the bundle still assembles and signs.
-      - run: ./apple/scripts/build-app.sh
+      - run: ./apps/macos/scripts/build-app.sh
       # The command line the app comes with is what its renewal schedule runs and what the
       # cask puts on PATH, so it is run from inside the bundle, checked for both
       # architectures, and the bundle verified with it in place.
       - run: |
-          helper=apple/build/Pitboard.app/Contents/Helpers/pitboard
+          helper=apps/macos/build/Pitboard.app/Contents/Helpers/pitboard
           "$helper" --version
           for arch in arm64 x86_64; do lipo "$helper" -verify_arch "$arch"; done
-          codesign --verify --strict --deep apple/build/Pitboard.app
-      - run: swift test --package-path apple
+          codesign --verify --strict --deep apps/macos/build/Pitboard.app
+      - run: swift test --package-path apps/macos
       # The app driven the way a person drives it: the debug build, started by each test in
       # a fixture rather than on this runner's own accounts. A UI test needs Automation Mode,
       # which asks for a password unless the machine allows it without one. GitHub's macOS
@@ -95,9 +96,9 @@ jobs:
             *"DOES NOT REQUIRE"*) ;;
             *) echo "this runner asks for a password before UI tests can run" >&2; exit 1 ;;
           esac
-          xcodebuild test -project apple/Pitboard.xcodeproj -scheme Pitboard \
-            -destination 'platform=macOS' -derivedDataPath apple/build/UITestData \
-            -clonedSourcePackagesDirPath apple/build/SourcePackages \
+          xcodebuild test -project apps/macos/Pitboard.xcodeproj -scheme Pitboard \
+            -destination 'platform=macOS' -derivedDataPath apps/macos/build/UITestData \
+            -clonedSourcePackagesDirPath apps/macos/build/SourcePackages \
             -resultBundlePath "$RUNNER_TEMP/UITests.xcresult"
       # The result bundle has what the log cannot: a screenshot and the tree of elements at
       # the moment a test failed. Nobody needs it when they all pass.

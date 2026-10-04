@@ -1,8 +1,0 @@
-/build/
-/PitboardFFI.xcframework
-/Sources/PitboardBindings/
-/.build/
-# What Xcode keeps for whoever has the project open: window state, breakpoints, and the
-# package it opens beside the project.
-xcuserdata/
-/.swiftpm/

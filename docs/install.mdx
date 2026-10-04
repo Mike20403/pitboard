@@ -73,12 +73,13 @@ Without `--locked`, Cargo ignores the `Cargo.lock` Pitboard was released with an
 
 Neither Cargo route installs the man page or the completions. `pitboard manpage` and `pitboard completions` print them; see [Integration commands](/reference/integration-commands).
 
-To build the app, you need Xcode and Rust. In a clone of [Pitboard's repository](https://github.com/datlechin/pitboard), run:
+To build the app, you need Xcode, Rust and [XcodeGen](https://github.com/yonaskolb/XcodeGen), which generates the Xcode project. In a clone of [Pitboard's repository](https://github.com/datlechin/pitboard), run:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-./apple/scripts/build-app.sh
-cp -R apple/build/Pitboard.app /Applications/
+brew install xcodegen
+./apps/macos/scripts/build-app.sh
+cp -R apps/macos/build/Pitboard.app /Applications/
 ```
 
 An app you build does not update itself, because it carries no update key. For working on the app and running its tests, see [CONTRIBUTING.md](https://github.com/datlechin/pitboard/blob/main/CONTRIBUTING.md#the-app).
