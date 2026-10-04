@@ -65,11 +65,19 @@ pages load, as a browser would.
     scheduler writes it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
-- `crates/pitboard-ffi`: the core as UniFFI bindings, for the app.
-- `crates/uniffi-bindgen-swift`: generates the Swift bindings with exactly the UniFFI
-  version the library uses. The bindings check method checksums when they load.
+- `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
+  the macOS app, a dynamic one for the Windows app.
+- `crates/uniffi-bindgen-swift` and `crates/uniffi-bindgen-csharp`: generate the Swift and
+  the C# bindings with exactly the UniFFI version the library uses. The bindings check
+  method checksums when they load. The C# generator is NordSecurity's, pinned to a release
+  built against that UniFFI; it is a build tool, so `deny.toml` leaves it out of the graph.
+  Every type the bindings export is declared in `pitboard-ffi`, because the C# generator
+  cannot use a type from another crate.
 - `crates/pitboard-conformance`: checks a tool's register against a build of that tool.
 - `apps/`: the native apps, one directory for each system.
+- `apps/windows/`: the Windows app. `Pitboard.Core` is the core's C# bindings as an
+  assembly of their own, generated into `Generated/` and not committed, and
+  `Pitboard.Core.Tests` calls the core through them.
 - `apps/macos/`: the menu bar app. The Swift package holds it as libraries its tests load
   without starting it. `PitboardKit` calls the bindings off the main thread,
   `PitboardSites` is what the app and its Share extension both know about the sites, and

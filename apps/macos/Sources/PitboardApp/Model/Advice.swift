@@ -10,7 +10,7 @@ struct Advice {
     let tool: String?
     /// The account that ran out, and the window it ran out of.
     let ran: String
-    let window: Limits
+    let window: Limit
     /// The account offered instead, and what it has left in the same kind of window.
     let use: String
     let left: Int
@@ -54,7 +54,7 @@ struct Advice {
     /// The account of the same tool with the most left of `window`'s kind that can be
     /// switched to now, and what it has left. None when none has any.
     private static func spare(
-        like window: Limits, among mine: [Account]
+        like window: Limit, among mine: [Account]
     ) -> (use: String, left: Int, switchTo: String)? {
         let spare =
             mine
@@ -110,14 +110,14 @@ struct Advice {
 
     /// What an account has used of the same window, counting a window it does not report
     /// as spent: an account whose limits are unknown is not one to recommend.
-    private static func used(_ account: Account, like window: Limits) -> Double {
+    private static func used(_ account: Account, like window: Limit) -> Double {
         account.usage?.windows.first { $0.kind == window.kind && $0.scope == window.scope }?
             .percent ?? 100
     }
 
     /// What `Notifier.told` is keyed by: the tool, the account and the window. Keyed by
     /// window alone, one tool's exhausted five hours would silence another's.
-    static func key(_ provider: String, _ label: String, _ window: Limits) -> String {
+    static func key(_ provider: String, _ label: String, _ window: Limit) -> String {
         [provider, label, window.kind, window.scope ?? ""].joined(separator: "/")
     }
 

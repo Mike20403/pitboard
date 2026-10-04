@@ -234,8 +234,10 @@ pub enum Source {
     Remembered,
 }
 
+/// One limit an account is measured against, such as the five-hour session or the week.
+/// Named for what it is rather than `Window`, which SwiftUI and WinUI each have a type of.
 #[derive(uniffi::Record)]
-pub struct Window {
+pub struct Limit {
     /// The service's own name for it: Anthropic's `session`, `weekly_all` or
     /// `weekly_scoped`, or one named after its length for OpenAI.
     pub kind: String,
@@ -257,7 +259,7 @@ pub struct Window {
 pub struct Usage {
     pub source: Source,
     pub observed_at: Option<i64>,
-    pub windows: Vec<Window>,
+    pub windows: Vec<Limit>,
 }
 
 #[derive(uniffi::Record)]
@@ -404,15 +406,17 @@ pub enum EnrolledAs {
     InUse { again: bool },
 }
 
+/// What enrolling an account came to. Its outcome is not named `enrolled`: C# gives a
+/// record's fields to its members, and a member may not share its record's name.
 #[derive(uniffi::Record)]
 pub struct Enrolled {
     pub email: String,
-    pub enrolled: EnrolledAs,
+    pub outcome: EnrolledAs,
     pub warnings: Vec<Warning>,
 }
 
 fn enrolled(enrolled: switch::Enrolled, warnings: Vec<Warning>) -> Enrolled {
-    let (email, enrolled) = match enrolled {
+    let (email, outcome) = match enrolled {
         switch::Enrolled::Current { email } => (email, EnrolledAs::Current),
         switch::Enrolled::SignedIn { email } => (email, EnrolledAs::SignedIn),
         switch::Enrolled::Renewed { email } => (email, EnrolledAs::Renewed),
@@ -420,7 +424,7 @@ fn enrolled(enrolled: switch::Enrolled, warnings: Vec<Warning>) -> Enrolled {
     };
     Enrolled {
         email,
-        enrolled,
+        outcome,
         warnings,
     }
 }
@@ -489,7 +493,7 @@ fn account(row: status::Row, now: i64) -> Account {
             windows: u
                 .windows
                 .into_iter()
-                .map(|w| Window {
+                .map(|w| Limit {
                     length_seconds: w.length_seconds,
                     kind: w.kind,
                     scope: w.scope,

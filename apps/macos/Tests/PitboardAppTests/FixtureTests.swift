@@ -209,7 +209,7 @@ func theLoginSignedInNowIsNamedWithANameNotTaken() async throws {
 
     #expect(
         try await core.enrollCurrent("work")
-            == Enrolled(email: "dana@work.example", enrolled: .current, warnings: []))
+            == Enrolled(email: "dana@work.example", outcome: .current, warnings: []))
     #expect(
         described(try await core.status(fresh: true)) == [
             "claude/work, in use", "claude/personal",
@@ -289,7 +289,7 @@ func aClaudeCodeSignInWaitsForTheCodeAndThenParksTheAccount() async throws {
 
     #expect(
         try session.finish()
-            == Enrolled(email: "travel@example.com", enrolled: .signedIn, warnings: []))
+            == Enrolled(email: "travel@example.com", outcome: .signedIn, warnings: []))
     #expect(
         described(try await core.status(fresh: true)) == [
             "claude/work, in use", "claude/personal", "claude/travel",
@@ -316,7 +316,7 @@ func aCodexSignInFinishesByItself() async throws {
 
     #expect(
         try session.finish()
-            == Enrolled(email: "travel@example.com", enrolled: .signedIn, warnings: []))
+            == Enrolled(email: "travel@example.com", outcome: .signedIn, warnings: []))
     #expect(
         described(try await core.status(fresh: true)).suffix(3) == [
             "codex/main, in use", "codex/spare", "codex/travel",
@@ -347,7 +347,7 @@ func signingInAgainToAnExpiredAccountMakesItSwitchable() async throws {
     let core = FixtureCore(.twoTools)
     #expect(
         try await signInToTheEnd("claude/old", on: core)
-            == Enrolled(email: "dana@old.example", enrolled: .renewed, warnings: []))
+            == Enrolled(email: "dana@old.example", outcome: .renewed, warnings: []))
     #expect(
         described(try await core.status(fresh: true)) == [
             "claude/work, in use", "claude/personal", "claude/old", "codex/main, in use",
@@ -377,7 +377,7 @@ func signingInAgainToTheAccountInUseKeepsItInUse() async throws {
     #expect(
         try await signInToTheEnd("claude/work", on: core)
             == Enrolled(
-                email: "dana@work.example", enrolled: .inUse(again: true), warnings: []))
+                email: "dana@work.example", outcome: .inUse(again: true), warnings: []))
     let read = try await core.status(fresh: true)
     #expect(described(read) == ["claude/work, in use", "claude/personal"])
     let work = try #require(read.accounts.first { $0.qualified == "claude/work" })

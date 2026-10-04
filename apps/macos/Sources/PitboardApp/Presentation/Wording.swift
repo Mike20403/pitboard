@@ -45,7 +45,7 @@ func updateNote(bundled: Bool) -> String {
 /// From its length, which is the one thing both services agree on: Anthropic names its
 /// windows and OpenAI times them, and "session" means nothing to somebody reading about a
 /// Codex account. A window whose length is not known is named from its kind.
-func windowName(_ window: Limits) -> String {
+func windowName(_ window: Limit) -> String {
     guard let seconds = window.lengthSeconds, seconds > 0 else {
         switch window.kind {
         case "session", "five_hour": return "5-hour"
@@ -65,7 +65,7 @@ func windowName(_ window: Limits) -> String {
 }
 
 /// The same name, short enough for the column beside a bar: "5h", "week", "day", "3h".
-func windowShortName(_ window: Limits) -> String {
+func windowShortName(_ window: Limit) -> String {
     let base: String
     if let seconds = window.lengthSeconds, seconds > 0 {
         switch seconds {
@@ -89,7 +89,7 @@ func windowShortName(_ window: Limits) -> String {
 /// A limit as VoiceOver says it: "5-hour limit, 42 percent used, resets in 3 hours". The
 /// column beside the bar says "5h" and "in 30m", which is read letter by letter or as a
 /// unit: "m" is read as "meters".
-func spokenLimit(_ window: Limits, resettingIn seconds: TimeInterval?) -> String {
+func spokenLimit(_ window: Limit, resettingIn seconds: TimeInterval?) -> String {
     let name = window.scope.map { "\(windowName(window)) \($0)" } ?? windowName(window)
     let used = "\(name) limit, \(Int(window.percent.rounded())) percent used"
     guard let seconds, seconds > 0 else { return used }

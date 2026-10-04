@@ -9,7 +9,8 @@ repository.workspace = true
 publish = false
 
 [lib]
-crate-type = ["lib", "staticlib"]
+# A static library for the macOS app, a dynamic one for the Windows app to load.
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 pitboard-core.workspace = true

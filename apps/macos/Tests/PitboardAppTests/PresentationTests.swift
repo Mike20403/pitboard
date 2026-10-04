@@ -29,7 +29,7 @@ private final class StubCore: Core, @unchecked Sendable {
     func holding(_ provider: String) async -> [Holding] { [] }
     func switchTo(_ label: String) async throws -> Switched { try switched.get() }
     func enrollCurrent(_ label: String) async throws -> Enrolled {
-        Enrolled(email: "a@b.c", enrolled: .current, warnings: [])
+        Enrolled(email: "a@b.c", outcome: .current, warnings: [])
     }
     func forget(_ label: String) async throws -> Changed {
         Changed(email: "a@b.c", warnings: [])
@@ -837,7 +837,7 @@ func adviceAboutOneToolOutlivesASwitchOfAnother() async {
 @Test func aSignInThatPutANewLoginInUseSaysTheAccountHasOne() async {
     let core = StubCore(.success(status([account("work", signedIn: true)])))
     core.session = FinishedSignIn(
-        Enrolled(email: "work@example.com", enrolled: .inUse(again: true), warnings: []))
+        Enrolled(email: "work@example.com", outcome: .inUse(again: true), warnings: []))
     let model = AppModel(testing: core)
     #expect(await model.signIn("work", for: "claude") == nil)
     #expect(
@@ -854,7 +854,7 @@ func adviceAboutOneToolOutlivesASwitchOfAnother() async {
     let codexCore = StubCore(.success(status([account("work", of: "codex", signedIn: true)])))
     codexCore.session = FinishedSignIn(
         Enrolled(
-            email: "work@example.com", enrolled: .inUse(again: false), warnings: [oldLogin]))
+            email: "work@example.com", outcome: .inUse(again: false), warnings: [oldLogin]))
     let codexModel = AppModel(testing: codexCore)
     await codexModel.signIn("work", for: "codex")
     #expect(
@@ -881,7 +881,7 @@ func aSignInNoticeNamesItsToolBesideAnother() async throws {
                 account("work", signedIn: true), account("work", of: "codex", signedIn: true),
             ])))
     core.session = FinishedSignIn(
-        Enrolled(email: "work@example.com", enrolled: .inUse(again: true), warnings: []))
+        Enrolled(email: "work@example.com", outcome: .inUse(again: true), warnings: []))
     let model = AppModel(testing: core)
     await model.signIn("work", for: "codex")
     let notice = try #require(model.notices().first)

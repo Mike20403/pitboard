@@ -2,9 +2,6 @@ import AppKit
 import Foundation
 import PitboardKit
 
-/// SwiftUI has a `Window` of its own, so a limit's window is named for what it is here.
-typealias Limits = PitboardBindings.Window
-
 /// What the app shows, and the only place that calls the core. Every call runs off the main
 /// thread inside `PitboardService`; this only holds the answers.
 ///
@@ -970,7 +967,7 @@ extension AppModel {
     private func enrolled(
         _ done: Enrolled, as name: String, for provider: String
     ) -> [Warning] {
-        guard case .inUse(let again) = done.enrolled else { return done.warnings }
+        guard case .inUse(let again) = done.outcome else { return done.warnings }
         let to = provider == defaultProvider ? name : qualified(name, for: provider)
         var said =
             lastSwitches.first { $0.provider == provider && $0.to == to }

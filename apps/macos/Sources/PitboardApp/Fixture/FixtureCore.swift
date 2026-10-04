@@ -135,7 +135,7 @@
                 try requireUnused(name, of: provider)
                 accounts[index] = with(accounts[index], label: name)
                 record("enroll", Self.typed(label))
-                return Enrolled(email: accounts[index].email, enrolled: .current, warnings: [])
+                return Enrolled(email: accounts[index].email, outcome: .current, warnings: [])
             }
         }
 
@@ -178,7 +178,7 @@
             return FixtureSignIn(provider: provider) { [weak self] in
                 self?.signedIn(name, of: provider)
                     ?? Enrolled(
-                        email: "", enrolled: .signedIn, warnings: [])
+                        email: "", outcome: .signedIn, warnings: [])
             }
         }
 
@@ -246,14 +246,14 @@
                         accounts[index], switchable: !inUse, signedInAgain: true)
                     return Enrolled(
                         email: accounts[index].email,
-                        enrolled: inUse ? .inUse(again: true) : .renewed, warnings: [])
+                        outcome: inUse ? .inUse(again: true) : .renewed, warnings: [])
                 }
                 let email = "\(name)@example.com"
                 accounts.append(
                     Self.account(
                         name, of: provider, email: email,
                         windows: [Self.window("five_hour", 3, length: 18_000, in: 18_000)]))
-                return Enrolled(email: email, enrolled: .signedIn, warnings: [])
+                return Enrolled(email: email, outcome: .signedIn, warnings: [])
             }
         }
 
@@ -346,7 +346,7 @@
         static func account(
             _ label: String?, of provider: String = "claude", email: String,
             signedIn: Bool = false, switchable: Bool? = nil, expired: Bool = false,
-            windows: [PitboardBindings.Window] = [], parkedFor seconds: Int64? = nil
+            windows: [Limit] = [], parkedFor seconds: Int64? = nil
         ) -> Account {
             let now = Int64(Date().timeIntervalSince1970)
             let parked =
@@ -372,8 +372,8 @@
 
         static func window(
             _ kind: String, _ percent: Double, length: Int64, in seconds: Int64
-        ) -> PitboardBindings.Window {
-            PitboardBindings.Window(
+        ) -> Limit {
+            Limit(
                 kind: kind, lengthSeconds: length, scope: nil, percent: percent,
                 resetsAt: Int64(Date().timeIntervalSince1970) + seconds, severity: nil,
                 isActive: true)

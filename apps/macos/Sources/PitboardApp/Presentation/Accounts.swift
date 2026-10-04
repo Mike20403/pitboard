@@ -25,7 +25,7 @@ enum MenuBarShows: String, CaseIterable, Identifiable {
 /// The limit worth putting in the menu bar: the account's own, not one scoped to a single
 /// model, and one the account is working against when the server says which. A scoped row
 /// at 98% would otherwise read as though everything had stopped.
-func headline(of windows: [Limits]) -> Limits? {
+func headline(of windows: [Limit]) -> Limit? {
     let ownLimits = windows.filter { $0.scope == nil }
     let candidates = ownLimits.isEmpty ? windows : ownLimits
     let active = candidates.filter(\.isActive)
@@ -145,7 +145,7 @@ struct AccountDescription: Equatable {
     let parkedNote: String?
     /// How long the account in use lasts at the rate it is going.
     let pace: String?
-    let limits: [Limits]
+    let limits: [Limit]
 
     /// `switching` is the account a switch is running for, and `busy` whether a sign-in is.
     init(_ account: Account, switching: String?, busy: Bool, now: Date = Date()) {

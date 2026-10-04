@@ -1,0 +1,5 @@
+bin/
+obj/
+# Generated from the core by `cargo run -p uniffi-bindgen-csharp`, never committed, like the
+# macOS app's Swift bindings.
+/Pitboard.Core/Generated/

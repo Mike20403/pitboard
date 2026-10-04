@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Pitboard.Core/Pitboard.Core.csproj" />
+  <Project Path="Pitboard.Core.Tests/Pitboard.Core.Tests.csproj" />
+</Solution>

@@ -9,7 +9,7 @@ import SwiftUI
 /// holds at every text size. The time left moves on once a minute, which is as often as
 /// "in 2h 10m" changes.
 struct UsageBars: View {
-    let limits: [Limits]
+    let limits: [Limit]
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -30,7 +30,7 @@ struct UsageBars: View {
 /// used, with the name and the figures beside it. VoiceOver hears the row as one sentence,
 /// read from its name, and not the bar and each figure on their own.
 struct UsageBar: View {
-    let window: Limits
+    let window: Limit
     let now: Date
     @ScaledMetric(relativeTo: .callout) private var percentWidth: CGFloat = 38
     @ScaledMetric(relativeTo: .callout) private var resetsWidth: CGFloat = 70
