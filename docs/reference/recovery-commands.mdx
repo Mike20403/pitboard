@@ -1,9 +1,9 @@
 ---
 title: "Recovery commands"
-description: "`abandon`, `repair` and `adopt` set pitboard's directory right after an interrupted switch, a restore or a move."
+description: "`abandon`, `repair` and `adopt` set Pitboard's directory right after an interrupted switch, a restore or a move."
 ---
 
-These three commands fix pitboard's directory, `~/.pitboard`, after an interrupted switch, a restore from a backup or a move from another computer. An [interrupted switch](/concepts/switching#interrupted-switches) is one that stopped partway, for example in a crash.
+These three commands fix Pitboard's directory, `~/.pitboard`, after an interrupted switch, a restore from a backup or a move from another computer. An [interrupted switch](/concepts/switching#interrupted-switches) is one that stopped partway, for example in a crash.
 
 None of them takes an argument. Their only options are `--json` and `--help`, described in [Global options](/reference/commands#global-options). For their JSON output, see [JSON output](/reference/json-output#data-by-command).
 
@@ -15,7 +15,7 @@ Give up on an interrupted switch that cannot be finished, keeping every login
 Usage: pitboard abandon [OPTIONS]
 ```
 
-`pitboard abandon` deletes `~/.pitboard/journal.json`, pitboard's record of an interrupted switch. It writes no login, so each tool keeps the login it has. For the same reason, it takes pitboard's lock but not the one Claude Code writes its login under.
+`pitboard abandon` deletes `~/.pitboard/journal.json`, Pitboard's record of an interrupted switch. It writes no login, so each tool keeps the login it has. For the same reason, it takes Pitboard's lock but not the one Claude Code writes its login under.
 
 The accounts the switch was moving from and to keep their [parked logins](/concepts/switching#parked-logins). For OpenAI's Codex CLI, `abandon` drops a parked login that copies the login in use.
 
@@ -41,11 +41,11 @@ Ask the credential store what parked logins are here, and account for every one
 Usage: pitboard repair [OPTIONS]
 ```
 
-`pitboard repair` looks for parked logins that pitboard's account list does not name. It gives each back to its account, deletes it or leaves it alone.
+`pitboard repair` looks for parked logins that Pitboard's account list does not name. It gives each back to its account, deletes it or leaves it alone.
 
 On macOS, it lists keychain items whose names start with `pitboard-park-`. Listing reads only the names, so macOS does not ask for permission. On Linux, it lists `~/.pitboard/vault/`. It then reads each one the account list does not name.
 
-It also reads `~/.pitboard/pending`, where pitboard writes each parked login's name before creating it. `use`, `enroll`, `forget`, `rename` and `uninstall` handle the logins on that list too, without searching the keychain.
+It also reads `~/.pitboard/pending`, where Pitboard writes each parked login's name before creating it. `use`, `enroll`, `forget`, `rename` and `uninstall` handle the logins on that list too, without searching the keychain.
 
 A parked login is on neither `pending` nor the account list only when `~/.pitboard` was lost or restored from a backup. Only then is `repair` needed.
 
@@ -56,26 +56,26 @@ It prints a line for each parked login it gives back, and one for each other kin
 | Output | What it did |
 | --- | --- |
 | `Gave personal back a parked login that nothing named.` | Gave the parked login to the enrolled account whose id is in the login's name. That account had none, or an older one, and the login has not expired. |
-| `Deleted 1 parked login(s) pitboard wrote down here and nothing recorded.` | Deleted parked logins named in `pending` that no account could take. |
-| `1 parked login(s) here belong to no account pitboard knows and were not written down by this one. Left alone: the keychain is shared by the whole machine, and they may be another pitboard's.` | Left alone parked logins it could not give back and that are not named in `pending`. On macOS, every pitboard directory you use, such as one set with `PITBOARD_HOME`, shares the keychain. |
+| `Deleted 1 parked login(s) Pitboard wrote down here and nothing recorded.` | Deleted parked logins named in `pending` that no account could take. |
+| `1 parked login(s) here belong to no account Pitboard knows and were not written down by this one. Left alone: the keychain is shared by the whole machine, and they may be another Pitboard's.` | Left alone parked logins it could not give back and that are not named in `pending`. On macOS, every Pitboard directory you use, such as one set with `PITBOARD_HOME`, shares the keychain. |
 | `1 could not be read this time and were left alone. Unlock the keychain and run this again.` | Left alone parked logins it could not read, for example while the keychain is locked. |
 | `Every parked login here is accounted for.` | Found nothing to do. |
 
-On Linux, "keychain" in these lines means `~/.pitboard/vault/`, which no other pitboard directory shares.
+On Linux, "keychain" in these lines means `~/.pitboard/vault/`, which no other Pitboard directory shares.
 
 While `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, `repair` refuses as `abandon` does.
 
-For when to use it, see [pitboard lost track of parked logins](/troubleshooting/recovery#pitboard-lost-track-of-parked-logins).
+For when to use it, see [Pitboard lost track of parked logins](/troubleshooting/recovery#pitboard-lost-track-of-parked-logins).
 
 ## `adopt`
 
 ```text
-Take over a pitboard directory another computer wrote, keeping the accounts
+Take over a Pitboard directory another computer wrote, keeping the accounts
 
 Usage: pitboard adopt [OPTIONS]
 ```
 
-`pitboard adopt` takes over a pitboard directory another computer wrote, so this one can use it. Until you run it, most commands refuse the directory with the error `state_wrong_machine`.
+`pitboard adopt` takes over a Pitboard directory another computer wrote, so this one can use it. Until you run it, most commands refuse the directory with the error `state_wrong_machine`.
 
 It keeps every account with its label, email and remembered usage. It drops every parked login without asking Anthropic or OpenAI whether it still works. Asking means renewing the login, which could end the other computer's copy.
 
@@ -92,6 +92,6 @@ Sign in to each again:
   pitboard enroll personal --sign-in
 ```
 
-It prints a `pitboard enroll` line for each account whose parked login it dropped. If the directory is already this computer's, it prints `This pitboard directory was already written on this computer.` and changes nothing.
+It prints a `pitboard enroll` line for each account whose parked login it dropped. If the directory is already this computer's, it prints `This Pitboard directory was already written on this computer.` and changes nothing.
 
-For when to use it, see [The pitboard directory came from another computer](/troubleshooting/recovery#the-pitboard-directory-came-from-another-computer).
+For when to use it, see [The Pitboard directory came from another computer](/troubleshooting/recovery#the-pitboard-directory-came-from-another-computer).

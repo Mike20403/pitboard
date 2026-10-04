@@ -1,4 +1,4 @@
-//! Taking pitboard off a machine without leaving credentials behind.
+//! Taking Pitboard off a machine without leaving credentials behind.
 
 use super::{Result, Settled, purge};
 use crate::context::Context;
@@ -14,9 +14,9 @@ pub struct Removed {
     pub parks: usize,
     /// Parked logins that could not be deleted, which is why the home was kept.
     pub pending: usize,
-    /// Parked logins left where they are because this pitboard did not write them:
-    /// `repair` gave them back from a store every pitboard on the machine shares, so each
-    /// may be another pitboard's. Always none where the vault is inside pitboard's own
+    /// Parked logins left where they are because this Pitboard did not write them:
+    /// `repair` gave them back from a store every Pitboard on the machine shares, so each
+    /// may be another Pitboard's. Always none where the vault is inside Pitboard's own
     /// directory.
     pub left: usize,
     /// Whether ~/.pitboard itself is gone.
@@ -25,8 +25,8 @@ pub struct Removed {
     pub schedule_removed: bool,
 }
 
-/// Takes away the daily renewal schedule, deletes every parked login this pitboard wrote,
-/// then removes pitboard's own directory. Each tool's login is left exactly as it is:
+/// Takes away the daily renewal schedule, deletes every parked login this Pitboard wrote,
+/// then removes Pitboard's own directory. Each tool's login is left exactly as it is:
 /// whoever is signed in stays signed in.
 ///
 /// The schedule goes first. It runs `pitboard renew` every day, which would make a new
@@ -36,7 +36,7 @@ pub struct Removed {
 /// The directory is removed last and only when every parked login is gone, because
 /// state.json is the only index of those keychain items. Deleting it first would leave live
 /// refresh tokens on the machine with no way left to name them. A login `repair` gave back
-/// is not this pitboard's to delete, so it is left, and does not keep the directory.
+/// is not this Pitboard's to delete, so it is left, and does not keep the directory.
 pub fn uninstall(settled: Settled) -> Result<Removed> {
     let Settled {
         _exclusive,
@@ -152,7 +152,7 @@ mod tests {
     }
 
     /// launchd and systemd renew the default home, so uninstalling any other one leaves
-    /// the schedule to the pitboard it serves.
+    /// the schedule to the Pitboard it serves.
     #[test]
     fn uninstalling_another_home_leaves_the_schedule_alone() {
         let m = machine("uninstall-elsewhere");

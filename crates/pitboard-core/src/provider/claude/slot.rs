@@ -20,7 +20,7 @@ const FALLBACK_ACCOUNT: &str = "claude-code-user";
 ///
 /// Claude Code reads `process.env.USER || os.userInfo().username`, so the passwd entry is
 /// what it uses wherever the environment carries no `USER`: a launchd agent, a cron job, an
-/// app opened from Finder. Stopping at the literal there would send pitboard to a different
+/// app opened from Finder. Stopping at the literal there would send Pitboard to a different
 /// keychain item than the one Claude Code reads.
 pub fn account_name(ctx: &Context) -> String {
     let from_env = ctx.user.as_deref().filter(|u| !u.is_empty());

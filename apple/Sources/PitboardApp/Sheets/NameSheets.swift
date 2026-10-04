@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Names the login signed in now, so pitboard can park it: no browser, since the login is
+/// Names the login signed in now, so Pitboard can park it: no browser, since the login is
 /// already there.
 struct NameSheet: View {
     let model: AppModel
@@ -16,7 +16,7 @@ struct NameSheet: View {
         SheetLayout(
             title: "Name This Account",
             message: "\(email) is signed in to \(model.tool(provider)?.name ?? provider). "
-                + "pitboard parks its login under this name whenever you switch to another "
+                + "Pitboard parks its login under this name whenever you switch to another "
                 + "account."
         ) {
             Section {

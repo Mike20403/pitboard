@@ -5,10 +5,10 @@
 //! limits of the account that session is using, and on a timer too when its settings ask.
 //! So this reads only files, with no keychain and no network, and writes two. What the
 //! session passed is kept for its next run to compare with, and what moved since its last
-//! run goes into pitboard's readings as the account in use's, where it can be that
+//! run goes into Pitboard's readings as the account in use's, where it can be that
 //! account's; they keep it only where it is newer than what they have. The account in use
 //! shows its reading with that folded in, so a session left open shows what the busy ones
-//! have recorded since. The other accounts show pitboard's last reading of them, with its
+//! have recorded since. The other accounts show Pitboard's last reading of them, with its
 //! age once that is worth knowing.
 //!
 //! It is Claude Code's status bar, so it is about Claude Code's accounts and nothing else.
@@ -47,7 +47,7 @@ pub struct Entry {
 pub struct StatusLine {
     /// The account Claude Code's config names, or `None` when it is not enrolled.
     pub current: Option<String>,
-    /// The session's own account: pitboard's reading of it, with whatever of the session's
+    /// The session's own account: Pitboard's reading of it, with whatever of the session's
     /// numbers can be this account's folded in where they are newer.
     pub session: Shares,
     pub others: Vec<Entry>,
@@ -136,22 +136,22 @@ fn run_of(input: &Value, signed_in: Option<&str>) -> Run {
 /// Nor does it say whose they are. A session passes the numbers of its last response every
 /// time its status line runs, and one left idle passes the same ones for as long as it
 /// stays open, whatever the config has named since, by a switch or a `/login`, and whether
-/// or not pitboard still knows the account they were. A change is what says something. A
+/// or not Pitboard still knows the account they were. A change is what says something. A
 /// limit that appeared or moved since `before`, this session's previous run, came with a
 /// response the session got since, and when the config named the same account then as now,
 /// that response was on this account. So only such a limit is offered, and nothing at all
 /// from a session not seen before or one whose account the config has changed since. An
 /// idle session repeating old numbers is never taken for anyone.
 ///
-/// For as long as sessions take to follow a switch, counted from when pitboard last put the
+/// For as long as sessions take to follow a switch, counted from when Pitboard last put the
 /// account to use, nothing is offered either: a session still on the account before gets
 /// that account's responses however the config reads. A `/login` in Claude Code is followed
-/// as slowly and leaves pitboard no time to count from, so a window another of Claude
+/// as slowly and leaves Pitboard no time to count from, so a window another of Claude
 /// Code's accounts has recorded, and this one has not, is left out too: its reset shows it
 /// to be that account's. And a window whose reset has passed says nothing about now.
 ///
 /// A session says how much of each limit is used and when it resets, and nothing else. So a
-/// window is the one pitboard already has for that limit with those two numbers put in: its
+/// window is the one Pitboard already has for that limit with those two numbers put in: its
 /// name, and whether the account is working against it, stay as Anthropic said. A share the
 /// session has moved is one Anthropic has not graded.
 fn session_snapshot(
@@ -676,7 +676,7 @@ mod tests {
     }
 
     /// Claude Code's own `/login` can sign in an account nobody enrolled and back again, and
-    /// pitboard has no reading of an account it does not know to tell its windows by. An idle
+    /// Pitboard has no reading of an account it does not know to tell its windows by. An idle
     /// session holding that account's numbers had them recorded as the one signed in after.
     #[test]
     fn a_session_holding_an_unenrolled_accounts_numbers_is_not_recorded_after_a_login() {
@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(shares_of(&recorded(&ctx), NOW), shares(10.0, 30.0));
     }
 
-    /// A session pitboard has not seen before passes the numbers of whatever response it had
+    /// A session Pitboard has not seen before passes the numbers of whatever response it had
     /// last, which can be any account's: it may have been open since before a switch. They
     /// are left out, and what its next response moves is this account's.
     #[test]
@@ -801,7 +801,7 @@ mod tests {
         );
     }
 
-    /// The half minute starts in the second pitboard puts the account to use, and a session
+    /// The half minute starts in the second Pitboard puts the account to use, and a session
     /// can run twice within it: once idle, as the config changes under it, and again with a
     /// response the account before served it.
     #[test]
@@ -827,9 +827,9 @@ mod tests {
         assert_eq!(shares_of(&recorded(&ctx), NOW), shares(10.0, 30.0));
     }
 
-    /// A `/login` in Claude Code leaves pitboard no time to count from, and a session takes
+    /// A `/login` in Claude Code leaves Pitboard no time to count from, and a session takes
     /// as long to follow it as a switch, so its next response can still be the account
-    /// before's with the account after named both times. Where pitboard has read the
+    /// before's with the account after named both times. Where Pitboard has read the
     /// account before, its windows show whose the response is.
     #[test]
     fn a_response_from_the_account_before_a_login_is_known_by_its_windows() {

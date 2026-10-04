@@ -3,26 +3,26 @@ title: "Keep parked logins alive"
 description: "Renew parked logins once a day, so an account you have left alone for weeks can still be switched to."
 ---
 
-If you leave an account unused for weeks, turn on daily renewal. A parked login is the login pitboard holds for an account not in use. Daily renewal keeps it usable, so switching back needs no browser sign-in.
+If you leave an account unused for weeks, turn on daily renewal. A parked login is the login Pitboard holds for an account not in use. Daily renewal keeps it usable, so switching back needs no browser sign-in.
 
 ## Why parked logins expire
 
 For how parking works, see [How switching works](/concepts/switching#parked-logins).
 
-A Claude Code parked login expires 30 days after its last renewal. `pitboard` shows the time left as `ready · good for 26d 4h`, and the pitboard window as **Parked login good for 26 more days**. An expired one needs a browser sign-in: see [Sign in to an account again](/guides/sign-in-again).
+A Claude Code parked login expires 30 days after its last renewal. `pitboard` shows the time left as `ready · good for 26d 4h`, and the Pitboard window as **Parked login good for 26 more days**. An expired one needs a browser sign-in: see [Sign in to an account again](/guides/sign-in-again).
 
 OpenAI's Codex CLI states no expiry, so a parked Codex login shows only `ready`.
 
-pitboard renews parked logins only when it runs. Running `pitboard` or the app renews a parked login only when pitboard can no longer ask for usage with it, or 2 minutes before. `pitboard renew` and daily renewal also renew every parked login that expires within 3 days.
+Pitboard renews parked logins only when it runs. Running `pitboard` or the app renews a parked login only when Pitboard can no longer ask for usage with it, or 2 minutes before. `pitboard renew` and daily renewal also renew every parked login that expires within 3 days.
 
-pitboard never renews the login a tool is using. The tool refreshes its own.
+Pitboard never renews the login a tool is using. The tool refreshes its own.
 
 ## Turn on daily renewal
 
 <Tabs>
   <Tab title="App">
     1. If the app is not in your Applications folder, quit it, move it there, then open it. Until you do, macOS runs a temporary copy that daily renewal cannot use.
-    2. Click pitboard's item in the menu bar, then choose **Settings**.
+    2. Click Pitboard's item in the menu bar, then choose **Settings**.
     3. Click **General**, then turn on **Renew parked logins daily**. **Runs** shows **Every day**.
   </Tab>
   <Tab title="Command line">
@@ -92,6 +92,6 @@ Renew every due parked login without waiting for daily renewal. A login `pitboar
 
 ## Accounts you no longer use
 
-With daily renewal on, pitboard keeps a parked login alive for as long as its account stays enrolled. `pitboard doctor` warns about an account last switched to at least 30 days ago.
+With daily renewal on, Pitboard keeps a parked login alive for as long as its account stays enrolled. `pitboard doctor` warns about an account last switched to at least 30 days ago.
 
 If you are not coming back to an account, forget it: see [Forget an account](/guides/accounts#forget-an-account). For an account labelled `old`, run `pitboard forget old`. Forgetting deletes the parked login but does not revoke it: see [Security and privacy](/security#what-pitboard-protects-against).

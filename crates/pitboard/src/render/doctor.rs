@@ -52,7 +52,7 @@ pub fn human(checks: &[Check]) -> String {
     }
     let count = |level| checks.iter().filter(|c| c.level == level).count();
     let summary = match (count(Level::Fail), count(Level::Warn)) {
-        (0, 0) => paint(GOOD, "Everything pitboard relies on holds."),
+        (0, 0) => paint(GOOD, "Everything Pitboard relies on holds."),
         (0, w) => paint(WARN, format!("{w} to look at; nothing is broken.")),
         (f, _) => paint(
             BAD,
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn the_summary_says_whether_anything_is_broken() {
         let plain = |checks: &[Check]| anstream::adapter::strip_str(&human(checks)).to_string();
-        assert!(plain(&[check(Level::Ok)]).ends_with("Everything pitboard relies on holds.\n"));
+        assert!(plain(&[check(Level::Ok)]).ends_with("Everything Pitboard relies on holds.\n"));
         assert!(plain(&[check(Level::Ok), check(Level::Warn)]).contains("1 to look at"));
         assert!(plain(&[check(Level::Fail)]).contains("1 broken"));
     }

@@ -1,12 +1,12 @@
 //! What a session here would authenticate as, read from files rather than guessed from
 //! three environment variables.
 //!
-//! pitboard decided whether a switch would mean anything by reading `ANTHROPIC_API_KEY`,
+//! Pitboard decided whether a switch would mean anything by reading `ANTHROPIC_API_KEY`,
 //! `ANTHROPIC_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` out of its own process
 //! environment. Two holes followed. Claude Code resolves authentication from a layered
 //! settings system, and any layer can set an `env` block, an `apiKeyHelper`, or one of the
-//! third-party provider switches; under any of those a session ignores the login pitboard
-//! moves, and pitboard reported a clean switch. And the app has no shell environment at
+//! third-party provider switches; under any of those a session ignores the login Pitboard
+//! moves, and Pitboard reported a clean switch. And the app has no shell environment at
 //! all: launched from Finder it saw none of the three, so the one surface that could not
 //! warn was the one most likely to be used on a machine that needed the warning.
 //!
@@ -16,7 +16,7 @@
 //! drop-in directory beside it; a person's own are `<config dir>/settings.json`.
 //!
 //! Project settings are deliberately not read. `.claude/settings.json` is a fact about one
-//! directory, not about the machine, and an answer true in the directory pitboard happened
+//! directory, not about the machine, and an answer true in the directory Pitboard happened
 //! to be run from is worse than no answer at all.
 
 use crate::context::Context;
@@ -38,7 +38,7 @@ pub(crate) const OVERRIDING_ENV: [&str; 9] = [
     "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
 ];
 
-/// One reason a session would not use the login pitboard moves.
+/// One reason a session would not use the login Pitboard moves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Override {
     /// What said so: a path, or "the environment".
@@ -121,7 +121,7 @@ fn overrides_in(path: &std::path::Path) -> Vec<Override> {
 }
 
 /// Whether a custom OAuth endpoint is configured. Set, it renames both the keychain item
-/// and the config file Claude Code uses, so pitboard would be reading and writing the wrong
+/// and the config file Claude Code uses, so Pitboard would be reading and writing the wrong
 /// ones: a refusal rather than a warning.
 ///
 /// Read from files as well as from this process's environment, because a `CLAUDE_CODE_CUSTOM_OAUTH_URL`
@@ -150,8 +150,8 @@ pub fn custom_oauth(ctx: &Context) -> bool {
 }
 
 /// Every reason a session started here would authenticate as something other than the login
-/// pitboard moves. Empty means a switch changes what a session sees, which is the answer
-/// pitboard needs before it moves anything.
+/// Pitboard moves. Empty means a switch changes what a session sees, which is the answer
+/// Pitboard needs before it moves anything.
 pub fn overrides(ctx: &Context) -> Vec<Override> {
     let mut found: Vec<Override> = managed_files()
         .iter()

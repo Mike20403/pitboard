@@ -72,7 +72,7 @@ pub struct MemoryHost {
     files: Mutex<HashMap<PathBuf, Arc<MemoryStore>>>,
     running: Mutex<HashMap<String, Vec<Process>>>,
     /// Whether every home parks in `vault`, the way every home on macOS parks in the login
-    /// keychain. So by default, because that is where the rules about another pitboard's
+    /// keychain. So by default, because that is where the rules about another Pitboard's
     /// parks are needed.
     shared_vault: AtomicBool,
     scheduler: Box<dyn Scheduler>,
@@ -109,7 +109,7 @@ impl MemoryHost {
         &self.keychain
     }
 
-    /// Where pitboard's parked logins are.
+    /// Where Pitboard's parked logins are.
     pub fn vault(&self) -> &Arc<MemoryStore> {
         &self.vault
     }
@@ -125,7 +125,7 @@ impl MemoryHost {
         )
     }
 
-    /// From now on the vault belongs to one home alone, the way pitboard's vault of files
+    /// From now on the vault belongs to one home alone, the way Pitboard's vault of files
     /// does off macOS.
     pub fn vault_of_its_own(&self) {
         self.shared_vault.store(false, Ordering::SeqCst);

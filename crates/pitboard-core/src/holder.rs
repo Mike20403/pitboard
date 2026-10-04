@@ -66,7 +66,7 @@ pub enum Remedy {
     },
     /// Run this command.
     Run(&'static str),
-    /// Do this, somewhere pitboard cannot reach.
+    /// Do this, somewhere Pitboard cannot reach.
     Do(&'static str),
 }
 

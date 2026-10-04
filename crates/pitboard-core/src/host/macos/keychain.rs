@@ -13,7 +13,7 @@ use std::process::{Command, Output};
 use std::time::Duration;
 
 /// Claude Code's own ceiling on an interactive `security` command line. Past it Claude
-/// Code passes the credential as an argument instead, where `ps` can read it; pitboard
+/// Code passes the credential as an argument instead, where `ps` can read it; Pitboard
 /// refuses rather than do that, so this is a real ceiling here and not a transport choice.
 const MAX_COMMAND_BYTES: usize = 4032;
 
@@ -53,7 +53,7 @@ impl Keychain {
         }
     }
 
-    /// Where pitboard parks credentials of its own.
+    /// Where Pitboard parks credentials of its own.
     pub(super) fn vault(ctx: &Context) -> Keychain {
         Keychain {
             owner: Owner::Pitboard,
@@ -76,7 +76,7 @@ fn classify(owner: Owner, code: Option<i32>, stdout: String, stderr: String) -> 
         Some(ITEM_NOT_FOUND) => Presence::Absent,
         Some(INTERACTION_NOT_ALLOWED) => Presence::Failed(
             "the keychain is locked and cannot ask to be unlocked from here; unlock it with \
-             `security unlock-keychain`, or run pitboard from a desktop session"
+             `security unlock-keychain`, or run Pitboard from a desktop session"
                 .into(),
         ),
         other => Presence::Failed(format!(
@@ -111,7 +111,7 @@ fn run(args: &[&str], owner: Owner) -> Presence {
 
 /// One line of `dump-keychain` output, as the service name it names.
 ///
-/// The shape is `    "svce"<blob>="pitboard-park-<uuid>-<millis>"`. A name pitboard made
+/// The shape is `    "svce"<blob>="pitboard-park-<uuid>-<millis>"`. A name Pitboard made
 /// contains no quote and no backslash, so a plain read to the closing quote is exact for
 /// every name this is asked about, and anything stranger simply does not match.
 fn service_of(line: &str) -> Option<String> {
@@ -242,11 +242,11 @@ impl RawStore for Keychain {
 
     /// Measured on macOS 26 against a keychain holding 362 items: `dump-keychain` without
     /// `-d` exits 0 in 0.06 seconds, never prompts, and emits attributes only, no secret of
-    /// any item. Reads of pitboard's own items afterwards take the usual 0.016 seconds, so
+    /// any item. Reads of Pitboard's own items afterwards take the usual 0.016 seconds, so
     /// listing does not carry the access-list side effect an in-process read does.
     ///
-    /// Only pitboard's own names are returned, and only from the vault: the live chain has
-    /// nothing to enumerate and Claude Code's items are none of pitboard's business.
+    /// Only Pitboard's own names are returned, and only from the vault: the live chain has
+    /// nothing to enumerate and Claude Code's items are none of Pitboard's business.
     fn list(&self) -> Result<Option<Vec<String>>, Error> {
         if self.owner != Owner::Pitboard {
             return Ok(None);

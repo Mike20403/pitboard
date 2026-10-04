@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds pitboard's core as PitboardFFI.xcframework, universal, with its generated Swift
+# Builds Pitboard's core as PitboardFFI.xcframework, universal, with its generated Swift
 # bindings, for apple/PitboardKit. Outputs are build products and are not committed.
 set -eu
 

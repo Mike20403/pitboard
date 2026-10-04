@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- The product is called Pitboard, with a capital P, everywhere it names itself: the app
+  (its menus, About, Login Items and the Share menu entry, **Pitboard** and **Pitboard
+  Debug**), the command line's messages and help, and the docs. The command is still
+  `pitboard`, and nothing it reads, writes or prints as a key changes. The `home` check of
+  `pitboard doctor --json` is now named `Pitboard home`; its code is still `home`.
+
 ### Fixed
 
 - `pitboard doctor`'s advice about a login others on the machine can read is one
@@ -23,14 +31,14 @@ unchanged since 0.6.0.
 - The app gives each enrolled account a window on its tool's site: claude.ai for a Claude
   Code account, and chatgpt.com for a Codex account. Each window keeps its own website data,
   so every account stays signed in side by side without browser profiles. Open one from the
-  menu of pitboard's item in the menu bar, the **File** menu or an account's shortcut menu
-  in the pitboard window: **Open claude.ai as work** for a site with one account, or an
+  menu of Pitboard's item in the menu bar, the **File** menu or an account's shortcut menu
+  in the Pitboard window: **Open claude.ai as work** for a site with one account, or an
   **Open claude.ai** submenu for several. Opening it again brings the open window forward,
   and a rename keeps the window and its sign-in. Back, Forward and Reload are in its
   toolbar, and in the **Go** and **View** menus with Safari's shortcuts. **View** also zooms
-  the page in Safari's steps. pitboard never reads, copies or changes what a site keeps,
+  the page in Safari's steps. Pitboard never reads, copies or changes what a site keeps,
   adds no script to its pages and makes no web session from a Claude Code or Codex login. A
-  login pitboard has no name for, and a Codex API key, get no window. See [Use each
+  login Pitboard has no name for, and a Codex API key, get no window. See [Use each
   account's site](https://docs.usepitboard.com/guides/account-windows).
 - When an account's window first opens on this Mac, a note at its top says how to sign in as
   the account's email address. Google's sign-in does not work inside apps, so the note names
@@ -60,7 +68,7 @@ unchanged since 0.6.0.
   the site, so the account stays signed in on your other devices and browsers. The window
   then starts again at the site's home.
 - A claude.ai or chatgpt.com page in your browser opens as the account you choose: choose
-  **pitboard** in the browser's Share menu. pitboard shows the link in its **Open Link**
+  **Pitboard** in the browser's Share menu. Pitboard shows the link in its **Open Link**
   window with that site's accounts, and opens nothing until you click **Open**. The account
   chosen last for the site is selected first, or else the account in use. A link to another
   site is refused, and so is a site's sign-in link, since it would sign the window in as
@@ -69,25 +77,25 @@ unchanged since 0.6.0.
   the site, the link waits while you add one, or opens in your browser. The Share extension
   is sandboxed. The `pitboard://` link it hands over only ever shows the **Open Link**
   window, since anything on the Mac can open one.
-- While any of its windows is open, pitboard has a Dock icon, is in Command-Tab and shows
-  its menus in the menu bar. Its windows are the pitboard window, Settings, each account's
-  window and **Open Link**. When the last one closes, pitboard is in the menu bar alone
+- While any of its windows is open, Pitboard has a Dock icon, is in Command-Tab and shows
+  its menus in the menu bar. Its windows are the Pitboard window, Settings, each account's
+  window and **Open Link**. When the last one closes, Pitboard is in the menu bar alone
   again. Without a Dock icon, a window behind another app had no way back, and without the
   menus it had no **Edit** menu or shortcuts. The Dock icon's menu opens each account's
-  window and the pitboard window. Opening pitboard again from Finder or Spotlight with no
-  window open opens the pitboard window.
+  window and the Pitboard window. Opening Pitboard again from Finder or Spotlight with no
+  window open opens the Pitboard window.
 
 ### Changed
 
-- **View** > **Refresh** is one command for every window, with Command-R. In the pitboard
+- **View** > **Refresh** is one command for every window, with Command-R. In the Pitboard
   window it reads the accounts or the log again, or is **Check Again** on the **This Mac**
   pane. In an account's window it is **Reload Page**. Each pane's toolbar button had a
-  Command-R of its own, and with pitboard's menus in the menu bar the shortcut belongs to
+  Command-R of its own, and with Pitboard's menus in the menu bar the shortcut belongs to
   one item there.
 - Forgetting an account also deletes everything its window keeps on this Mac, its sign-in
   included, and the forget alert says so before you choose. The deletion follows the next
   read of the accounts that succeeds, whether you forget in the app or with
-  `pitboard forget`. pitboard deletes only what it made for the pitboard directory it reads.
+  `pitboard forget`. Pitboard deletes only what it made for the Pitboard directory it reads.
   So a copy run with another `HOME` or `PITBOARD_HOME` never signs another copy's windows
   out.
 - `brew uninstall --zap --cask pitboard-app` also removes the account windows' data, the
@@ -95,7 +103,7 @@ unchanged since 0.6.0.
 
 ## [0.6.0] - 2026-10-01
 
-pitboard tells apart everything that runs Codex with its login in memory, and the app quits
+Pitboard tells apart everything that runs Codex with its login in memory, and the app quits
 OpenAI's ChatGPT app around a Codex switch. `pitboard-core`'s public API changes, as the
 last entry under Changed says, which is why this is 0.6.0.
 
@@ -105,20 +113,20 @@ last entry under Changed says, which is why this is 0.6.0.
   and Switch** quits ChatGPT the way Command-Q does, switches, and opens ChatGPT again,
   whether or not the switch worked. ChatGPT runs a `codex` of its own with Codex's login in
   memory, and closing its windows leaves it running, so switched under it, it went on with
-  the account left behind, and its own **Log Out** revoked the login pitboard had just
+  the account left behind, and its own **Log Out** revoked the login Pitboard had just
   parked. If ChatGPT does not quit within 30 seconds, nothing changes. The command line
   never quits an app.
 
 ### Changed
 
-- After a Codex switch or a sign-in again, pitboard names what is still running the old
+- After a Codex switch or a sign-in again, Pitboard names what is still running the old
   login and what makes each take it: a `codex` session is quit and started again, the
   ChatGPT app is quit with Command-Q and opened again, Codex's background app server takes
   `codex app-server daemon restart`, and Codex in an editor takes **Developer: Reload
   Window**. Each of them runs a program called `codex`, and the warning used to count them
   all as sessions to quit and start again. `pitboard doctor`'s `codex_running` check lists
   them the same way, with process IDs, and says what to do in its advice.
-- pitboard counts only the processes of the person running it. A switch counted every
+- Pitboard counts only the processes of the person running it. A switch counted every
   user's `codex`, while `pitboard doctor` counted only theirs.
 - In `pitboard-core`, `provider::Adoption::RestartRequired` names its `holders`,
   `service::Warning::SessionsStillRunning` and `SessionsKeepTheOldLogin` carry what is
@@ -130,19 +138,19 @@ last entry under Changed says, which is why this is 0.6.0.
 
 ### Fixed
 
-- After a banked reset on claude.ai, pitboard went on showing the account's weekly limit as
+- After a banked reset on claude.ai, Pitboard went on showing the account's weekly limit as
   full until the old window's reset, a day and a half away in the case measured. A banked
-  reset lowers the share and keeps the reset time, and pitboard took the higher share in
+  reset lowers the share and keeps the reset time, and Pitboard took the higher share in
   one window as the newer, so every answer with the lower share lost to the 100% recorded
   before. An answer from the service taken after everything recorded for the account now
-  replaces it, however low, so the lower share shows the next time pitboard asks. A plan
+  replaces it, however low, so the lower share shows the next time Pitboard asks. A plan
   upgraded in the middle of a window is followed the same way; before, the old, higher
   share stood until the window reset. A session's numbers still only move a limit forward,
   since they do not say when they were measured.
 
 ## [0.5.1] - 2026-09-29
 
-Fixes that writing the documentation site turned up, and pitboard's facts about Claude Code
+Fixes that writing the documentation site turned up, and Pitboard's facts about Claude Code
 read again, from 2.1.284.
 
 ### Added
@@ -152,16 +160,16 @@ read again, from 2.1.284.
 
 ### Changed
 
-- pitboard's facts about Claude Code are read from 2.1.284, and from its macOS build as well
+- Pitboard's facts about Claude Code are read from 2.1.284, and from its macOS build as well
   as its Linux one. The weekly check reported three facts moved from 2.1.281; all three were
   read from the Linux build, which has no keychain code, or from the runtime Claude Code
   ships in. The one real change is that Claude Code no longer moves its login to the
-  plaintext file when the keychain is locked, and nothing in pitboard depends on the old
+  plaintext file when the keychain is locked, and nothing in Pitboard depends on the old
   behaviour.
-- The README introduces pitboard and links to
+- The README introduces Pitboard and links to
   [docs.usepitboard.com](https://docs.usepitboard.com), where the guides and reference are.
 - `SECURITY.md` is only the security policy: which versions get fixes, how to report a
-  vulnerability, and what pitboard does and does not protect against. Where parked logins
+  vulnerability, and what Pitboard does and does not protect against. Where parked logins
   are kept and what leaves your machine are on
   [Security and privacy](https://docs.usepitboard.com/security).
 - How to make a release, how to replace the update key, and the Sparkle and Homebrew
@@ -174,11 +182,11 @@ read again, from 2.1.284.
 - `pitboard status --fresh`, and Refresh in the app, asked Anthropic or OpenAI again during
   a wait the service had asked for. The 0.3.0 notes and `pitboard doctor` said they did not.
   They keep that wait now, and still ask a service again after it could not be reached.
-  When a service had never answered for an account and then could not be reached, pitboard
+  When a service had never answered for an account and then could not be reached, Pitboard
   said the account was rate limited.
 - With `PITBOARD_NO_ARGV=1`, renewing a parked login too large for `security`'s standard
   input spent its refresh token and then could not store the new one. The parked login was
-  lost. pitboard refuses before asking the service now, and the parked login stays as it was.
+  lost. Pitboard refuses before asking the service now, and the parked login stays as it was.
 - A switch whose login could not be read back said to run `pitboard` again, which only
   reads. It names the `pitboard use` that finishes or undoes the switch.
 - With Codex's `auth.json` missing, `pitboard doctor` suggested `pitboard use codex/<label>`,
@@ -204,7 +212,7 @@ read again, from 2.1.284.
 - Rename an account from the window, which only the command line could do.
 - In the window's account list: Use with a double-click or Return, Forget with Delete, and
   Copy Email Address and Sign In Again in each account's menu.
-- About pitboard in the menu.
+- About Pitboard in the menu.
 
 ### Changed
 
@@ -213,8 +221,8 @@ read again, from 2.1.284.
   what its limits stand at, and choosing another switches to it. Advice to switch, anything
   else worth a look, and an update that is ready come first. It opens at once, closes the
   way every menu does, and works from the keyboard and with VoiceOver.
-- Everything that needs typing or room is in pitboard's window: every account with its
-  limits drawn out, everything pitboard has to say in full, the activity log, and what it
+- Everything that needs typing or room is in Pitboard's window: every account with its
+  limits drawn out, everything Pitboard has to say in full, the activity log, and what it
   finds about this Mac. Adding an account, signing in again, naming the account in use and
   renaming one are sheets over it, and a sheet stays open while your browser is in front. The
   panel closed the moment the browser came forward, and took the sign-in's code field with
@@ -222,8 +230,8 @@ read again, from 2.1.284.
 - A switch, a rename or a forget that fails says why in an alert, instead of in a line of
   the panel that the next read could replace before anyone saw it. A sign-in or a name that
   fails says so in its sheet, with what you typed still there.
-- Settings has a Command Line tab of its own. "Open pitboard at login" says when macOS is
-  waiting for you to allow pitboard in Login Items, and opens them. "Menu bar shows" picks
+- Settings has a Command Line tab of its own. "Open Pitboard at login" says when macOS is
+  waiting for you to allow Pitboard in Login Items, and opens them. "Menu bar shows" picks
   the account and its usage, the usage alone, or the icon alone, for a crowded menu bar.
 
 ### Fixed
@@ -256,7 +264,7 @@ read again, from 2.1.284.
 
 ### Changed
 
-- A usage reading only moves forward. pitboard keeps one reading per account, every front
+- A usage reading only moves forward. Pitboard keeps one reading per account, every front
   end records into it and every front end shows it. A later reset is a newer window, and
   within one window the higher share is the newer, so numbers a session has held since its
   last response can no longer replace newer ones, whoever writes last. Where a window's
@@ -281,11 +289,11 @@ read again, from 2.1.284.
   records only what a session's response moved with the same account named before and
   after, and nothing in the half minute sessions take to follow a switch, so a session left
   idle is never recorded as anyone, whatever has happened to other accounts since: a
-  switch, a `/login`, an account forgotten. What a session passes the first time pitboard
+  switch, a `/login`, an account forgotten. What a session passes the first time Pitboard
   sees it is left out, and so is what it passes as the account named changes; its next
-  response is recorded. A `/login` in Claude Code leaves pitboard no time to count from,
+  response is recorded. A `/login` in Claude Code leaves Pitboard no time to count from,
   and for the half minute after one a session's response can still be the account
-  before's. The status line leaves that out where pitboard's reading of the account before
+  before's. The status line leaves that out where Pitboard's reading of the account before
   has the same window; otherwise, or where the two accounts' windows reset within the same
   minute, the account signed in after can show the higher of their shares until that
   window resets.
@@ -299,7 +307,7 @@ read again, from 2.1.284.
 In the tap, the name `pitboard` now means the command line.
 
 From the old formula, `brew update` warns that it did not install the cask that replaces
-it, and pitboard stays at 0.3.0. The two commands it prints leave the formula in front of
+it, and Pitboard stays at 0.3.0. The two commands it prints leave the formula in front of
 the cask, so install the cask in its place instead:
 
 ```sh
@@ -348,11 +356,11 @@ it, and so does Settings, Advanced, "Check this machine".
 
 ### Changed
 
-- Installing pitboard no longer needs Rust. `brew install datlechin/tap/pitboard` is now a
+- Installing Pitboard no longer needs Rust. `brew install datlechin/tap/pitboard` is now a
   cask, on macOS and Linux, that installs the release's own command line for the machine,
   with its man page and completions: signed and notarised on macOS, attested, and checked
   against the checksums the release took of its own files. It was a formula that fetched
-  Rust and compiled pitboard, which took minutes and a toolchain nobody had asked for.
+  Rust and compiled Pitboard, which took minutes and a toolchain nobody had asked for.
 - The menu bar app's cask is `pitboard-app`, and the app carries the command line inside
   it, at `Pitboard.app/Contents/Helpers/pitboard`. The cask links it onto `PATH` with its
   man page and completions, so an update, from Sparkle or from Homebrew, moves the app and
@@ -383,19 +391,19 @@ it, and so does Settings, Advanced, "Check this machine".
   installed schedule back and fails when the `pitboard` it runs is gone or is an app, and
   says to turn renewal off and on again.
 - On Linux, a renewal schedule turned on from the command line stopped working at the next
-  `brew upgrade`. It named the running pitboard with every link resolved, which from
+  `brew upgrade`. It named the running Pitboard with every link resolved, which from
   Homebrew is inside a directory named after the version, and the upgrade deletes that
-  directory, so systemd failed to start it every day after. It now names the path pitboard
+  directory, so systemd failed to start it every day after. It now names the path Pitboard
   was started by, such as the link in Homebrew's `bin`, when that leads to the same program.
-- Removing pitboard leaves no renewal schedule behind. `pitboard uninstall` takes it away
+- Removing Pitboard leaves no renewal schedule behind. `pitboard uninstall` takes it away
   first and says so, as `schedule_removed` in `--json`, where before it was left running
   `pitboard renew` every day. Both casks take it away on `brew uninstall --zap`, and not on
   a plain `brew uninstall`, because Homebrew runs a cask's uninstall steps on every upgrade
   too. Neither touches `~/.pitboard`: it is the only index of the parked logins, so run
-  `pitboard uninstall` before removing pitboard.
-- Advice about upgrading and removing pitboard no longer assumes Homebrew. A state file
-  from a newer pitboard said to run `brew upgrade pitboard`, and `pitboard uninstall` said
-  to remove the binary with a package manager. Both now say to update or remove pitboard
+  `pitboard uninstall` before removing Pitboard.
+- Advice about upgrading and removing Pitboard no longer assumes Homebrew. A state file
+  from a newer Pitboard said to run `brew upgrade pitboard`, and `pitboard uninstall` said
+  to remove the binary with a package manager. Both now say to update or remove Pitboard
   the way it was installed, and the first adds that the app's Check for Updates moves only
   the app and the command line inside it.
 - On Homebrew 6 and later, `brew install --cask datlechin/tap/pitboard` failed with
@@ -415,10 +423,10 @@ it, and so does Settings, Advanced, "Check this machine".
   `CODEX_HOME` so the account in use stays signed in; `pitboard use codex/work` switches
   it; and `pitboard` shows each Codex account's five-hour and weekly limits from the same
   usage read Codex itself makes, which spends no quota. Until a Codex account is enrolled,
-  pitboard reads nothing of Codex's and asks OpenAI nothing. Everything pitboard does for Codex
+  Pitboard reads nothing of Codex's and asks OpenAI nothing. Everything Pitboard does for Codex
   was read out of codex-cli 0.154.0 and is dated in a register of its own, checked against
   every new build by the conformance run twice a week, and still green on 0.156.1.
-  Codex is not Claude Code, and pitboard says where they differ rather than hiding it:
+  Codex is not Claude Code, and Pitboard says where they differ rather than hiding it:
   - A running `codex` never notices a switch, so a switch says to restart it instead of
     counting down, and names how many sessions are still using the outgoing account.
   - `codex login` and `codex logout` revoke the stored refresh token, so a Codex park is
@@ -426,7 +434,7 @@ it, and so does Settings, Advanced, "Check this machine".
     anything replaces it. Signing out inside a session still running from before a
     switch would revoke the login just parked, and the switch says so.
   - Codex's keychain stores are items Codex made for itself, which every read by another
-    program would put a permission prompt in front of, so pitboard handles Codex's
+    program would put a permission prompt in front of, so Pitboard handles Codex's
     default store, the `auth.json` file, and refuses the others with a reason.
   - Codex takes no lock, so a session still running from before a switch can refresh its
     token in the middle of one. The live login is read again just before it is replaced,
@@ -436,20 +444,20 @@ it, and so does Settings, Advanced, "Check this machine".
   heading per tool, and the menu bar follows the signed-in account closest to running out.
   When an account runs out, only another account of the same tool is offered. A Codex
   switch has no countdown: the panel says running `codex` sessions keep the old account,
-  and how many pitboard found, and keeps saying so until that tool switches again rather
+  and how many Pitboard found, and keeps saying so until that tool switches again rather
   than until anything at all changes. "Add another account" asks which tool when more than
   one is installed, and a Codex sign-in shows the address `codex login` printed. Cancelling
   a sign-in no longer holds the app until the tool says something, which a Codex sign-in
   never does before the browser is done.
 - Labels belong to a tool. `work` can be a Claude Code account and a Codex account at
   once, `codex/work` says which, and a bare `work` still means what it always did as long
-  as it names one account; where it names two, pitboard lists both rather than picking.
+  as it names one account; where it names two, Pitboard lists both rather than picking.
   A bare name for a new account means Claude Code, so every command written before there
   was a second tool does what it did. New codes: `provider_unknown`, `label_ambiguous`,
   `sign_in_not_isolated`, `live_store_unsupported`, `state_names_unknown_tool`,
   `recovery_elsewhere`, `sessions_still_running`, `codex_program_missing` and
   `codex_not_found`.
-- No parked login goes unnamed. Every name pitboard is about to write a login into is
+- No parked login goes unnamed. Every name Pitboard is about to write a login into is
   written down first, and the next command resolves any that nothing refers to: given back
   to the account whose name it carries when that account holds nothing, deleted when nobody
   wants it, and left alone when the store could not be read. Before this, a run killed
@@ -466,19 +474,19 @@ it, and so does Settings, Advanced, "Check this machine".
   whether a parked token still works: finding out means exchanging it, and exchanging it is
   the act that would rotate it past the other machine's copy.
 - `pitboard repair` asks the credential store itself what parked logins are on this
-  machine, rather than reading pitboard's own index, and accounts for every one it finds:
+  machine, rather than reading Pitboard's own index, and accounts for every one it finds:
   given back to the account whose name it carries, or deleted when no account here wants
-  it, or reported and left exactly where it is. Only a name this pitboard wrote down itself
-  is ever deleted: a keychain belongs to a whole login session while pitboard's records
+  it, or reported and left exactly where it is. Only a name this Pitboard wrote down itself
+  is ever deleted: a keychain belongs to a whole login session while Pitboard's records
   belong to one `PITBOARD_HOME`, so a parked login it cannot account for is evidence of
-  another pitboard rather than of an orphan, and deleting it would end that account's
+  another Pitboard rather than of an orphan, and deleting it would end that account's
   session for somebody who never ran the command. Giving one back is additive and safe on a
-  guess; deleting one is not, so on macOS a login given back that this pitboard never wrote
-  down is deleted only once pitboard has used it, by switching to it or renewing it, even
+  guess; deleting one is not, so on macOS a login given back that this Pitboard never wrote
+  down is deleted only once Pitboard has used it, by switching to it or renewing it, even
   when the renewal is stopped before it records what it got back. Parking over it, `forget`
   and `uninstall` leave it where it is, and `uninstall` says how many it left, as
-  `parks_left` in `--json`. Elsewhere the vault is a directory inside pitboard's own, which
-  no other pitboard parks in, so whatever `repair` finds there is this one's. Measured
+  `parks_left` in `--json`. Elsewhere the vault is a directory inside Pitboard's own, which
+  no other Pitboard parks in, so whatever `repair` finds there is this one's. Measured
   first: `security dump-keychain` without `-d` never prompts, takes 0.06 seconds, emits no
   secret of any item, and does not slow later reads.
 - A crash matrix: every durable step of a switch, an enrolment, a renewal and a forget,
@@ -498,7 +506,7 @@ it, and so does Settings, Advanced, "Check this machine".
   machine and none could tell when another had changed something, so a switch typed in a
   terminal left the menu bar naming the account the person had just stopped using for as
   long as five minutes, with a button offering a switch that had already happened. The app
-  now asks every couple of seconds when pitboard's account index last changed, which is one
+  now asks every couple of seconds when Pitboard's account index last changed, which is one
   stat of one file, and re-reads what it already knows when it moves: no network, no
   keychain and nothing asked of Anthropic. Deliberately the index alone and not the whole
   directory, because the status line writes usage readings after every message in every
@@ -507,7 +515,7 @@ it, and so does Settings, Advanced, "Check this machine".
   that needed more than that either expanded inside it or sent the person to a terminal,
   and everything configurable lived in an ellipsis menu where opening at login sat between
   hiding the checks and quitting. The window holds each account with what its limits have
-  been doing, the whole log of what pitboard has changed, and all of what it found about
+  been doing, the whole log of what Pitboard has changed, and all of what it found about
   this machine. Settings opens with Command-comma where people look for it, and reaches the
   scheduled renewal the core could already do and the app could not.
 - A first run for somebody who installed only the app. The cask puts the command line on
@@ -520,7 +528,7 @@ it, and so does Settings, Advanced, "Check this machine".
   opens the window, because a status item is invisible to somebody who has just installed
   it.
 - `doctor` reads the modes of everything on the disk that holds a login: the plaintext
-  credential file, pitboard's vault and every parked login in it, and fails when anyone
+  credential file, Pitboard's vault and every parked login in it, and fails when anyone
   but the owner can read one. Where there is no keychain, a mode bit is the whole of that
   protection, and a backup restore, a `cp -r` or a careless umask changes one quietly.
 - The app's bindings reach the rest of the core: the offline report, giving up on an
@@ -531,7 +539,7 @@ it, and so does Settings, Advanced, "Check this machine".
   a person who installed only the app has not got. And every warning is shown rather than
   the first: a switch can warn about an overriding environment variable and a config that
   did not update at once, and showing one of them is how somebody fixes the wrong thing.
-- pitboard keeps what each account's limits have been doing, and says how long each account
+- Pitboard keeps what each account's limits have been doing, and says how long each account
   lasts. The single decision this tool exists to support is which account to use next, and
   it answered with two instantaneous percentages and left the arithmetic to the person: 73%
   of a weekly limit means nothing without knowing whether it was 40% this morning. It
@@ -546,7 +554,7 @@ it, and so does Settings, Advanced, "Check this machine".
   first and named per MCP server. A login too big for `security`'s standard input is almost
   never the login: on one real machine the OAuth block was 506 bytes and eleven MCP server
   tokens were 3679. Saying "8503 of 4032 bytes" left a person to guess which of those to
-  sign out of, and the answer was in the document pitboard had already read.
+  sign out of, and the answer was in the document Pitboard had already read.
 - `pitboard status` names the credential slot it is speaking for, in `--json` always and in
   the human report when it is not the default. `CLAUDE_CONFIG_DIR` selects a different
   keychain item, so who is signed in is a fact about one slot and not about the machine;
@@ -560,26 +568,26 @@ it, and so does Settings, Advanced, "Check this machine".
   opt-in, it runs one verb, it never switches and never asks for usage, and `RunAtLoad` is
   off because installing it is not a reason to talk to Anthropic that second.
 - `pitboard doctor` says when an account has not been switched to for longer than a refresh
-  token's own life. pitboard renews a parked login for as long as its account is enrolled,
+  token's own life. Pitboard renews a parked login for as long as its account is enrolled,
   so one enrolled and forgotten keeps a live, continuously rotated token on the machine
-  indefinitely, and nothing said so. Nothing is dropped on a timer pitboard chose: the
+  indefinitely, and nothing said so. Nothing is dropped on a timer Pitboard chose: the
   threshold is the token's own lifetime and all the check does is say it.
-- pitboard owns how often it asks Anthropic anything. `status` asked about every enrolled
+- Pitboard owns how often it asks Anthropic anything. `status` asked about every enrolled
   account plus the live login on every run with no memory of having just asked, and the
   menu bar app asked the same questions every five minutes, on every wake and on every
   panel open, from a process that knew nothing about the command line's; nothing honoured
   `Retry-After`, so a 429 became a stale row and the identical request went out on the next
   tick. Two accounts and a running app is on the order of six hundred authenticated
-  requests a day nobody asked for, and it is the part of pitboard's behaviour that reads
+  requests a day nobody asked for, and it is the part of Pitboard's behaviour that reads
   least like a person switching between their own accounts.
   An account is now asked about again once the tightest limit it describes could have moved
   by a percentage point, which is three minutes for a five-hour window and derived from the
   window rather than picked. A refusal is recorded and waited out, with `Retry-After`
-  believed over anything pitboard would choose, and the wait is shared by every front end
+  believed over anything Pitboard would choose, and the wait is shared by every front end
   on the machine. `pitboard status --fresh` asks anyway; a wait Anthropic asked for is not
   overridden. `pitboard doctor` says what is being held back and for how long.
 - A conformance checker, and a job that runs it. `pitboard-conformance` reads the literals
-  each of pitboard's facts about Claude Code is readable by out of a Claude Code build and
+  each of Pitboard's facts about Claude Code is readable by out of a Claude Code build and
   says which are still there; a scheduled workflow fetches the newest build twice a week
   and runs it. Shallow on purpose, and it says so: a literal being present does not prove
   the behaviour around it is unchanged, while a literal disappearing does prove something
@@ -594,18 +602,18 @@ it, and so does Settings, Advanced, "Check this machine".
   Measured on one real account: the slice is 524 bytes against 506, which is nothing against
   the 4032-byte ceiling. Whether restoring a device token spares a re-verification is not
   measured and is not claimed anywhere.
-- pitboard reads what a session here would actually authenticate with, from files rather
+- Pitboard reads what a session here would actually authenticate with, from files rather
   than from three environment variables. Claude Code resolves authentication from layered
   settings, and a managed policy or a line in a person's own `settings.json` can set an
   `env` block, an `apiKeyHelper`, or a third-party provider switch; under any of those a
-  session ignores the login pitboard moves and every switch is a no-op that reported
+  session ignores the login Pitboard moves and every switch is a no-op that reported
   success. Worse, the app has no shell environment at all, so the one surface that could not
   warn was the one most likely to be used on a machine that needed the warning. Managed
   settings and the person's own are read; a project's are deliberately not, because an
-  answer true only in the directory pitboard happened to run in is worse than none.
+  answer true only in the directory Pitboard happened to run in is worse than none.
   `pitboard doctor` says which it is, and a custom OAuth endpoint set in a file now refuses
   a switch the way one set in the environment always did.
-- Every fact pitboard stands on about Claude Code is now a list rather than a comment:
+- Every fact Pitboard stands on about Claude Code is now a list rather than a comment:
   what it is, where in Claude Code it was read, which build it was last verified against,
   and what in this crate stops being true if it moves. `pitboard doctor` says which Claude
   Code is installed here, read off disk and never by running it, beside the build those
@@ -636,10 +644,10 @@ it, and so does Settings, Advanced, "Check this machine".
 
 ### Changed
 
-- pitboard's account list is at schema 4: every account says which tool it is for, and
+- Pitboard's account list is at schema 4: every account says which tool it is for, and
   which account is signed in is kept per tool. A schema 3 file is brought forward on its
   first read with nothing moved and nothing in the keychain or the vault touched. An older
-  pitboard refuses the new file and says to upgrade whichever of the command line and the
+  Pitboard refuses the new file and says to upgrade whichever of the command line and the
   app is behind, rather than calling it corrupt.
 - Messages name the tool they are about. An error that used to say "Claude Code",
   "Anthropic" or `claude` whatever the account now names that account's tool, its service
@@ -660,7 +668,7 @@ it, and so does Settings, Advanced, "Check this machine".
 - In `--json`, every `status` account gains `provider` and `qualified`, its name with the
   tool spelled out (`codex/work`), null for a login nothing has enrolled. Two stale codes
   are new: `login_unreadable`, for a tool's login that is there and could not be read, and
-  `login_unusable`, for one that was read and is no account pitboard can park or switch,
+  `login_unusable`, for one that was read and is no account Pitboard can park or switch,
   such as an API key. Where no record pins such a login on an account, it gets a row of
   its own with no label, email or account id, and only for a tool with accounts enrolled.
   `doctor` gains `environment.codex` (`home`, `present`, `backend`, `login_present`,
@@ -684,7 +692,7 @@ it, and so does Settings, Advanced, "Check this machine".
   this repository's own front ends and may change in any release. The enums a caller reads
   codes out of are now `#[non_exhaustive]`, so adding a code is not a breaking change for a
   consumer, which is what the command line's JSON contract has always promised. Writing
-  pitboard's index is no longer reachable from outside the crate: every change goes through
+  Pitboard's index is no longer reachable from outside the crate: every change goes through
   `switch`, which records its intent first. Marking those enums and withdrawing `state::save`
   are themselves breaking changes for anyone who built on 0.2.0, so this is the release that
   makes them, while the crate is young enough for that to cost nothing. Nothing changes for
@@ -700,8 +708,8 @@ it, and so does Settings, Advanced, "Check this machine".
   stores, the macOS keychain and the Windows credential manager behind a feature flag;
   searched whole, the shipping build carries no libsecret, no `org.freedesktop.secrets`, no
   gnome-keyring and no Secret Service. So on Linux its login is a plaintext file at mode
-  0600 and pitboard's parked copies are files beside it, which is what pitboard already
-  did. There is no keyring backend to add. The facts pitboard stands on can now rest on an
+  0600 and Pitboard's parked copies are files beside it, which is what Pitboard already
+  did. There is no keyring backend to add. The facts Pitboard stands on can now rest on an
   absence: each one may name literals whose arrival would disprove it, and the conformance
   run fails when one turns up, because a fact resting on something not existing is wrong
   the moment it does and nothing disappearing would ever say so.
@@ -760,14 +768,14 @@ it, and so does Settings, Advanced, "Check this machine".
   outgoing account is read from its ID token without asking OpenAI, the login kept could be
   one whose refresh chain was already revoked. The new login now goes in place of the old
   under the same lock, checks and read-back as a switch, nothing is parked, and `--json`
-  says `in_use`; a label this enrols for the first time says it was enrolled. Where pitboard
+  says `in_use`; a label this enrols for the first time says it was enrolled. Where Pitboard
   cannot tell that the login in use is that account's, the new one is parked as before,
   because writing over a login nobody can name could lose it, and when that is the account
-  pitboard last saw in use it says so and why, with the new code
+  Pitboard last saw in use it says so and why, with the new code
   `sign_in_parked_not_in_use`. A running `codex` keeps the old login and can write it back
   when it refreshes, so the sessions are counted and warned about, with the new code
   `sessions_keep_old_login`. A new login that could not be written was not kept, and says to
-  sign in again, with the new code `sign_in_not_kept`. A new login pitboard could not
+  sign in again, with the new code `sign_in_not_kept`. A new login Pitboard could not
   confirm is in use, where the old one may be gone too, is parked rather than lost, with the
   new code `sign_in_not_installed`, and still says what writing and parking it warned about.
   Where it was in use after all, that parked copy holds the refresh token the tool is using:
@@ -776,7 +784,7 @@ it, and so does Settings, Advanced, "Check this machine".
   switch said beside it, and shows what a sign-in of any account warned about.
 - A renewal killed after writing the fresh login and before recording it could lose the
   login: the next change deleted the fresh copy as unrecorded and kept the old one, whose
-  refresh token the service had already spent. A copy pitboard wrote down itself now
+  refresh token the service had already spent. A copy Pitboard wrote down itself now
   replaces an older copy of a different chain. A renewal whose record cannot be saved keeps
   what it wrote for the next run instead of deleting it.
 - An interrupted switch is recovered only where its tool's login was when it started. Read
@@ -791,7 +799,7 @@ it, and so does Settings, Advanced, "Check this machine".
   still takes no lock and changes nothing.
 - Labels written by 0.1.x that contain a slash can be switched to, forgotten, renamed and
   signed in to again; they read as a tool prefix and were refused.
-- The floor between two questions about one account was the minute pitboard uses for a
+- The floor between two questions about one account was the minute Pitboard uses for a
   window it cannot time, not the three minutes it promises. It worked a window's length out
   from its kind and knew `five_hour` and `seven_day`, and Anthropic has been answering
   `session`, `weekly_all` and `weekly_scoped`. A window now carries its length where it is
@@ -812,9 +820,9 @@ it, and so does Settings, Advanced, "Check this machine".
   between was silently gone from the file that holds a person's project history and MCP
   configuration. Measured on 22 September 2026 against a running session: it is rewritten
   about every forty seconds and every rewrite changes something. Claude Code takes no lock
-  on it, so pitboard checks that the bytes it parsed are still the bytes on disk and starts
+  on it, so Pitboard checks that the bytes it parsed are still the bytes on disk and starts
   again from the new ones when they are not, and after four tries writes nothing rather than
-  writing over what Claude Code just put there. What pitboard removed from the file is
+  writing over what Claude Code just put there. What Pitboard removed from the file is
   written into `pitboard log` rather than left to be inferred from a backup.
 - A renewed login's expiry is measured from Anthropic's clock rather than from this
   machine's. The lifetimes a renewal answers with are relative, so what they are added to
@@ -826,7 +834,7 @@ it, and so does Settings, Advanced, "Check this machine".
   header has a granularity of one second, so the whole spread was noise. Anchoring is the
   correction; estimating would have been machinery with nothing to correct.
 - "Nothing is signed in" is no longer said when something is. If Claude Code's config names
-  somebody as signed in and no store pitboard reads holds that login, pitboard is looking in
+  somebody as signed in and no store Pitboard reads holds that login, Pitboard is looking in
   the wrong place, and writing a login there would put it where nobody reads it. That is now
   its own refusal and its own failing check, with the code `live_credential_elsewhere`,
   rather than advice to sign in again. It is the failure that would follow Claude Code
@@ -842,23 +850,23 @@ it, and so does Settings, Advanced, "Check this machine".
   asked before Claude Code's write lock is taken, so it does not hold up its writes.
 - A switch no longer reports success it did not have. Claude Code's `/logout` deletes the
   credential with no write lock held once it has given up waiting, which is the one write
-  pitboard cannot exclude; landing just after the install, it left the incoming account
+  Pitboard cannot exclude; landing just after the install, it left the incoming account
   signed out while `pitboard use` printed "Switched to work" and exited 0. The slot is now
   read back before the incoming copy is discarded, so a switch that did not hold leaves
   both logins parked and says what happened, instead of leaving neither and saying nothing.
   The new code is `switch_did_not_hold`.
-- The credential write lock now notices when it stops being pitboard's. A machine that
+- The credential write lock now notices when it stops being Pitboard's. A machine that
   sleeps mid-switch lets the lock age past its staleness window, and Claude Code reclaims
   it and writes underneath a switch that believes it still holds it. The heartbeat compares
   the directory's mtime against what it last stored and stops, marking the lock lost, and
   releasing it then leaves the directory alone rather than taking away a lock that now
   belongs to somebody else. Claude Code treats the same event as a warning and keeps
-  writing, so pitboard cannot expect the other side to stop. Measured first: APFS returns a
+  writing, so Pitboard cannot expect the other side to stop. Measured first: APFS returns a
   mtime 18 to 60 nanoseconds from the one it was given, so a check against the value asked
   for would abandon every switch.
 - A locked keychain no longer reads as a lost login. On a machine whose keychain is locked
   the write fails, the read-back that decides whether anything changed fails too, and that
-  second failure was taken to mean the slot had changed: pitboard attempted a rollback,
+  second failure was taken to mean the slot had changed: Pitboard attempted a rollback,
   that failed as well, and the person was told their login could not be put back and they
   should sign in again. Nothing had been written and it had never moved. The read-back now
   has three answers rather than two, and not knowing is one of them: nothing further is
@@ -885,9 +893,9 @@ and what the app was missing to stand on its own.
 
 ### Added
 
-- `pitboard log` shows what pitboard has changed and when, from the record it was already
+- `pitboard log` shows what Pitboard has changed and when, from the record it was already
   keeping. The log now names which front end asked.
-- `pitboard uninstall` deletes every parked login and then pitboard's own files, in that
+- `pitboard uninstall` deletes every parked login and then Pitboard's own files, in that
   order, because the account list is the only index of those keychain items.
 - `pitboard abandon` gives up on an interrupted switch that cannot be finished, keeping
   every login. The way out when recovery cannot reach Anthropic.
@@ -922,14 +930,14 @@ and what the app was missing to stand on its own.
 - `enroll --sign-in` checked what could refuse the enrolment only after the browser sign-in.
 - The status line showed `?·?` for every account but the one in use until someone ran
   `pitboard` by hand. It now keeps the numbers Claude Code hands it.
-- doctor and forget read pitboard's record of its last switch rather than who is signed in,
+- doctor and forget read Pitboard's record of its last switch rather than who is signed in,
   so a sign-in made with Claude Code's own `/login` made both wrong.
 - Three ways a parked login could be left in the keychain with nothing naming it.
 - A renewal that could not be written left the account with a login already spent.
 - The keychain ceiling has its own error, saying the size, the limit, and what to do. A
   login with MCP server tokens in it is past that limit, which is not theory.
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` raise a warning
-  on every change: Claude Code signs in with those, not with the login pitboard moved.
+  on every change: Claude Code signs in with those, not with the login Pitboard moved.
 - Columns line up in what a terminal draws, so a label in Chinese or Japanese no longer
   pushes everything after it out of line.
 - One state file serves every credential slot, and what was switched to in one slot is no
@@ -944,13 +952,13 @@ and what the app was missing to stand on its own.
 
 - A switch no longer leaves the outgoing account's `trustedDeviceToken`, `organizationUuid`,
   `enterpriseGateway` or `designOauth` behind for the incoming account to present as its
-  own. Claude Code deletes all of them with the login on logout; pitboard now does the same,
+  own. Claude Code deletes all of them with the login on logout; Pitboard now does the same,
   which is the state a logout and a fresh sign-in leave.
 - Renewing a parked login whose answer carries no refresh-token lifetime keeps the deadline
   it had, as Claude Code does. Dropping it made a park that was about to lapse look as
-  though it never expires, so pitboard went on offering and renewing it.
-- pitboard refuses to act when `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set. Claude Code then keeps
-  its login under a different name, so pitboard would park nothing and restore into an item
+  though it never expires, so Pitboard went on offering and renewing it.
+- Pitboard refuses to act when `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set. Claude Code then keeps
+  its login under a different name, so Pitboard would park nothing and restore into an item
   nobody reads.
 
 ## [0.1.3] - 2026-09-22
@@ -967,7 +975,7 @@ and what the app was missing to stand on its own.
 
 ### Changed
 
-- Every assumption pitboard makes about Claude Code re-checked against 2.1.278. Three
+- Every assumption Pitboard makes about Claude Code re-checked against 2.1.278. Three
   comments described behaviour that has changed: the credential cache is a rolling window
   rather than one anchored at process start, `/logout` gives up on the write lock after 7.5
   seconds and deletes without it, and the organization fields in the config come from
@@ -980,7 +988,7 @@ and what the app was missing to stand on its own.
 ### Fixed
 
 - The keychain account name now falls back to the passwd entry when `USER` is not in the
-  environment, which is what Claude Code does. Without it, pitboard run from a launchd
+  environment, which is what Claude Code does. Without it, Pitboard run from a launchd
   agent, a cron job or an app opened from Finder read a different keychain item than the
   one Claude Code writes, and reported no login where there was one.
 - Renewing a parked login issued to another client now renews it as that client, instead of
@@ -1005,7 +1013,7 @@ and what the app was missing to stand on its own.
 
 ### Fixed
 
-- `enroll --sign-in` no longer holds pitboard's lock while the browser sign-in waits, so
+- `enroll --sign-in` no longer holds Pitboard's lock while the browser sign-in waits, so
   `use`, `forget` and `rename` go ahead meanwhile; a second sign-in is refused, not queued.
 - What Claude Code's sign-in prints goes to stderr, so `enroll --sign-in --json` prints
   exactly one JSON line.
@@ -1028,7 +1036,7 @@ First release.
 - Shell completions and a man page, generated from the command definition.
 - Linux support, using a file vault for parked logins. Not yet confirmed against a
   signed-in Claude Code on Linux.
-- An audit log of every change pitboard makes.
+- An audit log of every change Pitboard makes.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 

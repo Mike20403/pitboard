@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Whether pitboard is a menu bar app or a regular one: in the Dock, in Command-Tab and with
+/// Whether Pitboard is a menu bar app or a regular one: in the Dock, in Command-Tab and with
 /// its menus in the menu bar while any of its windows is open, and only in the menu bar
 /// while none is.
 ///
@@ -52,19 +52,19 @@ public final class AppPresence {
     /// Whether any of the app's windows is open.
     var hasWindows: Bool { !open.isEmpty }
 
-    /// Brings pitboard to the front to show a window it is about to open, as a regular app
+    /// Brings Pitboard to the front to show a window it is about to open, as a regular app
     /// first, so it comes forward with its Dock icon and its menus.
     func activate() {
         apply(.regular)
         bringForward()
     }
 
-    /// Brings pitboard to the front for something that came from another app, a shared link,
-    /// while pitboard may be in the background with nobody's click on it.
+    /// Brings Pitboard to the front for something that came from another app, a shared link,
+    /// while Pitboard may be in the background with nobody's click on it.
     ///
     /// Measured on macOS 27: `NSApp.activate()` from an app in the background is refused, and
-    /// a link from the Share extension at a launch leaves pitboard there. Launch Services
-    /// opening the app does bring it forward, so pitboard asks it to.
+    /// a link from the Share extension at a launch leaves Pitboard there. Launch Services
+    /// opening the app does bring it forward, so Pitboard asks it to.
     func comeForward() {
         apply(.regular)
         if isActive() {

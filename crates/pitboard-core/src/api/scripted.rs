@@ -5,7 +5,7 @@
 //! that never answers, a 429, a refresh token Anthropic has stopped accepting. Those are
 //! the answers the engine has to be right about, and they were untestable.
 //!
-//! It also counts. How often pitboard asks is a design question in its own right, and a
+//! It also counts. How often Pitboard asks is a design question in its own right, and a
 //! test that can say "asked once, for two front ends" is how that stays true.
 
 use super::{Api, ApiError, Owner, Renewed};

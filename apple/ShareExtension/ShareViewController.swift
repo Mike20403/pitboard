@@ -3,14 +3,14 @@ import PitboardSites
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// **pitboard** in the system Share menu: hands the page being shared to the app it came in,
+/// **Pitboard** in the system Share menu: hands the page being shared to the app it came in,
 /// whose account picker asks which account's window opens it.
 ///
 /// Sandboxed, as an app extension must be, with no network, no files and no group shared with
 /// the app. It reads the one web address the host shares, checks it is a link of one of the
-/// sites, so sharing any other page never starts pitboard, and opens a pitboard link with the
+/// sites, so sharing any other page never starts Pitboard, and opens a Pitboard link with the
 /// app it is inside. The app checks the link again all the same, since anything on the Mac
-/// can open a pitboard link.
+/// can open a Pitboard link.
 final class ShareViewController: NSViewController {
     private let state = ShareState()
     private var started = false
@@ -50,7 +50,7 @@ final class ShareViewController: NSViewController {
         guard let app = Handoff.containingApp(of: Bundle.main.bundleURL),
             let scheme = Handoff.scheme(in: .main)
         else {
-            state.phase = .failed("pitboard couldn’t find the app this extension came with.")
+            state.phase = .failed("Pitboard couldn’t find the app this extension came with.")
             return
         }
         do {

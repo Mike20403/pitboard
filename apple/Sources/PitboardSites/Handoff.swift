@@ -1,9 +1,9 @@
 import Foundation
 
-/// How the Share extension hands a link to the app it came in: a pitboard link,
+/// How the Share extension hands a link to the app it came in: a Pitboard link,
 /// `<scheme>://open?url=<link>`, which the app's account picker receives.
 ///
-/// Anything on the Mac can open a pitboard link, so the app reads one as strictly as it reads
+/// Anything on the Mac can open a Pitboard link, so the app reads one as strictly as it reads
 /// a link typed by a stranger, and opens nothing until the person chooses an account.
 public enum Handoff {
     /// The Info.plist key both the app and the extension read their build's scheme from:
@@ -18,7 +18,7 @@ public enum Handoff {
         bundle.object(forInfoDictionaryKey: schemeKey) as? String
     }
 
-    /// The pitboard link that asks the app to open `link`, with everything but the unreserved
+    /// The Pitboard link that asks the app to open `link`, with everything but the unreserved
     /// characters percent-encoded. That is a subset of what JavaScript's `encodeURIComponent`
     /// leaves bare, so a link either of them builds reads back the same.
     public static func url(opening link: SiteLink, scheme: String) -> URL {
@@ -35,9 +35,9 @@ public enum Handoff {
         return parts.url!
     }
 
-    /// The link a pitboard link of `scheme` carries, or why it carries none this build opens.
+    /// The link a Pitboard link of `scheme` carries, or why it carries none this build opens.
     ///
-    /// Strict on purpose. A pitboard link written without encoding the link it carries,
+    /// Strict on purpose. A Pitboard link written without encoding the link it carries,
     /// `pitboard://open?url=https://claude.ai/x?a=1&b=2#c`, reads as a shorter link, another
     /// item and a fragment, and opening the first part would open the wrong page without a
     /// word.

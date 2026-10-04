@@ -1,4 +1,4 @@
-//! Every fact about Claude Code that pitboard stands on, named and dated.
+//! Every fact about Claude Code that Pitboard stands on, named and dated.
 //!
 //! The keychain item's name and how the slot is hashed from a directory, the five keys a
 //! logout deletes, the write lock and its constants, the one write that skips the lock, the
@@ -101,7 +101,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                failed read to a write once this process has seen the item \
                (`failureIfTransient`, from 2.1.281), and a failed read outright only when a \
                caller asks for that. Any other exit is a failed read. `show-keychain-info` \
-               exiting 36 only adds an unlock hint. pitboard reads 36 as unreadable on \
+               exiting 36 only adds an unlock hint. Pitboard reads 36 as unreadable on \
                purpose, the strict end of that",
         read_from: "the keychain backend's read path",
         verified_against: VERIFIED_AGAINST,
@@ -218,7 +218,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         read_from: "the secure storage module's backend list and `getSecureStorage`, and the \
                     whole build searched for every Linux keyring name",
         verified_against: VERIFIED_AGAINST,
-        depends: "host::linux, and pitboard's claim that a parked login on Linux is no \
+        depends: "host::linux, and Pitboard's claim that a parked login on Linux is no \
                   less protected than the live one",
         probe: &[
             "tengu_windows_credman",

@@ -2,7 +2,7 @@ import Foundation
 import PitboardKit
 
 /// Everything about this Mac rather than its accounts: the daily renewal schedule, the
-/// `pitboard` a terminal runs, opening at login, what doctor finds, and what pitboard has
+/// `pitboard` a terminal runs, opening at login, what doctor finds, and what Pitboard has
 /// changed. The settings and the window's other panes read it; the menu never does.
 @MainActor
 @Observable
@@ -32,17 +32,17 @@ final class MachineModel {
     private(set) var linkFailed: String?
     private(set) var linking = false
 
-    /// Whether pitboard opens at login, as macOS has it.
+    /// Whether Pitboard opens at login, as macOS has it.
     private(set) var openAtLogin: LoginItemState
     /// Why opening at login could not be changed.
     private(set) var loginItemFailed: String?
 
-    /// Every check pitboard makes about this machine, once someone asks for them.
+    /// Every check Pitboard makes about this machine, once someone asks for them.
     private(set) var checks: [Check] = []
     private(set) var checking = false
     private(set) var checkedAt: Date?
 
-    /// What pitboard has changed, newest first, once someone asks for it.
+    /// What Pitboard has changed, newest first, once someone asks for it.
     private(set) var changes: [Change] = []
 
     init(service: any Core, commandLineTool: CommandLineTool, loginItem: any LoginItem) {
@@ -104,10 +104,10 @@ final class MachineModel {
     var cannotSchedule: String? {
         if commandLineTool.linkable { return nil }
         if commandLineTool.translocated {
-            return "Move pitboard to your Applications folder first. Until then macOS runs it "
-                + "from a temporary copy, which is gone once pitboard quits."
+            return "Move Pitboard to your Applications folder first. Until then macOS runs it "
+                + "from a temporary copy, which is gone once Pitboard quits."
         }
-        return "This copy of pitboard has no command line inside it to run on a schedule."
+        return "This copy of Pitboard has no command line inside it to run on a schedule."
     }
 
     /// Whether daily renewal is on.
@@ -190,7 +190,7 @@ final class MachineModel {
         checkedAt = Date()
     }
 
-    /// What pitboard has changed, newest first. Read when something asks to see it.
+    /// What Pitboard has changed, newest first. Read when something asks to see it.
     func readChanges(_ limit: UInt32 = 500) async {
         changes = await service.log(limit: limit).reversed()
     }

@@ -1,4 +1,4 @@
-# pitboard holds OAuth refresh tokens for real accounts, so a compromised or
+# Pitboard holds OAuth refresh tokens for real accounts, so a compromised or
 # unexpectedly-licensed transitive dependency is a realistic, high-consequence risk.
 
 [graph]

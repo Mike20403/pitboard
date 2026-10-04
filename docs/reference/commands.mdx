@@ -15,13 +15,13 @@ Run a command as `pitboard <command>`. The following table lists each `<command>
 | `forget` | Drop an account and its parked login | [Account commands](/reference/account-commands#forget) |
 | `abandon` | Give up on an interrupted switch that cannot be finished, keeping every login | [Recovery commands](/reference/recovery-commands#abandon) |
 | `repair` | Ask the credential store what parked logins are here, and account for every one | [Recovery commands](/reference/recovery-commands#repair) |
-| `adopt` | Take over a pitboard directory another computer wrote, keeping the accounts | [Recovery commands](/reference/recovery-commands#adopt) |
+| `adopt` | Take over a Pitboard directory another computer wrote, keeping the accounts | [Recovery commands](/reference/recovery-commands#adopt) |
 | `renew` | Renew every parked login that is due, and nothing else | [Maintenance commands](/reference/maintenance-commands#renew) |
 | `schedule` | Keep parked logins alive without running anything yourself | [Maintenance commands](/reference/maintenance-commands#schedule) |
-| `log` | What pitboard has changed, and when | [Maintenance commands](/reference/maintenance-commands#log) |
-| `uninstall` | Delete every parked login this pitboard wrote, the daily renewal schedule and pitboard's own files | [Maintenance commands](/reference/maintenance-commands#uninstall) |
+| `log` | What Pitboard has changed, and when | [Maintenance commands](/reference/maintenance-commands#log) |
+| `uninstall` | Delete every parked login this Pitboard wrote, the daily renewal schedule and Pitboard's own files | [Maintenance commands](/reference/maintenance-commands#uninstall) |
 | `rename` | Change the label an account is enrolled under | [Account commands](/reference/account-commands#rename) |
-| `doctor` | Check that what pitboard relies on still holds on this machine | [Maintenance commands](/reference/maintenance-commands#doctor) |
+| `doctor` | Check that what Pitboard relies on still holds on this machine | [Maintenance commands](/reference/maintenance-commands#doctor) |
 | `statusline` | One line for Claude Code's status bar; reads its session JSON on stdin | [Integration commands](/reference/integration-commands#statusline) |
 | `completions` | Print a shell completion script | [Integration commands](/reference/integration-commands#completions) |
 | `help` | Print this message or the help of the given subcommand(s) | [Global options](/reference/commands#global-options) |
@@ -47,7 +47,7 @@ Run a command as `pitboard <command>`. The following table lists each `<command>
 
 Every command except `help` takes `--help`, and `pitboard help <command>` also prints a command's help. `pitboard --version` prints the version, and no command takes `--version`.
 
-pitboard refuses a mistyped option or an extra word, as in `pitboard status --verbose` or `pitboard status work`, and exits with status 2.
+Pitboard refuses a mistyped option or an extra word, as in `pitboard status --verbose` or `pitboard status work`, and exits with status 2.
 
 ## Labels
 
@@ -64,14 +64,14 @@ Commands read a bare label, one without a prefix, in two ways:
 
 `pitboard rename` keeps an account in its tool: `pitboard rename codex/work job` gives `codex/job`.
 
-pitboard's messages write a label the way a command takes it: `work` for Claude Code, `codex/work` for Codex, and `claude/work` where both tools have a `work`.
+Pitboard's messages write a label the way a command takes it: `work` for Claude Code, `codex/work` for Codex, and `claude/work` where both tools have a `work`.
 
-pitboard refuses a label that breaks a rule, with one of these messages:
+Pitboard refuses a label that breaks a rule, with one of these messages:
 
 | Rule broken | Message |
 | --- | --- |
 | A space or a control character in the label | `` a label must be one word, such as `personal` or `work` `` |
-| A prefix that is not a tool | `` `codx` is not a tool pitboard knows. It knows: claude, codex `` |
+| A prefix that is not a tool | `` `codx` is not a tool Pitboard knows. It knows: claude, codex `` |
 | A prefix with no name | `` `codex/` names a tool but no account. Try `codex/work` `` |
 | A second `/` | `` a label cannot contain `/`: it separates the tool from the name, so at most one belongs in `codex/a/b` `` |
 | A bare label both tools have | `` `work` is enrolled for more than one tool: `claude/work`, `codex/work`. Say which one. `` |
@@ -81,9 +81,9 @@ pitboard refuses a label that breaks a rule, with one of these messages:
 
 A command prints its result on standard output. Errors go to standard error as `error: <message>`, and warnings as `warning: <message>`.
 
-With `--json`, pitboard prints one line of JSON on standard output, with any error or warning inside it. `--help` and `--version` print plain text even with `--json`. `pitboard enroll --sign-in` also writes to standard error: the line that starts `Opening`, and the tool's own sign-in text.
+With `--json`, Pitboard prints one line of JSON on standard output, with any error or warning inside it. `--help` and `--version` print plain text even with `--json`. `pitboard enroll --sign-in` also writes to standard error: the line that starts `Opening`, and the tool's own sign-in text.
 
-pitboard colours output that goes to a terminal, unless `NO_COLOR` is set and not empty. Output to a file or a pipe has no colour, and JSON output never has any.
+Pitboard colours output that goes to a terminal, unless `NO_COLOR` is set and not empty. Output to a file or a pipe has no colour, and JSON output never has any.
 
 `pitboard statusline` keeps its colour through a pipe, because Claude Code reads the line from a pipe and draws those colours. Setting `NO_COLOR`, even to an empty value, turns that colour off.
 
@@ -100,7 +100,7 @@ pitboard colours output that goes to a terminal, unless `NO_COLOR` is set and no
 | `0` | The command did what was asked. |
 | `1` | A request could not be met, for example because the label is unknown or a service did not answer. |
 | `2` | The command line was wrong: an unknown option, a missing argument, or a label for `pitboard enroll`, or the second label of `pitboard rename`, that breaks the label rules. |
-| `3` | A login or a tool's files are in a state pitboard will not act on, for example Codex signed in with an API key. `pitboard doctor` also exits 3 when a check fails. |
+| `3` | A login or a tool's files are in a state Pitboard will not act on, for example Codex signed in with an API key. `pitboard doctor` also exits 3 when a check fails. |
 
 Declining the question from `pitboard forget` or `pitboard uninstall` prints nothing more, changes nothing and exits 0.
 

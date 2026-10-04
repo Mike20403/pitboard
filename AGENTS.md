@@ -1,6 +1,6 @@
 # AGENTS.md
 
-pitboard is a Rust command line and a native macOS menu bar app that switch between a
+Pitboard is a Rust command line and a native macOS menu bar app that switch between a
 person's own Claude Code and Codex logins. It moves real OAuth logins, so a mistake here
 can sign someone out of a paid account. [CONTRIBUTING.md](CONTRIBUTING.md) is the full
 guide; this file is what an agent needs before it touches anything.
@@ -30,8 +30,8 @@ guide; this file is what an agent needs before it touches anything.
   links only to a debug build they launched in a fixture.
 - Never leave a local build of the app registered with macOS. Its scheme and Share
   extension stay registered after a build with Xcode, `xcodebuild` or `build-app.sh`:
-  `pitboard-debug://` and **pitboard Debug** for a debug build, `pitboard://` and
-  **pitboard** for a release. A link or a share can then start that branch build against
+  `pitboard-debug://` and **Pitboard Debug** for a debug build, `pitboard://` and
+  **Pitboard** for a release. A link or a share can then start that branch build against
   the real home. Unregister it with `pluginkit -r` on each `PitboardShare.appex`, then
   `lsregister -u` on each `Pitboard.app`; [The app](CONTRIBUTING.md#the-app) has the
   commands.
@@ -64,7 +64,7 @@ fixtures and UI tests.
   a test or the commit message. [Tool registers](CONTRIBUTING.md#tool-registers) says how.
 - A change people would notice gets an entry under `## [Unreleased]` in
   [CHANGELOG.md](CHANGELOG.md).
-- A commit subject is one present-tense sentence saying what pitboard does after the
+- A commit subject is one present-tense sentence saying what Pitboard does after the
   change, with no prefix. The body says why, and what was measured.
 
 ## Where things are

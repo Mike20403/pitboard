@@ -1,4 +1,4 @@
-# pitboard documentation
+# Pitboard documentation
 
 This folder is the source of [docs.usepitboard.com](https://docs.usepitboard.com), built
 with Mintlify. Pages are `.mdx` files, and `docs.json` holds the sidebar and site settings.
@@ -33,7 +33,7 @@ mint a11y
 ## Where things go
 
 - Each page goes in the folder its sidebar group uses, such as `guides/` for
-  **Use pitboard**, and in that group in `docs.json`. `index`, `quickstart`, `install`,
+  **Use Pitboard**, and in that group in `docs.json`. `index`, `quickstart`, `install`,
   `troubleshooting` and `security` sit at the top.
 - Images go in `images/` and are referenced as `/images/name.png`.
 - The site icon, `favicon.svg`, is a hand-written copy of the icon
@@ -46,5 +46,5 @@ working. Markdown files in the repository, such as `README.md`, `SECURITY.md` an
 release tarballs keep their links.
 
 A redirect maps only a path, so a heading those files link, such as
-`security#what-leaves-your-machine`, keeps its text. The app's **pitboard Help** item and
+`security#what-leaves-your-machine`, keeps its text. The app's **Pitboard Help** item and
 the Linux renewal unit link only the site's root, so no move breaks them.

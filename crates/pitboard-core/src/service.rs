@@ -1,4 +1,4 @@
-//! pitboard's operations, each run the way every front end must run it: a change settles any
+//! Pitboard's operations, each run the way every front end must run it: a change settles any
 //! interrupted switch first and is recorded in the audit log, and what went wrong on the way
 //! is reported alongside the result, whether or not the change then succeeds.
 
@@ -29,11 +29,11 @@ pub enum Warning {
         label: String,
     },
     RenewalFailed(Error),
-    /// The tool's write lock stopped being pitboard's while a change was under way.
+    /// The tool's write lock stopped being Pitboard's while a change was under way.
     LockCompromised {
         tool: ProviderId,
     },
-    /// The environment authenticates the tool some other way, so the login pitboard moved
+    /// The environment authenticates the tool some other way, so the login Pitboard moved
     /// is not the one a session will use.
     AuthOverridden {
         tool: ProviderId,
@@ -58,7 +58,7 @@ pub enum Warning {
         label: String,
         holding: Vec<crate::holder::Holding>,
     },
-    /// A sign-in to the account pitboard last recorded in use was parked rather than put in
+    /// A sign-in to the account Pitboard last recorded in use was parked rather than put in
     /// use, because nobody could say whose login the tool has in use, for `why`.
     SignInParkedNotInUse {
         tool: ProviderId,
@@ -92,7 +92,7 @@ impl fmt::Display for Warning {
             Warning::LockCompromised { tool } => write!(
                 f,
                 "{} reclaimed the credential write lock while this change was under way, so \
-                 it may have written the login at the same time. pitboard read the slot back \
+                 it may have written the login at the same time. Pitboard read the slot back \
                  and the change stood, but check with `pitboard` that the right account is \
                  signed in.",
                 tool.name()
@@ -100,7 +100,7 @@ impl fmt::Display for Warning {
             Warning::ConfigNotUpdated(e) | Warning::RenewalFailed(e) => write!(f, "{e}"),
             Warning::ParksPendingRemoval(count) => write!(
                 f,
-                "{count} parked login(s) no longer in use could not be removed yet; pitboard \
+                "{count} parked login(s) no longer in use could not be removed yet; Pitboard \
                  tries again on its next change"
             ),
             Warning::ParkedLoginRefused { tool, label } => write!(
@@ -127,7 +127,7 @@ impl fmt::Display for Warning {
             }
             Warning::AuthOverridden { tool, names } => write!(
                 f,
-                "{} is set, so {} signs in with it and not with the login pitboard moved. \
+                "{} is set, so {} signs in with it and not with the login Pitboard moved. \
                  Unset it for the switch to take effect.",
                 names.join(" and "),
                 tool.name()
@@ -136,7 +136,7 @@ impl fmt::Display for Warning {
                 f,
                 "{} started before this switch {} still running and still using `{from}`. {} \
                  Do not sign out in {}: signing out there revokes `{from}`'s login, which \
-                 pitboard has just parked.",
+                 Pitboard has just parked.",
                 capitalised(&holder::described(holding)),
                 if holder::plural(holding) { "are" } else { "is" },
                 holder::remedies(holding, "to use the new account"),
@@ -157,7 +157,7 @@ impl fmt::Display for Warning {
             ),
             Warning::SignInParkedNotInUse { tool, label, why } => write!(
                 f,
-                "{} goes on with the login it has: pitboard could not tell whose it is \
+                "{} goes on with the login it has: Pitboard could not tell whose it is \
                  ({why}), so it parked the new login for `{label}` rather than write over \
                  that one. If that login no longer works, run `{}` and sign in to `{label}` \
                  there.",
@@ -227,7 +227,7 @@ impl Pitboard {
         doctor::run(&self.ctx)
     }
 
-    /// The same report without asking anyone: the last numbers pitboard measured, and who
+    /// The same report without asking anyone: the last numbers Pitboard measured, and who
     /// each tool's own files say is signed in. Nothing is renewed and nothing is asked, so
     /// it answers at once wherever there is no network.
     pub fn status_offline(&self) -> Result<Done<status::Report>> {
@@ -239,7 +239,7 @@ impl Pitboard {
     }
 
     /// The status line for Claude Code's session JSON. Reads only files, and writes only
-    /// pitboard's own: what the session passed, for its next run to compare with, and the
+    /// Pitboard's own: what the session passed, for its next run to compare with, and the
     /// usage readings, which keep what moved since its last run where it is newer.
     pub fn statusline(&self, session: &str) -> statusline::StatusLine {
         statusline::read(&self.ctx, session)
@@ -400,7 +400,7 @@ impl Pitboard {
         state::load(&self.ctx)?;
         let driver = crate::provider::of(tool);
         // An account signed in here is one to switch to later, which needs a live store
-        // pitboard can write. Asked now rather than after a browser round trip.
+        // Pitboard can write. Asked now rather than after a browser round trip.
         switch::live_store(&self.ctx, tool)?;
         // A private sign-in works by pointing the tool's own login at a scratch directory
         // through its home variable. Where that does not really isolate it, running one
@@ -483,7 +483,7 @@ impl Pitboard {
         schedule::repair(&self.ctx)
     }
 
-    /// Take over a pitboard directory another machine wrote: keep the accounts, drop the
+    /// Take over a Pitboard directory another machine wrote: keep the accounts, drop the
     /// logins that came with them. `None` when the directory was already this machine's.
     ///
     /// The one change that does not settle first, because a stamp from elsewhere is what
@@ -493,7 +493,7 @@ impl Pitboard {
     }
 
     /// Ask the credential store what parked logins are on this machine, and give back or
-    /// delete every one pitboard's own records do not name. Ordinarily there is nothing to
+    /// delete every one Pitboard's own records do not name. Ordinarily there is nothing to
     /// do: every change resolves the names it wrote down. This is for a machine whose state
     /// file was lost or restored from a backup, where the store is the only record left.
     pub fn repair(&self) -> Changing<switch::Reclaimed> {
@@ -510,25 +510,25 @@ impl Pitboard {
         switch::still_holding(&self.ctx, which).unwrap_or_default()
     }
 
-    /// When pitboard's account index last changed, for a front end that wants to know
+    /// When Pitboard's account index last changed, for a front end that wants to know
     /// whether another one has done something without asking Anthropic about it.
     pub fn changed_at(&self) -> i64 {
         state::changed_at(&self.ctx)
     }
 
-    /// When pitboard's usage readings last changed, in epoch milliseconds, for a front end
+    /// When Pitboard's usage readings last changed, in epoch milliseconds, for a front end
     /// that shows them to follow what the others record without asking anyone.
     pub fn readings_changed_at(&self) -> i64 {
         readings::changed_at(&self.ctx)
     }
 
-    /// The changes pitboard has made, newest last.
+    /// The changes Pitboard has made, newest last.
     pub fn log(&self, limit: usize) -> Vec<audit::Entry> {
         audit::read(&self.ctx, limit)
     }
 
-    /// Takes away the daily renewal schedule, deletes every parked login this pitboard
-    /// wrote, and removes pitboard's own directory. Each tool's login is left alone: whoever
+    /// Takes away the daily renewal schedule, deletes every parked login this Pitboard
+    /// wrote, and removes Pitboard's own directory. Each tool's login is left alone: whoever
     /// is signed in stays signed in.
     pub fn uninstall(&self) -> Changing<switch::Removed> {
         self.changing("uninstall", "", None, |settled| {
@@ -699,10 +699,10 @@ mod tests {
         m
     }
 
-    /// Every file in pitboard's own directory but the audit log.
+    /// Every file in Pitboard's own directory but the audit log.
     fn files(m: &Machine) -> BTreeMap<String, Vec<u8>> {
         std::fs::read_dir(crate::home::dir(&m.ctx))
-            .expect("a pitboard home")
+            .expect("a Pitboard home")
             .map(|entry| entry.expect("an entry").path())
             .filter(|path| path.file_name() != Some("audit.log".as_ref()))
             .map(|path| {

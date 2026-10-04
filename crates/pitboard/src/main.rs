@@ -76,7 +76,7 @@ enum Command {
     Abandon,
     /// Ask the credential store what parked logins are here, and account for every one
     Repair,
-    /// Take over a pitboard directory another computer wrote, keeping the accounts
+    /// Take over a Pitboard directory another computer wrote, keeping the accounts
     Adopt,
     /// Renew every parked login that is due, and nothing else
     Renew,
@@ -85,14 +85,14 @@ enum Command {
         #[command(subcommand)]
         what: ScheduleCommand,
     },
-    /// What pitboard has changed, and when
+    /// What Pitboard has changed, and when
     Log {
         /// How many changes to show
         #[arg(short = 'n', long, default_value_t = 20)]
         lines: usize,
     },
-    /// Delete every parked login this pitboard wrote, the daily renewal schedule and
-    /// pitboard's own files
+    /// Delete every parked login this Pitboard wrote, the daily renewal schedule and
+    /// Pitboard's own files
     Uninstall {
         /// Do not ask first
         #[arg(short = 'y', long)]
@@ -106,7 +106,7 @@ enum Command {
         #[arg(value_parser = new_label)]
         to: String,
     },
-    /// Check that what pitboard relies on still holds on this machine
+    /// Check that what Pitboard relies on still holds on this machine
     Doctor,
     /// One line for Claude Code's status bar; reads its session JSON on stdin
     Statusline,
@@ -199,7 +199,7 @@ fn emit(report: Report, as_json: bool) -> ExitCode {
                     "code": e.code(),
                     "message": e.to_string(),
                     // What went wrong underneath, where Anthropic was asked. The code says
-                    // what pitboard was doing; this says whether asking again is worth
+                    // what Pitboard was doing; this says whether asking again is worth
                     // anything.
                     "cause": e.cause().map(|c| json!({
                         "code": c.code(),
@@ -291,7 +291,7 @@ fn doctor(pitboard: &Pitboard) -> Report {
         .filter(|c| c.level == doctor::Level::Fail)
         .count();
     Report {
-        // A failed check means an assumption pitboard relies on no longer holds.
+        // A failed check means an assumption Pitboard relies on no longer holds.
         exit: if healthy { 0 } else { 3 },
         failure: (!healthy).then(|| {
             (
@@ -568,7 +568,7 @@ fn schedule(pitboard: &Pitboard, what: &ScheduleCommand) -> Report {
         ),
         Installed::Unsupported => (
             json!({"installed": false, "supported": false}),
-            "This computer has no scheduler pitboard knows how to write.\n".to_string(),
+            "This computer has no scheduler Pitboard knows how to write.\n".to_string(),
         ),
     };
     match what {
@@ -612,7 +612,7 @@ fn adopt(pitboard: &Pitboard) -> Report {
         Ok(None) => Report::done(
             "adopt",
             json!({ "adopted": false }),
-            "This pitboard directory was already written on this computer.\n".into(),
+            "This Pitboard directory was already written on this computer.\n".into(),
         ),
         Ok(Some(a)) => {
             let ways_back: Vec<String> = a
@@ -658,16 +658,16 @@ fn repair(pitboard: &Pitboard) -> Report {
             }
             if !r.deleted.is_empty() {
                 said.push_str(&format!(
-                    "Deleted {} parked login(s) pitboard wrote down here and nothing \
+                    "Deleted {} parked login(s) Pitboard wrote down here and nothing \
                      recorded.\n",
                     r.deleted.len()
                 ));
             }
             if !r.strangers.is_empty() {
                 said.push_str(&format!(
-                    "{} parked login(s) here belong to no account pitboard knows and were \
+                    "{} parked login(s) here belong to no account Pitboard knows and were \
                      not written down by this one. Left alone: the keychain is shared by \
-                     the whole machine, and they may be another pitboard's.\n",
+                     the whole machine, and they may be another Pitboard's.\n",
                     r.strangers.len()
                 ));
             }
@@ -699,7 +699,7 @@ fn log(pitboard: &Pitboard, lines: usize) -> Report {
     let entries = pitboard.log(lines);
     let width = entries.iter().map(|e| e.verb.len()).max().unwrap_or(0);
     let human = if entries.is_empty() {
-        "pitboard has not changed anything yet.\n".to_string()
+        "Pitboard has not changed anything yet.\n".to_string()
     } else {
         entries
             .iter()
@@ -743,8 +743,8 @@ fn uninstall(pitboard: &Pitboard) -> Report {
         }
         if removed.left > 0 {
             human.push_str(&format!(
-                "Left {} parked login(s) that `pitboard repair` found and this pitboard did \
-                 not write, because they may be another pitboard's.\n",
+                "Left {} parked login(s) that `pitboard repair` found and this Pitboard did \
+                 not write, because they may be another Pitboard's.\n",
                 removed.left
             ));
         }
@@ -756,7 +756,7 @@ fn uninstall(pitboard: &Pitboard) -> Report {
             ));
         } else if removed.home_removed {
             human.push_str(
-                "~/.pitboard is gone. Remove pitboard itself the way you installed it.\n",
+                "~/.pitboard is gone. Remove Pitboard itself the way you installed it.\n",
             );
         }
         (
@@ -823,7 +823,7 @@ fn main() -> ExitCode {
         Command::Use { label } => use_account(&pitboard, &label),
         Command::Forget { label, yes } => {
             // The way back is a browser sign-in for that account, which is the cost
-            // pitboard exists to spare people. Asked only where there is someone to ask:
+            // Pitboard exists to spare people. Asked only where there is someone to ask:
             // a pipe, a script and --json go straight through.
             if !yes
                 && !cli.json
@@ -857,7 +857,7 @@ fn main() -> ExitCode {
                 && std::io::stderr().is_terminal()
             {
                 eprint!(
-                    "Delete every parked login this pitboard wrote, the daily renewal \
+                    "Delete every parked login this Pitboard wrote, the daily renewal \
                      schedule and ~/.pitboard? The account you are signed in to stays signed \
                      in; the others need a browser sign-in again. [y/N] "
                 );

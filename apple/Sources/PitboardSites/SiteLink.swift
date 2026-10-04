@@ -82,7 +82,7 @@ public enum LinkRefusal: Error, Hashable, Sendable, LocalizedError {
     case signInLink(Site)
     /// Longer than any of the sites' links is.
     case tooLong
-    /// A pitboard link this version does not read: another scheme, another request, or a
+    /// A Pitboard link this version does not read: another scheme, another request, or a
     /// link inside it that was not encoded.
     case unreadable
 
@@ -91,17 +91,17 @@ public enum LinkRefusal: Error, Hashable, Sendable, LocalizedError {
         case .noLink:
             "There is no \(Site.names(.or)) link in what was shared."
         case .notASite(let host?):
-            "pitboard opens \(Site.names(.and)) links only. This link is on \(host)."
+            "Pitboard opens \(Site.names(.and)) links only. This link is on \(host)."
         case .notASite(nil):
-            "pitboard opens \(Site.names(.and)) links only."
+            "Pitboard opens \(Site.names(.and)) links only."
         case .signInLink(let site):
-            "pitboard doesn’t open \(site.name) sign-in links from outside: one would sign the "
+            "Pitboard doesn’t open \(site.name) sign-in links from outside: one would sign the "
                 + "window in as whoever the link belongs to. Sign in inside the account’s "
                 + "\(site.name) window."
         case .tooLong:
             "What was shared is too long to be a \(Site.names(.or)) link."
         case .unreadable:
-            "This pitboard link isn’t one this version of pitboard can read. Update pitboard "
+            "This Pitboard link isn’t one this version of Pitboard can read. Update Pitboard "
                 + "and share the page again."
         }
     }

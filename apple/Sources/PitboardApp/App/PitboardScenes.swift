@@ -26,7 +26,7 @@ public struct PitboardScenes: Scene {
         }
         .menuBarExtraStyle(.menu)
 
-        Window("pitboard", id: MainWindow.id) {
+        Window("Pitboard", id: MainWindow.id) {
             MainWindow(model: model, windows: windows)
                 .defaultAppStorage(model.defaults)
         }
@@ -39,15 +39,15 @@ public struct PitboardScenes: Scene {
             }
             AccountWindowCommands(windows: windows)
             RefreshCommands()
-            // pitboard's help is its documentation site; the app has no help book.
+            // Pitboard's help is its documentation site; the app has no help book.
             CommandGroup(replacing: .help) {
-                Link("pitboard Help", destination: Links.documentation)
+                Link("Pitboard Help", destination: Links.documentation)
             }
         }
 
         AccountWindowScene(windows: windows)
 
-        // A link the Share extension hands over, as a pitboard link, comes here whatever
+        // A link the Share extension hands over, as a Pitboard link, comes here whatever
         // else is open, and only here: no other scene makes a window for one.
         Window("Open Link", id: AccountPicker.id) {
             AccountPicker(windows: windows)

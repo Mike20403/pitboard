@@ -4,20 +4,20 @@ sidebarTitle: "Check usage"
 description: "Read each account's five-hour and weekly limits, when they reset and how long the account lasts at its rate."
 ---
 
-pitboard shows how much each account has used of its five-hour and weekly limits, and when each limit resets. Check it before you switch Claude Code or OpenAI's Codex CLI to another account, to see which one has room.
+Pitboard shows how much each account has used of its five-hour and weekly limits, and when each limit resets. Check it before you switch Claude Code or OpenAI's Codex CLI to another account, to see which one has room.
 
 ## See usage
 
 <Tabs>
   <Tab title="App">
-    pitboard's item in the menu bar shows the account in use and the limit it is working against, such as **work 42%**.
+    Pitboard's item in the menu bar shows the account in use and the limit it is working against, such as **work 42%**.
 
-    Click it to open pitboard's menu. The menu lists every account and puts a check mark beside the one in use. Under each name is a line such as **5-hour 42%, weekly 12%**.
+    Click it to open Pitboard's menu. The menu lists every account and puts a check mark beside the one in use. Under each name is a line such as **5-hour 42%, weekly 12%**.
 
-    For bars, reset times and how long each account lasts, choose **Open pitboard** (Command-0). The pitboard window opens.
+    For bars, reset times and how long each account lasts, choose **Open Pitboard** (Command-0). The Pitboard window opens.
 
     <Frame>
-      <img src="/images/window.png" alt="The pitboard window, listing each account with a bar for each of its limits, when each resets, and a note on the last Codex switch above them" />
+      <img src="/images/window.png" alt="The Pitboard window, listing each account with a bar for each of its limits, when each resets, and a note on the last Codex switch above them" />
     </Frame>
   </Tab>
   <Tab title="Command line">
@@ -56,8 +56,8 @@ Once both tools have accounts, the app and the command line list each tool's acc
     | **About 3h 3m left at this rate** | At the rate the account has been used, one of its limits reaches 100% in about 3 hours 3 minutes. |
     | **Resets in 3h 2m** | At the rate the account has been used, no limit reaches 100% before one of them resets, in 3 hours 2 minutes. |
     | **Parked login good for 10 more days** | You can switch to the account, and its [parked login](/concepts/switching#parked-logins) lasts 10 more days. Codex accounts show no such line, because Codex states no expiry. |
-    | **Needs signing in again** in the menu, **Sign In Again** in the window | pitboard holds no parked login it can use for the account. See [Sign in to an account again](/guides/sign-in-again). |
-    | **Not named yet** in the menu, the tip **Give this account a name** in the window | The tool is signed in to an account pitboard has not enrolled. See [Add and manage accounts](/guides/accounts#add-the-account-you-are-signed-in-to). |
+    | **Needs signing in again** in the menu, **Sign In Again** in the window | Pitboard holds no parked login it can use for the account. See [Sign in to an account again](/guides/sign-in-again). |
+    | **Not named yet** in the menu, the tip **Give this account a name** in the window | The tool is signed in to an account Pitboard has not enrolled. See [Add and manage accounts](/guides/accounts#add-the-account-you-are-signed-in-to). |
   </Tab>
   <Tab title="Command line">
     | What you see | What it means |
@@ -66,8 +66,8 @@ Once both tools have accounts, the app and the command line list each tool's acc
     | `ready · good for 26d 4h` | You can switch to the account. Its [parked login](/concepts/switching#parked-logins) lasts another 26 days and 4 hours. |
     | `ready` alone | You can switch to the account. Codex accounts show this, because Codex states no expiry. |
     | `ready · expires in 2d 3h · pitboard enroll work --sign-in` | You can switch to the account, but its parked login expires in under 3 days. Run `pitboard renew` to renew it, or the command shown to sign in to it again. To renew parked logins every day, see [Keep parked logins alive](/guides/renewal). |
-    | `login expired` or `nothing parked`, then a command | pitboard holds no parked login it can use for the account. Run the command shown, or see [Sign in to an account again](/guides/sign-in-again). |
-    | `signed in · not enrolled: pitboard enroll <label>` | The tool is signed in to an account pitboard has not enrolled. Run the command with a label you choose in place of `<label>`. |
+    | `login expired` or `nothing parked`, then a command | Pitboard holds no parked login it can use for the account. Run the command shown, or see [Sign in to an account again](/guides/sign-in-again). |
+    | `signed in · not enrolled: pitboard enroll <label>` | The tool is signed in to an account Pitboard has not enrolled. Run the command with a label you choose in place of `<label>`. |
     | `5h`, `week` | The five-hour limit and the weekly limit. A limit for one model adds the model's name. |
     | `██████░░░░   59%` | How much of the limit is used: green under 70%, yellow from 70%, red from 90%. |
     | `about 48m left at this rate` | At the rate the account has been used, one of its limits reaches 100% in about 48 minutes. |
@@ -75,7 +75,7 @@ Once both tools have accounts, the app and the command line list each tool's acc
   </Tab>
 </Tabs>
 
-The line on how long an account lasts appears once pitboard has at least three readings of the account, taken over 15 minutes or more. For how it is worked out, see [How usage is read](/concepts/usage#how-long-an-account-lasts).
+The line on how long an account lasts appears once Pitboard has at least three readings of the account, taken over 15 minutes or more. For how it is worked out, see [How usage is read](/concepts/usage#how-long-an-account-lasts).
 
 ## Read without asking, or ask again
 
@@ -85,7 +85,7 @@ To see the last numbers measured, without asking Anthropic or OpenAI, run:
 pitboard status --offline
 ```
 
-pitboard asks nothing and renews no parked login. Each account ends with a line such as `measured 14:02, 3m ago · read without asking Anthropic`.
+Pitboard asks nothing and renews no parked login. Each account ends with a line such as `measured 14:02, 3m ago · read without asking Anthropic`.
 
 To ask about every account again, even one asked about moments ago, run:
 
@@ -93,7 +93,7 @@ To ask about every account again, even one asked about moments ago, run:
 pitboard status --fresh
 ```
 
-To do the same in the app, choose **Refresh** in pitboard's menu (Command-R).
+To do the same in the app, choose **Refresh** in Pitboard's menu (Command-R).
 
 For why numbers can be a few minutes old, see [How usage is read](/concepts/usage#how-often-pitboard-asks).
 
@@ -101,13 +101,13 @@ For why numbers can be a few minutes old, see [How usage is read](/concepts/usag
 
 When the command line shows numbers from an earlier reading, it says when they were measured, as in `measured 14:02, 3m ago`. A line such as `from Claude Code, measured 14:02` means the numbers are the ones Claude Code last recorded for the account in use.
 
-If pitboard could not get newer numbers, the reason follows, as in `measured 14:02, 3m ago · Anthropic could not be reached`. The app shows the reason under the account in the window.
+If Pitboard could not get newer numbers, the reason follows, as in `measured 14:02, 3m ago · Anthropic could not be reached`. The app shows the reason under the account in the window.
 
 For what each reason means and what to do, see [Troubleshooting](/troubleshooting#usage-shows-old-numbers).
 
 ## Choose what the menu bar shows
 
-In pitboard's menu, choose **Settings** (Command-Comma), then click **General**. Click the **Menu bar shows** pop-up menu, then choose one of these:
+In Pitboard's menu, choose **Settings** (Command-Comma), then click **General**. Click the **Menu bar shows** pop-up menu, then choose one of these:
 
 | Choice | What the menu bar shows |
 | --- | --- |

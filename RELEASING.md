@@ -1,6 +1,6 @@
 # Releasing
 
-A tag `v<version>` releases pitboard through `.github/workflows/release.yml`. A tag with a
+A tag `v<version>` releases Pitboard through `.github/workflows/release.yml`. A tag with a
 suffix, such as `v0.6.0-rc1`, makes a GitHub pre-release instead. A pre-release gets an
 empty release body, publishes nothing to crates.io and has no update feed, so no installed
 copy updates into it. The `feed`, `tap` and `brew` jobs skip it.
@@ -35,14 +35,14 @@ and build number from `Cargo.toml`.
    Releases 0.3.0 to 0.5.0 each had an `-rc1` tag.
 
    ```sh
-   git tag -s v0.6.0-rc1 -m "pitboard 0.6.0-rc1"
+   git tag -s v0.6.0-rc1 -m "Pitboard 0.6.0-rc1"
    git push origin v0.6.0-rc1
    ```
 
 2. Tag the same commit `v<version>` and push the tag.
 
    ```sh
-   git tag -s v0.6.0 -m "pitboard 0.6.0"
+   git tag -s v0.6.0 -m "Pitboard 0.6.0"
    git push origin v0.6.0
    ```
 
@@ -175,7 +175,7 @@ four and the job together. It installs the `pitboard` cask on both and checks th
 
 ## Rotate the update key
 
-pitboard ships a plain `.app` zip update. Sparkle takes one when either of two checks
+Pitboard ships a plain `.app` zip update. Sparkle takes one when either of two checks
 passes, as read in Sparkle 2.10.0's source:
 
 - The archive's EdDSA signature verifies under the public key in the installed bundle.

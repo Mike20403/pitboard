@@ -1,12 +1,12 @@
 import Foundation
 @_exported import PitboardBindings
 
-/// What the app asks of pitboard. A protocol so a test can answer instead of the real
+/// What the app asks of Pitboard. A protocol so a test can answer instead of the real
 /// core, which would read the real keychain of whoever is running the tests.
 public protocol Core: Sendable {
     /// Every account of every tool, each asked of its own tool's service.
     func status(fresh: Bool) async throws -> Status
-    /// The last numbers pitboard measured, and who each tool's own files say is signed in.
+    /// The last numbers Pitboard measured, and who each tool's own files say is signed in.
     /// No network and no keychain, so it answers at once and works on a plane.
     func statusOffline() async throws -> Status
     func doctor() async -> Diagnosis
@@ -29,7 +29,7 @@ public protocol Core: Sendable {
     /// names. Nil when there was none. The way out when recovery cannot reach the tool's
     /// service, which used to send the person to a terminal.
     func abandonRecovery() async throws -> Abandoned?
-    /// What pitboard has changed, newest last.
+    /// What Pitboard has changed, newest last.
     func log(limit: UInt32) async -> [Change]
     /// Renew every parked login that is due, and nothing else.
     func renew() async -> [Renewed]
@@ -40,14 +40,14 @@ public protocol Core: Sendable {
     /// Point a schedule an app up to 0.3.0 wrote, which runs that app and renews nothing, at
     /// the command line inside this one. True when it did; nothing changes otherwise.
     func scheduleRepair() async throws -> Bool
-    /// When pitboard's account index last changed, in epoch seconds. One stat of one file,
+    /// When Pitboard's account index last changed, in epoch seconds. One stat of one file,
     /// so it can be asked often: it is how this app notices a switch typed in a terminal.
     func changedAt() async -> Int64
-    /// When pitboard's usage readings last changed, in epoch milliseconds. One stat of one
+    /// When Pitboard's usage readings last changed, in epoch milliseconds. One stat of one
     /// file, like `changedAt`: it is how this app follows the numbers every session's status
     /// line records.
     func readingsChangedAt() async -> Int64
-    /// Every tool pitboard handles, in the order a listing shows them. Asks nothing of
+    /// Every tool Pitboard handles, in the order a listing shows them. Asks nothing of
     /// anyone.
     func tools() -> [Tool]
     /// The tools whose program was found where an app can look for one, in the same order.
@@ -61,7 +61,7 @@ public protocol Core: Sendable {
     func searchPath() async -> String?
 }
 
-/// pitboard's core, called off the main thread. Any call may wait on the keychain, a lock or
+/// Pitboard's core, called off the main thread. Any call may wait on the keychain, a lock or
 /// the network, so reads run on one queue and changes on another, one change at a time.
 ///
 /// The core itself is made on first use, by whichever of those gets there first: working
@@ -305,9 +305,9 @@ extension Settings {
         forCurrentUserAsked().settings
     }
 
-    /// The pitboard directory the core reads for `environment`: `PITBOARD_HOME`, or
+    /// The Pitboard directory the core reads for `environment`: `PITBOARD_HOME`, or
     /// `.pitboard` in `HOME`, from the same two values `forCurrentUser` hands the core, so the
-    /// two cannot disagree on which pitboard this is.
+    /// two cannot disagree on which Pitboard this is.
     public static func pitboardDirectory(environment: [String: String]) -> String {
         if let set = environment["PITBOARD_HOME"] {
             return URL(fileURLWithPath: set).standardizedFileURL.path
@@ -352,7 +352,7 @@ extension Settings {
     ) -> Settings {
         let home = environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
         // A relative entry would be looked for wherever this app happens to be running, and
-        // looking inside a folder macOS guards asks the person whether pitboard may, for
+        // looking inside a folder macOS guards asks the person whether Pitboard may, for
         // something it never needed to read.
         let shell = (loginPath ?? "").split(separator: ":").map(String.init)
             .filter { $0.hasPrefix("/") && !guarded($0, home: home) }

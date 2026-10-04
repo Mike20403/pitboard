@@ -4,7 +4,7 @@ import WebKit
 /// Where each account's window keeps what its site stores: cookies, local storage and
 /// everything else a browser keeps for a site, in one WebKit store per account.
 ///
-/// pitboard makes a store, wipes one and deletes one. It never reads what is in one, copies
+/// Pitboard makes a store, wipes one and deletes one. It never reads what is in one, copies
 /// it or changes it: WebKit keeps a sign-in exactly as a browser would.
 @MainActor
 protocol WebsiteDataStores: AnyObject {
@@ -47,7 +47,7 @@ final class WebKitDataStores: WebsiteDataStores {
     }
 }
 
-/// The stores one pitboard directory has made, kept in the app's preferences under that
+/// The stores one Pitboard directory has made, kept in the app's preferences under that
 /// directory's path.
 ///
 /// WebKit keeps every store of one app under the person's own Library, whatever `HOME` says,
@@ -59,9 +59,9 @@ final class WebKitDataStores: WebsiteDataStores {
 @MainActor
 struct StoreRecord {
     let defaults: UserDefaults
-    /// The pitboard directory the app reads its accounts from.
+    /// The Pitboard directory the app reads its accounts from.
     let directory: String
-    /// Whether a pitboard directory is still there.
+    /// Whether a Pitboard directory is still there.
     var directoryExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
 
     var ids: Set<UUID> {
@@ -78,7 +78,7 @@ struct StoreRecord {
         save(ids.subtracting([id]))
     }
 
-    /// Whether another pitboard directory that is still there recorded `id` as well. One that
+    /// Whether another Pitboard directory that is still there recorded `id` as well. One that
     /// is gone, such as a test's scratch home, has no account using it any more.
     func isShared(_ id: UUID) -> Bool {
         all.contains { directory, ids in
@@ -103,13 +103,13 @@ struct StoreRecord {
 }
 
 /// The page each account's window was last on, kept in the app's preferences under the
-/// pitboard directory's path, so a window opens there again: after it is closed, and after
-/// pitboard quits. Only the site's own pages are kept, and a window's page goes when its data
+/// Pitboard directory's path, so a window opens there again: after it is closed, and after
+/// Pitboard quits. Only the site's own pages are kept, and a window's page goes when its data
 /// is removed or its account is forgotten.
 @MainActor
 struct PageRecord {
     let defaults: UserDefaults
-    /// The pitboard directory the app reads its accounts from.
+    /// The Pitboard directory the app reads its accounts from.
     let directory: String
 
     /// The page the window that keeps `store` was last on.

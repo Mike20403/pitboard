@@ -96,7 +96,7 @@ fn a_parked_login_that_belongs_to_another_account_is_refused() {
     assert_eq!(
         m.mem.vault().services(),
         parked_before,
-        "nothing is deleted over a park pitboard will not use"
+        "nothing is deleted over a park Pitboard will not use"
     );
     recover(&m).expect("and the machine is untouched");
 }
@@ -153,8 +153,8 @@ fn a_park_that_answers_for_its_own_account_is_installed() {
 }
 
 /// Two situations with one message until now. Nobody signed in is an ordinary state with an
-/// ordinary answer. Claude Code's config naming somebody as signed in while pitboard finds
-/// no login anywhere it looks means pitboard is looking in the wrong place, and writing a
+/// ordinary answer. Claude Code's config naming somebody as signed in while Pitboard finds
+/// no login anywhere it looks means Pitboard is looking in the wrong place, and writing a
 /// login there would put it where nobody reads.
 #[test]
 fn a_login_pitboard_cannot_find_is_not_the_same_as_nobody_being_signed_in() {

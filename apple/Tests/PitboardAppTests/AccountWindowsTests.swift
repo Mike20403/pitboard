@@ -22,7 +22,7 @@ private final class PresenceLog {
     }
 }
 
-/// pitboard is a regular app while any of its windows is open, and a menu bar app while
+/// Pitboard is a regular app while any of its windows is open, and a menu bar app while
 /// none is.
 @MainActor
 @Test func pitboardIsRegularWhileAnyWindowIsOpen() async {
@@ -58,7 +58,7 @@ private final class PresenceLog {
     #expect(!log.said.contains("accessory"))
 }
 
-/// A shared link can find pitboard in the background, where its own activation is refused:
+/// A shared link can find Pitboard in the background, where its own activation is refused:
 /// it asks Launch Services to open it instead.
 @MainActor
 @Test func aLinkFromOutsideBringsPitboardForwardFromTheBackground() {

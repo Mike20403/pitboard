@@ -1,16 +1,16 @@
 ---
 title: "Recover after a crash, a restore or a move"
 sidebarTitle: "Recovery"
-description: "Finish or give up on an interrupted switch, find lost parked logins, and take over another computer's pitboard directory."
+description: "Finish or give up on an interrupted switch, find lost parked logins, and take over another computer's Pitboard directory."
 ---
 
-A crash, a restore or a move to another computer can leave pitboard out of step with your logins. Most fixes use the command line. If you have only the app, first [add the app's command line to your `PATH`](/install#add-the-apps-command-line-to-your-path).
+A crash, a restore or a move to another computer can leave Pitboard out of step with your logins. Most fixes use the command line. If you have only the app, first [add the app's command line to your `PATH`](/install#add-the-apps-command-line-to-your-path).
 
 ## An interrupted switch cannot be finished
 
-Every command that changes something stops with an error saying an earlier switch `was interrupted, and pitboard cannot yet tell whether it finished`. In the app, a switch fails with the same message, and the **Accounts** pane shows the notice **An interrupted switch is waiting**. `pitboard doctor` and the app's **This Mac** pane list `interrupted switch` until a change finishes it.
+Every command that changes something stops with an error saying an earlier switch `was interrupted, and Pitboard cannot yet tell whether it finished`. In the app, a switch fails with the same message, and the **Accounts** pane shows the notice **An interrupted switch is waiting**. `pitboard doctor` and the app's **This Mac** pane list `interrupted switch` until a change finishes it.
 
-A switch stopped halfway, for example in a power cut, and pitboard cannot tell whose login the tool is using. For how pitboard settles a switch, see [How switching works](/concepts/switching#interrupted-switches).
+A switch stopped halfway, for example in a power cut, and Pitboard cannot tell whose login the tool is using. For how Pitboard settles a switch, see [How switching works](/concepts/switching#interrupted-switches).
 
 <Steps>
   <Step title="Run the tool and try again">
@@ -34,11 +34,11 @@ A switch stopped halfway, for example in a power cut, and pitboard cannot tell w
   </Step>
 </Steps>
 
-If instead the error says `this run reads it from somewhere else`, pitboard is running with a different `CLAUDE_CONFIG_DIR` or `CODEX_HOME` from the switch. Run the command again with the variable set as it was then, or run `pitboard abandon`.
+If instead the error says `this run reads it from somewhere else`, Pitboard is running with a different `CLAUDE_CONFIG_DIR` or `CODEX_HOME` from the switch. Run the command again with the variable set as it was then, or run `pitboard abandon`.
 
 If it says `the record of an interrupted switch` is damaged, check that `pitboard status` shows the account you expect as `signed in`. Then delete the file the error names, usually `~/.pitboard/journal.json`.
 
-## pitboard lost track of parked logins
+## Pitboard lost track of parked logins
 
 After `~/.pitboard` is restored from a backup or loses files, `pitboard` can show `nothing parked` for an account whose [parked login](/concepts/switching#parked-logins) is still there.
 
@@ -48,13 +48,13 @@ Run `pitboard repair` before you sign in to any account again. Signing in parks 
 pitboard repair
 ```
 
-It looks for parked logins pitboard has no record of, in the keychain or, on Linux, in `~/.pitboard/vault/`. It gives each back to its account if that account has none, and prints `Gave personal back a parked login that nothing named.` For its other messages, see [Recovery commands](/reference/recovery-commands#repair).
+It looks for parked logins Pitboard has no record of, in the keychain or, on Linux, in `~/.pitboard/vault/`. It gives each back to its account if that account has none, and prints `Gave personal back a parked login that nothing named.` For its other messages, see [Recovery commands](/reference/recovery-commands#repair).
 
-On macOS, every pitboard directory shares the keychain, so pitboard cannot tell which one a login `repair` gives back came from. `pitboard forget` and `pitboard uninstall` leave such a login in the keychain until you switch to its account or pitboard renews it.
+On macOS, every Pitboard directory shares the keychain, so Pitboard cannot tell which one a login `repair` gives back came from. `pitboard forget` and `pitboard uninstall` leave such a login in the keychain until you switch to its account or Pitboard renews it.
 
-## The pitboard directory came from another computer
+## The Pitboard directory came from another computer
 
-If Migration Assistant, a backup from another Mac or a copy brought `~/.pitboard` to this computer, pitboard refuses to use it. Commands stop with an error saying the account list `was written on another computer`. In the app, pitboard's menu shows **Couldn't read usage**, and the **Accounts** pane shows **Couldn't Read Accounts** with the same message.
+If Migration Assistant, a backup from another Mac or a copy brought `~/.pitboard` to this computer, Pitboard refuses to use it. Commands stop with an error saying the account list `was written on another computer`. In the app, Pitboard's menu shows **Couldn't read usage**, and the **Accounts** pane shows **Couldn't Read Accounts** with the same message.
 
 Run `pitboard adopt`. It keeps your accounts and drops the parked logins that came with them.
 
@@ -71,4 +71,4 @@ Sign in to each again:
 
 Then sign in to each account it lists: run the lines it prints, or follow [Sign in to an account again](/guides/sign-in-again).
 
-For why parked logins stay on the computer that signed in, see [What pitboard will not do](/concepts/limits#rules).
+For why parked logins stay on the computer that signed in, see [What Pitboard will not do](/concepts/limits#rules).

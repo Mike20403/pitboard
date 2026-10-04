@@ -86,7 +86,7 @@ fn a_switch_killed_with_nobody_to_ask_is_recovered_from_the_record() {
 
         // Which side the live credential came from is written in the record as two
         // fingerprints, so this settles without asking anyone. Dropped at once: a settled
-        // machine holds pitboard's exclusivity lock until it is.
+        // machine holds Pitboard's exclusivity lock until it is.
         let decided = settle(&ctx, None).is_ok();
         assert!(
             decided,
@@ -218,7 +218,7 @@ fn signing_in_again_killed_at_any_step_recovers_to_something_whole() {
 
 /// The one Claude Code write this lock cannot exclude. Measured in 2.1.278: a `/logout`
 /// that has given up waiting deletes the credential with nothing held. If it lands just
-/// after the install, the incoming login is gone, and pitboard used to print "Switched to
+/// after the install, the incoming login is gone, and Pitboard used to print "Switched to
 /// work" and exit 0 over an account that was signed out.
 #[test]
 fn a_switch_whose_login_was_removed_again_does_not_report_a_switch() {
@@ -435,7 +435,7 @@ fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
         },
     );
 
-    // pitboard's home goes read-only once the fresh login is in the vault, so the record
+    // Pitboard's home goes read-only once the fresh login is in the vault, so the record
     // of it cannot be written.
     let home = crate::home::dir(&m.ctx);
     let locked = home.clone();

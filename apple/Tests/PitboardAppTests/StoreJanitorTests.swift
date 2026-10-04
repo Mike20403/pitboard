@@ -76,7 +76,7 @@ private let three = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
     #expect(stores.made == [one])
 }
 
-/// Only stores this pitboard recorded, and no enrolled account derives, are deleted.
+/// Only stores this Pitboard recorded, and no enrolled account derives, are deleted.
 @MainActor
 @Test func aSweepDeletesOnlyRecordedStoresNoAccountHas() async {
     let stores = StandInStores()
@@ -150,7 +150,7 @@ private let three = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
     #expect(stores.attempts[one] == 2)
 }
 
-/// The record is kept per pitboard directory: a copy of the app run with another home shares
+/// The record is kept per Pitboard directory: a copy of the app run with another home shares
 /// WebKit's stores with the copy installed and none of its accounts.
 @MainActor
 @Test func eachPitboardDirectoryKeepsItsOwnRecord() {

@@ -14,7 +14,7 @@ pub fn service_name(account_uuid: &str, at_millis: i64) -> String {
     format!("{PREFIX}{account_uuid}-{at_millis}")
 }
 
-/// A name pitboard made, rather than one Claude Code did. Nothing deletes an item without
+/// A name Pitboard made, rather than one Claude Code did. Nothing deletes an item without
 /// this being true of its name.
 pub fn is_park_name(service: &str) -> bool {
     parts_of(service).is_some()
@@ -131,7 +131,7 @@ pub fn load(ctx: &Context, key: &Key, park: &Park) -> Result<Value> {
     if park.refresh_fingerprint.is_empty() || found != park.refresh_fingerprint {
         return Err(Error::ParkedCredentialCorrupt {
             label,
-            detail: "it does not match the fingerprint pitboard recorded".into(),
+            detail: "it does not match the fingerprint Pitboard recorded".into(),
         });
     }
     Ok(value)
@@ -168,7 +168,7 @@ fn live_fingerprint(ctx: &Context, provider: ProviderId) -> Option<String> {
 /// in two places, and renewing it spends the token the tool itself is about to present. One
 /// is left when a new login was put in use and could not be read back, so it was parked as
 /// well. A tool no account holds a park of is not read at all, and neither is Claude Code's
-/// login under a custom OAuth endpoint, which is somewhere pitboard does not act on.
+/// login under a custom OAuth endpoint, which is somewhere Pitboard does not act on.
 pub fn live_twins(ctx: &Context, state: &State) -> Vec<String> {
     let mut twins = Vec::new();
     for &provider in ProviderId::ALL {

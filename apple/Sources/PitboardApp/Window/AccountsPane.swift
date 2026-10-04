@@ -2,7 +2,7 @@ import AppKit
 import PitboardKit
 import SwiftUI
 
-/// Every account, a section per tool, with what pitboard has to say above them.
+/// Every account, a section per tool, with what Pitboard has to say above them.
 struct AccountsPane: View {
     @Bindable var model: AppModel
     let windows: AccountWindows
@@ -58,7 +58,7 @@ struct AccountsPane: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
-                    "Every login is kept, and nothing is deleted. pitboard stops trying to finish it."
+                    "Every login is kept, and nothing is deleted. Pitboard stops trying to finish it."
                 )
             }
     }
@@ -70,7 +70,7 @@ struct AccountsPane: View {
                 Label("Claude Code Isn’t Installed", systemImage: Symbol.terminal)
             } description: {
                 Text(
-                    "pitboard switches the logins of Claude Code and Codex, so there is "
+                    "Pitboard switches the logins of Claude Code and Codex, so there is "
                         + "nothing for it to do until one of them is installed and signed in "
                         + "once.")
             } actions: {
@@ -93,7 +93,7 @@ struct AccountsPane: View {
                 Label("No Accounts", systemImage: Symbol.accounts)
             } description: {
                 Text(
-                    "Sign in once here and pitboard parks that login, so signing in to "
+                    "Sign in once here and Pitboard parks that login, so signing in to "
                         + "another account doesn’t cost you the first.")
             } actions: {
                 Button("Add Account…") { model.present(.add(provider: nil)) }
@@ -265,7 +265,7 @@ private struct SetupTip: View {
             Tip(
                 symbol: "tag",
                 title: "Give this account a name",
-                detail: "\(email) is signed in\(to(provider)). pitboard parks logins "
+                detail: "\(email) is signed in\(to(provider)). Pitboard parks logins "
                     + "under a name you choose, and can’t park this one until it has one."
             ) {
                 Button("Name…") { model.present(.name(provider: provider, email: email)) }
@@ -275,7 +275,7 @@ private struct SetupTip: View {
             Tip(
                 symbol: Symbol.switchAccount,
                 title: "Add a second \(tool(provider))account",
-                detail: "\(label) is the only \(tool(provider))account pitboard knows, so "
+                detail: "\(label) is the only \(tool(provider))account Pitboard knows, so "
                     + "there’s nothing to switch to. Adding another signs in to it and "
                     + "parks its login beside this one."
             ) {

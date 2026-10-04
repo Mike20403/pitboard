@@ -1,6 +1,6 @@
 # Homebrew cask for the command line on macOS and Linux, in the tap datlechin/homebrew-tap.
 #
-# pitboard's release writes the tap's copy from packaging/pitboard.rb in datlechin/pitboard,
+# Pitboard's release writes the tap's copy from packaging/pitboard.rb in datlechin/pitboard,
 # with the version and the checksums from the release's SHA256SUMS filled in. An edit made
 # to the tap's copy is replaced at the next release.
 #
@@ -46,7 +46,7 @@ cask "pitboard" do
   end
 
   url "https://github.com/datlechin/pitboard/releases/download/v#{version}/pitboard-v#{version}-#{arch}-#{os}.tar.gz"
-  name "pitboard"
+  name "Pitboard"
   desc "Park and restore your own Claude Code and Codex logins"
   homepage "https://usepitboard.com/"
 
@@ -67,7 +67,7 @@ cask "pitboard" do
       brew install --cask datlechin/tap/pitboard-app
     The second line removes 0.3.0's formula if it is still there, and does nothing if not.
 
-    To remove pitboard with the logins it parked, run `pitboard uninstall` before
+    To remove Pitboard with the logins it parked, run `pitboard uninstall` before
     `brew uninstall`.
   EOS
 end

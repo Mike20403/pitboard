@@ -12,7 +12,7 @@ pub fn forget(settled: Settled, key: &Key) -> Result<(String, Vec<Warning>)> {
         mut state,
         ctx,
     } = settled;
-    // Who is signed in is a fact about the machine. pitboard's record of its last switch
+    // Who is signed in is a fact about the machine. Pitboard's record of its last switch
     // is stale the moment someone signs in with the tool's own login command, and
     // forgetting the account that is actually in use throws away the only record of it.
     // Asked of the tool's own files, so it answers offline: Claude Code's config, or a
@@ -22,7 +22,7 @@ pub fn forget(settled: Settled, key: &Key) -> Result<(String, Vec<Warning>)> {
         .map(|found| found.account_id);
     let signed_in = match (&live_uuid, state.get(key)) {
         (Some(uuid), Some(account)) => &account.account_uuid == uuid,
-        // No live identity to compare against, so pitboard's own record of the last switch
+        // No live identity to compare against, so Pitboard's own record of the last switch
         // is all there is.
         _ => state.active_for(key.provider) == Some(key.label.as_str()),
     };

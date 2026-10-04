@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>pitboard</string>
+	<string>Pitboard</string>
 	<key>CFBundleDisplayName</key>
-	<string>pitboard</string>
+	<string>Pitboard</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<!-- Drawn by scripts/make-icon.swift and put in the bundle by scripts/build-app.sh. -->
@@ -29,8 +29,8 @@
 	<!-- A menu bar app: no Dock icon, no window at launch. -->
 	<key>LSUIElement</key>
 	<true/>
-	<!-- A pitboard link, pitboard://open?url=<a site's link>, which the Share extension
-	     opens, shows the account picker. pitboard defines the scheme, so its role is Editor.
+	<!-- A Pitboard link, pitboard://open?url=<a site's link>, which the Share extension
+	     opens, shows the account picker. Pitboard defines the scheme, so its role is Editor.
 	     The project sets the scheme per configuration: pitboard-debug in a debug build, so a
 	     debug build never answers a link meant for an installed copy. A release build from a
 	     branch claims pitboard like the installed copy, and is unregistered after building. -->
@@ -52,6 +52,6 @@
 	<string>$(PITBOARD_URL_SCHEME)</string>
 	<!-- What macOS shows if it asks before an account's window saves a download. -->
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>pitboard saves what you download in an account's window to your Downloads folder.</string>
+	<string>Pitboard saves what you download in an account's window to your Downloads folder.</string>
 </dict>
 </plist>

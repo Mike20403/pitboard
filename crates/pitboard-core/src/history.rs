@@ -1,12 +1,12 @@
 //! What each account's limits have been doing, rather than only what they are now.
 //!
-//! The single decision pitboard exists to support is which account to use next, and it
+//! The single decision Pitboard exists to support is which account to use next, and it
 //! answered with two instantaneous percentages and left the arithmetic to the person. 73%
 //! of a weekly limit means nothing without knowing whether it was 40% this morning. An
 //! account at 60% with four hours until its window resets is better than one at 40% with
 //! twenty minutes, and better again than one at 20% whose weekly limit resets on Sunday.
 //!
-//! pitboard already had the data and threw it away: one snapshot per account in a map that
+//! Pitboard already had the data and threw it away: one snapshot per account in a map that
 //! every write replaced. This keeps the series instead, one line per reading, and derives
 //! from it the only number that answers the question: how long this account lasts.
 //!
@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(kept[1].at, NOW + 600);
     }
 
-    /// A machine running pitboard and a status line writes several readings an hour. One
+    /// A machine running Pitboard and a status line writes several readings an hour. One
     /// that says nothing the last one did not is not worth a line.
     #[test]
     fn a_reading_that_says_nothing_new_is_not_kept() {

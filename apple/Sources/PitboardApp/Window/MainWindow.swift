@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// pitboard's one window, beside the menu rather than instead of it.
+/// Pitboard's one window, beside the menu rather than instead of it.
 ///
 /// The menu is the glance and the switch. This is where the things that need room go: each
-/// account with its limits drawn out and everything that can be done to it, what pitboard
+/// account with its limits drawn out and everything that can be done to it, what Pitboard
 /// has to say in full, everything it has changed, and what it finds about this Mac.
 struct MainWindow: View {
     /// The scene's id, named once so the menu bar item and the scene cannot drift apart.
@@ -47,7 +47,7 @@ struct MainWindow: View {
         } message: { quitting in
             Text(
                 "\(quitting.name) keeps using the account it started with until it quits. "
-                    + "pitboard quits it, switches, and opens it again.")
+                    + "Pitboard quits it, switches, and opens it again.")
         }
         // A request for the window from the menu or the model can want a pane: a sheet is
         // about accounts, and so is a notice. Asked for when the window opens as well, since

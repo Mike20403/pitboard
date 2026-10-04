@@ -1,4 +1,4 @@
-// Draws pitboard's icon: the limits it exists to show, as three bars on a dark board.
+// Draws Pitboard's icon: the limits it exists to show, as three bars on a dark board.
 // Run by scripts/build-app.sh, so the icon is built rather than committed.
 import AppKit
 

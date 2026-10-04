@@ -36,7 +36,7 @@ extension XCUIApplication {
     /// Opens the main window from the menu, as a person does.
     func openWindow() {
         openMenu()
-        menuItem("Open pitboard").click()
+        menuItem("Open Pitboard").click()
         XCTAssertTrue(windows.firstMatch.waitForExistence(timeout: 5))
     }
 
@@ -106,7 +106,7 @@ extension XCUIApplication {
         windows.containing(.any, identifier: "account-picker").firstMatch
     }
 
-    /// Opens `link` as the Share extension hands it over: a pitboard link of the debug build,
+    /// Opens `link` as the Share extension hands it over: a Pitboard link of the debug build,
     /// opened through the system, which gives it to this app running in its fixture.
     /// `open(_:)` would launch a second copy of the app with it instead, which the test does
     /// not watch. Nothing is sent unless this app is running: the system would start a copy

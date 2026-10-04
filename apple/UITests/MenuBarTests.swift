@@ -15,7 +15,7 @@ final class MenuBarTests: XCTestCase {
             XCTAssertTrue(app.menuItem(title).waitForExistence(timeout: 5), title)
         }
         for command in [
-            "Add Account…", "Refresh", "Open pitboard", "Settings…", "Quit pitboard",
+            "Add Account…", "Refresh", "Open Pitboard", "Settings…", "Quit Pitboard",
         ] {
             XCTAssertTrue(app.menuItem(command).exists, command)
         }
@@ -28,7 +28,7 @@ final class MenuBarTests: XCTestCase {
         app.openMenu()
         app.menuItem("personal").click()
         app.openMenu()
-        app.menuItem("Open pitboard").click()
+        app.menuItem("Open Pitboard").click()
         let row = app.accountRow("claude/personal")
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertTrue(row.staticTexts["In Use"].waitForExistence(timeout: 5))
@@ -109,7 +109,7 @@ final class MenuBarTests: XCTestCase {
     func testQuitQuits() {
         let app = XCUIApplication.launched(.oneTool)
         app.openMenu()
-        app.menuItem("Quit pitboard").click()
+        app.menuItem("Quit Pitboard").click()
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
     }
 }

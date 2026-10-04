@@ -5,7 +5,7 @@ import WebKit
 /// records it first, wipes one in place, and deletes the ones no enrolled account has any
 /// more.
 ///
-/// A store is deleted only when this pitboard recorded making it and a read of the accounts
+/// A store is deleted only when this Pitboard recorded making it and a read of the accounts
 /// that succeeded no longer derives it, which is what forgetting an account leaves behind, in
 /// the app or on the command line. Nothing is deleted before the first read that succeeds, or
 /// after one that failed.
@@ -33,14 +33,14 @@ final class StoreJanitor {
         self.pause = pause
     }
 
-    /// The store for the account window `id` names, recorded as this pitboard's before it is
+    /// The store for the account window `id` names, recorded as this Pitboard's before it is
     /// made: a store WebKit has made and nobody recorded would never be deleted.
     func store(for id: UUID) -> WKWebsiteDataStore {
         record.add(id)
         return stores.store(for: id)
     }
 
-    /// Whether this pitboard has made the store `id` names: a window that has never opened
+    /// Whether this Pitboard has made the store `id` names: a window that has never opened
     /// has nothing in it yet, so its page says how to sign in.
     func hasMade(_ id: UUID) -> Bool {
         record.ids.contains(id)
@@ -54,7 +54,7 @@ final class StoreJanitor {
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
     }
 
-    /// Deletes every store this pitboard recorded that is not in `keeping`, the stores of the
+    /// Deletes every store this Pitboard recorded that is not in `keeping`, the stores of the
     /// enrolled accounts a read that succeeded found. A store still in use is tried again a
     /// few times, then left recorded for the next sweep.
     func sweep(keeping: Set<UUID>) async {
@@ -70,7 +70,7 @@ final class StoreJanitor {
 
     private func delete(_ id: UUID) async {
         defer { deleting.remove(id) }
-        // Another pitboard directory's account derives it as well: it is that one's to keep.
+        // Another Pitboard directory's account derives it as well: it is that one's to keep.
         if record.isShared(id) {
             record.remove(id)
             return

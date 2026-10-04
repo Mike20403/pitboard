@@ -221,7 +221,7 @@ fn a_codex_sign_in_without_codex_says_so_first() {
         .command(&["--json", "enroll", "codex/personal", "--sign-in"])
         .env("PATH", &empty)
         .output()
-        .expect("pitboard runs");
+        .expect("Pitboard runs");
     assert!(!out.status.success());
     let error = &envelope(&String::from_utf8_lossy(&out.stdout))["error"];
     assert_eq!(error["code"], "codex_program_missing", "{error}");

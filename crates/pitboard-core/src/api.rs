@@ -1,7 +1,7 @@
-//! What pitboard asks of Anthropic: who a login belongs to and how much it has left, both
+//! What Pitboard asks of Anthropic: who a login belongs to and how much it has left, both
 //! read with an access token, and fresh tokens for a parked login.
 //!
-//! Renewing is only ever done for a parked login, which pitboard alone holds. The login
+//! Renewing is only ever done for a parked login, which Pitboard alone holds. The login
 //! signed in is Claude Code's to renew: two holders renewing one refresh chain would break
 //! it for both.
 
@@ -105,7 +105,7 @@ pub struct Renewed {
     pub at: Option<i64>,
 }
 
-/// What pitboard asks Anthropic, as a seam.
+/// What Pitboard asks Anthropic, as a seam.
 ///
 /// The loopback server the integration tests run answers requests, which proves the
 /// parsing and the wiring. What it cannot produce on demand is the half that decides
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(
             server_time(&headers),
             None,
-            "an answer pitboard cannot read the time off is not a reason to guess one"
+            "an answer Pitboard cannot read the time off is not a reason to guess one"
         );
         assert_eq!(server_time(&ureq::http::HeaderMap::new()), None);
     }

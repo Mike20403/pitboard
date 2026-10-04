@@ -35,7 +35,7 @@ It prints this on one line:
 </ResponseField>
 
 <ResponseField name="command" type="string | null" required>
-  The command that ran, such as `rename`. The three `schedule` commands give `schedule`, and `completions` and `manpage` give `generate`. `null` when pitboard could not parse the command line.
+  The command that ran, such as `rename`. The three `schedule` commands give `schedule`, and `completions` and `manpage` give `generate`. `null` when Pitboard could not parse the command line.
 </ResponseField>
 
 <ResponseField name="ok" type="boolean" required>
@@ -78,7 +78,7 @@ It prints this on one line:
   </Expandable>
 </ResponseField>
 
-If pitboard cannot parse a command line that contains `--json`, `command` and `data` are `null`, `error.code` is `usage` and the exit status is 2. A label refused after parsing also gives `usage` and exit status 2, but `command` is set: `pitboard enroll codx/work --json` gives `enroll`.
+If Pitboard cannot parse a command line that contains `--json`, `command` and `data` are `null`, `error.code` is `usage` and the exit status is 2. A label refused after parsing also gives `usage` and exit status 2, but `command` is set: `pitboard enroll codx/work --json` gives `enroll`.
 
 In two cases, `data` is set although the command failed, and `error` has no `cause` field:
 
@@ -100,14 +100,14 @@ The `data` of each command, in the order of `pitboard --help`:
 | `use` | Already in use: `to`, and `changed` set to `false`. After a switch: `from`, `to`, `provider`, `changed` set to `true`, `parked_at` (when the login you left was parked), `adoption_ceiling_seconds` and `adoption`. |
 | `forget` | `label` and `email`. |
 | `abandon` | `abandoned`, `false` when there was no interrupted switch. When it is `true`, also `from`, `to` and `logins_kept`, a count. |
-| `repair` | `given_back`, a list of objects with `label` and `service`, the parked login's name. `deleted`, `strangers` (left alone because they belong to no account this pitboard knows) and `unreadable`, lists of parked login names. All four are always present. |
-| `adopt` | `adopted`, `false` when pitboard's directory was already this computer's. When it is `true`, also `accounts`, the labels of the accounts kept, and `logins_dropped`, the labels whose parked login was dropped. |
-| `renew` | `accounts`, a list of objects with `label`, `provider` and `outcome`, and `renewed`, a count. `outcome` is `renewed`, `parked_login_refused` (the service refused the login and pitboard dropped it), `renewal_deferred` (tried again next time) or an error code. |
-| `schedule` | `schedule install`: `installed` set to `true`, and `path`. `schedule status`: `installed`, and when it is `true`, `path` and `every_seconds` (`86400`). Where pitboard cannot write a schedule, also `supported` set to `false`. `schedule uninstall`: `installed` set to `false`, and `removed`. |
+| `repair` | `given_back`, a list of objects with `label` and `service`, the parked login's name. `deleted`, `strangers` (left alone because they belong to no account this Pitboard knows) and `unreadable`, lists of parked login names. All four are always present. |
+| `adopt` | `adopted`, `false` when Pitboard's directory was already this computer's. When it is `true`, also `accounts`, the labels of the accounts kept, and `logins_dropped`, the labels whose parked login was dropped. |
+| `renew` | `accounts`, a list of objects with `label`, `provider` and `outcome`, and `renewed`, a count. `outcome` is `renewed`, `parked_login_refused` (the service refused the login and Pitboard dropped it), `renewal_deferred` (tried again next time) or an error code. |
+| `schedule` | `schedule install`: `installed` set to `true`, and `path`. `schedule status`: `installed`, and when it is `true`, `path` and `every_seconds` (`86400`). Where Pitboard cannot write a schedule, also `supported` set to `false`. `schedule uninstall`: `installed` set to `false`, and `removed`. |
 | `log` | `entries`, oldest first, each with `at`, `caller` (`cli`, `app` or `unknown`), `verb`, `subject` and `outcome`. |
-| `uninstall` | `parks_removed`, `parks_pending` (could not be deleted) and `parks_left` (left because another pitboard may own them), counts. `home_removed` and `schedule_removed`, booleans. |
+| `uninstall` | `parks_removed`, `parks_pending` (could not be deleted) and `parks_left` (left because another Pitboard may own them), counts. `home_removed` and `schedule_removed`, booleans. |
 | `rename` | `from`, `to` and `email`. |
-| `doctor` | `environment`: the paths and login stores pitboard found, and the version of OpenAI's Codex CLI. `checks`, each with `code`, `name`, `level` (`ok`, `warn` or `fail`), `detail` and `advice`, as [Maintenance commands](/reference/maintenance-commands#doctor) lists. |
+| `doctor` | `environment`: the paths and login stores Pitboard found, and the version of OpenAI's Codex CLI. `checks`, each with `code`, `name`, `level` (`ok`, `warn` or `fail`), `detail` and `advice`, as [Maintenance commands](/reference/maintenance-commands#doctor) lists. |
 | `statusline` | `line`, the status line without colour. |
 | `generate` (`completions` and `manpage`) | `{}` |
 
@@ -131,7 +131,7 @@ Each object in `accounts` has these fields:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `label` | string or null | The label without its tool, such as `work`, or `null` for a login nobody enrolled. |
-| `email` | string | The account's email address. Empty when pitboard could not tell whose login it is. |
+| `email` | string | The account's email address. Empty when Pitboard could not tell whose login it is. |
 | `account_uuid` | string | The account id. Empty in the same case. |
 | `signed_in` | boolean | `true` for the account its tool is using. |
 | `switchable` | boolean | `true` when `pitboard use` can switch to it: it is not in use, and its parked login can still be restored. |
@@ -142,7 +142,7 @@ Each object in `accounts` has these fields:
 | `provider` | string | `claude` or `codex`. |
 | `qualified` | string or null | The label with its tool, such as `claude/work`. `null` for a login nobody enrolled. |
 
-In `usage`, `source` is `live` when pitboard asked the service this time. It is `claude_code_cache` for a reading copied from Claude Code's own cache, and `remembered` for the last reading pitboard took itself.
+In `usage`, `source` is `live` when Pitboard asked the service this time. It is `claude_code_cache` for a reading copied from Claude Code's own cache, and `remembered` for the last reading Pitboard took itself.
 
 Each object in `windows` is one limit:
 
@@ -164,17 +164,17 @@ Each object in `windows` is one limit:
 | --- | --- | --- |
 | `nothing_signed_in` | Nothing is signed in to the tool. | `nothing is signed in` |
 | `login_unreadable` | The tool's login is there but could not be read. | `` Claude Code's login could not be read; run `pitboard doctor` `` |
-| `login_unusable` | The tool's login is not one pitboard can park or switch, such as one made with an API key. | `` Claude Code's login is not one pitboard can park or switch; run `pitboard doctor` `` |
+| `login_unusable` | The tool's login is not one Pitboard can park or switch, such as one made with an API key. | `` Claude Code's login is not one Pitboard can park or switch; run `pitboard doctor` `` |
 | `session_expired` | The login in use has expired. The tool renews it the next time it runs. | `` Claude Code's session has expired; `claude` renews it `` |
 | `parked_access_expired` | The parked login's access token has expired and could not be renewed this time. | None |
 | `nothing_parked` | The account has no parked login. | None |
 | `park_unreadable` | The parked login could not be read. | `` its parked login cannot be read; run `pitboard doctor` `` |
-| `rate_limited` | The service asked for fewer usage requests, so pitboard waits before asking again. | `Anthropic is rate limiting usage checks` |
+| `rate_limited` | The service asked for fewer usage requests, so Pitboard waits before asking again. | `Anthropic is rate limiting usage checks` |
 | `unreachable` | The service could not be reached. | `Anthropic could not be reached` |
 | `server_error` | The service answered with an error. | `Anthropic answered with an error; try again later` |
-| `answer_not_understood` | The service's answer was not in a shape pitboard reads. | `Anthropic's answer was not understood` |
+| `answer_not_understood` | The service's answer was not in a shape Pitboard reads. | `Anthropic's answer was not understood` |
 | `login_refused` | The service no longer accepts the parked login. | `its parked login is no longer accepted; sign in again` |
-| `asked_recently` | pitboard asked too recently for the limit to have moved by one percentage point, so it did not ask again. | None |
+| `asked_recently` | Pitboard asked too recently for the limit to have moved by one percentage point, so it did not ask again. | None |
 | `interrupted` | The request stopped before it had an answer. | `the check did not finish` |
 | `not_asked` | Read without the network, as every row of `pitboard status --offline` is. | `read without asking Anthropic` |
 

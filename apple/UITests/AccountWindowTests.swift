@@ -47,7 +47,7 @@ final class AccountWindowTests: XCTestCase {
     func testNoAccountOffersNoWindow() {
         let app = XCUIApplication.launched(.empty)
         app.openMenu()
-        XCTAssertTrue(app.menuItem("Open pitboard").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.menuItem("Open Pitboard").waitForExistence(timeout: 5))
         XCTAssertFalse(app.menuItem("Open claude.ai").exists)
         XCTAssertFalse(app.menuItem("Open chatgpt.com").exists)
         app.typeKey(.escape, modifierFlags: [])
@@ -113,7 +113,7 @@ final class AccountWindowTests: XCTestCase {
         let window = app.accountWindow("main")
         page(of: window).links["Continue with Google"].click()
         let note = window.descendants(matching: .any)["window.note"]
-        XCTAssertTrue(note.text("CONTAINS", "pitboard stopped it").waitForExistence(timeout: 5))
+        XCTAssertTrue(note.text("CONTAINS", "Pitboard stopped it").waitForExistence(timeout: 5))
         XCTAssertTrue(page(of: window).text("==", "chatgpt.com stand-in").exists)
     }
 
@@ -158,7 +158,7 @@ final class AccountWindowTests: XCTestCase {
         XCTAssertTrue(note.waitForNonExistence(timeout: 5))
         page(of: window).links["A chat"].click()
         XCTAssertTrue(
-            page(of: window).text("BEGINSWITH", "A pitboard fixture page at /chat/fixture")
+            page(of: window).text("BEGINSWITH", "A Pitboard fixture page at /chat/fixture")
                 .waitForExistence(timeout: 10))
 
         let file = app.menuBars.menuBarItems["File"]
@@ -170,7 +170,7 @@ final class AccountWindowTests: XCTestCase {
         XCTAssertTrue(
             note.text("BEGINSWITH", "Sign in to chatgpt.com").waitForExistence(timeout: 10))
         XCTAssertTrue(
-            page(of: window).text("BEGINSWITH", "A pitboard fixture page at /.")
+            page(of: window).text("BEGINSWITH", "A Pitboard fixture page at /.")
                 .waitForExistence(timeout: 10))
     }
 

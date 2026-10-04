@@ -1,6 +1,6 @@
-//! Check what pitboard believes about a coding tool against a build of that tool.
+//! Check what Pitboard believes about a coding tool against a build of that tool.
 //!
-//! Every load-bearing fact in pitboard was read out of one build and lives in
+//! Every load-bearing fact in Pitboard was read out of one build and lives in
 //! [`pitboard_core::assumptions`] with the literals it is readable by. This reads those
 //! literals out of a binary and says which ones are still there.
 //!
@@ -8,7 +8,7 @@
 //! behaviour around it is unchanged, and this never says it does. A literal disappearing
 //! does prove something moved, which is the only thing worth waking somebody for.
 //!
-//! What it is not: a test of pitboard against a running Claude Code. That needs a real
+//! What it is not: a test of Pitboard against a running Claude Code. That needs a real
 //! sign-in and a real keychain and cannot run unattended.
 //!
 //! A build is for one system, and a tool's builds for different systems carry different
@@ -104,7 +104,7 @@ fn main() -> ExitCode {
         println!("{report}");
     } else {
         println!(
-            "{path}\na {} build; pitboard's facts about {} were read from {}\n",
+            "{path}\na {} build; Pitboard's facts about {} were read from {}\n",
             platform.code(),
             provider.code(),
             assumptions::verified_against(provider)
@@ -147,10 +147,10 @@ fn main() -> ExitCode {
         }
         println!();
         if moved.is_empty() {
-            println!("Everything pitboard can read from a build is still there.");
+            println!("Everything Pitboard can read from a build is still there.");
         } else {
             println!(
-                "{} of pitboard's facts can no longer be read from this build. Re-measure \
+                "{} of Pitboard's facts can no longer be read from this build. Re-measure \
                  them against it before trusting a switch.",
                 moved.len()
             );
@@ -165,7 +165,7 @@ fn main() -> ExitCode {
 }
 
 /// The system a binary is built for, from its first four bytes: an ELF binary is taken
-/// for Linux and a Mach-O one, thin or universal, for macOS. The tools pitboard reads ship
+/// for Linux and a Mach-O one, thin or universal, for macOS. The tools Pitboard reads ship
 /// no other kind.
 fn platform_of(bytes: &[u8]) -> Option<Platform> {
     match bytes.get(..4)? {

@@ -77,7 +77,7 @@ private struct Scratch {
 /// A link is offered only to an app with a command line inside it that stays where it is.
 /// macOS runs an app opened where it was downloaded from a temporary copy, and a link into
 /// that stops working once the app quits. The app is a stand-in the test makes, so the answer
-/// does not depend on whether the Mac running the tests has pitboard installed.
+/// does not depend on whether the Mac running the tests has Pitboard installed.
 @Test func aLinkIsOfferedOnlyToAnAppThatStaysWhereItIs() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -154,7 +154,7 @@ private struct Scratch {
     #expect(tool.find(in: ["\(hostile)/bin"]) == .bundled(link))
 }
 
-/// Anything where the link goes that is not a link is somebody's own, such as a pitboard
+/// Anything where the link goes that is not a link is somebody's own, such as a Pitboard
 /// they copied there, so it is kept and no script runs. A link is replaced whether or not
 /// what it leads to is there, such as one left by a copy of the app that has since moved,
 /// and so is nothing at all.
@@ -193,7 +193,7 @@ private struct Scratch {
         link: link, execute: scripts.run)
     #expect(
         await downloaded.install()
-            == .failed("This copy of pitboard cannot link the command line inside it."))
+            == .failed("This copy of Pitboard cannot link the command line inside it."))
     #expect(scripts.ran.count == 3)
 }
 

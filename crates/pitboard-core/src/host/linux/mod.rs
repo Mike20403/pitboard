@@ -1,7 +1,7 @@
 //! Linux: files, a vault of files, `/proc` and systemd.
 //!
 //! Claude Code has no keyring backend on Linux, so its login is a plaintext file it sets to
-//! 0600, and pitboard's parked logins are 0600 files in a 0700 directory beside it.
+//! 0600, and Pitboard's parked logins are 0600 files in a 0700 directory beside it.
 
 mod procfs;
 mod systemd;
@@ -55,10 +55,10 @@ pub(super) fn host() -> Arc<dyn Host> {
     })
 }
 
-/// The path this pitboard was started by, where that leads to the program running.
+/// The path this Pitboard was started by, where that leads to the program running.
 ///
 /// Linux says where the running program is with every link resolved, and the link is what
-/// lasts: Homebrew starts pitboard through one in its `bin` that leads into a directory
+/// lasts: Homebrew starts Pitboard through one in its `bin` that leads into a directory
 /// named after the version, which the next upgrade deletes.
 pub(super) fn current_program() -> std::io::Result<PathBuf> {
     Ok(started_as(
@@ -98,10 +98,10 @@ pub(super) fn pretend_scheduler(
 mod tests {
     use super::*;
 
-    /// Homebrew starts pitboard through a link in its `bin` that leads into a directory
+    /// Homebrew starts Pitboard through a link in its `bin` that leads into a directory
     /// named after the version, and the next upgrade deletes that directory. Linux says
     /// where the running program is with every link resolved, so the schedule is given the
-    /// path pitboard was started by instead, wherever that leads to this same program.
+    /// path Pitboard was started by instead, wherever that leads to this same program.
     #[test]
     fn the_command_line_is_known_by_the_path_it_was_started_by() {
         let home = std::env::temp_dir().join(format!(
@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(
             started(Some(name), another.parent().expect("its directory")),
             running,
-            "another pitboard on PATH is not the one that is running"
+            "another Pitboard on PATH is not the one that is running"
         );
         assert_eq!(
             started(Some(name), nowhere),

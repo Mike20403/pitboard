@@ -1,4 +1,4 @@
-//! Names pitboard is about to write a login into, written down before the login is.
+//! Names Pitboard is about to write a login into, written down before the login is.
 //!
 //! The switch got this right and nothing else did. `enroll --sign-in` and the renewal that
 //! runs inside every `pitboard status` both claimed a name, wrote a login into it, and only
@@ -67,12 +67,12 @@ pub fn reserve(ctx: &Context, service: &str) -> Result<()> {
 pub struct Reclaimed {
     /// Given back to the account whose name they carry: (label, service).
     pub given_back: Vec<(String, String)>,
-    /// Listed for deletion. Only ever a name this pitboard wrote down itself and nothing
+    /// Listed for deletion. Only ever a name this Pitboard wrote down itself and nothing
     /// recorded, which is the one case where being sure is possible.
     pub deleted: Vec<String>,
     /// Found in the store, belonging to no account here and never written down here.
-    /// Reported and not touched: the store is shared by the whole machine and pitboard's
-    /// records are not, so an item pitboard cannot account for may be another pitboard's.
+    /// Reported and not touched: the store is shared by the whole machine and Pitboard's
+    /// records are not, so an item Pitboard cannot account for may be another Pitboard's.
     pub strangers: Vec<String>,
     /// Left exactly as they are, because the store could not be read.
     pub unreadable: Vec<String>,
@@ -91,24 +91,24 @@ impl Reclaimed {
     }
 }
 
-/// Resolve every name pitboard wrote down and nothing refers to any more.
+/// Resolve every name Pitboard wrote down and nothing refers to any more.
 ///
 /// Runs in every `settle`, after the journal has had its say, so a switch's own park is
-/// already accounted for by then. It reads pitboard's own list rather than asking the
+/// already accounted for by then. It reads Pitboard's own list rather than asking the
 /// store, because it is on the path of every change and a keychain dump is not free.
 pub fn sweep(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
     let ours = read(ctx);
     resolve(ctx, state, ours.clone(), &ours)
 }
 
-/// The same, asking the store what is actually there rather than trusting pitboard's list.
+/// The same, asking the store what is actually there rather than trusting Pitboard's list.
 /// This is what finds a login whose name was lost with the list, or written by a version
 /// that had no list. `pitboard repair` runs it; nothing else does, because on macOS it
 /// dumps the keychain.
 pub fn reclaim(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
     let ours = read(ctx);
     let Some(stored) = store::vault_list(ctx)? else {
-        // A store that cannot be enumerated: pitboard's own list is all there is.
+        // A store that cannot be enumerated: Pitboard's own list is all there is.
         return resolve(ctx, state, ours.clone(), &ours);
     };
     let mut names = stored;
@@ -120,16 +120,16 @@ pub fn reclaim(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
     resolve(ctx, state, names, &ours)
 }
 
-/// `ours` is the list of names this pitboard wrote down before creating them. It is what
+/// `ours` is the list of names this Pitboard wrote down before creating them. It is what
 /// separates an item that may be deleted from one that may only be reported.
 ///
 /// The asymmetry matters more than anything else here. On macOS the keychain belongs to the
-/// whole login session while pitboard's records belong to one `PITBOARD_HOME`, so an item
-/// this pitboard cannot account for is not evidence of an orphan: it may be another
-/// pitboard's parked login, and deleting it would end that account's session for someone
+/// whole login session while Pitboard's records belong to one `PITBOARD_HOME`, so an item
+/// this Pitboard cannot account for is not evidence of an orphan: it may be another
+/// Pitboard's parked login, and deleting it would end that account's session for someone
 /// who never ran this command. Giving a login back is additive and safe to do on a guess;
 /// deleting one is not, and is done only where being sure is possible. Where the vault is
-/// shared that way, a login given back that this pitboard did not write down is recorded
+/// shared that way, a login given back that this Pitboard did not write down is recorded
 /// as such, so letting it go later never deletes it either: only using it does.
 fn resolve(
     ctx: &Context,
@@ -157,7 +157,7 @@ fn resolve(
             Ok(Some(raw)) => match adopt(ctx, state, &service, &raw, written_here) {
                 Some(label) => out.given_back.push((label, service)),
                 None if written_here => {
-                    // This pitboard wrote this name down, wrote a login into it, and
+                    // This Pitboard wrote this name down, wrote a login into it, and
                     // nothing here recorded it. That is an orphan and nothing else can be.
                     release(ctx, state, &service);
                     out.deleted.push(service);
@@ -181,14 +181,14 @@ fn resolve(
 /// The second case is what a renewal leaves when it is killed after writing the fresh login
 /// and before recording it: the service has already spent the older copy's refresh token,
 /// so the account holds a dead login and the orphan is its only live one. Keeping the older
-/// and deleting the newer, which is what happened, lost the login. Only a name this pitboard
+/// and deleting the newer, which is what happened, lost the login. Only a name this Pitboard
 /// wrote down itself is trusted that far; a stranger replaces nothing. The older copy is
 /// released rather than discarded, because an enrolment killed at the same point leaves the
 /// same shape with an older copy nothing spent, and an older copy `repair` gave back may be
-/// another pitboard's.
+/// another Pitboard's.
 ///
 /// Anything else is refused: an account that already holds a newer park has a login
-/// pitboard renews, and a second copy of one refresh chain is the state that ends a login
+/// Pitboard renews, and a second copy of one refresh chain is the state that ends a login
 /// for both holders.
 fn adopt(
     ctx: &Context,
@@ -222,7 +222,7 @@ fn adopt(
     if park::is_live_twin(ctx, key.provider, &oauth) {
         return None;
     }
-    // A vault of files lives inside this home, so whatever is in it is this pitboard's
+    // A vault of files lives inside this home, so whatever is in it is this Pitboard's
     // whether or not it was written down, and is deleted like any other once let go.
     if written_here || !store::vault_is_shared(ctx) {
         state.park(&key, park);
@@ -237,7 +237,7 @@ fn adopt(
 /// List it for deletion the way every other unwanted park is listed, so a delete that fails
 /// is retried rather than forgotten.
 fn release(ctx: &Context, state: &mut State, service: &str) {
-    debug_assert!(park::is_park_name(service), "only pitboard's own names");
+    debug_assert!(park::is_park_name(service), "only Pitboard's own names");
     state.release(service);
     crate::audit::record(ctx, "reclaim", service, "discarded");
 }
@@ -343,13 +343,13 @@ mod tests {
             park.parked_at, 1_760_000_000,
             "when it was parked is in its own name"
         );
-        assert!(state.foreign.is_empty(), "this pitboard wrote it");
+        assert!(state.foreign.is_empty(), "this Pitboard wrote it");
         assert!(outstanding(&ctx).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
     /// The account a name was written for, holding `held`, with `orphan` in the vault under
-    /// a name this pitboard wrote down and nothing recorded.
+    /// a name this Pitboard wrote down and nothing recorded.
     fn holding(
         name: &str,
         held: (&str, &str, i64),
@@ -391,7 +391,7 @@ mod tests {
     }
 
     /// An orphan older than what the account holds is left over from before it, and the
-    /// recorded copy is the one pitboard renews.
+    /// recorded copy is the one Pitboard renews.
     #[test]
     fn an_older_copy_than_the_one_an_account_holds_is_deleted() {
         let held = "pitboard-park-acc-1760000000000";
@@ -404,7 +404,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// A newer copy this pitboard wrote and never recorded is what a renewal killed between
+    /// A newer copy this Pitboard wrote and never recorded is what a renewal killed between
     /// writing and recording leaves. The service spent the older copy's chain when it
     /// answered, so the newer one is the account's only working login and replaces it.
     #[test]
@@ -443,7 +443,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// The case the list alone cannot answer: a login in the vault that pitboard never
+    /// The case the list alone cannot answer: a login in the vault that Pitboard never
     /// wrote a name down for, because the home was lost, or because it was parked by a
     /// version that kept no list. Only asking the store finds it.
     #[test]
@@ -459,7 +459,7 @@ mod tests {
         let mut state = State::default();
         state.accounts.push(account("work", "acc"));
 
-        // The cheap sweep cannot see it, because it only reads pitboard's own list.
+        // The cheap sweep cannot see it, because it only reads Pitboard's own list.
         assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
         assert!(state.get(&work()).expect("account").parked.is_none());
 
@@ -481,16 +481,16 @@ mod tests {
         assert_eq!(
             state.foreign,
             vec![service.to_string()],
-            "nothing says this pitboard wrote it, so it may be another's"
+            "nothing says this Pitboard wrote it, so it may be another's"
         );
         let _ = std::fs::remove_dir_all(root);
     }
 
     /// A login for an account this machine has never heard of. Keeping it would be keeping
     /// a credential nothing can ever use, renew or name.
-    /// The rule that matters most here. A keychain belongs to a login session; pitboard's
-    /// records belong to one PITBOARD_HOME. So a parked login this pitboard cannot account
-    /// for is not evidence of an orphan, it is evidence of another pitboard, and deleting
+    /// The rule that matters most here. A keychain belongs to a login session; Pitboard's
+    /// records belong to one PITBOARD_HOME. So a parked login this Pitboard cannot account
+    /// for is not evidence of an orphan, it is evidence of another Pitboard, and deleting
     /// it would end that account's session for somebody who never ran this command.
     #[test]
     fn a_login_this_pitboard_never_wrote_down_is_reported_and_not_touched() {
@@ -516,7 +516,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// The one case where being sure is possible: this pitboard wrote the name down, wrote
+    /// The one case where being sure is possible: this Pitboard wrote the name down, wrote
     /// a login into it, and nothing here recorded it.
     #[test]
     fn a_login_this_pitboard_wrote_down_and_nothing_wants_is_deleted() {

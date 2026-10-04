@@ -110,7 +110,7 @@ func restartNotice(program: String, from: String) -> String {
         + "quit and started again."
 }
 
-/// The locale spans of time are written in. pitboard says everything else in English, and a
+/// The locale spans of time are written in. Pitboard says everything else in English, and a
 /// sentence that switches language halfway, "about 1h 30min left", reads as a mistake.
 private let english = Locale(identifier: "en_US_POSIX")
 
@@ -173,7 +173,7 @@ func changeOutcome(_ outcome: String) -> String {
 /// Who asked for a change.
 func changeCaller(_ caller: String) -> String {
     switch caller {
-    case "app": "pitboard app"
+    case "app": "Pitboard app"
     case "cli": "Command line"
     case "unknown": "Unknown"
     default: caller.capitalizedFirst

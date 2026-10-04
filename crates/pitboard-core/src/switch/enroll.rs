@@ -1,4 +1,4 @@
-//! Bringing an account under pitboard's care.
+//! Bringing an account under Pitboard's care.
 //!
 //! A parked copy is only safe if the live slot is replaced the moment it is taken; otherwise
 //! the tool keeps rotating the same token and the copy goes stale, and for a tool whose
@@ -36,7 +36,7 @@ pub enum Enrolled {
     InUse { email: String, again: bool },
 }
 
-/// A login a tool stored for pitboard in a private directory, not yet enrolled. Dropping it
+/// A login a tool stored for Pitboard in a private directory, not yet enrolled. Dropping it
 /// deletes that directory and whatever the tool kept for it elsewhere.
 pub struct SignIn {
     provider: ProviderId,
@@ -125,7 +125,7 @@ pub(super) fn planted(ctx: &Context, which: ProviderId, document: Value) -> Resu
 /// touched, and read back the login it stored there.
 pub fn sign_in(ctx: &Context, which: ProviderId) -> Result<SignIn> {
     let mut pending = reserve_signin(ctx, which)?;
-    // pitboard never sees the sign-in; it reads the login the tool stores once it is done.
+    // Pitboard never sees the sign-in; it reads the login the tool stores once it is done.
     // What the tool prints goes to stderr, so `--json` output stays one JSON line.
     let finished = provider::of(which)
         .sign_in(ctx, &pending.dir)
@@ -378,7 +378,7 @@ fn from_sign_in(
         }
         InUse::NotTheirs => park_signed_in(ctx, key, state, login, &owner),
         InUse::Untold(why) => {
-            // Somebody signing in to the account pitboard last saw in use most likely wants
+            // Somebody signing in to the account Pitboard last saw in use most likely wants
             // its broken login replaced, and parking is not that, so it is said.
             let last_in_use = state.active_for(key.provider) == Some(key.label.as_str());
             let (enrolled, mut warnings) = park_signed_in(ctx, key, state, login, &owner)?;
@@ -431,7 +431,7 @@ fn untold(error: &Error) -> String {
         | Error::LiveCredentialShapeUnexpected { detail, .. } => detail.clone(),
         Error::LiveStoreUnsupported { reason, .. } => reason.clone(),
         Error::LiveCredentialElsewhere { email } => {
-            format!("its config names {email}, and pitboard cannot find that login")
+            format!("its config names {email}, and Pitboard cannot find that login")
         }
         Error::Store(e) => e.to_string(),
         other => other.code().replace('_', " "),
@@ -505,7 +505,7 @@ fn install_signed_in(
     let lock_lost = guard.as_ref().is_some_and(lock::Guard::compromised);
     let lost = match super::holds(which, live) {
         Ok(true) => None,
-        Ok(false) => Some("it was gone again before pitboard finished".to_string()),
+        Ok(false) => Some("it was gone again before Pitboard finished".to_string()),
         Err(unreadable) => Some(unreadable.to_string()),
     };
     if let Some(detail) = lost {
@@ -634,10 +634,10 @@ fn park_signed_in(
     Ok((enrolled, parking.into_iter().collect()))
 }
 
-/// What pitboard records about a newly enrolled account.
+/// What Pitboard records about a newly enrolled account.
 ///
 /// For Claude Code, only what Anthropic just confirmed: leaving the rest out makes Claude
-/// Code fetch its own profile after a switch rather than trust a copy pitboard wrote. For
+/// Code fetch its own profile after a switch rather than trust a copy Pitboard wrote. For
 /// Codex there is no such cache to correct, and what is kept instead is what its own login
 /// already said, which costs nothing to read and explains a limit somebody is surprised by.
 fn account(
@@ -873,7 +873,7 @@ mod tests {
                 Some(store::fingerprint("here-refresh-2")),
                 "{case}: the new login is parked"
             );
-            // `here` is the account pitboard last saw in use, so the person most likely
+            // `here` is the account Pitboard last saw in use, so the person most likely
             // meant to replace its login, and is told that did not happen and why.
             let said = warnings
                 .iter()
@@ -892,7 +892,7 @@ mod tests {
         }
     }
 
-    /// Only the account pitboard last saw in use is warned about. Signing in again to a
+    /// Only the account Pitboard last saw in use is warned about. Signing in again to a
     /// parked account renews its park whoever is signed in, as it always did.
     #[test]
     fn a_sign_in_to_a_parked_account_is_not_warned_about_the_login_in_use() {

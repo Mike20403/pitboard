@@ -1,4 +1,4 @@
-# Writing pitboard's documentation
+# Writing Pitboard's documentation
 
 This folder is the Mintlify source of docs.usepitboard.com. Pages are MDX with YAML
 frontmatter. `docs.json` holds navigation and settings.
@@ -50,7 +50,7 @@ rendered page too.
 
 ## Voice
 
-- Write to `you`, present tense, active voice. When pitboard or a tool acts, make it the
+- Write to `you`, present tense, active voice. When Pitboard or a tool acts, make it the
   subject. Never `we`, `our` or `let's`.
 - Say what happens, then why. Give the measured number. State limits plainly, with no
   apology and no promise. Say what is not known instead of guessing.
@@ -58,7 +58,8 @@ rendered page too.
 - Describe; do not sell or reassure.
 - British spelling and no contractions in prose: enrol, licence, notarised, behaviour,
   organisation. Commands, fields and UI labels keep their own spelling.
-- pitboard is always lower case, also at the start of a sentence and in titles.
+- Pitboard is the product's name and always has a capital P. `pitboard`, in code
+  formatting, is the command, and stays lower case like every other identifier.
 - Numerals for durations, sizes and percentages; words for small counts; dates as
   18 June 2026. No serial comma unless needed.
 
@@ -100,7 +101,7 @@ Use the first word, never the others.
 | usage, limit, five-hour limit, weekly limit, resets | quota, cap, 5h limit, session limit, refills |
 | keychain | Keychain, keyring |
 | the app, the menu bar app; the command line | Pitboard.app, the GUI; the CLI, the binary |
-| pitboard's item in the menu bar; the pitboard window; pane | status item, tray icon, panel, dashboard, tab |
+| Pitboard's item in the menu bar; the Pitboard window; pane | status item, tray icon, panel, dashboard, tab |
 | shortcut menu; dialog; Settings | context menu; sheet, modal; Preferences |
 | Claude Code; Codex ("OpenAI's Codex CLI" on first mention) | Claude (for the tool), Codex CLI |
 | chatgpt.com (the site, an account's window on it); the ChatGPT app (OpenAI's desktop app) | ChatGPT (for the site or a window), ChatGPT window, ChatGPT website |

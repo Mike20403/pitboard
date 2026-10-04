@@ -382,7 +382,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				PITBOARD_SHARE_NAME = "pitboard Debug";
+				PITBOARD_SHARE_NAME = "Pitboard Debug";
 				PITBOARD_URL_SCHEME = "pitboard-debug";
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -441,7 +441,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				PITBOARD_SHARE_NAME = pitboard;
+				PITBOARD_SHARE_NAME = Pitboard;
 				PITBOARD_URL_SCHEME = pitboard;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;

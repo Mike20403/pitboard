@@ -97,7 +97,7 @@
             return document(
                 title: "\(site.name) stand-in",
                 body:
-                    "<p>A pitboard fixture page at \(path). Nothing here reaches the network. "
+                    "<p>A Pitboard fixture page at \(path). Nothing here reaches the network. "
                     + "Find the word needle here, and the needle there.</p>"
                     + "<p><a id=\"outside\" href=\"https://example.com/\">A link outside "
                     + "\(site.name)</a></p>"
@@ -119,7 +119,7 @@
         private static func signInPage(_ host: String) -> String {
             document(
                 title: "\(host) sign-in stand-in",
-                body: "<p>A pitboard fixture page for signing in.</p>"
+                body: "<p>A Pitboard fixture page for signing in.</p>"
                     + "<p><button id=\"done\" onclick=\"window.close()\">Done</button></p>")
         }
 

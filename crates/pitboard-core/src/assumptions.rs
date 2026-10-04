@@ -1,7 +1,7 @@
-//! How pitboard writes down what it believes about somebody else's software.
+//! How Pitboard writes down what it believes about somebody else's software.
 //!
-//! Every load-bearing fact about a tool pitboard parks logins for was read out of one build
-//! of that tool, and those tools ship several times a week. When such a fact moves, pitboard
+//! Every load-bearing fact about a tool Pitboard parks logins for was read out of one build
+//! of that tool, and those tools ship several times a week. When such a fact moves, Pitboard
 //! does not fail loudly: it parks a login under the wrong account, or writes to an item
 //! nobody reads, or leaves the outgoing account's device token in place for the incoming
 //! one. The 0.1.4 changelog records this class of bug happening once already, found by hand.
@@ -46,12 +46,12 @@ impl Platform {
     }
 }
 
-/// One thing pitboard believes about a tool it parks logins for.
+/// One thing Pitboard believes about a tool it parks logins for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Assumption {
     /// Stable, snake_case, safe for a program to branch on.
     pub name: &'static str,
-    /// What pitboard believes.
+    /// What Pitboard believes.
     pub fact: &'static str,
     /// Where in Claude Code it was read, so it can be read again.
     pub read_from: &'static str,
@@ -69,8 +69,8 @@ pub struct Assumption {
     pub probe: &'static [&'static str],
     /// Literals whose *arrival* would disprove the fact.
     ///
-    /// Some of what pitboard stands on is an absence: Claude Code has no Linux keyring
-    /// backend, so on Linux its login is a file, so pitboard's own store there is a file
+    /// Some of what Pitboard stands on is an absence: Claude Code has no Linux keyring
+    /// backend, so on Linux its login is a file, so Pitboard's own store there is a file
     /// too. A fact like that cannot be probed for by looking for something. Nothing being
     /// there is not evidence a check is running, which is exactly how an absence stops
     /// being true without anybody noticing, so the absence is written down and looked for.
@@ -134,7 +134,7 @@ pub enum Reading {
     /// Something moved. These literals are gone.
     Moved(Vec<&'static str>),
     /// Something arrived that this fact said would not be there. An absence that stopped
-    /// being an absence: a keyring backend where pitboard is relying on there being none.
+    /// being an absence: a keyring backend where Pitboard is relying on there being none.
     Appeared(Vec<&'static str>),
 }
 
@@ -204,7 +204,7 @@ mod tests {
     use super::*;
 
     /// The one fact here that rests on an absence. A keyring backend arriving in Claude
-    /// Code would make pitboard's Linux store the wrong shape without anything pitboard
+    /// Code would make Pitboard's Linux store the wrong shape without anything Pitboard
     /// reads going missing, so it is looked for rather than waited for.
     #[test]
     fn a_keyring_arriving_where_there_was_none_is_reported() {

@@ -13,7 +13,7 @@ struct WebEnvironment {
     let scheme: String
     /// WebKit's persistent stores, or stand-ins.
     let stores: any WebsiteDataStores
-    /// Which stores this pitboard directory has made.
+    /// Which stores this Pitboard directory has made.
     let record: StoreRecord
     /// The page each account's window was last on.
     let pages: PageRecord
@@ -27,7 +27,7 @@ struct WebEnvironment {
     /// Waits between attempts to delete a store WebKit still holds.
     let pause: @MainActor (Duration) async -> Void
 
-    /// The sites themselves, WebKit's stores recorded in `defaults` for the pitboard directory
+    /// The sites themselves, WebKit's stores recorded in `defaults` for the Pitboard directory
     /// this launch reads, the Downloads folder and the default browser.
     static func live(
         defaults: UserDefaults,

@@ -1,4 +1,4 @@
-//! Time through jiff: epoch seconds in everything pitboard stores, the local time zone only
+//! Time through jiff: epoch seconds in everything Pitboard stores, the local time zone only
 //! in what it shows a person.
 //!
 //! There is no free function that reads the clock. Everything that needs to know the time
@@ -10,10 +10,10 @@
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
-/// What pitboard reads the time from.
+/// What Pitboard reads the time from.
 #[doc(hidden)]
 pub trait Clock: Send + Sync + std::fmt::Debug {
-    /// Epoch seconds: what everything pitboard stores is measured in.
+    /// Epoch seconds: what everything Pitboard stores is measured in.
     fn now(&self) -> i64;
 
     /// Epoch milliseconds. Park names carry this, so two parks of one account in the same

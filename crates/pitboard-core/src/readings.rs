@@ -1,4 +1,4 @@
-//! The newest usage reading pitboard knows for each account.
+//! The newest usage reading Pitboard knows for each account.
 //!
 //! When an account cannot be asked, because Anthropic is unreachable or its parked login
 //! could not be renewed, the only honest thing to show is the last number actually measured,
@@ -177,7 +177,7 @@ mod tests {
         Some(load(ctx).get(uuid)?.windows.first()?.percent)
     }
 
-    /// The readings as they are, laid out as nothing pitboard writes would lay them out, so
+    /// The readings as they are, laid out as nothing Pitboard writes would lay them out, so
     /// a rewrite shows.
     fn laid_out(ctx: &Context) -> String {
         let written: serde_json::Value =
@@ -230,7 +230,7 @@ mod tests {
 
     /// After a banked reset on claude.ai, this machine's sessions passed 14% of a weekly limit
     /// recorded at 100%, with the same reset. A session cannot say its number is the newer,
-    /// so the 100% stands until pitboard's next answer from Anthropic, which can. From there
+    /// so the 100% stands until Pitboard's next answer from Anthropic, which can. From there
     /// sessions move the lower share forward again.
     #[test]
     fn a_banked_reset_is_recorded_by_the_next_answer_and_followed_by_sessions() {

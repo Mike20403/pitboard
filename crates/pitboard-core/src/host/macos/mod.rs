@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 pub(super) const OS: Os = Os::MacOs;
 
-/// The keychain account pitboard stores its own items under.
+/// The keychain account Pitboard stores its own items under.
 ///
 /// It is Claude Code's derivation, and it stays Claude Code's derivation, because every
 /// park already on every machine is filed under whatever this returned the day it was

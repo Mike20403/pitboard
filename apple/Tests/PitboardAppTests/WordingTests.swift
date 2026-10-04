@@ -89,11 +89,11 @@ private func renewed(_ outcome: String) -> Renewed {
         "a reset already passed is not said, as the column does not show it")
 }
 
-/// pitboard says everything else in English, so a span of time inside one of its sentences is
+/// Pitboard says everything else in English, so a span of time inside one of its sentences is
 /// English too, whatever the region of the Mac: "about 1h 30min left" reads as a mistake. A
 /// test cannot change the region of the process it runs in, so this checks that the same
 /// spans in German read differently, which is what a span following a German Mac's region
-/// would show, and that pitboard's read as English.
+/// would show, and that Pitboard's read as English.
 @Test func aSpanOfTimeReadsTheSameInEveryRegion() {
     let german = Locale(identifier: "de_DE")
     let narrow = Duration.seconds(5400).formatted(

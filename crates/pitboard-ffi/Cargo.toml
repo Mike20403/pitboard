@@ -1,6 +1,6 @@
 [package]
 name = "pitboard-ffi"
-description = "pitboard's core as generated bindings for its native apps."
+description = "Pitboard's core as generated bindings for its native apps."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

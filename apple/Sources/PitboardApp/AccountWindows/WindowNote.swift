@@ -31,7 +31,7 @@ struct WindowNote: Equatable, Identifiable {
                 + "inside apps. \(site.signInSteps)"
         case .googleRefused:
             text =
-                "Google does not allow its pages inside apps, so pitboard stopped it. Sign in "
+                "Google does not allow its pages inside apps, so Pitboard stopped it. Sign in "
                 + "as \(account.email) another way. \(site.signInSteps) \(site.blockedServices)"
         case .openedInBrowser:
             text =

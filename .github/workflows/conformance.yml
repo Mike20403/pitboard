@@ -1,6 +1,6 @@
 name: Conformance
 
-# Every load-bearing fact pitboard has about a tool was read out of one build of it, and
+# Every load-bearing fact Pitboard has about a tool was read out of one build of it, and
 # Claude Code and Codex each ship several times a week. This fetches the newest build of
 # each and checks that the facts can still be read from it, each against its own register.
 #
@@ -59,7 +59,7 @@ jobs:
           test -n "$binary" || { echo "no binary in the package"; exit 1; }
           echo "binary=$binary" >> "$GITHUB_OUTPUT"
 
-      - name: Read pitboard's facts out of it
+      - name: Read Pitboard's facts out of it
         id: probe
         run: |
           cargo run --locked --release -p pitboard-conformance -- \
@@ -98,7 +98,7 @@ jobs:
           test -n "$binary" || { echo "no binary in the package"; exit 1; }
           echo "binary=$binary" >> "$GITHUB_OUTPUT"
 
-      - name: Read pitboard's facts out of it
+      - name: Read Pitboard's facts out of it
         run: |
           cargo run --locked --release -p pitboard-conformance -- \
             "${{ steps.fetch.outputs.binary }}" --provider codex | tee report.txt

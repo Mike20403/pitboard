@@ -1,4 +1,4 @@
-//! Which accounts pitboard knows and where each one is parked. No secrets: the logins stay
+//! Which accounts Pitboard knows and where each one is parked. No secrets: the logins stay
 //! in the keychain or vault.
 //!
 //! Stamped with the machine that wrote it, because a parked login belongs to exactly one
@@ -82,7 +82,7 @@ pub struct Account {
     pub parked: Option<Park>,
     /// When this account was last switched to, in epoch seconds.
     ///
-    /// pitboard renews a parked login for as long as the account is enrolled, so an account
+    /// Pitboard renews a parked login for as long as the account is enrolled, so an account
     /// somebody enrolled once and never came back to keeps a live, continuously rotated
     /// refresh token on the machine indefinitely. Nothing said so, and nothing asked.
     /// Recording this is what lets `doctor` say it.
@@ -96,7 +96,7 @@ pub struct Account {
     pub detail: Detail,
 }
 
-/// One account, the way pitboard tells accounts apart: which tool, and what it is called
+/// One account, the way Pitboard tells accounts apart: which tool, and what it is called
 /// there.
 ///
 /// A label alone stopped being enough the day a second tool could have a `work` of its own.
@@ -198,7 +198,7 @@ pub struct State {
     pub discarded: Vec<String>,
     /// Parked items an account here holds that this home never wrote down: logins
     /// `pitboard repair` found in the store and gave back. On macOS every `PITBOARD_HOME`
-    /// shares the login keychain, so each may be another pitboard's parked login, and
+    /// shares the login keychain, so each may be another Pitboard's parked login, and
     /// letting one go unused must leave it where it is. Removed once nothing here holds it.
     /// Always empty where the vault is a directory inside this home, which nobody else
     /// parks in.
@@ -221,7 +221,7 @@ impl Default for State {
 }
 
 impl State {
-    /// Which account is signed in for this provider, as pitboard last recorded it.
+    /// Which account is signed in for this provider, as Pitboard last recorded it.
     pub fn active_for(&self, provider: ProviderId) -> Option<&str> {
         self.active.get(provider.code()).map(String::as_str)
     }
@@ -354,7 +354,7 @@ impl State {
 
     /// Stop holding `service` because nothing here wants it any more: a newer park replaced
     /// it, or its account was dropped. Listed for deletion only when this home wrote it. One
-    /// `repair` gave back may be another pitboard's parked login, which this one never
+    /// `repair` gave back may be another Pitboard's parked login, which this one never
     /// used, and deleting it would end that account's session for somebody who never ran
     /// the command that did it.
     pub fn release(&mut self, service: &str) {
@@ -432,7 +432,7 @@ impl State {
     }
 }
 
-/// Hashed, so the raw platform identifier never lands in a file pitboard writes.
+/// Hashed, so the raw platform identifier never lands in a file Pitboard writes.
 pub fn machine_id() -> String {
     use sha2::{Digest, Sha256};
     match machine_uid::get() {
@@ -445,7 +445,7 @@ fn file(ctx: &Context) -> PathBuf {
     home::dir(ctx).join("state.json")
 }
 
-/// When pitboard's account index last changed, in epoch seconds, or 0 when there is none.
+/// When Pitboard's account index last changed, in epoch seconds, or 0 when there is none.
 ///
 /// Three front ends run on one machine and none of them could tell when another had
 /// changed anything. A switch typed in a terminal left the menu bar naming the account the
@@ -493,7 +493,7 @@ pub(crate) fn load_any_machine(ctx: &Context) -> Result<(State, bool)> {
             source,
         })?;
     migrate(&mut document, &path)?;
-    // An account of a tool this build does not know was written by a newer pitboard, not
+    // An account of a tool this build does not know was written by a newer Pitboard, not
     // damaged. Said as such, because the advice for a corrupt file is to delete it, and
     // following that here would orphan every parked login in the vault.
     if let Some(unknown) = unknown_tool(&document) {
@@ -509,7 +509,7 @@ pub(crate) fn load_any_machine(ctx: &Context) -> Result<(State, bool)> {
     let here = state.machine == machine_id();
     let mut state = state;
     // Which account is in use is a fact about one slot. Read from another, the record says
-    // nothing, and pitboard asks the tool who is signed in anyway. Per tool, so a changed
+    // nothing, and Pitboard asks the tool who is signed in anyway. Per tool, so a changed
     // `CLAUDE_CONFIG_DIR` says nothing about Codex's record, nor `CODEX_HOME` about Claude
     // Code's.
     for &tool in ProviderId::ALL {
@@ -538,7 +538,7 @@ fn unknown_tool(document: &Value) -> Option<String> {
 /// Brings an older file up to the current format in place.
 ///
 /// The command line and the app carry their own copy of this crate and update by different
-/// routes, so on one machine an older pitboard will meet a file a newer one wrote. Reading
+/// routes, so on one machine an older Pitboard will meet a file a newer one wrote. Reading
 /// forwards is what this is for; reading backwards is not possible, and says so.
 fn migrate(document: &mut serde_json::Value, path: &std::path::Path) -> Result<()> {
     // Each future bump adds an arm that rewrites the document and falls through to the
@@ -818,7 +818,7 @@ mod tests {
         );
     }
 
-    /// A file naming a tool this build does not know came from a newer pitboard. Called
+    /// A file naming a tool this build does not know came from a newer Pitboard. Called
     /// corrupt, its advice would be to delete it, which orphans every parked login.
     #[test]
     fn an_account_of_an_unknown_tool_asks_for_an_upgrade_not_a_deletion() {
@@ -858,10 +858,10 @@ mod tests {
         let err = migrate(&mut document, std::path::Path::new("/tmp/state.json")).unwrap_err();
         assert_eq!(err.code(), "state_from_newer_version");
         let said = err.to_string();
-        assert!(said.contains("Update this pitboard"), "{said}");
+        assert!(said.contains("Update this Pitboard"), "{said}");
         assert!(
             !said.contains("brew") && !said.contains("cargo"),
-            "it names no one way of installing pitboard: {said}"
+            "it names no one way of installing Pitboard: {said}"
         );
     }
 
@@ -990,7 +990,7 @@ mod tests {
         assert_eq!(s.discarded, ["p"]);
     }
 
-    /// A park `repair` gave back may be another pitboard's. Replaced by a newer one, or
+    /// A park `repair` gave back may be another Pitboard's. Replaced by a newer one, or
     /// dropped with its account, it was never used here, so it is let go and not deleted.
     #[test]
     fn a_park_this_home_did_not_write_is_let_go_and_never_listed_for_deletion() {

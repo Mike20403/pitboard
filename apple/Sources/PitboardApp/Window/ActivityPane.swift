@@ -1,7 +1,7 @@
 import PitboardKit
 import SwiftUI
 
-/// Everything pitboard has changed, newest first, from the log it keeps: every switch,
+/// Everything Pitboard has changed, newest first, from the log it keeps: every switch,
 /// enrolment, rename, forget and renewal, whichever front end asked for it.
 struct ActivityPane: View {
     let machine: MachineModel
@@ -56,7 +56,7 @@ struct ActivityPane: View {
                 ContentUnavailableView(
                     "No Activity",
                     systemImage: Symbol.activity,
-                    description: Text("pitboard lists every change it makes here."))
+                    description: Text("Pitboard lists every change it makes here."))
             }
         }
         .navigationTitle("Activity")

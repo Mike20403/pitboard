@@ -10,7 +10,7 @@ Up to 0.3.0, `brew install datlechin/tap/pitboard` installed a formula. `brew in
 
 ## From the old formula
 
-`brew update` warns that it did not install the cask that replaces the formula, and pitboard stays at the old version. The two commands it prints leave `pitboard` running the formula's copy. Instead, remove the formula, then install the cask:
+`brew update` warns that it did not install the cask that replaces the formula, and Pitboard stays at the old version. The two commands it prints leave `pitboard` running the formula's copy. Instead, remove the formula, then install the cask:
 
 ```sh
 brew uninstall --formula pitboard
@@ -45,9 +45,9 @@ In an app up to 0.3.0, the daily renewal schedule ran the app itself, which rene
 
 A schedule stays broken if the `pitboard` it runs is gone. On Linux, that includes one turned on with the old formula.
 
-To check yours, run `pitboard doctor` or open the **This Mac** pane in the pitboard window. A broken schedule fails the `renewal schedule` check.
+To check yours, run `pitboard doctor` or open the **This Mac** pane in the Pitboard window. A broken schedule fails the `renewal schedule` check.
 
-To fix the schedule, turn daily renewal off and on again. In the app, click pitboard's item in the menu bar and choose **Settings**. Click **General**. Turn **Renew parked logins daily** off, then on. On the command line, run:
+To fix the schedule, turn daily renewal off and on again. In the app, click Pitboard's item in the menu bar and choose **Settings**. Click **General**. Turn **Renew parked logins daily** off, then on. On the command line, run:
 
 ```sh
 pitboard schedule uninstall

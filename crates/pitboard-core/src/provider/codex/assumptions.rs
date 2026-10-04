@@ -1,4 +1,4 @@
-//! Every fact about Codex CLI that pitboard stands on, named and dated.
+//! Every fact about Codex CLI that Pitboard stands on, named and dated.
 //!
 //! Read from codex-cli 0.154.0, unless an entry names another build: the binary installed
 //! on the machine this was written on, the matching public source at tag `rust-v0.154.0`,
@@ -71,7 +71,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                     in minutes and the reset under another name, and returned nothing while \
                     the request succeeded",
         verified_against: VERIFIED_AGAINST,
-        depends: "provider::codex::api::usage, and every limit pitboard shows for a Codex \
+        depends: "provider::codex::api::usage, and every limit Pitboard shows for a Codex \
                   account",
         probe: &["wham/usage", "ChatGPT-Account-ID", "used_percent"],
         absent: &[],
@@ -152,7 +152,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         fact: "the `keyring` and `auto` stores keep the login in a keychain item `Codex Auth` \
                that Codex creates through the Security framework, and `[features] \
                secret_auth_storage` keeps it in `secrets/codex_auth.age` under a keychain key. \
-               Neither item trusts `/usr/bin/security`, so pitboard refuses those stores \
+               Neither item trusts `/usr/bin/security`, so Pitboard refuses those stores \
                rather than put a permission prompt in front of every read",
         read_from: "the keyring store, the secret auth storage feature and their key names",
         verified_against: VERIFIED_AGAINST,
@@ -167,7 +167,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                namespace is the person. The pair names one login's quota",
         read_from: "the id token claims Codex reads, and the caches it keys on the same pair",
         verified_against: VERIFIED_AGAINST,
-        depends: "provider::codex::engine::identify, and every account id pitboard records \
+        depends: "provider::codex::engine::identify, and every account id Pitboard records \
                   for Codex",
         probe: &["chatgpt_user_id", "chatgpt_account_id"],
         absent: &[],

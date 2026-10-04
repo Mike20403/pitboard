@@ -37,7 +37,7 @@ pub fn program(ctx: &Context) -> Option<PathBuf> {
 /// Which Claude Code is installed here, read off disk and never by running it.
 ///
 /// Running `claude --version` would be the obvious way and is the wrong one: it starts the
-/// program pitboard is trying to describe, which starts a daemon, which writes. Three
+/// program Pitboard is trying to describe, which starts a daemon, which writes. Three
 /// layouts cover how it is installed. The native installer puts the build at
 /// `<...>/versions/<version>` and points a symlink at it, so the version is the file's own
 /// name. An npm install has a `package.json` beside the resolved program. And a machine
@@ -167,7 +167,7 @@ pub fn identity(config: &Value) -> Option<Identity> {
 mod tests {
     use super::*;
 
-    /// A bare name is looked up the way a shell looks it up, so pitboard and the person's
+    /// A bare name is looked up the way a shell looks it up, so Pitboard and the person's
     /// own shell disagree about whether Claude Code is installed only if PATH differs.
     #[test]
     fn a_program_is_found_on_path_and_a_missing_one_is_not() {

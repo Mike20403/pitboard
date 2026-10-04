@@ -234,7 +234,7 @@ private func gone(_ pid: pid_t) async -> Bool {
 
 /// A folder macOS guards, such as Documents or iCloud Drive, is not looked in, and is not
 /// where the core looks or what a sign-in is given: looking there asks the person whether
-/// pitboard may, and a program started from there would have it asked on its behalf.
+/// Pitboard may, and a program started from there would have it asked on its behalf.
 @Test func aGuardedFolderOnThePathIsNotLookedIn() {
     var looked: [String] = []
     let login = [

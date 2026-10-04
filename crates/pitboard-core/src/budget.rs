@@ -1,4 +1,4 @@
-//! How often pitboard is allowed to ask Anthropic about an account.
+//! How often Pitboard is allowed to ask Anthropic about an account.
 //!
 //! `status` asked about every enrolled account plus the live login on every run, with no
 //! memory of having just asked, and the menu bar app asked the same questions every five
@@ -7,7 +7,7 @@
 //! identical request went out on the next tick. Two accounts and a running app is on the
 //! order of six hundred authenticated requests a day that nobody asked for.
 //!
-//! Beyond the cost, that is the part of pitboard's behaviour that reads least like a person
+//! Beyond the cost, that is the part of Pitboard's behaviour that reads least like a person
 //! switching between their own accounts, which is the one appearance this project cannot
 //! afford.
 //!
@@ -31,8 +31,8 @@ use std::path::PathBuf;
 /// preference.
 ///
 /// The reading says, where the service said: OpenAI states every window's length, and
-/// pitboard derives Anthropic's from its kind when it reads the answer. A reading
-/// remembered from before pitboard kept the length has only its kind, and Anthropic's
+/// Pitboard derives Anthropic's from its kind when it reads the answer. A reading
+/// remembered from before Pitboard kept the length has only its kind, and Anthropic's
 /// kinds are the only ones that could have been remembered then.
 ///
 /// Until this read the length, it knew only `five_hour` and `seven_day`, and Anthropic has
@@ -90,7 +90,7 @@ pub struct Record {
 struct Entry {
     #[serde(flatten)]
     record: Record,
-    /// Absent in a line written before pitboard kept it, whose wait is then told by its
+    /// Absent in a line written before Pitboard kept it, whose wait is then told by its
     /// length, as it always was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     held_for: Option<Reason>,
@@ -102,7 +102,7 @@ struct Entry {
 enum Reason {
     /// The service asked for less traffic.
     RateLimited,
-    /// The service could not be reached, and pitboard chose the wait.
+    /// The service could not be reached, and Pitboard chose the wait.
     Unreachable,
 }
 
@@ -160,7 +160,7 @@ pub enum Held {
 /// refused one.
 ///
 /// `forced` is a person asking, with `status --fresh` or the app's Refresh. It goes past the
-/// floor and past a wait pitboard chose after failing to reach the service, since asking is
+/// floor and past a wait Pitboard chose after failing to reach the service, since asking is
 /// how somebody says the network is back. It does not go past a wait the service asked for:
 /// that request is the traffic the service asked not to get, and it would answer with the
 /// same refusal.
@@ -234,7 +234,7 @@ pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
 }
 
 /// `retry_after` is what Anthropic said to wait, where it said anything, and is believed
-/// over anything pitboard would pick.
+/// over anything Pitboard would pick.
 fn hold(record: &mut Record, now: i64, first: i64, most: i64, retry_after: Option<i64>) {
     record.refusals = record.refusals.saturating_add(1);
     let backoff = retry_after
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(
             floor_for(Some(&reading(&["something_new"]))),
             UNKNOWN_FLOOR,
-            "a window kind pitboard does not know is not a reason to ask forever"
+            "a window kind Pitboard does not know is not a reason to ask forever"
         );
     }
 
@@ -411,7 +411,7 @@ mod tests {
         assert_eq!(may_ask(&ctx, "acc", None, true), None);
     }
 
-    /// A wait pitboard chose after failing to reach the service is its own guess, and
+    /// A wait Pitboard chose after failing to reach the service is its own guess, and
     /// somebody asking is how it learns the network is back.
     #[test]
     fn asking_for_it_tries_an_unreachable_service_again() {
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(may_ask(&ctx, "acc", None, false), Some(Held::Unreachable));
     }
 
-    /// A record an older pitboard wrote has no reason, and is told by its length as it
+    /// A record an older Pitboard wrote has no reason, and is told by its length as it
     /// was then: longer than any unreachable wait means asked for.
     #[test]
     fn a_wait_an_older_pitboard_recorded_is_told_by_its_length() {
@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(may_ask(&ctx, "short", None, true), None);
     }
 
-    /// What Anthropic said to wait is believed over anything pitboard would pick.
+    /// What Anthropic said to wait is believed over anything Pitboard would pick.
     #[test]
     fn a_retry_after_is_taken_at_its_word() {
         let (ctx, clock, _s) = machine("retry-after");

@@ -156,7 +156,7 @@ struct NavigationPolicy: Equatable {
     /// since Google blocks it inside apps and in the browser it would sign in the browser.
     /// Any other web page goes to the browser, and an address a person clicked, or one asked
     /// for in a new window, to the default email app, as a browser does. A web page never
-    /// launches another app through pitboard; one a person clicked is said to be refused.
+    /// launches another app through Pitboard; one a person clicked is said to be refused.
     private func leaving(_ request: NavigationRequest) -> NavigationDecision {
         let url = request.url
         let scheme = url.scheme?.lowercased() ?? ""
