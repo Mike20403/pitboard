@@ -195,13 +195,15 @@ and run on macOS and Linux as well as Windows, so they can be checked on any mac
 ```sh
 cargo build --locked -p pitboard-ffi
 mkdir -p apps/windows/Pitboard.Core/Generated
-cargo run --locked -p uniffi-bindgen-csharp -- --library target/debug/libpitboard_ffi.dylib \
+cargo run --locked -p uniffi-bindgen-csharp -- --library target/debug/libpitboard_ffi.a \
   --out-dir apps/windows/Pitboard.Core/Generated --config crates/pitboard-ffi/uniffi.toml --no-format
 cd apps/windows
 dotnet test --solution Pitboard.slnx -p:PitboardNativeLibrary="$PWD/../../target/debug/libpitboard_ffi.dylib"
 ```
 
-On Linux the library is `libpitboard_ffi.so`, and on Windows `pitboard_ffi.dll`. A record
+The bindings are read from the static library, which keeps what the generator reads on
+every system; a release build strips it from the shared library on Linux. The shared
+library the tests load is `libpitboard_ffi.so` on Linux and `pitboard_ffi.dll` on Windows. A record
 field may not share its record's name, because C# makes each field a member of the record.
 
 ## Tool registers
