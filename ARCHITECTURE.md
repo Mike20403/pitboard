@@ -75,14 +75,16 @@ pages load, as a browser would.
   `PitboardSites` is what the app and its Share extension both know about the sites, and
   `PitboardApp` is everything the app does. The account windows are mapped under
   [Account windows](#account-windows).
-  - `Pitboard.xcodeproj` is the app itself. Its `Pitboard` target in `App` starts
-    `PitboardApp` and adds Sparkle, and `PitboardUITests` in `UITests` drives it.
-    `PitboardShare`, from `ShareExtension`, is the Share extension the app embeds.
+  - `project.yml` is the app itself, the spec XcodeGen generates `Pitboard.xcodeproj`
+    from. Its `Pitboard` target in `App` starts `PitboardApp` and adds Sparkle, and
+    `PitboardUITests` in `UITests` drives it. `PitboardShare`, from `ShareExtension`, is the
+    Share extension the app embeds. Only the project's `Package.resolved` is committed,
+    which pins Sparkle's revision.
   - A renewal schedule written by an app up to 0.3.0 starts the app with `renew`.
     `App/Main.swift` then replaces the process with the command line inside the app.
   - `scripts/build-xcframework.sh` builds the core and its Swift bindings for both Mac
-    architectures. `scripts/build-app.sh` builds `Pitboard.app` from them with
-    `xcodebuild`, with the command line inside at `Contents/Helpers/pitboard`.
+    architectures. `scripts/build-app.sh` generates the project and builds `Pitboard.app`
+    with `xcodebuild`, with the command line inside at `Contents/Helpers/pitboard`.
 - `packaging/`: the files a release writes into the tap `datlechin/homebrew-tap`. They are
   the casks `pitboard.rb` for the command line and `pitboard-app.rb` for the app,
   `tap_migrations.json`, and the tap's README.
@@ -93,7 +95,9 @@ pages load, as a browser would.
     `workflows/release.yml` turns a `v` tag into a release.
   - `workflows/conformance.yml` checks each tool's newest build against its register.
   - `workflows/sparkle.yml` opens an issue when Sparkle has a release newer than the one
-    `Pitboard.xcodeproj` pins, because Dependabot cannot read that pin.
+    `apps/macos/project.yml` pins, because Dependabot cannot read that pin.
+  - `actions/xcodegen` puts the pinned XcodeGen on `PATH` for every job that builds the
+    app.
   - `workflows/rotation.yml` rehearses rotating the update key.
   - `actions/apple-keychain` imports the Developer ID certificate for every job that signs.
   - `scripts/` holds the EdDSA key and signature helpers, and the scripts that add Sparkle

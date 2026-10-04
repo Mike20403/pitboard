@@ -1,0 +1,23 @@
+name: XcodeGen
+description: >
+  Puts XcodeGen on PATH, at the version apps/macos/project.yml asks for and checked against
+  the checksum its release published, so every job generates the same Xcode project.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        # Raise both together, with `minimumXcodeGenVersion` in apps/macos/project.yml. The
+        # checksum is the one GitHub lists for the release's xcodegen.zip.
+        VERSION: 2.46.0
+        SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+      run: |
+        set -euo pipefail
+        zip="$RUNNER_TEMP/xcodegen.zip"
+        curl -fsSL -o "$zip" \
+          "https://github.com/yonaskolb/XcodeGen/releases/download/$VERSION/xcodegen.zip"
+        echo "$SHA256  $zip" | shasum -a 256 -c -
+        unzip -q -o "$zip" -d "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+        "$RUNNER_TEMP/xcodegen/bin/xcodegen" --version

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds Pitboard.app, universal, from Pitboard.xcodeproj and the core's XCFramework, with
-# the command line inside it. This is the one way the app is built: here, in CI and in a
+# Builds Pitboard.app, universal, from the Xcode project XcodeGen generates out of
+# project.yml and the core's XCFramework, with the command line inside it. This is the one way the app is built: here, in CI and in a
 # release.
 #
 # Signing: set SIGN_IDENTITY to a Developer ID Application identity to make a build others
@@ -28,10 +28,17 @@ build=$((${version%%.*} * 10000 + ${rest%%.*} * 100 + ${rest#*.}))
 # This clears apps/macos/build and makes it again, so nothing from a previous build survives.
 ./apps/macos/scripts/build-xcframework.sh
 
+# The project is generated, never edited, so the one built is the one project.yml says.
+command -v xcodegen >/dev/null || {
+    echo "XcodeGen generates the Xcode project: install it with \`brew install xcodegen\`" >&2
+    exit 1
+}
+xcodegen generate --spec apps/macos/project.yml --quiet
+
 # Unsigned, because the bundle is not finished: the command line, the icon and the man
 # pages go in after this, and a signature covers what is inside it. Sparkle is the version
-# Package.resolved pins or the build stops, since the app's bill of materials reads it from
-# there. Packages are cloned under apps/macos/build, where the release finds Sparkle's tools.
+# and revision the committed Package.resolved pins or the build stops, since the app's bill
+# of materials reads it from there. Packages are cloned under apps/macos/build, where the release finds Sparkle's tools.
 xcodebuild -project apps/macos/Pitboard.xcodeproj -scheme Pitboard -configuration Release \
     -destination 'generic/platform=macOS' \
     -derivedDataPath apps/macos/build/DerivedData \

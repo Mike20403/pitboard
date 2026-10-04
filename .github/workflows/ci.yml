@@ -70,6 +70,7 @@ jobs:
           apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites
           apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts
           .github/scripts
+      - uses: ./.github/actions/xcodegen
       # Proves the core still links into the app, that its bindings still match, and that
       # the bundle still assembles and signs.
       - run: ./apps/macos/scripts/build-app.sh

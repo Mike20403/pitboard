@@ -147,6 +147,7 @@ jobs:
           certificate: ${{ secrets.CERTIFICATES_P12 }}
           password: ${{ secrets.CERTIFICATES_PASSWORD }}
 
+      - uses: ./.github/actions/xcodegen
       - name: Build
         env:
           SIGN_IDENTITY: ${{ steps.apple.outputs.identity }}

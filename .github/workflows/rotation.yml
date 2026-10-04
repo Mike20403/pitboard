@@ -60,6 +60,8 @@ jobs:
           swift .github/scripts/eddsa-public-key.swift \
             < "$RUNNER_TEMP/keys/next" > "$RUNNER_TEMP/keys/next.pub"
 
+      - uses: ./.github/actions/xcodegen
+
       # One build, then three bundles cut from it. What the ladder turns on is the key in a
       # bundle and the key a feed was signed with, not anything the Swift compiles to, so
       # building it three times would buy nothing and cost three times as long.

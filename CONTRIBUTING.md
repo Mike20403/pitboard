@@ -107,11 +107,17 @@ CI also runs:
 The Swift package in `apps/macos/` links the core as `apps/macos/PitboardFFI.xcframework`, with
 bindings generated into `apps/macos/Sources/PitboardBindings`. Neither is committed. Build them
 before you open the project the first time, and again whenever the core changes. They are
-built for both kinds of Mac, so Rust needs both targets:
+built for both kinds of Mac, so Rust needs both targets.
+
+The Xcode project is generated from `apps/macos/project.yml` by
+[XcodeGen](https://github.com/yonaskolb/XcodeGen), and only its `Package.resolved` is
+committed. Change `project.yml`, never the project, and generate it again after you do:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
+brew install xcodegen
 ./apps/macos/scripts/build-xcframework.sh
+xcodegen generate --spec apps/macos/project.yml
 open apps/macos/Pitboard.xcodeproj
 ```
 
