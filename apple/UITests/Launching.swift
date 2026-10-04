@@ -49,9 +49,10 @@ extension XCUIApplication {
 
     /// An item of the menu bar item's menu. The app keeps a main menu, hidden while it has
     /// no Dock icon, and its Settings…, Quit and Add Account… have the same titles, so the
-    /// item is looked for under the menu bar item.
+    /// item is looked for under the menu bar item, and among the menu's own items only: an
+    /// account's label is also an item of the submenu that opens its window.
     func menuItem(_ title: String) -> XCUIElement {
-        statusItems.firstMatch.menuItems[title]
+        statusItems.firstMatch.menus.firstMatch.children(matching: .menuItem)[title]
     }
 
     /// The alert showing over the window. A button is looked for in it rather than in the
@@ -75,6 +76,40 @@ extension XCUIApplication {
     /// An account's row in the window, by its label with its tool.
     func accountRow(_ qualified: String) -> XCUIElement {
         descendants(matching: .any)["account.\(qualified)"]
+    }
+
+    /// An account's window on its site, by its title. macOS titles it with the account's
+    /// label and the page's title after it, "work – chatgpt.com stand-in", so it is looked
+    /// for among the windows holding an account window's view by a title that is the label or
+    /// starts with it.
+    func accountWindow(_ title: String) -> XCUIElement {
+        windows.containing(.any, identifier: "account-window")
+            .matching(
+                NSPredicate(format: "title == %@ OR title BEGINSWITH %@", title, "\(title) ")
+            )
+            .firstMatch
+    }
+
+    /// The account windows open.
+    var accountWindows: XCUIElementQuery {
+        windows.containing(.any, identifier: "account-window")
+    }
+
+    /// The sign-in window an account's page opened, by its identifier.
+    var signInWindow: XCUIElement {
+        windows["sign-in"]
+    }
+
+    /// The account picker a shared link opens.
+    var picker: XCUIElement {
+        windows.containing(.any, identifier: "account-picker").firstMatch
+    }
+
+    /// Opens `link` as the Share extension hands it over: a pitboard link of the debug build,
+    /// which a fixture answers.
+    func share(_ link: String) {
+        let encoded = link.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        open(URL(string: "pitboard-debug://open?url=\(encoded)")!)
     }
 }
 
