@@ -6,6 +6,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `pitboard doctor`'s advice about a login others on the machine can read is one
+  sentence again, without a run of spaces in the middle of it.
+
 ## [0.7.0] - 2026-10-04
 
 The app gives each enrolled account a window of its own on its tool's site, claude.ai or

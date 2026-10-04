@@ -759,7 +759,9 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
             "logins on disk",
             names.join("; "),
             format!(
-                "These hold usable OAuth tokens in plain text, which is how Claude Code                  stores them where there is no keychain. Anyone else on this machine can                  read them: `{}`.",
+                "These hold usable OAuth tokens in plain text, which is how Claude Code \
+                 stores them where there is no keychain. Anyone else on this machine can \
+                 read them: `{}`.",
                 facts.os.make_private_command(
                     Kind::Any,
                     &facts
@@ -2204,6 +2206,19 @@ mod tests {
             if c.level != Level::Ok {
                 assert!(!c.advice.is_empty(), "{} has no advice", c.code);
             }
+        }
+    }
+
+    /// Advice is read as sentences, and a string broken across lines in the source without
+    /// its continuation keeps the indentation as a run of spaces in the middle of one.
+    #[test]
+    fn advice_reads_as_it_was_written() {
+        let mut f = facts();
+        f.credential = Ok(Some(json!({"slackTag": {}})));
+        f.home_access = Some(mode(0o755));
+        f.readable_by_others = vec![("/home/a/.claude/.credentials.json".into(), mode(0o644))];
+        for c in evaluate(&f) {
+            assert!(!c.advice.contains("  "), "{}: {:?}", c.code, c.advice);
         }
     }
 
