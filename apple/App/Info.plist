@@ -29,5 +29,29 @@
 	<!-- A menu bar app: no Dock icon, no window at launch. -->
 	<key>LSUIElement</key>
 	<true/>
+	<!-- A pitboard link, pitboard://open?url=<a site's link>, which the Share extension
+	     opens, shows the account picker. pitboard defines the scheme, so its role is Editor.
+	     The project sets the scheme per configuration: pitboard-debug in a debug build, so a
+	     debug build never answers a link meant for an installed copy. A release build from a
+	     branch claims pitboard like the installed copy, and is unregistered after building. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(PITBOARD_URL_SCHEME)</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+	</array>
+	<!-- The same scheme, under the key the app and its Share extension both read it from. -->
+	<key>PitboardURLScheme</key>
+	<string>$(PITBOARD_URL_SCHEME)</string>
+	<!-- What macOS shows if it asks before an account's window saves a download. -->
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>pitboard saves what you download in an account's window to your Downloads folder.</string>
 </dict>
 </plist>
