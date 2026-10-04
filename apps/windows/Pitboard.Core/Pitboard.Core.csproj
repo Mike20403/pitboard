@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The core's C# bindings, an assembly of their own that the app references. The code is
+    generated into Generated/ from pitboard_ffi by `cargo run -p uniffi-bindgen-csharp` and
+    is not committed; it calls pitboard_ffi.dll, which the app carries beside it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Pitboard.Core</RootNamespace>
+    <!-- Generated code reaches the library through pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- Generated code is the generator's to warn about, not this build's to fail on. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

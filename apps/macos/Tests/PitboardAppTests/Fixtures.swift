@@ -12,8 +12,8 @@ let bothTools = [claudeCode, codex]
 func window(
     _ kind: String, _ percent: Double, resets: Int64? = 100, scope: String? = nil,
     active: Bool = true, length: Int64? = nil
-) -> Limits {
-    Limits(
+) -> Limit {
+    Limit(
         kind: kind, lengthSeconds: length, scope: scope, percent: percent, resetsAt: resets,
         severity: nil, isActive: active)
 }
@@ -22,7 +22,7 @@ func window(
 /// Switchable unless it is the one signed in, as a real one is.
 func account(
     _ label: String?, of provider: String = "claude", signedIn: Bool = false,
-    switchable: Bool? = nil, uuid: String? = nil, _ windows: [Limits] = []
+    switchable: Bool? = nil, uuid: String? = nil, _ windows: [Limit] = []
 ) -> Account {
     let uuid = uuid ?? label ?? "someone"
     return Account(

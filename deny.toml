@@ -12,6 +12,11 @@ targets = [
   "x86_64-unknown-linux-musl",
   "aarch64-unknown-linux-musl",
 ]
+# The C# bindings generator runs on a build machine and ships nothing of its own: what it
+# writes comes from its templates, and its dependencies (an old clap and askama among them)
+# never reach a release. It is kept out of the graph rather than weakening the checks for
+# everything that does ship. The Swift generator's dependencies are UniFFI's, already here.
+exclude = ["uniffi-bindgen-csharp"]
 
 [advisories]
 version = 2

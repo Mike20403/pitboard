@@ -99,6 +99,8 @@ CI also runs:
 - the app job: `swift format lint --strict`, `./apps/macos/scripts/build-app.sh`, a check that
   the command line inside the app runs and holds both architectures, `swift test` and the
   UI tests
+- the C# job: the core's C# bindings generated, compiled and called against the core on
+  Linux, as the Windows app will call them
 - `cargo semver-checks --package pitboard-core`, which reports and does not block
 - a guard that fails when `.github/workflows/rotation.yml` names a repository secret
 
@@ -183,6 +185,24 @@ swift format lint --strict --recursive --configuration apps/macos/.swift-format 
   apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites \
   apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts .github/scripts
 ```
+
+### The C# bindings
+
+The Windows app reaches the core through C# bindings, generated from `pitboard-ffi` like the
+Swift ones and not committed. They need the [.NET 10 SDK](https://dotnet.microsoft.com/download),
+and run on macOS and Linux as well as Windows, so they can be checked on any machine:
+
+```sh
+cargo build --locked -p pitboard-ffi
+mkdir -p apps/windows/Pitboard.Core/Generated
+cargo run --locked -p uniffi-bindgen-csharp -- --library target/debug/libpitboard_ffi.dylib \
+  --out-dir apps/windows/Pitboard.Core/Generated --config crates/pitboard-ffi/uniffi.toml --no-format
+cd apps/windows
+dotnet test --solution Pitboard.slnx -p:PitboardNativeLibrary="$PWD/../../target/debug/libpitboard_ffi.dylib"
+```
+
+On Linux the library is `libpitboard_ffi.so`, and on Windows `pitboard_ffi.dll`. A record
+field may not share its record's name, because C# makes each field a member of the record.
 
 ## Tool registers
 

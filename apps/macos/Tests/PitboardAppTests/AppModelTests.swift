@@ -20,7 +20,7 @@ private final class Stub: Core, @unchecked Sendable {
     var found: [Tool] = [claudeCode]
     private(set) var installedAsks = 0
     var enrolling: Result<Enrolled, Error> = .success(
-        Enrolled(email: "a@b.c", enrolled: .current, warnings: []))
+        Enrolled(email: "a@b.c", outcome: .current, warnings: []))
     /// What a sign-in that cannot start warns about beside its refusal.
     var signInWarnings: [Warning] = []
     /// The login shell's `PATH`, as far as the app looks in it.
@@ -156,7 +156,7 @@ private final class ScriptedSignIn: SignIn, @unchecked Sendable {
     /// Whether finishing has been asked for, whether or not it has returned.
     private(set) var finished = false
     /// What finishing enrols.
-    var enrolls = Enrolled(email: "a@b.c", enrolled: .signedIn, warnings: [])
+    var enrolls = Enrolled(email: "a@b.c", outcome: .signedIn, warnings: [])
     /// What finishing fails with instead, as a tool stopped before it finished does.
     var refusal: Error?
     /// Holds finishing until it is signalled, as a tool still enrolling does.
@@ -540,7 +540,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     #expect(model.warnings.isEmpty, "said in the sheet, not in the panel")
 
     stub.enrolling = .success(
-        Enrolled(email: "a@example.com", enrolled: .current, warnings: []))
+        Enrolled(email: "a@example.com", outcome: .current, warnings: []))
     #expect(await model.enrol("work", for: "claude") == nil)
     #expect(stub.enrolled == ["claude/work", "claude/work"])
     #expect(model.sheet == nil, "the sheet closes once it has been used")
@@ -629,7 +629,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
     let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
     session.enrolls = Enrolled(
-        email: "w@example.com", enrolled: .inUse(again: true), warnings: [oldLogin])
+        email: "w@example.com", outcome: .inUse(again: true), warnings: [oldLogin])
     stub.session = session
     let model = AppModel(testing: stub)
 
@@ -650,7 +650,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
     let session = ScriptedSignIn(saying: [], takesACode: false)
     session.enrolls = Enrolled(
-        email: "w@example.com", enrolled: .inUse(again: false), warnings: [])
+        email: "w@example.com", outcome: .inUse(again: false), warnings: [])
     stub.session = session
     let model = AppModel(testing: stub)
 
@@ -675,7 +675,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let parked = Warning(code: "written_on_the_command_line", message: "on the argument line")
     let session = ScriptedSignIn(saying: [], takesACode: false)
     session.enrolls = Enrolled(
-        email: "w@example.com", enrolled: .inUse(again: true), warnings: [oldLogin, parked])
+        email: "w@example.com", outcome: .inUse(again: true), warnings: [oldLogin, parked])
     stub.session = session
     let model = AppModel(testing: stub)
 
@@ -697,7 +697,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         code: "sign_in_parked_not_in_use", message: "Codex goes on with the login it has")
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
     let session = ScriptedSignIn(saying: [], takesACode: false)
-    session.enrolls = Enrolled(email: "w@example.com", enrolled: .renewed, warnings: [untold])
+    session.enrolls = Enrolled(email: "w@example.com", outcome: .renewed, warnings: [untold])
     stub.session = session
     let model = AppModel(testing: stub)
 

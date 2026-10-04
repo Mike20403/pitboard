@@ -109,6 +109,36 @@ jobs:
           path: ${{ runner.temp }}/UITests.xcresult
 
   # The floor the manifests promise, built the way someone on an older toolchain builds it.
+  csharp:
+    # The Windows app reaches the core through these bindings. They are generated from the
+    # core, compiled and called on every change, so a change C# cannot express, or bindings
+    # that no longer match the library, fail here rather than in the app.
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: apps/windows/global.json
+      - run: cargo build --locked --release -p pitboard-ffi
+      - run: |
+          mkdir -p apps/windows/Pitboard.Core/Generated
+          cargo run --locked --release -p uniffi-bindgen-csharp -- \
+            --library target/release/libpitboard_ffi.so \
+            --out-dir apps/windows/Pitboard.Core/Generated \
+            --config crates/pitboard-ffi/uniffi.toml --no-format
+      # global.json, which pins the SDK and the test platform, is read from where dotnet runs.
+      - working-directory: apps/windows
+        run: >
+          dotnet test --solution Pitboard.slnx
+          -p:PitboardNativeLibrary="$GITHUB_WORKSPACE/target/release/libpitboard_ffi.so"
+
   msrv:
     runs-on: ubuntu-latest
     steps:

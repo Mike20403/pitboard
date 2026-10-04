@@ -1,0 +1,18 @@
+[package]
+name = "uniffi-bindgen-csharp"
+description = "Generates pitboard-ffi's C# bindings with exactly the UniFFI the library uses."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# UniFFI has no C# generator of its own; NordSecurity's is the one the UniFFI project lists.
+# Its release names the UniFFI it is built against, which has to be the workspace's, since
+# the bindings check the library's checksums when they load. Not on crates.io, so pinned to
+# the release's tag here and to its commit in Cargo.lock.
+uniffi-bindgen-cs = { git = "https://github.com/NordSecurity/uniffi-bindgen-cs", tag = "v0.11.0+v0.31.0", version = "0.11.0" }
+
+[lints]
+workspace = true

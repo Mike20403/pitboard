@@ -1,0 +1,15 @@
+<Project Sdk="MSTest.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Pitboard.Core/Pitboard.Core.csproj" />
+  </ItemGroup>
+  <!--
+    The core itself, built by Cargo: pass its path as PitboardNativeLibrary, such as
+    target/release/libpitboard_ffi.so, and it is copied beside the tests to be loaded.
+  -->
+  <ItemGroup Condition="'$(PitboardNativeLibrary)' != ''">
+    <None Include="$(PitboardNativeLibrary)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+</Project>
