@@ -103,6 +103,7 @@ Use the first word, never the others.
 | pitboard's item in the menu bar; the pitboard window; pane | status item, tray icon, panel, dashboard, tab |
 | shortcut menu; dialog; Settings | context menu; sheet, modal; Preferences |
 | Claude Code; Codex ("OpenAI's Codex CLI" on first mention) | Claude (for the tool), Codex CLI |
+| chatgpt.com (the site, an account's window on it); the ChatGPT app (OpenAI's desktop app) | ChatGPT (for the site or a window), ChatGPT window, ChatGPT website |
 
 ## UI and commands
 

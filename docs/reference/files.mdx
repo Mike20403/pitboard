@@ -79,6 +79,7 @@ The app is `Pitboard.app`, with the bundle identifier `com.usepitboard.Pitboard`
 | `Contents/Helpers/pitboard` | The command line |
 | `Contents/Resources/man/pitboard.1` | The man page |
 | `Contents/Resources/completions/pitboard.bash`, `pitboard.zsh` and `pitboard.fish` | Shell completions |
+| `Contents/PlugIns/PitboardShare.appex` | The [Share extension](/reference/app#share-extension), **pitboard** in a browser's Share menu |
 
 The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.plist`:
 
@@ -88,9 +89,33 @@ The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.pli
 | `secondAccountDeclined` | The tools for which you clicked **Not Now** when the **Accounts** pane suggested a second account |
 | `menuBarShows` | **Menu bar shows**: `nameAndUsage`, `usage` or `icon` |
 | `settingsTab` | The Settings tab shown last: `general`, `commandLine` or `updates` |
+| `webStores` | The [account windows'](#account-windows) data folders the app made, listed under the path of the pitboard directory it made them for. The app deletes only these. |
+| `windowPages` | The page each account's window was last on, by the pitboard directory's path and the window's folder. Only a site's own pages are kept. Removing a window's data or forgetting its account takes its page away. |
 | Keys of Sparkle, the app's updater | Its update settings and when it last checked |
 
-macOS keeps **Open pitboard at login** as a login item, outside this file. The app's files can also be in `~/Library/Application Support`, `~/Library/Caches` and `~/Library/HTTPStorages`, named after `com.usepitboard.Pitboard`. To remove them, see [Remove pitboard](/install/remove#remove-pitboard-itself).
+macOS keeps **Open pitboard at login** as a login item, outside this file.
+
+The app's files can also be in `~/Library/Application Support`, `~/Library/Caches`, `~/Library/HTTPStorages` and `~/Library/Saved Application State`, named after `com.usepitboard.Pitboard`. In `Saved Application State`, macOS keeps the windows that were open, to restore them. To remove these files, see [Remove pitboard](/install/remove#remove-pitboard-itself).
+
+### Account windows
+
+The [account windows](/reference/app#account-windows) and the Share extension keep their files in these places:
+
+| Path | What it is |
+| --- | --- |
+| `~/Library/WebKit/com.usepitboard.Pitboard/WebsiteDataStore/<id>` | One account window's website data: the site's cookies, the sign-in among them, its storage and its caches. WebKit writes it, and a sign-in window shares its account's folder. pitboard never reads, copies or changes what is in it. |
+| `~/Library/Containers/com.usepitboard.Pitboard.share` and `~/Library/Application Scripts/com.usepitboard.Pitboard.share` | Folders macOS makes for the sandboxed Share extension. pitboard writes nothing there. |
+| `~/Downloads` | Where account windows save downloads. A name already taken gets a number, as in `report 2.pdf`. |
+
+`<id>` is a version 5 UUID made from `claude:` or `codex:` and the account's id, so the folder's name does not show the id. A renamed account keeps its folder, and with it the window's sign-in.
+
+WebKit keeps the windows' folders under your own `~/Library`, whatever `HOME` says. So the app records in `webStores` the folders it made for its pitboard directory, `~/.pitboard` or `PITBOARD_HOME`. It deletes only those, and a copy run with another `HOME` or `PITBOARD_HOME` leaves them alone.
+
+The app deletes a folder once a successful read of the accounts no longer lists its account. That happens after you forget the account, in the app or with `pitboard forget`. A folder WebKit still holds is tried a few more times, then again at the next read.
+
+A folder that another pitboard directory also recorded is kept, and only the record of the directory the app reads is removed. Both record it when the same account's window has opened from each. If that other directory no longer exists, the app deletes the folder.
+
+**Remove Website Data** in the **File** menu removes the data in a folder and keeps the folder.
 
 ## Environment variables
 

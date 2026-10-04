@@ -3,13 +3,15 @@ import PackageDescription
 
 // Everything the app does, as libraries its tests can load without starting the app. The app
 // itself is Pitboard.xcodeproj, which links PitboardApp, adds Sparkle, and carries the UI
-// tests.
+// tests and the Share extension. The extension links PitboardSites alone: it is sandboxed,
+// and has no business with the core, its bindings or anything else the app links.
 let package = Package(
     name: "Pitboard",
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "PitboardKit", targets: ["PitboardKit"]),
         .library(name: "PitboardApp", targets: ["PitboardApp"]),
+        .library(name: "PitboardSites", targets: ["PitboardSites"]),
     ],
     targets: [
         // Both built by scripts/build-xcframework.sh and not committed.
@@ -21,8 +23,13 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .target(name: "PitboardKit", dependencies: ["PitboardBindings"]),
-        .target(name: "PitboardApp", dependencies: ["PitboardKit"]),
+        // The sites an account's window opens, what a link from outside may be, and the
+        // pitboard link the Share extension hands one over in: Foundation only, and nothing
+        // an app extension may not use.
+        .target(name: "PitboardSites"),
+        .target(name: "PitboardApp", dependencies: ["PitboardKit", "PitboardSites"]),
         .testTarget(name: "PitboardKitTests", dependencies: ["PitboardKit"]),
-        .testTarget(name: "PitboardAppTests", dependencies: ["PitboardApp"]),
+        .testTarget(name: "PitboardSitesTests", dependencies: ["PitboardSites"]),
+        .testTarget(name: "PitboardAppTests", dependencies: ["PitboardApp", "PitboardSites"]),
     ]
 )

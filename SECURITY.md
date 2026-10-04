@@ -2,7 +2,9 @@
 
 pitboard handles the OAuth refresh tokens of Claude Code and Codex, which grant full access
 to a paid account. A Codex parked login is Codex's whole `auth.json`, which can also hold an
-OpenAI API key.
+OpenAI API key. The menu bar app also gives each account a window on claude.ai or
+chatgpt.com, where WebKit keeps that site's sign-in. Its Share extension hands it a page
+from your browser.
 
 To report a vulnerability, follow [Report a vulnerability](#report-a-vulnerability), not a
 public issue. For where parked logins are kept and what leaves your machine, see
@@ -92,6 +94,34 @@ A report is in scope when pitboard fails at one of these.
   signed ad hoc learns another key only from a release signed with its key, and otherwise
   stops updating without saying so. So the release workflow refuses a changed key unless
   the repository declares a rotation.
+- An account's window keeps its hands off the site's sign-in. The sign-in happens on the
+  site's own pages, claude.ai's or chatgpt.com's, and WebKit keeps it in that account's
+  store. pitboard never reads, copies or changes what a site keeps there, adds no script
+  to a page, sets no user agent of its own and makes no web session from a Claude Code or
+  Codex login.
+- A window stays on its site and the hosts its sign-in goes to. Any other web page opens in
+  your default browser, and a link to another app is refused. Google's sign-in, which
+  Google does not allow inside apps, is stopped rather than sent to the browser, where it
+  would sign in the browser. A sign-in window shares its account's store, loads nothing
+  else, saves nothing and closes with the account's window. Every page is refused the
+  camera and the microphone.
+- A download that a frame inside the page, such as an artifact, or another site starts
+  asks first. WebKit quarantines every downloaded file, as a browser's are, and a download
+  never replaces a file in your Downloads folder.
+- Forgetting an account deletes what its window keeps, sign-in included, at the app's next
+  read of the accounts that succeeds. A store something still holds is tried again at
+  later reads. pitboard deletes only the stores it recorded making for the pitboard
+  directory it reads. So a copy run with another `HOME` or `PITBOARD_HOME` never signs
+  another copy's windows out. A store another pitboard directory also recorded is kept while
+  that directory exists, and only the record of the directory pitboard reads is removed.
+- Nothing from outside the app opens an account's window by itself. Anything on the Mac can
+  open a `pitboard://` link, so one only shows the **Open Link** window. Only a choice
+  there opens a window, and only on the link's own site. Only claude.ai and chatgpt.com
+  links are accepted, and their sign-in links are refused, since one would sign a window
+  in as whoever it belongs to.
+- The Share extension is sandboxed, with no network, file or shared-group access. It reads
+  the one link the browser shares, keeps nothing, and hands the link only to the app it
+  came in.
 - pitboard renews a parked login while its account is enrolled, so an account nobody
   uses keeps a live refresh token. `pitboard doctor` warns about an account last switched
   to 30 days ago or more, a Claude Code refresh token's life. It does not warn about one
@@ -100,7 +130,15 @@ A report is in scope when pitboard fails at one of these.
 
 ## What pitboard does not protect against
 
-- Another process running as your user, which can read what you can read.
+- Another process running as your user, which can read what you can read. That includes
+  each account window's sign-in, which WebKit keeps as ordinary files under
+  `~/Library/WebKit/com.usepitboard.Pitboard`, as a browser keeps its cookies.
+- The sites' own pages, claude.ai's and chatgpt.com's and their sign-in pages. They run in
+  WebKit as they would in Safari, with their own scripts and whatever they embed, such as
+  an artifact. pitboard decides only where a window goes.
+- A page a site opens in your browser. Anything you connect there goes to the account your
+  browser is signed in to, which may not be the window's account. The window says so when
+  the site opened the page without a click.
 - Another user with administrator access to your computer.
 - A compromised Claude Code, Codex or dependency of pitboard. CI checks every Rust
   dependency for known advisories, licences and sources. A weekly job checks Sparkle, the

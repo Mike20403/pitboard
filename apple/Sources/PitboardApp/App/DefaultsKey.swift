@@ -7,4 +7,9 @@ enum DefaultsKey {
     static let secondAccountDeclined = "secondAccountDeclined"
     /// What the menu bar item shows.
     static let menuBarShows = "menuBarShows"
+    /// The account windows' stores each pitboard directory made, by the directory's path.
+    static let webStores = "webStores"
+    /// The page each account window was last on, by the pitboard directory's path and the
+    /// window's store.
+    static let windowPages = "windowPages"
 }

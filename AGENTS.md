@@ -20,6 +20,21 @@ guide; this file is what an agent needs before it touches anything.
 - Never print a token. `pitboard doctor --json` hides them; raw files do not.
 - Tests never touch launchd, systemd, `/usr/local/bin`, `/Applications` or
   `~/Library/LaunchAgents`.
+- Never load claude.ai or chatgpt.com, or sign in to either, from a test, a script or a
+  branch build. A fixture's account windows load stand-in pages on `pitboard-fixture://`
+  and keep their data in memory. Never read, copy or delete anything under
+  `~/Library/WebKit/com.usepitboard.Pitboard`, where the account windows keep real
+  sign-ins.
+- Never open a `pitboard://` or `pitboard-debug://` link against a real home: it starts
+  whichever copy claims the scheme, with the real home. UI tests send `pitboard-debug://`
+  links only to a debug build they launched in a fixture.
+- Never leave a local build of the app registered with macOS. Its scheme and Share
+  extension stay registered after a build with Xcode, `xcodebuild` or `build-app.sh`:
+  `pitboard-debug://` and **pitboard Debug** for a debug build, `pitboard://` and
+  **pitboard** for a release. A link or a share can then start that branch build against
+  the real home. Unregister it with `pluginkit -r` on each `PitboardShare.appex`, then
+  `lsregister -u` on each `Pitboard.app`; [The app](CONTRIBUTING.md#the-app) has the
+  commands.
 
 ## Check a change
 

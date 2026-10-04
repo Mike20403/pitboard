@@ -1,9 +1,10 @@
 import Foundation
 import PitboardKit
+import PitboardSites
 
 /// Everything the app reaches outside itself through: the core, the defaults it keeps its
-/// own preferences in, the login item, other apps, the command line link, and Notification
-/// Center.
+/// own preferences in, the login item, other apps, the command line link, Notification
+/// Center, and the sites and WebKit stores of the account windows.
 ///
 /// Gathered in one value so a launch decides once which world the app runs in. A UI test
 /// launches the debug build into a fixture, where every one of these is a stand-in and
@@ -23,6 +24,12 @@ public struct Dependencies {
     /// Whether the app reads on its own: the periodic read, the wake notice, the poll that
     /// notices a change made elsewhere, and the one repair of an older app's schedule.
     let watching: Bool
+    /// The account windows' world: the sites, WebKit's stores and the Downloads folder, or a
+    /// fixture's stand-ins.
+    let web: WebEnvironment
+    /// The scheme of the pitboard links this build answers, which its Share extension hands
+    /// links over in: `pitboard`, or `pitboard-debug` in a debug build.
+    let linkScheme: String
 
     /// This machine, as the person running the app has it.
     public static func live() -> Dependencies {
@@ -33,7 +40,9 @@ public struct Dependencies {
             appControl: WorkspaceAppControl(),
             commandLineTool: CommandLineTool(),
             notifies: true,
-            watching: true)
+            watching: true,
+            web: .live(defaults: .standard),
+            linkScheme: Handoff.scheme(in: .main) ?? "pitboard")
     }
 
     /// The world this launch runs in: `live()`, unless this is a debug build started with

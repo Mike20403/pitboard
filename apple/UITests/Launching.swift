@@ -49,9 +49,11 @@ extension XCUIApplication {
 
     /// An item of the menu bar item's menu. The app keeps a main menu, hidden while it has
     /// no Dock icon, and its Settings…, Quit and Add Account… have the same titles, so the
-    /// item is looked for under the menu bar item.
+    /// item is looked for under the menu bar item. An account's label is also an item of the
+    /// submenu that opens its window, which comes later in the menu, so the first is taken.
     func menuItem(_ title: String) -> XCUIElement {
-        statusItems.firstMatch.menuItems[title]
+        statusItems.firstMatch.menuItems.matching(NSPredicate(format: "title == %@", title))
+            .firstMatch
     }
 
     /// The alert showing over the window. A button is looked for in it rather than in the
@@ -76,6 +78,47 @@ extension XCUIApplication {
     func accountRow(_ qualified: String) -> XCUIElement {
         descendants(matching: .any)["account.\(qualified)"]
     }
+
+    /// An account's window on its site, by its title. macOS titles it with the account's
+    /// label and the page's title after it, "work – chatgpt.com stand-in", so it is looked
+    /// for among the windows holding an account window's view by a title that is the label or
+    /// starts with it.
+    func accountWindow(_ title: String) -> XCUIElement {
+        windows.containing(.any, identifier: "account-window")
+            .matching(
+                NSPredicate(format: "title == %@ OR title BEGINSWITH %@", title, "\(title) ")
+            )
+            .firstMatch
+    }
+
+    /// The account windows open.
+    var accountWindows: XCUIElementQuery {
+        windows.containing(.any, identifier: "account-window")
+    }
+
+    /// The sign-in window an account's page opened, by its identifier.
+    var signInWindow: XCUIElement {
+        windows["sign-in"]
+    }
+
+    /// The account picker a shared link opens.
+    var picker: XCUIElement {
+        windows.containing(.any, identifier: "account-picker").firstMatch
+    }
+
+    /// Opens `link` as the Share extension hands it over: a pitboard link of the debug build,
+    /// opened through the system, which gives it to this app running in its fixture.
+    /// `open(_:)` would launch a second copy of the app with it instead, which the test does
+    /// not watch. Nothing is sent unless this app is running: the system would start a copy
+    /// on the real home to answer it.
+    func share(_ link: String) {
+        guard state == .runningForeground || state == .runningBackground else {
+            XCTFail("a link is shared only with the app running in its fixture")
+            return
+        }
+        let encoded = link.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        XCUIDevice.shared.system.open(URL(string: "pitboard-debug://open?url=\(encoded)")!)
+    }
 }
 
 @MainActor
@@ -84,9 +127,11 @@ extension XCUIElement {
     /// string operator such as `BEGINSWITH`. SwiftUI keeps a text's words in its value, and at
     /// times in its label, so both are looked at. A query for text that only starts with the
     /// words has to be a predicate: subscripting matches whole strings, and `containing`
-    /// matches an element by what is inside it, which a text has nothing of.
+    /// matches an element by what is inside it, which a text has nothing of. A web page has
+    /// texts whose value is a number, which a string operator throws on, so the value is
+    /// compared as a string.
     func text(_ comparison: String, _ words: String) -> XCUIElement {
-        let format = "value \(comparison) %@ OR label \(comparison) %@"
+        let format = "CAST(value, \"NSString\") \(comparison) %@ OR label \(comparison) %@"
         return staticTexts.matching(NSPredicate(format: format, words, words)).firstMatch
     }
 }

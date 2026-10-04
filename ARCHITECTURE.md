@@ -1,9 +1,9 @@
 # Architecture
 
 This file describes how pitboard's code is organised and what must stay true in it. It
-also holds the measured facts about macOS, Claude Code and OpenAI's Codex CLI that the
-design rests on. It changes when the layout changes or a tool build moves a fact, not with
-each commit.
+also holds the measured facts the design rests on, about macOS, WebKit, Claude Code,
+OpenAI's Codex CLI and the sites the app's account windows open. It changes when the layout
+changes or a tool build moves a fact, not with each commit.
 
 ## Bird's eye view
 
@@ -19,8 +19,14 @@ bar app on macOS 14 or later. The app calls the core through UniFFI bindings. Th
 line inside the app is what the app's daily renewal runs, and what the `pitboard-app` cask
 puts on `PATH`.
 
+The app also gives each enrolled account a window on its tool's site, claude.ai or
+chatgpt.com, where the site's own pages run in WebKit. The windows take the list of
+accounts from the core, and nothing else. [Account windows](#account-windows) describes
+them.
+
 pitboard has no server of its own. The core sends requests only to Anthropic, for Claude
-Code, and to OpenAI, for Codex.
+Code, and to OpenAI, for Codex. An account's window loads its site, and whatever the site's
+pages load, as a browser would.
 
 ## Code map
 
@@ -55,10 +61,13 @@ Code, and to OpenAI, for Codex.
   version the library uses. The bindings check method checksums when they load.
 - `crates/pitboard-conformance`: checks a tool's register against a build of that tool.
 - `apple/`: the menu bar app. The Swift package holds it as libraries its tests load
-  without starting it. `PitboardKit` calls the bindings off the main thread, and
-  `PitboardApp` is everything the app does.
+  without starting it. `PitboardKit` calls the bindings off the main thread,
+  `PitboardSites` is what the app and its Share extension both know about the sites, and
+  `PitboardApp` is everything the app does. The account windows are mapped under
+  [Account windows](#account-windows).
   - `Pitboard.xcodeproj` is the app itself. Its `Pitboard` target in `App` starts
     `PitboardApp` and adds Sparkle, and `PitboardUITests` in `UITests` drives it.
+    `PitboardShare`, from `ShareExtension`, is the Share extension the app embeds.
   - A renewal schedule written by an app up to 0.3.0 starts the app with `renew`.
     `App/Main.swift` then replaces the process with the command line inside the app.
   - `scripts/build-xcframework.sh` builds the core and its Swift bindings for both Mac
@@ -133,6 +142,11 @@ Code, and to OpenAI, for Codex.
 - pitboard and each service meet at a few requests. The list, with what each request
   carries, is in
   [What leaves your machine](https://docs.usepitboard.com/security#what-leaves-your-machine).
+- pitboard and claude.ai or chatgpt.com meet at an account's window, which a person opens.
+  The site's own pages sign the window in, WebKit keeps that sign-in in the account's
+  store, and pitboard decides only where each navigation goes.
+- pitboard and a browser meet at the Share extension, which hands the app the one link the
+  browser shares, as a pitboard link. pitboard reads nothing a browser keeps.
 - The code and the release meet at a `v` tag, which `.github/workflows/release.yml` turns
   into a release. [RELEASING.md](RELEASING.md) has the procedure.
 
@@ -198,6 +212,133 @@ the tests then point at what an added tool has to fill in.
 
 How to run the checker and add a fact is in
 [Tool registers in CONTRIBUTING.md](CONTRIBUTING.md#tool-registers).
+
+## Account windows
+
+The app gives each enrolled account a window on its tool's site: claude.ai for a Claude
+Code account, and chatgpt.com for a Codex account. The site's own pages run in it, in
+WebKit, with a store of website data that belongs to that account alone. A page shared from
+a browser's Share menu reaches the app as a pitboard link, and the person chooses which
+account's window opens it.
+
+The windows read the accounts from the app's last read. No window is ever given a Claude
+Code or Codex login. The facts this rests on are under
+[WebKit and SwiftUI](#webkit-and-swiftui) and
+[claude.ai and chatgpt.com](#claudeai-and-chatgptcom).
+
+### Where the code is
+
+- `apple/Sources/PitboardSites`: what a site is, and what a link from outside may be.
+  Foundation only, so the Share extension links it and nothing else of the app's.
+  - `Site.swift` declares each site as values: its host, its tool and the hosts that
+    redirect to it. The hosts its sign-in goes to, the hosts it blocks, its sign-in paths,
+    its store name and its sign-in steps are values too. Nothing else names a site, so a
+    site is added to `Site.all`, with its fixture page and tests.
+  - `SiteLink.swift` checks a link from outside: a site's own host or alias, over `https`,
+    with no port or user information, and never a sign-in path. `LinkRefusal` says why one
+    is refused.
+  - `Handoff.swift` writes and reads the pitboard link, `<scheme>://open?url=<link>`, and
+    names the Info.plist key `PitboardURLScheme` that gives each build its scheme.
+- `apple/Sources/PitboardApp/AccountWindows`: the windows.
+  - `WindowAccount.swift` lists the accounts that have a window and derives each one's
+    store. The menus' entries and the forget alert's text come from it too.
+  - `NavigationPolicy.swift` decides where each navigation, new window, response and
+    download of a page goes, as a pure function of what WebKit says. `WindowNote.swift` is
+    what a window says above its page.
+  - `Page.swift` owns one `WKWebView` and publishes its title, address, progress and
+    history, in the shape of SwiftUI's `WebPage`. `PageDelegate.swift` answers WebKit's
+    navigation and UI delegates for a page by asking the policy.
+  - `WebSession.swift` is one open window: its account, policy, page, note and sign-in
+    window. `PopupWindow.swift` is that sign-in window, an AppKit window, since WebKit needs
+    its web view back before a SwiftUI scene could open.
+  - `Downloads.swift` keeps every window's downloads past the window, names their files
+    and asks before one the site's own page did not start. `PageDialogs.swift` shows a
+    page's alerts, questions and file choosers as sheets, and asks that download question.
+  - `WebViewHost.swift` places a page's web view in SwiftUI, with the system find bar above
+    it. `AccountWindowView.swift` is the window, and `AccountWindowCommands.swift` its scene
+    and its items in the **File**, **Edit**, **View** and **Go** menus.
+  - `AccountWindows.swift` owns the feature: the open sessions, links waiting for a window
+    still opening, windows asked for from the Dock, each window's last page, the store
+    janitor and the downloads. `AppModel.afterRead` tells it of each read that succeeded.
+  - `StoreJanitor.swift` records, makes, wipes and deletes stores. `WebEnvironment.swift` is
+    the world a launch's windows run in: the sites and WebKit's stores, or a fixture's
+    stand-ins.
+  - `LinkInbox.swift` holds the link the Share extension handed over, and
+    `AccountPicker.swift` is the **Open Link** window that asks which account opens it.
+- `apple/Sources/PitboardApp/System/WebsiteData.swift`: WebKit's persistent stores, behind
+  the `WebsiteDataStores` protocol. Beside them, two records kept in the app's preferences
+  under each pitboard directory's path: `StoreRecord`, the stores the directory made, under
+  `webStores`, and `PageRecord`, the page each account's window was last on, under
+  `windowPages`, by store.
+- `apple/Sources/PitboardApp/App`: `AppDelegate.swift` owns the app's models and answers
+  what only a delegate can: the Dock icon's menu, a click on the Dock icon, and quitting
+  while a download runs. `AppPresence.swift` gives the app a Dock icon and its menus while
+  any of its windows is open. `RefreshCommand.swift` is **View** > **Refresh**, whose
+  title and action the window in front gives. `PitboardScenes.swift` adds the account
+  windows' scene and the **Open Link** window, the one scene that takes a pitboard link.
+- `apple/Sources/PitboardApp/Fixture/FixtureWeb.swift`: a fixture's stand-in pages for each
+  site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
+  anywhere else recorded and opened nowhere.
+- `apple/ShareExtension`: the `PitboardShare` target. It checks the shared page with
+  `SiteLink`, then opens a pitboard link with the app it is inside, not whichever copy
+  Launch Services would pick.
+
+### What must stay true
+
+- One store per account, derived from the account. A window's store is a version 5 UUID of
+  `<store name>:<account id>` in a fixed namespace. It is also the window's value, so there
+  is one window per account, and a rename keeps its sign-in. The namespace and the store
+  names, `claude` and `codex`, never change: a change would leave every window without its
+  data, and the next sweep would delete that data. Golden tests pin them.
+- A store is recorded before WebKit makes it, in the app's preferences, under the path of
+  the pitboard directory the app reads. A store WebKit made and nobody recorded would never
+  be deleted.
+- A store is deleted only when this pitboard directory recorded it, and a read that
+  succeeded no longer derives it from any enrolled account. Every read that succeeds lists
+  every enrolled account, from `state.json`, so that is a forgotten account, forgotten in
+  the app or with `pitboard forget`. Nothing is deleted before the first read that
+  succeeds, or after one that failed.
+- A store that another pitboard directory recorded too is never deleted while that
+  directory exists. The same account enrolled in both derives the same store, so deleting
+  it would sign the other directory's window out. Forgetting the account in one removes
+  only that directory's record.
+- A store nobody recorded is left alone. WebKit keeps every store of one bundle under the
+  person's own Library, whatever `HOME` says, so it can belong to a copy run with another
+  home. A store something still holds is left recorded, and tried again at the next read.
+- Nothing from outside opens a window by itself. A pitboard link only shows the **Open
+  Link** window, and only a person's choice there opens a window, on the link's own site.
+  The app checks the link as strictly as the extension did, since anything on the Mac can
+  open one. A site's sign-in link is refused, since it would sign the window in as whoever
+  it belongs to.
+- A window's page goes only to its site, the site's sign-in hosts and blank pages. Google's
+  sign-in is refused, other web pages go to the default browser, an email address goes to
+  the email app when clicked, and nothing else leaves. What the page embeds in its frames,
+  such as an artifact, is the page's own choice, except a local file.
+- A new window is decided only in `createWebViewWith`, where WebKit asks for the page to
+  put in it. The navigation's own decision lets through a link that asks for one: refused
+  there, WebKit would never ask for the window, and a sign-in link would open nothing.
+- Only the site's own main page, or a sign-in page as the window's main page, opens a
+  sign-in window. A frame, such as an artifact, gets none: it could fill the window with a
+  page of its own, which nothing on the window's title would tell apart.
+- A sign-in window is made from the configuration WebKit hands `createWebViewWith`, a copy
+  of its opener's, so it shares the account's store and keeps `window.opener`. Its page
+  loads only the site and its sign-in hosts, and goes blank only when the page itself asks,
+  never its opener. It saves nothing and opens no window.
+- Only a site's own pages are kept as a window's last page. **Remove Website Data** takes
+  it away, and so does a read that succeeded and no longer lists the account.
+- Hands off the session. pitboard makes a store, wipes one when asked and deletes one when
+  its account is forgotten. It never reads, copies or changes what a site keeps there,
+  adds no script or message handler to a page and sets no user agent of its own. No web
+  session is made from a Claude Code or Codex login.
+- The pitboard link's format is a contract between the Share extension and the app, pinned
+  by a golden test. A release claims `pitboard://` and a debug build `pitboard-debug://`,
+  so a debug build never answers a link meant for an installed copy. A release build from
+  `build-app.sh` claims `pitboard://` like the installed copy, until it is unregistered.
+  `build-app.sh` fails a bundle whose app or extension names another scheme.
+- The Share extension stays sandboxed, with no other entitlement, and links only
+  `PitboardSites`. `build-app.sh` signs it with its entitlements before the app, and fails
+  when its signature is not sandboxed. The release workflow checks the installed copy
+  again.
 
 ## Measured facts
 
@@ -366,3 +507,127 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
   from a trusted project it starts in. That file could name a keychain store.
 - `codex login` revokes the login stored in its home before signing in. It opens the
   browser itself and reads nothing from standard input.
+
+### WebKit and SwiftUI
+
+Measured on macOS 27.0 on 4 October 2026, with probe apps built by Xcode 27.1 against the
+macOS 27 SDK, unless a fact gives its own date. Several were checked again with the app's
+own code driving WebKit on a fixture's stand-in pages. Before changing code that depends on
+one, measure it again.
+
+- SwiftUI's `WebPage` cannot host an account window. `window.open` returns null for every
+  trigger and no app callback fires, so a sign-in that opens a window never starts. A
+  `target=_blank` link loads nothing unless the app loads it itself, which loses the
+  opener. A download never reaches the app or the disk, and `WebPage` has no page zoom or
+  print. So `Page` keeps a `WKWebView`, in `WebPage`'s shape.
+- On a `WKWebView`, a `target=_blank` link reaches `decidePolicyFor` first, with no target
+  frame. Cancelled there, it never reaches `createWebViewWith`; allowed, it does, with the
+  same action. `window.open` goes straight to `createWebViewWith`.
+- `window.open('')` reaches `createWebViewWith` with an empty address. The page in the new
+  window then navigates, through its own `decidePolicyFor`. `webViewDidClose` fires on
+  `window.close()`. A `target=_blank` link without `rel=opener` gives the new page no
+  opener.
+- WebKit quarantines a downloaded file itself, and makes the suggested name safe:
+  `../../evil:name.txt` becomes `_.._evil_name.txt`. A response turned into a download also
+  fails its navigation with code 102 in `WebKitErrorDomain`, which the window does not show.
+  `WKDownload.originatingFrame` is macOS 15.2 and later.
+- A response from an app's own scheme handler loses its headers and cannot become a
+  download, so a fixture's downloads are `data:` and `blob:` links.
+- `allDataStoreIdentifiers` and `remove(forIdentifier:)` each end in a segmentation fault in
+  `WTF::RunLoop::dispatch` when they are a process's first WebKit call. Making any store
+  first prevents it. So `WebKitDataStores` makes a non-persistent store before its first
+  deletion, not at launch, and a person who never opens a window never starts WebKit.
+- `remove(forIdentifier:)` reports a store in use for 20 to 60 ms after its last web view
+  and store object are released, then succeeds. It reports it in use for as long as a
+  `WKWebsiteDataStore` object for it is held. The janitor's retries, from 50 ms doubling to
+  1600 ms, cover the first case, and the next read covers the second.
+- `removeData(ofTypes:modifiedSince:)` with every type since `.distantPast`, on a store a
+  page is using, clears every cookie, `HttpOnly` ones included, local and session storage,
+  and IndexedDB. **Remove Website Data** rests on it to sign a window out while it stays
+  open.
+- A `WKWebView` answers neither `performFindPanelAction:` nor `performTextFinderAction:`.
+  An `NSTextFinder` with the web view as its client and `WebContainer` as its bar's
+  container shows the system find bar and steps through the matches.
+- With incremental searching on, **Find Next** left the page's selection where it was, so
+  it is off and a search runs on Return. A finder whose bar is already in the view, hidden,
+  never shows it, so `WebContainer` adds the bar only while it shows.
+  `TextEditingCommands()` adds the **Edit** > **Find** items, which send
+  `performFindPanelAction:` with `NSTextFinder.Action` tags.
+- Setting `pageZoom` leaves a pinch's `magnification` as it was, so **Actual Size** resets
+  both.
+- SwiftUI hands a URL to the `Window` scene that has `.handlesExternalEvents(matching:)`,
+  through its `onOpenURL`, whether the app was running or not. It opens that window when
+  none is open, reuses one that is, and opens no other window. With no scene claiming the
+  URL, it went to the first window scene, the pitboard window's, and opened that window.
+- With an app delegate's `application(_:open:)` as well, the claiming scene's `onOpenURL`
+  gets the URL and the delegate is then called with an empty list. With no scene claiming
+  it, only the delegate gets it, and no window opens. So the **Open Link** window alone
+  takes pitboard links, and `AppDelegate` has no `application(_:open:)`.
+- Those URLs were sent with `open -a` from a terminal. A cold launch that way left the app
+  inactive, behind the terminal, so the **Open Link** window brings pitboard forward when a
+  link arrives. `AppPresence.comeForward` records that a link from the Share extension at a
+  launch left pitboard in the background too. A link opened from a browser was not measured.
+- In CI, on macOS 26.6.2, the running app's **Open Link** window took each link too.
+  `XCUIApplication.open(_:)` sent them, and it launched a second copy of the app rather
+  than handing the link to the one running: the picker opened in one copy and the pitboard
+  window in the one the test watched. The copy left running kept its menu bar item, and
+  with a few of those a later test's own item sat under the menus, out of reach. So the
+  UI tests share a link through `XCUIDevice.shared.system.open(_:)`, which opens it with
+  Launch Services, as the Share extension does, and so reaches the copy running.
+- A window's root view gets `onAppear` when its window opens and `onDisappear` when it
+  closes, not when it is minimised or becomes a background tab. `AppPresence` counts open
+  windows by them. `openWindow(id:value:)` with the value of an open window brings that
+  window back and opens no other.
+- `SceneStorage`'s documentation in the macOS 27 SDK says its data is destroyed when a
+  window is closed on macOS. So an account window's last page is kept in the app's
+  preferences, by the window's store, and comes back in a window opened from a menu as well
+  as in one macOS restores. This was read, not measured.
+- The account picker's root view gets `onDisappear` before the account window it opened
+  gets `onAppear`. Going back to `.accessory` in between gives the app's activation away, so
+  the account window opens behind the browser; `AppPresence` waits a moment before going
+  back to the menu bar.
+- SwiftUI puts an item that opens each `Window` scene in the **Window** menu, unless
+  `.commandsRemoved()` is applied, and does not list that scene's window there. A
+  `WindowGroup`'s windows are listed while they are open.
+- After `setActivationPolicy(.regular)` on an app that is already active,
+  `NSWorkspace.menuBarOwningApplication` goes on naming the app before it, but the menu bar
+  shows the app's own menus, seen in a screen capture on 4 October 2026 with a probe that
+  has a main menu of its own. The reported owner is not what the person sees. An app made
+  regular while inactive and then opened by Launch Services is reported as the owner as
+  well. `NSApp.deactivate()` from an active app left it active.
+- Measured on 4 October 2026 with a probe app driven by `open -g`: `NSApp.activate()` from
+  an app in the background, with no click in it, is refused. Launch Services opening the
+  app, `NSWorkspace.openApplication` with `activates` set, brings it forward. So
+  `AppPresence.comeForward` asks Launch Services to open pitboard when a shared link arrives
+  while pitboard is in the background.
+- The macOS 27 SDK has no SwiftUI API for a Dock menu. `applicationDockMenu(_:)` on the app
+  delegate is the API.
+- Measured on 29 September 2026: WebKit keeps the persistent stores of an app that is not
+  sandboxed under `~/Library/WebKit/<bundle id>/WebsiteDataStore/<identifier>`, cookies
+  included, as ordinary files. It roots them at the Library folder Foundation gives the
+  app, and Foundation does not read `HOME`. With `HOME` pointed at a scratch directory,
+  `NSHomeDirectory()`, `.libraryDirectory` and `homeDirectoryForCurrentUser` all still gave
+  the real home. The core reads `HOME` and `PITBOARD_HOME`, so the record of stores is kept
+  per pitboard directory.
+
+### claude.ai and chatgpt.com
+
+Read and measured on 29 September 2026. Nobody has watched a sign-in complete in a window.
+That needs a person, in a debug build with a scratch home.
+
+- `chat.openai.com` answers 308, `www.chatgpt.com` 301 and `chat.com` 307, each to the same
+  path and query on `chatgpt.com`, measured with `curl`. So `Site.chatGPT` takes them as
+  aliases.
+- OpenAI's help centre, article 7426629, lists signing in to ChatGPT with a password or with
+  Google, Microsoft or Apple, and names `auth.openai.com` among the hosts its sign-in needs.
+- Third-party code that drives the sign-in, and the buttons' connection names, put the
+  Microsoft and Apple sign-ins on `login.live.com`, `login.microsoftonline.com` and
+  `appleid.apple.com`. The same reading has the sign-in come back through
+  `chatgpt.com/api/auth`. How chatgpt.com's Microsoft and Apple buttons open their sign-in,
+  in a new window, by a link or by a redirect, is not known.
+- Not measured: whether email sign-in completes in a window, whether a window's session
+  survives a restart, and whether Cloudflare's challenges pass WebKit's own user agent.
+- The Share menu lists app extensions in Safari's toolbar and **File** menu, and in
+  **File** > **Share** in Chrome and in Firefox from 92. That was read from the browsers'
+  source and bug trackers, and no browser was run. Which other browsers list the extension
+  is not known.

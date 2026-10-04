@@ -6,6 +6,81 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- The app gives each enrolled account a window on its tool's site: claude.ai for a Claude
+  Code account, and chatgpt.com for a Codex account. Each window keeps its own website data,
+  so every account stays signed in side by side without browser profiles. Open one from the
+  menu of pitboard's item in the menu bar, the **File** menu or an account's shortcut menu
+  in the pitboard window: **Open claude.ai as work** for a site with one account, or an
+  **Open claude.ai** submenu for several. Opening it again brings the open window forward,
+  and a rename keeps the window and its sign-in. Back, Forward and Reload are in its
+  toolbar, and in the **Go** and **View** menus with Safari's shortcuts. **View** also zooms
+  the page in Safari's steps. pitboard never reads, copies or changes what a site keeps,
+  adds no script to its pages and makes no web session from a Claude Code or Codex login. A
+  login pitboard has no name for, and a Codex API key, get no window. See [Use each
+  account's site](https://docs.usepitboard.com/guides/account-windows).
+- When an account's window first opens on this Mac, a note at its top says how to sign in as
+  the account's email address. Google's sign-in does not work inside apps, so the note names
+  the ways that do. The site's sign-in pages load in the window, and one that a page opens
+  in a new window gets a sign-in window of its own. That window shares the account's data,
+  so what it signs in is that account. It is titled with the page's title and the host it
+  is on, and closes when the sign-in closes it or with the account's window. Google's
+  sign-in is stopped and never sent to the browser, where it would sign in the browser
+  rather than the account. Other web pages open in your default browser, and a link to
+  another app is refused.
+- A download in an account's window saves to your Downloads folder and never replaces a file
+  there: a second `report.pdf` is saved as `report 2.pdf`. One the site's own page starts
+  saves at once. One that a frame inside the page, such as an artifact, or another site
+  starts asks first, since an artifact runs code the site did not write. The window's
+  **Downloads** button lists its downloads with their progress, and downloads carry on after
+  the window closes. Quitting while one runs asks first, because quitting stops it for good
+  and deletes what it wrote. A download that fails, or that you cancel, leaves no part of its
+  file behind. WebKit quarantines each file, as a browser's are.
+- **Edit** > **Find** > **Find** (Command-F) shows the system find bar at the top of an
+  account's page. **Find Next** (Command-G) and **Find Previous** (Shift-Command-G) step
+  through the matches. WebKit shows no find bar of its own, so without it a page could not
+  be searched.
+- An account's window opens at the last page of its site it showed, whether it is opened
+  from a menu or macOS restores it. A window that has shown none starts at the site's home.
+- **File** > **Remove Website Data** removes the cookies and everything else a site keeps in
+  an account's window on this Mac, after asking. That signs the window out without telling
+  the site, so the account stays signed in on your other devices and browsers. The window
+  then starts again at the site's home.
+- A claude.ai or chatgpt.com page in your browser opens as the account you choose: choose
+  **pitboard** in the browser's Share menu. pitboard shows the link in its **Open Link**
+  window with that site's accounts, and opens nothing until you click **Open**. The account
+  chosen last for the site is selected first, or else the account in use. A link to another
+  site is refused, and so is a site's sign-in link, since it would sign the window in as
+  whoever the link belongs to. `chat.openai.com`, `www.chatgpt.com` and `chat.com` links
+  open as chatgpt.com links, since each of those hosts redirects there. With no account on
+  the site, the link waits while you add one, or opens in your browser. The Share extension
+  is sandboxed. The `pitboard://` link it hands over only ever shows the **Open Link**
+  window, since anything on the Mac can open one.
+- While any of its windows is open, pitboard has a Dock icon, is in Command-Tab and shows
+  its menus in the menu bar. Its windows are the pitboard window, Settings, each account's
+  window and **Open Link**. When the last one closes, pitboard is in the menu bar alone
+  again. Without a Dock icon, a window behind another app had no way back, and without the
+  menus it had no **Edit** menu or shortcuts. The Dock icon's menu opens each account's
+  window and the pitboard window. Opening pitboard again from Finder or Spotlight with no
+  window open opens the pitboard window.
+
+### Changed
+
+- **View** > **Refresh** is one command for every window, with Command-R. In the pitboard
+  window it reads the accounts or the log again, or is **Check Again** on the **This Mac**
+  pane. In an account's window it is **Reload Page**. Each pane's toolbar button had a
+  Command-R of its own, and with pitboard's menus in the menu bar the shortcut belongs to
+  one item there.
+- Forgetting an account also deletes everything its window keeps on this Mac, its sign-in
+  included, and the forget alert says so before you choose. The deletion follows the next
+  read of the accounts that succeeds, whether you forget in the app or with
+  `pitboard forget`. pitboard deletes only what it made for the pitboard directory it reads.
+  So a copy run with another `HOME` or `PITBOARD_HOME` never signs another copy's windows
+  out.
+- `brew uninstall --zap --cask pitboard-app` also removes the account windows' data, the
+  windows macOS saved to restore, and the folders macOS makes for the Share extension.
+
 ## [0.6.0] - 2026-10-01
 
 pitboard tells apart everything that runs Codex with its login in memory, and the app quits

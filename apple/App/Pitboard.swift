@@ -5,10 +5,12 @@ import SwiftUI
 /// Sparkle, which the library leaves out so its tests need no framework only a bundle can
 /// load. `Main` starts it.
 struct Pitboard: App {
-    @State private var model = AppModel(dependencies: .forLaunch())
+    /// Owns the app's models, since AppKit asks it for the Dock icon's menu and before
+    /// quitting, and it answers from the models the scenes show.
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var updater = SparkleUpdater()
 
     var body: some Scene {
-        PitboardScenes(model: model, updates: updater)
+        PitboardScenes(model: delegate.model, windows: delegate.windows, updates: updater)
     }
 }

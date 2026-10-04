@@ -1,6 +1,6 @@
 ---
 title: "What pitboard will not do"
-description: "pitboard does not switch on its own, pool requests or sync logins, and a switch has costs it cannot remove."
+description: "pitboard does not switch on its own, pool requests or sync logins, and a switch and an account's window have limits."
 ---
 
 pitboard switches two tools, Claude Code and OpenAI's Codex CLI, between accounts you own, and leaves some things alone on purpose.
@@ -14,6 +14,7 @@ These are rules, not gaps:
 - It does not fail over to another account when one runs out or is rate limited.
 - It does not renew the login in use. The tool refreshes that login itself, and two programs renewing one login end it for both.
 - It does not copy parked logins, the logins it holds for accounts not in use, to another machine.
+- It never reads, copies or changes what an [account's window](/guides/account-windows) keeps, and never makes a claude.ai or chatgpt.com sign-in from a tool's login.
 
 Two machines renewing one login also end it, so each machine signs in to each account itself.
 
@@ -33,6 +34,20 @@ These costs come from Claude Code, Codex and their services:
 pitboard moves only logins you already hold, between its own store and the place each tool reads them from. It does not share an account between people, pool requests or touch an account you do not own.
 
 Whether several subscriptions suit your work depends on Anthropic's or OpenAI's terms.
+
+An account's window is the site's own page, which you sign in to by hand. WebKit keeps that sign-in in the app's website data. For what Anthropic's terms say about that, see [Anthropic's terms](/security#anthropics-terms).
+
+## What an account's window cannot do
+
+An account's window shows claude.ai or chatgpt.com in WebKit. Google, macOS and pitboard's own rules set these limits:
+
+- Google's sign-in does not work. Google does not allow its sign-in pages inside apps, so the window stops them. Connecting Gmail, Google Drive or Google Calendar fails the same way, and so does claude.ai's Google single sign-on.
+- Passkeys do not work. macOS gives passkeys to a web page only in an app it lets act as a browser, and pitboard is not one.
+- The camera and the microphone are always refused, so a site's voice mode does not work. Web notifications do not work either.
+- pitboard cannot see which account a window is signed in to, because it never reads what the window keeps. The window's title names the account the window belongs to, not the one signed in.
+- A window never follows a switch. Each window belongs to one account and stays signed in as that account, whichever account a tool is using.
+
+To sign in without Google or a passkey, see [Sign in](/guides/account-windows#sign-in).
 
 ## Tools and sign-ins pitboard does not support
 
