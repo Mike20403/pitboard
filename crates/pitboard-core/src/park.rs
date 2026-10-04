@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn a_credential_with_no_refresh_token_is_refused_rather_than_parked() {
         let refused = store_at(
-            &Context::from_env(),
+            &Context::for_unit_test(),
             ProviderId::Claude,
             "pitboard-park-test-no-refresh",
             &serde_json::json!({"accessToken": "a"}),

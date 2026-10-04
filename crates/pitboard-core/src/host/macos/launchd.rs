@@ -91,6 +91,10 @@ impl Scheduler for Launchd {
     }
 
     /// launchd puts the label of the job it starts in `XPC_SERVICE_NAME`.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "what launchd started this process as, which no front end passes on"
+    )]
     fn started_this_process(&self, said: Option<&str>) -> bool {
         said.map(str::to_owned)
             .or_else(|| std::env::var("XPC_SERVICE_NAME").ok())

@@ -127,9 +127,18 @@ pages load, as a browser would.
 - The core reads its environment in `Context::from_env`, which the command line calls. The
   app builds its own `Context`, because an app opened from Finder has none of the shell's
   environment.
-- Two variables are read elsewhere. `PATH` is read when no search path was given
-  (`context.rs`), and on Linux to find the program daily renewal runs (`host/linux`).
-  `XPC_SERVICE_NAME`, which launchd sets, is read in `host/macos/launchd.rs`.
+- Three variables are also read straight from the process. `PATH` is read when no search
+  path was given (`context.rs`), and on Linux to find the program daily renewal runs
+  (`host/linux`). `NO_COLOR` is read by the status line (`pitboard/src/main.rs`).
+  `XPC_SERVICE_NAME`, which launchd sets, is read in `host/macos/launchd.rs`. `clippy.toml`
+  refuses `std::env::var`, `var_os`, `vars` and `vars_os` outside `context.rs`, so every
+  other read carries an `#[allow]` that says why it is meant.
+- `READ` in `context.rs` and `settings::OVERRIDING_ENV` name every variable Pitboard
+  reads, and `Environment` refuses, in a build with debug assertions, to read one they do
+  not name. The integration tests withhold every one of them from each command they run,
+  except `HOME` and `USER`, and the core's unit tests make their context with
+  `Context::for_unit_test`, which withholds all of them, so a variable exported where
+  `cargo test` runs, such as `PITBOARD_CLAUDE`, never reaches a test.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.

@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn the_stdin_route_stops_at_about_two_kilobytes() {
-        let ctx = Context::from_env();
+        let ctx = Context::for_unit_test();
         let live = Keychain::foreign(&ctx, "someone".into());
         assert!(live.price("svc", &"x".repeat(2100)).over());
         assert!(!live.price("svc", &"x".repeat(1900)).over());
@@ -375,7 +375,7 @@ mod tests {
     /// third way to write a login this size.
     #[test]
     fn only_a_refusing_context_refuses_a_login_this_size() {
-        let ctx = Context::from_env();
+        let ctx = Context::for_unit_test();
         let big = "x".repeat(2100);
         let allowed = Keychain::foreign(&ctx, "someone".into()).price("svc", &big);
         assert!(allowed.on_the_second_route());

@@ -208,7 +208,7 @@ mod tests {
     /// host that always offered one would build a chain that cannot work.
     #[test]
     fn a_store_of_secrets_is_offered_only_where_there_is_one() {
-        let ctx = Context::from_env();
+        let ctx = Context::for_unit_test();
         let offered = ctx.host().foreign_secrets(&ctx, "someone");
         assert_eq!(
             offered.map(|k| k.kind()),

@@ -2,33 +2,42 @@
 //! combinations are unit-tested in `claude.rs`, and this checks that an empty
 //! `CLAUDE_CONFIG_DIR` reaches the file opened and the slot read as unset.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn environment(home: &PathBuf, config_dir: Option<&str>) -> serde_json::Value {
+/// `pitboard doctor --json`, with `vars` set besides, and the envelope it printed.
+fn doctor(home: &Path, config_dir: Option<&str>, vars: &[(&str, &Path)]) -> serde_json::Value {
     let mut command = Command::new(env!("CARGO_BIN_EXE_pitboard"));
-    // Nothing real is read. The slot under test is the default one, so the keychain account
-    // is a name nobody has and the lookup finds no item; Codex gets a home of its own; and
-    // PATH holds only the system's directories, so no installed `claude` or `codex` is
-    // resolved either.
+    // Nothing real is read, and nothing Pitboard reads is taken from whoever runs the tests.
+    // The slot under test is the default one, so the keychain account is a name nobody has
+    // and the lookup finds no item; Codex gets a home of its own; and PATH holds only the
+    // system's directories, so no installed `claude` or `codex` is resolved either.
+    for name in pitboard_core::testing::variables() {
+        command.env_remove(name);
+    }
     command
         .args(["doctor", "--json"])
         .env("HOME", home)
         .env("USER", "pitboard-test-nobody")
         .env("PITBOARD_HOME", home.join("pitboard"))
         .env("CODEX_HOME", home.join("codex"))
-        .env("PATH", "/usr/bin:/bin")
-        .env_remove("CLAUDE_SECURESTORAGE_CONFIG_DIR");
-    match config_dir {
-        Some(v) => command.env("CLAUDE_CONFIG_DIR", v),
-        None => command.env_remove("CLAUDE_CONFIG_DIR"),
-    };
+        .env("PATH", "/usr/bin:/bin");
+    if let Some(v) = config_dir {
+        command.env("CLAUDE_CONFIG_DIR", v);
+    }
+    for (name, value) in vars {
+        command.env(name, value);
+    }
     let out = command.output().expect("run Pitboard");
     let envelope: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("doctor --json should be valid JSON");
     assert_eq!(envelope["v"], 1, "the contract version must be present");
     assert_eq!(envelope["command"], "doctor");
-    envelope["data"]["environment"].clone()
+    envelope
+}
+
+fn environment(home: &Path, config_dir: Option<&str>) -> serde_json::Value {
+    doctor(home, config_dir, &[])["data"]["environment"].clone()
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -52,6 +61,60 @@ fn an_empty_config_dir_means_unset() {
     assert_eq!(
         empty["credential_service"], "Claude Code-credentials",
         "and must leave Pitboard on the default credential slot"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// `PITBOARD_CLAUDE` and `PITBOARD_CODEX` name the program the command line runs for each
+/// tool, as they name the app's, wherever its `PATH` would find another or none. Neither is
+/// ever run: doctor reads which build each is off the path it resolves to, which is where
+/// each tool's installer puts the version.
+#[test]
+fn a_program_the_environment_names_is_the_one_the_command_line_runs() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = scratch("named");
+    let claude = home.join("elsewhere/claude/versions/9.9.9");
+    let codex = home.join("elsewhere/codex/releases/9.9.8-aarch64-apple-darwin/bin/codex");
+    for program in [&claude, &codex] {
+        std::fs::create_dir_all(program.parent().expect("its directory")).unwrap();
+        std::fs::write(program, "#!/bin/sh\nexit 64\n").unwrap();
+        std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let named = doctor(
+        &home,
+        None,
+        &[("PITBOARD_CLAUDE", &claude), ("PITBOARD_CODEX", &codex)],
+    );
+    assert_eq!(
+        named["data"]["environment"]["codex"]["version"], "9.9.8",
+        "{named}"
+    );
+    let claude_build = named["data"]["checks"]
+        .as_array()
+        .expect("a list of checks")
+        .iter()
+        .find(|check| check["code"] == "claude_version")
+        .expect("a check of Claude Code's build");
+    assert!(
+        claude_build["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.starts_with("9.9.9 installed")),
+        "{claude_build}"
+    );
+
+    let empty = doctor(
+        &home,
+        None,
+        &[
+            ("PITBOARD_CLAUDE", Path::new("")),
+            ("PITBOARD_CODEX", Path::new("")),
+        ],
+    );
+    assert_eq!(
+        empty["data"]["environment"]["codex"]["version"],
+        serde_json::Value::Null,
+        "empty names nothing, so PATH is looked on, and nothing is there: {empty}"
     );
     let _ = std::fs::remove_dir_all(&home);
 }

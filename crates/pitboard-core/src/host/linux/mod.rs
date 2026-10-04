@@ -60,6 +60,10 @@ pub(super) fn host() -> Arc<dyn Host> {
 /// Linux says where the running program is with every link resolved, and the link is what
 /// lasts: Homebrew starts Pitboard through one in its `bin` that leads into a directory
 /// named after the version, which the next upgrade deletes.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the PATH this process was found on, as its own arguments are read"
+)]
 pub(super) fn current_program() -> std::io::Result<PathBuf> {
     Ok(started_as(
         std::env::args_os().next().as_deref(),

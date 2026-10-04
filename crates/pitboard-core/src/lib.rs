@@ -74,4 +74,10 @@ pub mod testing {
     pub use crate::store::memory::{Fault, MemoryStore};
     pub use crate::store::{vault_delete, vault_read, vault_write};
     pub use crate::time::{Clock, FixedClock};
+
+    /// Every variable Pitboard reads from its environment, by name, which a test withholds
+    /// from every command it runs unless it means to pass one on.
+    pub fn variables() -> impl Iterator<Item = &'static str> {
+        crate::context::variables()
+    }
 }

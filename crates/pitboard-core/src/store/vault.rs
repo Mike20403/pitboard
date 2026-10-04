@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn only_names_pitboard_generates_are_accepted() {
-        let vault = FileVault::new(&Context::from_env());
+        let vault = FileVault::new(&Context::for_unit_test());
         for good in [
             "pitboard-park-1f0e2d3c-4b5a-4968-8776-a5b4c3d2e1f0-1789935600123",
             "a.b_c-1",

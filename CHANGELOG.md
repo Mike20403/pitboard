@@ -37,6 +37,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Renewed 1 of 2; the rest are tried again next time.` `renew` said `Renewed 1.` or
   `Renewed 2.` when it renewed everything due, and the app said `Nothing was due.` or
   `Renewed 1 of 2.`
+- The command line runs the `claude` or `codex` that `PITBOARD_CLAUDE` or `PITBOARD_CODEX`
+  names, as the app does, to sign in, and `pitboard doctor` reports that program's build.
+  Before, only the app read them, and the command line always looked on its `PATH`. Set
+  but empty, either names nothing, and the program is looked for on `PATH` as before.
 
 ### Fixed
 
