@@ -385,7 +385,13 @@ impl Context {
     /// to look is all a front end adds: an app has no shell's `PATH`, and finds the
     /// programs before it runs anything.
     pub(crate) fn read(env: &Environment, caller: &str) -> Context {
-        let home = env.path("HOME").map(PathBuf::from).unwrap_or_default();
+        // Unset, the home is the account's own, where Foundation finds it for an app. Set,
+        // even empty, it is what the person said.
+        let home = env
+            .path("HOME")
+            .map(PathBuf::from)
+            .or_else(crate::host::user::home)
+            .unwrap_or_default();
         let owned = |name: &str| env.text(name).map(str::to_owned);
         let program = |tool: ProviderId| {
             env.path(tool.program_variable())
@@ -533,5 +539,22 @@ mod tests {
     #[should_panic(expected = "PITBOARD_SOMETHING_NEW is read but not listed")]
     fn a_variable_read_without_being_listed_is_caught() {
         let _ = Environment::default().path("PITBOARD_SOMETHING_NEW");
+    }
+
+    /// With no `HOME`, the home is the account's own, as the passwd database names it, which
+    /// is where the app has always looked. The command line took an empty path instead, and
+    /// so kept its files in `.pitboard` wherever it was run from.
+    #[test]
+    fn without_home_the_home_is_the_accounts_own() {
+        let own = crate::host::user::home().expect("this account has a home");
+        let ctx = Context::for_command_line(&Environment::default());
+        assert_eq!(ctx.home, own);
+        assert_eq!(ctx.pitboard_home, own.join(".pitboard"));
+        let empty: Environment = [("HOME", "")].into_iter().collect();
+        assert_eq!(
+            Context::for_command_line(&empty).home,
+            PathBuf::new(),
+            "set, even empty, it is what the person said"
+        );
     }
 }

@@ -53,6 +53,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   hyperlink. Claude Code does that when the app runs with `FORCE_HYPERLINK` set, or with
   the variables a terminal such as iTerm2 sets. The link's address picked up a stray
   control character, and sometimes a second copy of the address.
+- With `HOME` unset, the command line used the folder it was run from as your home: it kept
+  its files in a `.pitboard` there, and looked for Claude Code's and Codex's beside it. It
+  now uses your account's home directory, as the app does.
 
 ## [0.7.0] - 2026-10-04
 
