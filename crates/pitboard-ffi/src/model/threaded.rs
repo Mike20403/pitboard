@@ -5,9 +5,10 @@
 //! model ends every thread it started, a drop waiting on none of them.
 
 use super::state::Cadence;
-use super::testing::World;
-use super::{Intent, ModelListener, PitboardModel, PlatformError, Snapshot};
+use super::testing::{CHATGPT, CHATGPT_CODEX, StandInApps, World};
+use super::{AppControl, Intent, ModelListener, PitboardModel, PlatformError, Snapshot};
 use crate::Pitboard;
+use pitboard_core::testing::Asked;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -15,11 +16,14 @@ use std::time::{Duration, Instant};
 /// As long as a test waits for another thread, however slow the machine running it.
 const PATIENCE: Duration = Duration::from_secs(20);
 
-/// Looks every few milliseconds, and reads by itself only when started, once.
+/// Looks every few milliseconds, reads by itself only when started, once, and gives an app
+/// a moment to quit.
 const QUICK: Cadence = Cadence {
     look_every: Duration::from_millis(10),
     read_every: Duration::from_secs(3_600),
     stale_after: Duration::from_secs(60),
+    quit_within: Duration::from_millis(200),
+    quit_checked_every: Duration::from_millis(5),
 };
 
 /// What a listener does with the model from inside `changed`.
@@ -127,11 +131,21 @@ fn in_order(told: &[Snapshot]) -> bool {
         .all(|pair| pair[0].revision < pair[1].revision)
 }
 
-/// A model over `core` telling `told`, which may call it back.
+/// A model over `core` telling `told`, which may call it back, with no other app running.
 fn model(core: &Arc<Pitboard>, told: &Arc<Told>) -> Arc<PitboardModel> {
+    model_with(core, told, &StandInApps::new(&[], true))
+}
+
+/// A model over `core` and `apps` telling `told`, which may call it back.
+fn model_with(
+    core: &Arc<Pitboard>,
+    told: &Arc<Told>,
+    apps: &Arc<StandInApps>,
+) -> Arc<PitboardModel> {
     let model = PitboardModel::over(
         Arc::clone(core),
         Arc::clone(told) as Arc<dyn ModelListener>,
+        Arc::clone(apps) as Arc<dyn AppControl>,
         QUICK,
     );
     let _ = told.model.set(Arc::downgrade(&model));
@@ -358,6 +372,7 @@ fn dropping_the_model_waits_for_nothing() {
     let model = PitboardModel::over(
         Arc::clone(&core),
         Arc::clone(&told) as Arc<dyn ModelListener>,
+        StandInApps::new(&[], true) as Arc<dyn AppControl>,
         QUICK,
     );
     model.send(Intent::Start);
@@ -388,4 +403,266 @@ fn dropping_the_model_waits_for_nothing() {
     eventually("the lanes let go of the core", || {
         Arc::strong_count(&core) == 1
     });
+}
+
+/// The account `provider`'s tool has signed in, by its label.
+fn signed_in<'a>(snapshot: &'a Snapshot, provider: &str) -> Option<&'a str> {
+    snapshot
+        .status
+        .iter()
+        .flat_map(|status| &status.accounts)
+        .find(|account| account.provider == provider && account.signed_in)
+        .and_then(|account| account.label.as_deref())
+}
+
+/// Codex with `personal` signed in and `work` parked, as a terminal leaves two accounts.
+fn two_codex_accounts(name: &str) -> World {
+    let world = World::new(name);
+    world.codex_enrolled("personal", "p");
+    world.codex_parked("work", "w");
+    world
+}
+
+/// A read that has landed and is over, with `label` signed in to Codex and no switch under
+/// way.
+fn codex_shows(label: &str) -> impl Fn(&[Snapshot]) -> bool + '_ {
+    in_use("codex", label)
+}
+
+/// A read that has landed and is over, with `label` signed in to `provider`'s tool and no
+/// switch under way.
+fn in_use<'a>(provider: &'a str, label: &'a str) -> impl Fn(&[Snapshot]) -> bool + 'a {
+    move |told| {
+        told.last().is_some_and(|last| {
+            !last.reading
+                && last.switch_under_way.is_none()
+                && signed_in(last, provider) == Some(label)
+        })
+    }
+}
+
+/// The real core's Codex switch, through the model's lanes, with two `codex` sessions
+/// running: the warning that they keep the account left and must not sign out reaches the
+/// snapshot as what Codex's last switch said, and outlasts the read after the switch, which
+/// says nothing of it. The switch is said to be under way until that read has landed.
+#[test]
+fn a_codex_switchs_warning_reaches_the_snapshot() {
+    let world = two_codex_accounts("codex-switch");
+    world.host.runs("codex", 2);
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    told.until("the accounts read", codex_shows("personal"));
+
+    model.send(Intent::SwitchTo {
+        qualified: "codex/work".into(),
+    });
+    let snapshots = told.until("the switch and the read after it", codex_shows("work"));
+    assert!(in_order(&snapshots), "{snapshots:#?}");
+    assert!(
+        snapshots
+            .iter()
+            .any(|s| s.switch_under_way.as_deref() == Some("codex/work")),
+        "said to be under way"
+    );
+    let last = snapshots.last().expect("a snapshot");
+    assert_eq!(last.failure, None);
+    let [said] = &last.last_switches[..] else {
+        panic!("one tool switched: {:#?}", last.last_switches);
+    };
+    assert_eq!(
+        (said.provider.as_str(), said.to.as_str()),
+        ("codex", "codex/work")
+    );
+    assert_eq!(said.follows_at, None, "a running codex never follows");
+    assert_eq!(
+        said.restart
+            .as_ref()
+            .map(|r| (r.program.as_str(), r.from.as_str())),
+        Some(("codex", "personal"))
+    );
+    let warned = said
+        .warnings
+        .iter()
+        .find(|w| w.code == "sessions_still_running")
+        .expect("the sessions still running are warned about");
+    assert!(warned.message.contains("2 `codex` sessions"), "{warned:?}");
+    assert!(warned.message.contains("`codex/personal`"), "{warned:?}");
+    assert!(
+        last.warnings
+            .iter()
+            .all(|w| w.code != "sessions_still_running"),
+        "the read after it does not say it again: {:?}",
+        last.warnings
+    );
+    model.shutdown();
+}
+
+/// AppModelTests.swift's aSwitchWaitsForTheAppHoldingTheLoginToBeQuit and
+/// quittingTheAppSwitchesAndOpensItAgain, through the lanes over the real core, whose
+/// holder detection reads ChatGPT's own `codex` in the process list. The switch waits for
+/// the person; told to go ahead, ChatGPT is asked to quit, the switch is made once it has,
+/// with nothing left running the old login to warn about, and ChatGPT is opened again.
+#[test]
+fn quitting_the_app_holding_the_login_switches_and_opens_it_again() {
+    let world = two_codex_accounts("codex-quit");
+    world.host.runs_at("codex", &[CHATGPT_CODEX]);
+    let apps = StandInApps::new(&[CHATGPT], true);
+    let host = Arc::clone(&world.host);
+    apps.on_quit(move |_| host.runs_at("codex", &[]));
+    let told = Arc::new(Told::default());
+    let model = model_with(&world.core(), &told, &apps);
+    model.send(Intent::Start);
+    told.until("the accounts read", codex_shows("personal"));
+
+    model.send(Intent::SwitchTo {
+        qualified: "codex/work".into(),
+    });
+    let asked = told.until("the quit question", |told| {
+        told.last().is_some_and(|last| last.quit_question.is_some())
+    });
+    let asked = asked.last().expect("a snapshot");
+    let question = asked.quit_question.as_ref().expect("a question");
+    assert_eq!(
+        (question.app_id.as_str(), question.name.as_str()),
+        (CHATGPT, "ChatGPT")
+    );
+    assert_eq!(asked.switch_under_way.as_deref(), Some("codex/work"));
+    assert_eq!(asked.window_request.pane, Some(super::Pane::Accounts));
+    assert!(
+        apps.asked().is_empty(),
+        "nothing is quit before the person says so"
+    );
+    assert_eq!(signed_in(asked, "codex"), Some("personal"));
+
+    model.send(Intent::QuitAndSwitch {
+        qualified: "codex/work".into(),
+    });
+    let snapshots = told.until("the switch", codex_shows("work"));
+    let last = snapshots.last().expect("a snapshot");
+    // Opened on the lane of processes, beside the read on the lane of reads, so either can
+    // be done first.
+    eventually("ChatGPT opened again", || apps.asked().len() == 2);
+    assert_eq!(
+        apps.asked(),
+        [format!("quit {CHATGPT}"), format!("open {CHATGPT}")]
+    );
+    assert_eq!(last.quit_question, None);
+    assert_eq!(last.failure, None);
+    assert!(
+        last.last_switches
+            .iter()
+            .flat_map(|said| &said.warnings)
+            .all(|w| w.code != "sessions_still_running"),
+        "switched once ChatGPT had quit: {:#?}",
+        last.last_switches
+    );
+    model.shutdown();
+}
+
+/// Reads answer while a switch waits, as the Swift service's queue of reads answered while
+/// its other queues did: here the switch waits on the app's own code saying whether ChatGPT
+/// runs, and a read somebody asks for meanwhile lands, with the switch still under way.
+#[test]
+fn a_read_answers_while_a_switch_waits() {
+    let world = World::new("read-while-switching");
+    world.enrolled("work", "here", 10.0);
+    world.host.runs_at("codex", &[CHATGPT_CODEX]);
+    let apps = StandInApps::new(&[CHATGPT], true);
+    let told = Arc::new(Told::default());
+    let model = model_with(&world.core(), &told, &apps);
+    model.send(Intent::Start);
+    told.until("the account read", shows("work"));
+
+    let (arrivals, release) = apps.hold_running();
+    model.send(Intent::SwitchTo {
+        qualified: "codex/spare".into(),
+    });
+    arrivals
+        .recv_timeout(PATIENCE)
+        .expect("the switch asks whether ChatGPT runs");
+    let before = world.api.calls();
+    model.send(Intent::Refresh { asked: true });
+    eventually("the read asked for meanwhile", || {
+        let now = model.snapshot();
+        world.api.calls() > before && !now.reading && now.updated_at.is_some()
+    });
+    assert_eq!(
+        model.snapshot().switch_under_way.as_deref(),
+        Some("codex/spare"),
+        "the switch is still waiting"
+    );
+
+    drop(release);
+    told.until("the quit question", |told| {
+        told.last().is_some_and(|last| last.quit_question.is_some())
+    });
+    model.send(Intent::KeepAppOpen);
+    told.until("the question gone", |told| {
+        told.last()
+            .is_some_and(|last| last.quit_question.is_none() && last.switch_under_way.is_none())
+    });
+    assert!(apps.asked().is_empty(), "kept open, nothing quit");
+    model.shutdown();
+}
+
+/// A read answers while the core's switch itself waits, which is what the lane of changes is
+/// for: here the switch has taken Pitboard's own lock and waits on Claude Code's, which a
+/// Claude Code session writing its login holds, and a read somebody asks for meanwhile lands,
+/// with the switch still under way and nothing switched. Once the session lets go, the
+/// switch is made.
+#[test]
+fn a_read_answers_while_the_core_switches() {
+    let world = World::new("read-while-the-core-switches");
+    world.enrolled("work", "here", 10.0);
+    world.parked("spare", "there", 20.0);
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    told.until("the accounts read", in_use("claude", "work"));
+
+    // The switch asks Anthropic whose the login going in is just before it takes Claude
+    // Code's lock, as enrolling it asked before.
+    let whose = || {
+        world
+            .api
+            .asked()
+            .iter()
+            .filter(|asked| **asked == Asked::Owner("access-there".into()))
+            .count()
+    };
+    let asked_before = whose();
+    let writing = world.claude_code_writing();
+    model.send(Intent::SwitchTo {
+        qualified: "claude/spare".into(),
+    });
+    eventually("the switch at Claude Code's lock", || {
+        whose() > asked_before
+    });
+    let before = world.api.calls();
+    model.send(Intent::Refresh { asked: true });
+    eventually("the read asked for meanwhile", || {
+        world.api.calls() > before && !model.snapshot().reading
+    });
+    let meanwhile = model.snapshot();
+    assert_eq!(
+        meanwhile.switch_under_way.as_deref(),
+        Some("claude/spare"),
+        "the switch is still waiting"
+    );
+    assert_eq!(meanwhile.failure, None);
+    assert_eq!(signed_in(&meanwhile, "claude"), Some("work"));
+
+    drop(writing);
+    let snapshots = told.until("the switch", in_use("claude", "spare"));
+    let last = snapshots.last().expect("a snapshot");
+    assert_eq!(last.failure, None);
+    assert_eq!(
+        last.last_switches
+            .iter()
+            .map(|said| (said.provider.as_str(), said.to.as_str()))
+            .collect::<Vec<_>>(),
+        [("claude", "spare")]
+    );
+    model.shutdown();
 }

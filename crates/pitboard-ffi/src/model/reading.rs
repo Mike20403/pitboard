@@ -120,39 +120,6 @@ fn numbers_a_session_recorded_reach_the_menu_bar_without_asking_anyone() {
     assert_eq!(model.count(fresh_read), 0, "and asked Anthropic nothing");
 }
 
-/// AppModelTests.swift's numbersMovingLeaveWhoIsSignedInAndWhatASwitchSaid, the half about
-/// who is signed in; what a switch said comes with switching. A reading moving says nothing
-/// about who is signed in. Taken for a change to the account index, it would have who is
-/// signed in read again from Claude Code's config, which a switch that could not update it
-/// leaves naming the account before.
-#[test]
-fn numbers_moving_leave_who_is_signed_in() {
-    let mut model = Hand::new();
-    let mut machine = Machine::reading(Ok(status(vec![
-        claude("a", false, 10.0),
-        claude("b", true, 10.0),
-    ])));
-    model.refresh(&mut machine);
-
-    machine.offline = Ok(status(vec![
-        claude("a", true, 10.0),
-        claude("b", false, 30.0),
-    ]));
-    machine.readings += 1;
-    model.notice(&mut machine);
-
-    let shown = model.shown();
-    assert_eq!(percent(&shown, 1), Some(30.0));
-    let signed_in: Vec<bool> = shown
-        .status
-        .expect("accounts")
-        .accounts
-        .iter()
-        .map(|a| a.signed_in)
-        .collect();
-    assert_eq!(signed_in, [false, true], "only the numbers moved");
-}
-
 /// The app's own read records what it measured, which moves the readings, and a session can
 /// record something newer while the app is asking. Either costs one look at what is
 /// recorded, which is a file, and never a second read of anyone.
@@ -313,8 +280,8 @@ fn what_is_installed_is_asked_once() {
 }
 
 /// AppModelTests.swift's aReadThatStartedBeforeAChangeIsDroppedWhenItLands, for a change the
-/// poll noticed. The cases for a change this app makes itself come with switching, enrolling,
-/// renaming, forgetting, giving up and signing in.
+/// poll noticed. The cases of a switch and of giving up are in `switching.rs`; enrolling,
+/// renaming, forgetting and signing in come with those changes.
 ///
 /// A read waits on a service with who was signed in when it started, and whatever is changed
 /// meanwhile, by this app or somewhere else the poll noticed, is changed before the read
@@ -366,7 +333,7 @@ fn a_read_that_started_before_a_change_is_dropped_when_it_lands() {
 }
 
 /// AppModelTests.swift's aFailedReadThatStartedBeforeASwitchSaysNothingOnceItLands is a
-/// switch's, and comes with switching; this is the same for a change the poll noticed. A
+/// switch's, and is in `switching.rs`; this is the same for a change the poll noticed. A
 /// read that fails, started before the change and landing after it, failed on the machine
 /// as it was, and is not said over what the change showed.
 #[test]

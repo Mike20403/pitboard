@@ -4,14 +4,14 @@ namespace Pitboard.Core.Tests;
 /// The app model's types, as the Windows app will hold them. One test makes a model and takes
 /// its first snapshot without starting it: a model reads nothing until it is sent an intent,
 /// and this one is given a fresh folder for every home it could read all the same. So the
-/// launch, the listener and the snapshot cross the library there. The library calling a
-/// listener written in C# waits for a fixture's model, which can be started with no machine
-/// to read. What the model does is the Rust tests' to prove.
+/// launch, the listener, AppControl and the snapshot cross the library there. The library
+/// calling a listener or an AppControl written in C# waits for a fixture's model, which can
+/// be started with no machine to read. What the model does is the Rust tests' to prove.
 ///
 /// Loading the library compares the checksum of every export, the model's constructor and
-/// methods and the listener's one method among them, and hands the library the listener's
-/// table of calls. The rest proves the records, the intents and the listener have the shape
-/// the app's code is written against.
+/// methods, the listener's one method and each of AppControl's among them, and hands the
+/// library each trait's table of calls. The rest proves the records, the intents, the
+/// listener and AppControl have the shape the app's code is written against.
 /// </summary>
 [TestClass]
 public sealed class ModelTests
@@ -50,7 +50,35 @@ public sealed class ModelTests
         return new Snapshot(
             Revision: revision, Now: At, Reading: false, UpdatedAt: At,
             Status: new Status(At, [work], []), Warnings: [], ReadFailure: null, Stuck: false,
-            Installed: [PitboardFfiMethods.Tools()[0]]);
+            Installed: [PitboardFfiMethods.Tools()[0]], SwitchUnderWay: null, QuitQuestion: null,
+            LastSwitches: [], Abandoned: null, Failure: null,
+            WindowRequest: new WindowRequest(Serial: 0, Pane: null));
+    }
+
+    /// <summary>
+    /// What an app's AppControl does: says what runs, asks an app to quit, opens one again,
+    /// and throws what its system refuses as the one exception the model takes from it.
+    /// </summary>
+    private sealed class StandInApps : AppControl
+    {
+        public HashSet<string> Open { get; } = ["OpenAI.ChatGPT"];
+
+        public List<string> Asked { get; } = [];
+
+        public string? Running(string app) =>
+            Open.Contains(app) ? $@"C:\Program Files\{app}\{app}.exe" : null;
+
+        public void RequestQuit(string app)
+        {
+            if (!Open.Remove(app))
+            {
+                throw new PlatformException.Failed($"{app} is not running");
+            }
+
+            Asked.Add($"quit {app}");
+        }
+
+        public void Reopen(string location) => Asked.Add($"open {location}");
     }
 
     [TestMethod]
@@ -81,7 +109,8 @@ public sealed class ModelTests
                 ["PITBOARD_HOME"] = Path.Combine(home, ".pitboard"),
             };
             var keeping = new Keeping();
-            using var model = new PitboardModel(new AppLaunch(environment, null), keeping);
+            var apps = new StandInApps();
+            using var model = new PitboardModel(new AppLaunch(environment, null), keeping, apps);
 
             var first = model.Snapshot();
             model.Shutdown();
@@ -92,6 +121,7 @@ public sealed class ModelTests
             Assert.IsNull(first.Installed);
             Assert.AreEqual(0UL, model.Snapshot().Revision);
             Assert.IsEmpty(keeping.Told);
+            Assert.IsEmpty(apps.Asked);
             Assert.IsEmpty(Directory.EnumerateFileSystemEntries(home));
         }
         finally
@@ -113,6 +143,90 @@ public sealed class ModelTests
         Assert.AreNotEqual<Intent>(new Intent.Refresh(false), intents[3]);
         Assert.IsTrue(intents.OfType<Intent.Refresh>().Single().Asked);
         Assert.AreEqual(1, intents.OfType<Intent.Start>().Count());
+    }
+
+    /// <summary>
+    /// A switch is asked for by the account's label with its tool, and so is the answer that
+    /// lets Pitboard quit the app the question names, which says which question it answers;
+    /// what a switch said is put away by its tool, and keeping the app open and giving up
+    /// carry nothing.
+    /// </summary>
+    [TestMethod]
+    public void AnIntentToSwitchCarriesWhatItIsAbout()
+    {
+        Intent[] intents =
+        [
+            new Intent.SwitchTo(Qualified: "codex/work"), new Intent.QuitAndSwitch(Qualified: "codex/work"),
+            new Intent.KeepAppOpen(), new Intent.DismissSwitch(Provider: "codex"), new Intent.AbandonStuckSwitch(),
+            new Intent.DismissAbandoned(),
+        ];
+
+        Assert.AreEqual<Intent>(new Intent.SwitchTo("codex/work"), intents[0]);
+        Assert.AreNotEqual<Intent>(new Intent.SwitchTo("claude/work"), intents[0]);
+        Assert.AreEqual("codex", intents.OfType<Intent.DismissSwitch>().Single().Provider);
+        Assert.AreEqual("codex/work", intents.OfType<Intent.QuitAndSwitch>().Single().Qualified);
+        Assert.AreNotEqual<Intent>(new Intent.QuitAndSwitch("codex/spare"), intents[1]);
+        Assert.AreNotEqual<Intent>(new Intent.SwitchTo("codex/work"), intents[1]);
+        Assert.AreNotEqual<Intent>(new Intent.KeepAppOpen(), intents[1]);
+    }
+
+    /// <summary>
+    /// A snapshot carries what a switch said as records of their own: the switch under way and
+    /// the question about quitting the app that holds its login, what each tool's last switch
+    /// said, what giving up kept, a numbered failure, and the window asked for on a pane.
+    /// </summary>
+    [TestMethod]
+    public void ASnapshotCarriesWhatASwitchSaid()
+    {
+        var stillRunning = new Warning("sessions_still_running", "2 `codex` sessions are still running");
+        var switched = new LastSwitch(
+            Provider: "codex", To: "codex/work", FollowsAt: null,
+            Restart: new RestartNeeded(Program: "codex", From: "personal"), Warnings: [stillRunning]);
+        var snapshot = Read(4) with
+        {
+            SwitchUnderWay = "codex/spare",
+            QuitQuestion = new QuitQuestion(Qualified: "codex/spare", AppId: "com.openai.codex", Name: "ChatGPT"),
+            LastSwitches = [switched],
+            Abandoned = new Abandoned(From: "personal", To: "work", LoginsKept: 2),
+            Failure = new Failure(
+                Id: 2, Title: "Couldn’t switch to spare", Message: "ChatGPT is still open, so nothing has changed.",
+                Code: null, Warnings: []),
+            WindowRequest = new WindowRequest(Serial: 3, Pane: Pane.Accounts),
+        };
+
+        Assert.AreEqual("ChatGPT", snapshot.QuitQuestion?.Name);
+        Assert.AreEqual("personal", snapshot.LastSwitches[0].Restart?.From);
+        Assert.IsNull(snapshot.LastSwitches[0].FollowsAt);
+        Assert.AreEqual("sessions_still_running", snapshot.LastSwitches[0].Warnings[0].Code);
+        Assert.AreEqual(2U, snapshot.Abandoned?.LoginsKept);
+        Assert.AreEqual(2UL, snapshot.Failure?.Id);
+        Assert.IsNull(snapshot.Failure?.Code);
+        Assert.AreEqual(Pane.Accounts, snapshot.WindowRequest.Pane);
+        Assert.AreEqual(new WindowRequest(3, Pane.Accounts), snapshot.WindowRequest);
+        Assert.AreEqual(new RestartNeeded("codex", "personal"), switched.Restart);
+    }
+
+    /// <summary>
+    /// AppControl is an interface the app implements over its system's own apps, by an app id
+    /// of one string, and what its system refuses it throws as the one exception the model
+    /// takes from it.
+    /// </summary>
+    [TestMethod]
+    public void AppControlIsAnInterfaceTheAppImplements()
+    {
+        var stand = new StandInApps();
+        AppControl apps = stand;
+
+        var copy = apps.Running("OpenAI.ChatGPT");
+        apps.RequestQuit("OpenAI.ChatGPT");
+        apps.Reopen(copy!);
+        var refused = Assert.ThrowsExactly<PlatformException.Failed>(() => apps.RequestQuit("OpenAI.ChatGPT"));
+
+        Assert.AreEqual(@"C:\Program Files\OpenAI.ChatGPT\OpenAI.ChatGPT.exe", copy);
+        Assert.IsNull(apps.Running("OpenAI.ChatGPT"));
+        CollectionAssert.AreEqual(
+            new[] { "quit OpenAI.ChatGPT", $"open {copy}" }, stand.Asked);
+        Assert.AreEqual("OpenAI.ChatGPT is not running", refused.reason);
     }
 
     /// <summary>

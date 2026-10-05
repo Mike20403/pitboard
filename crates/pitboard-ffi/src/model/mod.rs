@@ -10,11 +10,13 @@
 //! Inside, one thread, the actor, owns the `State` and nothing else touches it. It takes
 //! each message in turn, has `State::apply` say what follows, which does no I/O at all, and
 //! runs the jobs that returns on the lanes in `lanes.rs`, whose answers come back to it as
-//! messages. Between messages it waits until the next timer is due. After
+//! messages, so a read still answers while a switch waits on the core or an app is given its
+//! time to quit. Between messages it waits until the next timer is due. After
 //! each message it makes the snapshot, and where that differs from the last one it numbers
 //! it one higher and hands it to the one notifier thread, which tells the listener in order.
 //!
-//! This part reads accounts and notices changes made elsewhere. Switching, signing in and
+//! This part reads accounts, notices changes made elsewhere, switches, quits an app that
+//! holds a login when asked to, and keeps what each tool's last switch said. Signing in and
 //! what the window says are still the Swift model's, and come here after it.
 
 mod lanes;
@@ -25,11 +27,13 @@ mod cadence;
 #[cfg(test)]
 mod reading;
 #[cfg(test)]
+mod switching;
+#[cfg(test)]
 mod testing;
 #[cfg(test)]
 mod threaded;
 
-use crate::{Pitboard, Status, Tool, Warning};
+use crate::{Abandoned, Pitboard, Status, Tool, Warning};
 use lanes::Lanes;
 use state::{Cadence, Msg, Now, State};
 use std::collections::HashMap;
@@ -71,6 +75,110 @@ pub enum Intent {
     /// than something producing it, and has each tool's service asked about every account
     /// whatever it was asked moments ago.
     Refresh { asked: bool },
+    /// Switch to the account `qualified` names, its label with its tool as
+    /// `Account::qualified` gives it, from the window, the menu or a notification. One switch
+    /// at a time: asked for while another is under way, it does nothing, beyond bringing a
+    /// question about quitting an app back to the front. Where an app keeps the tool's login
+    /// in memory, as ChatGPT keeps Codex's, the switch waits on `Snapshot::quit_question`.
+    SwitchTo { qualified: String },
+    /// The person let Pitboard quit the app the quit question for the switch to `qualified`
+    /// names: it is asked to quit the way a person quits it, the switch is made once it has,
+    /// and the copy that was running is opened again whether or not the switch worked. An
+    /// app still open after thirty seconds stops the switch before anything has changed.
+    ///
+    /// It names the question it answers, as AppModel.swift's quitAndSwitch took it, because
+    /// an alert can say it closed before its button acts: it is taken before or after
+    /// `KeepAppOpen` closed that question, and does nothing once taken, or once another
+    /// switch has been asked for in that question's place.
+    QuitAndSwitch { qualified: String },
+    /// The person kept the app open, or the question was closed some other way: the quit
+    /// question goes, and nothing is switched. The answer of the button that closed it, sent
+    /// after this, still switches.
+    KeepAppOpen,
+    /// Somebody has read what `provider`'s tool's last switch said, and put it away.
+    DismissSwitch { provider: String },
+    /// Give up on an interrupted switch nothing can finish, keeping every login it names.
+    AbandonStuckSwitch,
+    /// Somebody has read what giving up on an interrupted switch kept, and put it away.
+    DismissAbandoned,
+}
+
+/// A switch waiting for the person to let Pitboard quit an app first: the app keeps the
+/// tool's login in memory, would go on with the account switched away from, and its own
+/// sign-out would revoke the login Pitboard had just parked.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct QuitQuestion {
+    /// The account to switch to, its label with its tool.
+    pub qualified: String,
+    /// The app, as the core's holder detection names it and `AppControl` takes it: on macOS
+    /// its bundle id.
+    pub app_id: String,
+    /// The app as a person knows it: "ChatGPT".
+    pub name: String,
+}
+
+/// What a switch means for a tool's running sessions, for a tool whose sessions never pick
+/// a switch up: they keep the account they started with until they are started again.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RestartNeeded {
+    /// The command a person quits and starts again: `codex`.
+    pub program: String,
+    /// The account they keep using, by its label alone, since the tool is named already.
+    pub from: String,
+}
+
+/// What a tool's last switch said that the read after it does not say again, until the
+/// tool no longer has the account it switched to signed in, or somebody puts it away. One
+/// per tool: a switch of one tool says nothing about another's sessions.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct LastSwitch {
+    /// The tool, as a `Tool`'s code.
+    pub provider: String,
+    /// The account switched to, as the core types it: bare for Claude Code, `codex/work`
+    /// for any other tool.
+    pub to: String,
+    /// When sessions already open will have picked it up, in epoch seconds, for a tool that
+    /// follows a switch by itself.
+    pub follows_at: Option<i64>,
+    /// For a tool whose running sessions never pick a switch up.
+    pub restart: Option<RestartNeeded>,
+    /// What the switch warned about, every warning of it.
+    pub warnings: Vec<Warning>,
+}
+
+/// Something a person asked for that did not happen, for the window to say: an alert's
+/// title and its message.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct Failure {
+    /// One higher for each failure said, so an app tells a new one from one it has shown.
+    pub id: u64,
+    /// What was being done, as an alert's title says it: "Couldn’t switch to personal".
+    pub title: String,
+    /// What went wrong. Pitboard's errors already say what to do, so it is shown as it is.
+    pub message: String,
+    /// The stable code behind it, for deciding what to offer, where the core gave one.
+    pub code: Option<String>,
+    /// Everything else it warned about.
+    pub warnings: Vec<Warning>,
+}
+
+/// A pane of the main window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Pane {
+    Accounts,
+    Activity,
+    Machine,
+}
+
+/// What the model wants of the main window: it is opened each time `serial` moves, on
+/// `pane` when that says which. A menu has nowhere to put a sentence or a question, so a
+/// failure or a quit question asked for from one is said in the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct WindowRequest {
+    /// How many times the window has been asked for.
+    pub serial: u64,
+    /// The pane the last request wants shown, when it wants one.
+    pub pane: Option<Pane>,
 }
 
 /// Why the last read of the accounts did not answer.
@@ -101,7 +209,8 @@ pub struct Snapshot {
     /// recorded since, or the last numbers measured where no read has answered yet. `None`
     /// before anything is known, which is not a machine without accounts.
     pub status: Option<Status>,
-    /// Everything the last read warned about, or what its failure did.
+    /// Everything the last read warned about, or what its failure did, and before those what
+    /// a switch that failed since warned about.
     pub warnings: Vec<Warning>,
     /// Why the last read did not answer, when it did not. `status` is then the last
     /// numbers measured.
@@ -112,6 +221,27 @@ pub struct Snapshot {
     /// first read has asked. A tool missing here may still be on some `PATH`, so this
     /// narrows what is offered and never forbids anything.
     pub installed: Option<Vec<Tool>>,
+    /// The account a switch is under way for, or waiting on the quit question for, as its
+    /// label with its tool, from the moment it is asked for until the read after it has
+    /// landed. Nothing else is switched meanwhile, so the menu and the rows hold back.
+    pub switch_under_way: Option<String>,
+    /// A switch waiting for the person to let Pitboard quit an app first, to ask in the
+    /// window: `Intent::QuitAndSwitch` with its `qualified`, or `Intent::KeepAppOpen`,
+    /// answers it.
+    pub quit_question: Option<QuitQuestion>,
+    /// What each tool's last switch said that is still true, one per tool at most: a tool's
+    /// newer switch takes the place of what its last said, and one kept once the last was put
+    /// away goes after every other tool's. Apart from `warnings`, which the read after every
+    /// switch replaces: these are about the switch, and stay true until the tool no longer
+    /// has the account it switched to signed in, or somebody puts them away.
+    pub last_switches: Vec<LastSwitch>,
+    /// What giving up on an interrupted switch kept, until somebody has read it.
+    pub abandoned: Option<Abandoned>,
+    /// The last thing asked for that did not happen, which an app says once: a newer one
+    /// has a higher `id`. It stays here after it is said, until another takes its place.
+    pub failure: Option<Failure>,
+    /// What the model wants of the main window.
+    pub window_request: WindowRequest,
 }
 
 /// What a platform's own code could not do. Every method of a trait an app implements
@@ -140,6 +270,33 @@ pub trait ModelListener: Send + Sync {
     fn changed(&self, snapshot: Snapshot) -> Result<(), PlatformError>;
 }
 
+/// Other apps on this machine, by an app id, which Pitboard may quit and open again around a
+/// switch: one that runs a tool for itself and keeps the tool's login in memory while it is
+/// open, as ChatGPT does with Codex's. The id is the one the core's holder detection names
+/// an app by, which on macOS is its bundle id. What names an app on Windows is still the
+/// owner's to decide, and the id is one string so that a Windows id fits.
+///
+/// Only quitting the way a person quits an app and opening one again are offered: never a
+/// forced quit, which would lose whatever the app had not saved. Called on a thread of the
+/// model's own, never the app's main thread, one call at a time. An error from `running` or
+/// `request_quit` is taken as the app still running, since Pitboard never switches under an
+/// app it could not see go; one from `reopen` leaves the app for the person to open.
+#[uniffi::export(with_foreign)]
+pub trait AppControl: Send + Sync {
+    /// Where the running copy of the app was opened from, which is what `reopen` takes, or
+    /// `None` when it is not running.
+    fn running(&self, app: String) -> Result<Option<String>, PlatformError>;
+    /// Asks the app to quit the way a person quits it, which lets it ask about work in
+    /// progress. Returns at once; the app may take a while, or decline.
+    fn request_quit(&self, app: String) -> Result<(), PlatformError>;
+    /// Opens the app at `location` again, as `running` gave it, the way the system's own
+    /// shell would, without bringing it to the front: whatever Pitboard has to say about the
+    /// switch stays in front of it. Not called `open`, which UniFFI 0.31.2's list of Swift
+    /// keywords has: it writes a name on that list in backticks into the C header's table
+    /// of calls as well as into the Swift, and no C compiler takes it there.
+    fn reopen(&self, location: String) -> Result<(), PlatformError>;
+}
+
 /// The app's model. Making one starts its threads and asks nothing of anyone: the core is
 /// made when the first read needs it, which can mean asking the person's login shell.
 #[derive(uniffi::Object)]
@@ -154,13 +311,19 @@ pub struct PitboardModel {
 #[uniffi::export]
 impl PitboardModel {
     /// The app's model, over the core the app's environment and location make, read the
-    /// way the command line reads its own, as `Pitboard::for_app` makes it. Nothing runs by
-    /// itself until the app sends `Intent::Start`.
+    /// way the command line reads its own, as `Pitboard::for_app` makes it, and over `apps`,
+    /// the other apps on this machine. Nothing runs by itself until the app sends
+    /// `Intent::Start`.
     #[uniffi::constructor]
-    pub fn new(launch: AppLaunch, listener: Arc<dyn ModelListener>) -> Arc<Self> {
+    pub fn new(
+        launch: AppLaunch,
+        listener: Arc<dyn ModelListener>,
+        apps: Arc<dyn AppControl>,
+    ) -> Arc<Self> {
         PitboardModel::over(
             Pitboard::for_app(launch.environment, launch.app_location),
             listener,
+            apps,
             Cadence::APP,
         )
     }
@@ -195,10 +358,11 @@ impl PitboardModel {
 }
 
 impl PitboardModel {
-    /// A model over `core`, doing what it does by itself every `cadence`.
+    /// A model over `core` and `apps`, doing what it does by itself every `cadence`.
     pub(crate) fn over(
         core: Arc<Pitboard>,
         listener: Arc<dyn ModelListener>,
+        apps: Arc<dyn AppControl>,
         cadence: Cadence,
     ) -> Arc<PitboardModel> {
         let clock = Clock::starting();
@@ -206,7 +370,7 @@ impl PitboardModel {
         let shown = Arc::new(Mutex::new(state.snapshot(0, clock.now().epoch())));
         let stopped = Arc::new(AtomicBool::new(false));
         let (mailbox, mail) = channel();
-        let lanes = Lanes::open(&core, &mailbox);
+        let lanes = Lanes::open(core, apps, cadence, &mailbox);
         let actor = Actor {
             state,
             lanes,

@@ -28,7 +28,8 @@ pub use sites::{
 
 mod model;
 pub use model::{
-    AppLaunch, Intent, ModelListener, PitboardModel, PlatformError, ReadFailure, Snapshot,
+    AppControl, AppLaunch, Failure, Intent, LastSwitch, ModelListener, Pane, PitboardModel,
+    PlatformError, QuitQuestion, ReadFailure, RestartNeeded, Snapshot, WindowRequest,
 };
 
 mod account_windows;
@@ -283,7 +284,7 @@ pub struct Change {
 }
 
 /// An interrupted switch that was given up on, keeping every login it named.
-#[derive(Debug, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Abandoned {
     pub from: String,
     pub to: String,
@@ -458,7 +459,7 @@ pub struct Status {
 }
 
 /// When a session of the tool that is already running picks a switch up.
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Adoption {
     /// On its own, within this many seconds.
     Follows { within_seconds: u32 },
@@ -514,7 +515,7 @@ impl From<pitboard_core::holder::Holding> for Holding {
     }
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Switch {
     Switched {
         /// Which tool's login moved.
@@ -528,7 +529,7 @@ pub enum Switch {
     },
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Switched {
     pub outcome: Switch,
     pub warnings: Vec<Warning>,
