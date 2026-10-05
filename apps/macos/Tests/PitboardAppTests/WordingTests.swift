@@ -4,21 +4,6 @@ import Testing
 
 @testable import PitboardApp
 
-/// The difference between a limit filling and a limit resetting is the difference between
-/// "switch now" and "stay where you are", and both are a number of seconds.
-@Test func aRunwayReadsAsBurningOrAsResting() {
-    #expect(lasting(5400, burning: true) == "about 1h 30m left at this rate")
-    #expect(lasting(5400, burning: false) == "resets in 1h 30m")
-}
-
-/// Rounding an almost-empty window down to "0 min" reads as though it were already gone,
-/// and rounding it up reads as though there were time.
-@Test func almostNoRunwayIsSaidInWordsRatherThanZero() {
-    #expect(lasting(30, burning: true) == "about to run out")
-    #expect(lasting(0, burning: false) == "resets any moment")
-    #expect(lasting(-10, burning: true) == "about to run out")
-}
-
 private func renewed(_ outcome: String) -> Renewed {
     Renewed(label: "acc", provider: "claude", outcome: outcome)
 }
@@ -67,23 +52,17 @@ private func renewed(_ outcome: String) -> Renewed {
         "a reset whose time has come is said, as the column says it")
 }
 
-/// Pitboard says everything else in English, so a span of time inside one of its sentences is
-/// English too, whatever the region of the Mac: "about 1h 30min left" reads as a mistake. A
-/// test cannot change the region of the process it runs in, so this checks that the same
-/// spans in German read differently, which is what a span following a German Mac's region
-/// would show, and that Pitboard's read as English.
-@Test func aSpanOfTimeReadsTheSameInEveryRegion() {
-    let german = Locale(identifier: "de_DE")
-    let narrow = Duration.seconds(5400).formatted(
-        .units(allowed: [.days, .hours, .minutes], width: .narrow).locale(german))
+/// Pitboard says everything else in English, so a span of time VoiceOver reads inside one of
+/// its sentences is English too, whatever the region of the Mac: "resets in 3 Stunden"
+/// reads as a mistake. A test cannot change the region of the process it runs in, so this
+/// checks that the same span in German reads differently, which is what a span following a
+/// German Mac's region would show, and that Pitboard's reads as English. The spans shown on
+/// screen are the core's, which has no region.
+@Test func aSpokenSpanOfTimeReadsTheSameInEveryRegion() {
     let wide = Duration.seconds(3 * 3600).formatted(
         .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2)
-            .locale(german))
-    #expect(narrow.hasSuffix("30min"), "the German shorthand, told apart from 30m")
+            .locale(Locale(identifier: "de_DE")))
     #expect(wide != "3 hours")
-
-    #expect(lasting(5400, burning: true) == "about 1h 30m left at this rate")
-    #expect(lasting(3 * 86_400 + 7200, burning: false) == "resets in 3d 2h")
     #expect(
         spokenLimit(window("five_hour", 42, length: 18_000), resettingIn: 90 * 60)
             == "5-hour limit, 42 percent used, resets in 1 hour, 30 minutes")

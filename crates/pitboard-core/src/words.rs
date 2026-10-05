@@ -9,6 +9,8 @@
 //! All of it is English. Clock times are not here: the command line writes them with
 //! `time::moment`, and the app in the format its Mac is set to.
 
+use crate::history::Runway;
+
 const MINUTE: i64 = 60;
 const HOUR: i64 = 60 * MINUTE;
 const DAY: i64 = 24 * HOUR;
@@ -115,6 +117,21 @@ pub fn resets(at: i64, now: i64) -> String {
     }
 }
 
+/// How long an account lasts, which is the question the whole tool exists for: "about 1h
+/// 30m left at this rate" while a limit fills, or "resets in 1h 30m" when its reset comes
+/// first. The difference is between "switch soon" and "whole again soon". Under a minute it
+/// is said in words, "about to run out" or "resets any moment", which read more plainly in
+/// a sentence than "<1m". Nothing until there is enough to go on.
+pub fn runway(runway: Runway) -> Option<String> {
+    Some(match runway {
+        Runway::Burning(seconds) if seconds < MINUTE => "about to run out".into(),
+        Runway::Burning(seconds) => format!("about {} left at this rate", span(seconds)),
+        Runway::Resting(seconds) if seconds < MINUTE => "resets any moment".into(),
+        Runway::Resting(seconds) => format!("resets in {}", span(seconds)),
+        Runway::Unknown => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +217,55 @@ mod tests {
         assert_eq!(resets(86_399), "resets in 23h 59m");
         assert_eq!(resets(86_400), "resets in 1d 0h");
         assert_eq!(resets(2 * 86_400 + 4 * 3600 + 59 * 60), "resets in 2d 4h");
+    }
+
+    /// The difference between a limit filling and a limit resetting is the difference
+    /// between "switch now" and "stay where you are", and both are a number of seconds.
+    #[test]
+    fn a_runway_reads_as_burning_or_as_resting() {
+        assert_eq!(
+            runway(Runway::Burning(5400)).as_deref(),
+            Some("about 1h 30m left at this rate")
+        );
+        assert_eq!(
+            runway(Runway::Resting(5400)).as_deref(),
+            Some("resets in 1h 30m")
+        );
+        assert_eq!(
+            runway(Runway::Resting(3 * 86_400 + 7200)).as_deref(),
+            Some("resets in 3d 2h")
+        );
+        assert_eq!(runway(Runway::Unknown), None, "nothing to go on yet");
+    }
+
+    /// Under a minute a span would say "<1m", and a sentence says it more plainly: the limit
+    /// is about to run out, or its reset is any moment now. From a minute it is a span again.
+    #[test]
+    fn under_a_minute_a_runway_is_said_in_words() {
+        assert_eq!(
+            runway(Runway::Burning(30)).as_deref(),
+            Some("about to run out")
+        );
+        assert_eq!(
+            runway(Runway::Burning(0)).as_deref(),
+            Some("about to run out")
+        );
+        assert_eq!(
+            runway(Runway::Burning(-10)).as_deref(),
+            Some("about to run out")
+        );
+        assert_eq!(
+            runway(Runway::Resting(1)).as_deref(),
+            Some("resets any moment")
+        );
+        assert_eq!(
+            runway(Runway::Resting(59)).as_deref(),
+            Some("resets any moment")
+        );
+        assert_eq!(
+            runway(Runway::Burning(60)).as_deref(),
+            Some("about 1m left at this rate")
+        );
+        assert_eq!(runway(Runway::Resting(60)).as_deref(), Some("resets in 1m"));
     }
 }

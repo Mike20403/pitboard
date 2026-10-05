@@ -537,6 +537,20 @@ pub fn resets(resets_at: i64, now: i64) -> String {
     words::resets(resets_at, now)
 }
 
+/// How long an account lasts, from an `Account`'s `lasts_seconds` and `lasts_burning`:
+/// "about 1h 30m left at this rate", "resets in 1h 30m", and under a minute "about to run
+/// out" or "resets any moment". `None` where `lasts_seconds` is, until there is enough to go
+/// on.
+#[uniffi::export]
+pub fn runway(seconds: Option<i64>, burning: bool) -> Option<String> {
+    use pitboard_core::history::Runway;
+    words::runway(match seconds {
+        None => Runway::Unknown,
+        Some(seconds) if burning => Runway::Burning(seconds),
+        Some(seconds) => Runway::Resting(seconds),
+    })
+}
+
 /// Whether two resets of a limit are one, as the core counts them when it merges readings:
 /// less than a minute apart, in either order. A session is given a reset in whole seconds
 /// and Anthropic's answer a fraction that is dropped, so one window can come back a second
@@ -1062,6 +1076,28 @@ mod tests {
         );
         assert_eq!(limit_column(limit("90_minute", Some(5_400), None)), "90m");
         assert_eq!(limit_name(limit("session", None, None)), "5-hour");
+    }
+
+    /// An account's runway reaches the apps as seconds and whether its limit is filling,
+    /// and reads the way `pitboard status` says it. Without the seconds there is nothing to
+    /// say, whichever way the account is going.
+    #[test]
+    fn a_runway_is_said_from_an_accounts_two_fields() {
+        assert_eq!(
+            runway(Some(5_400), true).as_deref(),
+            Some("about 1h 30m left at this rate")
+        );
+        assert_eq!(
+            runway(Some(3_900), false).as_deref(),
+            Some("resets in 1h 05m")
+        );
+        assert_eq!(runway(Some(30), true).as_deref(), Some("about to run out"));
+        assert_eq!(
+            runway(Some(30), false).as_deref(),
+            Some("resets any moment")
+        );
+        assert_eq!(runway(None, true), None);
+        assert_eq!(runway(None, false), None);
     }
 
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never

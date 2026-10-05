@@ -66,11 +66,11 @@ pages load, as a browser would.
     same names. `schedule.rs` decides what daily renewal runs and whose it is; the host's
     scheduler writes it.
   - `words.rs`: the sentences and column words Pitboard says in more than one place, each
-    a function of typed values: spans of time, a limit's names and when it resets. It also
-    holds `usage_level`, the steps at which a limit's colour changes. A thing said both in
-    a column and in a sentence has a function for each form. The command line calls these
-    functions directly, and the macOS app calls the ones it shows through `pitboard-ffi`.
-    Clock times are not in it.
+    a function of typed values: spans of time, a limit's names, when it resets and how long
+    an account lasts. It also holds `usage_level`, the steps at which a limit's colour
+    changes. A thing said both in a column and in a sentence has a function for each form.
+    The command line calls these functions directly, and the macOS app calls the ones it
+    shows through `pitboard-ffi`. Clock times are not in it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for

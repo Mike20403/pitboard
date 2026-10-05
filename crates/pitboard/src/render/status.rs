@@ -185,18 +185,11 @@ pub fn human(report: &Report) -> String {
                 ));
             }
             // The answer to the question the whole tool exists for, where there is one.
-            if let Some(seconds) = row.runway.seconds() {
+            if let Some(lasts) = words::runway(row.runway) {
                 block.push_str(&format!(
                     "    {}  {}\n",
                     pad("", name_width),
-                    paint(
-                        DIM,
-                        match row.runway {
-                            pitboard_core::history::Runway::Burning(_) =>
-                                format!("about {} left at this rate", words::span(seconds)),
-                            _ => format!("resets in {}", words::span(seconds)),
-                        }
-                    )
+                    paint(DIM, lasts)
                 ));
             }
             let note = row.usage.as_ref().and_then(|u| provenance(u, now));
@@ -385,6 +378,24 @@ mod tests {
             text.contains("measured") && text.contains("2h 00m ago"),
             "{text}"
         );
+    }
+
+    /// Under a minute, how long an account lasts is said in words, as the app says it,
+    /// rather than as a span of "<1m".
+    #[test]
+    fn under_a_minute_an_account_is_about_to_run_out() {
+        let lasting = |runway| {
+            let mut work = row(Some("work"), true);
+            work.runway = runway;
+            plain(&human(&report(vec![work])))
+        };
+        let says = |text: &str, line: &str| text.lines().any(|l| l.trim() == line);
+        let burning = lasting(pitboard_core::history::Runway::Burning(30));
+        assert!(says(&burning, "about to run out"), "{burning}");
+        let resting = lasting(pitboard_core::history::Runway::Resting(30));
+        assert!(says(&resting, "resets any moment"), "{resting}");
+        let later = lasting(pitboard_core::history::Runway::Burning(3_900));
+        assert!(says(&later, "about 1h 05m left at this rate"), "{later}");
     }
 
     #[test]

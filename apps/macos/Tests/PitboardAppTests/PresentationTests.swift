@@ -355,13 +355,18 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
 }
 
 /// How long an account lasts is a sentence of its own in the window, so it starts with a
-/// capital whichever way the account is going.
+/// capital whichever way the account is going. Its span of time reads as the reset beside
+/// each bar does, and as `pitboard status` says it, minutes in two digits. Under a minute it
+/// says so in words, since rounding to "0 min" reads as though nothing were left and "<1m"
+/// is shorthand where a sentence can be plain.
 @Test func howLongAnAccountLastsIsSaidAsASentence() {
     let pace = { (left: Int64?, burning: Bool) in
         described(reported(account("work", signedIn: true), lasts: left, burning: burning)).pace
     }
     #expect(pace(5400, true) == "About 1h 30m left at this rate")
     #expect(pace(5400, false) == "Resets in 1h 30m")
+    #expect(pace(3900, false) == "Resets in 1h 05m")
+    #expect(pace(3 * 86_400 + 7200 + 300, true) == "About 3d 2h left at this rate")
     #expect(pace(30, true) == "About to run out")
     #expect(pace(0, false) == "Resets any moment")
     #expect(pace(nil, true) == nil, "nothing to go on yet")

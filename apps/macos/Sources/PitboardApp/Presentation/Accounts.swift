@@ -182,9 +182,8 @@ struct AccountDescription: Equatable {
             ? account.staleExplanation : nil
         staleNote = problem == nil ? account.staleExplanation : nil
         parkedNote = account.signedIn ? nil : parkedLife(account.parked, now: now)
-        pace = account.lastsSeconds.map {
-            lasting($0, burning: account.lastsBurning).capitalizedFirst
-        }
+        let lasts = runway(seconds: account.lastsSeconds, burning: account.lastsBurning)
+        pace = lasts?.capitalizedFirst
         summary = Self.summary(
             of: account, switching: self.switching, needsSignIn: needsSignIn, now: now)
     }

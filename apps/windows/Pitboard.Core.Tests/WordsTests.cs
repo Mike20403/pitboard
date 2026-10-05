@@ -26,6 +26,9 @@ public sealed class WordsTests
     {
         Assert.AreEqual("resets in 1h 05m", PitboardFfiMethods.Resets(1_000 + 3_900, 1_000));
         Assert.AreEqual("resetting now", PitboardFfiMethods.Resets(1_000, 1_000));
+        Assert.AreEqual("about 1h 30m left at this rate", PitboardFfiMethods.Runway(5_400, true));
+        Assert.AreEqual("about to run out", PitboardFfiMethods.Runway(30, true));
+        Assert.IsNull(PitboardFfiMethods.Runway(null, true));
         Assert.IsTrue(PitboardFfiMethods.SameReset(between: 1_000, and: 1_059));
         Assert.IsFalse(PitboardFfiMethods.SameReset(between: 1_000, and: 1_060));
     }

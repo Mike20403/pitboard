@@ -21,6 +21,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   with the minutes in two digits, and **resetting now** once that time has come. It said
   **in 2h 5m**, and nothing once the time had passed, so a limit whose reset was due showed
   its old figure with nothing beside it. VoiceOver says **resetting now** too.
+- The app says how long an account lasts with the spans `pitboard status` uses, such as
+  **About 1h 05m left at this rate** or **Resets in 3d 2h**, where it said **About 1h 5m
+  left at this rate** or **Resets in 3d 2h 5m**. Under a minute, `pitboard status` says
+  `about to run out` or `resets any moment`, as the app does, where it said
+  `about <1m left at this rate` or `resets in <1m`.
 
 ### Fixed
 

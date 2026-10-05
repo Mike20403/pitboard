@@ -11,19 +11,6 @@ import PitboardKit
 /// what the core does not say for the app, and the glue that hands those functions what a
 /// view has.
 
-/// The answer to the question the whole tool exists for: how long the account you are on
-/// is good for. `burning` is a limit filling rather than a limit resetting, which is the
-/// difference between "about an hour left" and "whole again in an hour".
-func lasting(_ seconds: Int64, burning: Bool) -> String {
-    // Under a minute the units formatter says "0 min", which reads as though nothing were
-    // left when the difference is seconds either way.
-    guard seconds >= 60 else { return burning ? "about to run out" : "resets any moment" }
-    let span = Duration.seconds(seconds)
-        .formatted(
-            .units(allowed: [.days, .hours, .minutes], width: .narrow).locale(english))
-    return burning ? "about \(span) left at this rate" : "resets in \(span)"
-}
-
 /// What a renewal run did. Everything here is a login that was going to expire, so "nothing
 /// happened" is the good answer and has to read like one.
 func renewalNote(_ renewals: [Renewed]) -> String {
@@ -78,8 +65,9 @@ func restartNotice(program: String, from: String) -> String {
         + "quit and started again."
 }
 
-/// The locale spans of time are written in. Pitboard says everything else in English, and a
-/// sentence that switches language halfway, "about 1h 30min left", reads as a mistake.
+/// The locale VoiceOver's spans of time are written in. Pitboard says everything else in
+/// English, and a sentence that switches language halfway, "resets in 1 Stunde", reads as a
+/// mistake.
 private let english = Locale(identifier: "en_US_POSIX")
 
 /// The tool a bare label means, as the core reads one.
