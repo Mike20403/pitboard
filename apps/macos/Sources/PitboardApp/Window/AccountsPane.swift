@@ -49,7 +49,7 @@ struct AccountsPane: View {
                 Button("Forget", role: .destructive) { forget(account) }
                 Button("Cancel", role: .cancel) {}
             } message: { account in
-                Text(forgetMessage(for: account, in: model.status))
+                Text(forgetMessage(account: account, accounts: model.status?.accounts ?? []))
             }
             .alert("Give up on the interrupted switch?", isPresented: $givingUp) {
                 Button("Give Up", role: .destructive) {
@@ -174,13 +174,13 @@ struct AccountsPane: View {
                 model.present(.rename(provider: account.provider, label: label))
             }
         }
-        let sites = siteWindows(of: account, in: model.status)
+        let sites = windowsOf(account: account, accounts: model.status?.accounts ?? [])
         if !sites.isEmpty {
             Divider()
             ForEach(sites) { window in
                 Button("Open \(window.site.name)") {
                     windows.presence.activate()
-                    openWindow(id: AccountWindowScene.id, value: window.store)
+                    openWindow(id: AccountWindowScene.id, value: window.id)
                 }
             }
         }

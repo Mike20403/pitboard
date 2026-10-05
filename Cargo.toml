@@ -36,6 +36,9 @@ machine-uid = "0.6"
 mockito = "1.7.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+# For the account windows' store ids alone, which are version 5 UUIDs, and RFC 9562 defines
+# those over SHA-1. Nothing secret is hashed.
+sha1 = { version = "0.11", default-features = false }
 sha2 = "0.11"
 thiserror = "2"
 unicode-normalization = "0.1"

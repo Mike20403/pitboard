@@ -36,6 +36,9 @@ pub struct Site {
     pub store_name: &'static str,
     /// How to sign in to the site in a window, as the steps its sign-in page shows.
     pub sign_in_steps: &'static str,
+    /// Whether the site's sign-in offers a passkey. A page in a window can use one only where
+    /// the system's web view gives it one, which the bindings' sign-in steps then say.
+    pub passkeys: bool,
     /// What the blocked hosts leave unusable in the site's window.
     pub blocked_services: &'static str,
 }
@@ -55,6 +58,7 @@ pub static CLAUDE: Site = Site {
     store_name: "claude",
     sign_in_steps: "Click Continue with email, open the email on your phone, tap its link, then \
                     enter here the code claude.ai shows there.",
+    passkeys: false,
     blocked_services: "Gmail, Google Drive, Google Calendar and Google single sign-on cannot be \
                        connected in this window.",
 };
@@ -64,8 +68,8 @@ pub static CLAUDE: Site = Site {
 /// each to the same path on chatgpt.com. Its sign-in pages are on auth.openai.com, which
 /// OpenAI's help centre names among the hosts its sign-in needs, and it offers Microsoft and
 /// Apple, whose pages these are (article 7426629, read on 29 September 2026). It comes back
-/// through `/api/auth`. A passkey needs an app macOS lets act as a browser, which Pitboard is
-/// not.
+/// through `/api/auth`. It offers a passkey too, which a window on a Mac cannot use: see
+/// `pitboard-ffi`.
 pub static CHATGPT: Site = Site {
     host: "chatgpt.com",
     provider: "codex",
@@ -80,8 +84,8 @@ pub static CHATGPT: Site = Site {
     sign_in_paths: &[&["api", "auth"]],
     store_name: "codex",
     sign_in_steps: "Enter your email address, then its password or the code chatgpt.com emails \
-                    you, or click Continue with Microsoft or Continue with Apple. Passkeys do \
-                    not work in this window.",
+                    you, or click Continue with Microsoft or Continue with Apple.",
+    passkeys: true,
     blocked_services: "Google Drive, Gmail and Google Calendar cannot be connected in this \
                        window.",
 };
@@ -134,7 +138,7 @@ impl Site {
 
 /// `names` as an English sentence lists them, as Foundation's list format does in English:
 /// "a", "a and b", "a, b, and c".
-fn listed(names: &[&str], conjunction: Conjunction) -> String {
+pub fn listed(names: &[&str], conjunction: Conjunction) -> String {
     let word = match conjunction {
         Conjunction::And => "and",
         Conjunction::Or => "or",

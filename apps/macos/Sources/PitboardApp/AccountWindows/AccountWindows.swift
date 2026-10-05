@@ -39,14 +39,14 @@ public final class AccountWindows {
     }
 
     /// Every enrolled account's window, as the last read found the accounts.
-    var accounts: [WindowAccount] { windowAccounts(in: model.status) }
+    var accounts: [WindowAccount] { windowAccounts(accounts: model.status?.accounts ?? []) }
 
     /// The menus' entries, one per site that has an account with a window.
-    var menus: [SiteMenu] { siteMenus(in: model.status) }
+    var menus: [SiteMenu] { siteMenus(accounts: model.status?.accounts ?? []) }
 
     /// The account whose window keeps `store`, while it is enrolled.
     func account(_ store: UUID) -> WindowAccount? {
-        accounts.first { $0.store == store }
+        windowOfStore(accounts: model.status?.accounts ?? [], store: store.uuidString)
     }
 
     /// The navigation policy of `site`'s windows.
@@ -60,22 +60,22 @@ public final class AccountWindows {
     /// link chosen for it, else the last page of its site the window showed, else the site's
     /// home.
     func session(for account: WindowAccount) -> WebSession {
-        if let session = sessions[account.store] {
+        if let session = sessions[account.id] {
             session.update(account)
             return session
         }
         let policy = policy(for: account.site)
-        let restored = environment.pages.page(of: account.store).flatMap {
+        let restored = environment.pages.page(of: account.id).flatMap {
             policy.isSite($0) ? $0 : nil
         }
         // Asked before the store is made, which records it.
-        let firstOpen = !janitor.hasMade(account.store)
+        let storeMadeBefore = janitor.hasMade(account.id)
         let session = WebSession(
-            account: account, policy: policy, store: janitor.store(for: account.store),
+            account: account, policy: policy, store: janitor.store(for: account.id),
             environment: environment, downloads: downloads,
-            firstPage: waiting.removeValue(forKey: account.store) ?? restored ?? policy.home,
-            firstOpen: firstOpen)
-        sessions[account.store] = session
+            firstPage: waiting.removeValue(forKey: account.id) ?? restored ?? policy.home,
+            storeMadeBefore: storeMadeBefore)
+        sessions[account.id] = session
         return session
     }
 
@@ -88,16 +88,16 @@ public final class AccountWindows {
     /// the window showed; else as the first page of the window about to open.
     func open(_ link: SiteLink, as account: WindowAccount) {
         let url = policy(for: account.site).address(of: link)
-        if let session = sessions[account.store] {
+        if let session = sessions[account.id] {
             session.open(url)
         } else {
-            waiting[account.store] = url
+            waiting[account.id] = url
         }
     }
 
     /// Asks for `account`'s window from outside any view.
     func request(_ account: WindowAccount) {
-        requested.append(account.store)
+        requested.append(account.id)
     }
 
     /// The windows asked for, which are then no longer asked for.
@@ -117,7 +117,7 @@ public final class AccountWindows {
         session.closePopup()
         await session.page.leave()
         session.close()
-        environment.pages.set(nil, of: session.account.store)
+        environment.pages.set(nil, of: session.account.id)
         await janitor.wipe(store)
         session.startOver()
     }
@@ -126,7 +126,7 @@ public final class AccountWindows {
     /// the window opens there again.
     func remember(_ page: URL?, of account: WindowAccount) {
         guard let page, policy(for: account.site).isSite(page) else { return }
-        environment.pages.set(page, of: account.store)
+        environment.pages.set(page, of: account.id)
     }
 
     // MARK: - After a read
@@ -136,10 +136,10 @@ public final class AccountWindows {
     /// deleted. Only a read that succeeded says who is enrolled; every one lists every
     /// enrolled account.
     private func accountsRead(_ read: Status) {
-        let found = windowAccounts(in: read)
-        let keeping = Set(found.map(\.store))
+        let found = windowAccounts(accounts: read.accounts)
+        let keeping = Set(found.map(\.id))
         for (store, session) in sessions {
-            if let account = found.first(where: { $0.store == store }) {
+            if let account = found.first(where: { $0.id == store }) {
                 session.update(account)
             } else {
                 closed(store)
@@ -148,17 +148,5 @@ public final class AccountWindows {
         waiting = waiting.filter { keeping.contains($0.key) }
         environment.pages.keep(only: keeping)
         Task { await janitor.sweep(keeping: keeping) }
-    }
-}
-
-extension NavigationPolicy {
-    /// `link` on the window's scheme: the link itself in a live run, and the fixture's
-    /// stand-in for it in a fixture, so a fixture's window never reaches the network.
-    func address(of link: SiteLink) -> URL {
-        guard var parts = URLComponents(string: link.url) else {
-            return home
-        }
-        parts.scheme = scheme
-        return parts.url ?? home
     }
 }

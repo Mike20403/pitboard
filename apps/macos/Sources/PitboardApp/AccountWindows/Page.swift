@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import PitboardKit
 import WebKit
 
 /// One web page in an account's store: an account window's own page, or a sign-in window
@@ -184,21 +185,18 @@ final class Page {
         failure = reason
     }
 
-    /// The page's content process ended: it is loaded again, and a page that ends it again
-    /// within `crashWindow` of the last time says so instead. A heavy page ends it after it
-    /// has loaded, so a page loading again is no sign it is working.
+    /// The page's content process ended: it is loaded again, or says it stopped working,
+    /// as the core's `afterContentProcessEnded` decides from when it last ended.
     func contentEnded() {
         let ended = now()
         defer { lastEnded = ended }
-        if let last = lastEnded, ended.timeIntervalSince(last) < Self.crashWindow {
-            loadFailed(url, reason: "The page stopped working.")
-            return
+        switch afterContentProcessEnded(
+            lastEnded: lastEnded?.timeIntervalSince1970, now: ended.timeIntervalSince1970)
+        {
+        case .reload: webView.reload()
+        case .stopped(let reason): loadFailed(url, reason: reason)
         }
-        webView.reload()
     }
-
-    /// How soon a second end of the content process counts as the page not working.
-    nonisolated static let crashWindow: TimeInterval = 60
 
     // MARK: - Zoom
 

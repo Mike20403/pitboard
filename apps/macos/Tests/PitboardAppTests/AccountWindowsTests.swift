@@ -123,8 +123,17 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
 @Test func theWindowsAreTheEnrolledAccountsOfEachSite() async {
     let windows = await windows()
     #expect(windows.accounts.map(\.label) == ["work", "personal", "old", "main", "spare"])
-    #expect(windows.menus.map(\.title) == ["Open claude.ai", "Open chatgpt.com"])
-    #expect(windows.account(account("main", in: windows).store)?.site == .chatGPT)
+    let titles = windows.menus.map { menu in
+        switch menu {
+        case .one(let title, _), .several(let title, _, _): title
+        }
+    }
+    #expect(titles == ["Open claude.ai", "Open chatgpt.com"])
+    #expect(windows.account(account("main", in: windows).id)?.site == .chatGPT)
+    #expect(
+        windows.account(UUID(uuidString: account("work", in: windows).store.uppercased())!)?
+            .label == "work",
+        "a window's store read back from its scene, as UUID writes one")
 }
 
 /// A window starts at a link chosen for it, else at the page it was last on if that is one
@@ -136,25 +145,25 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     let home = windows.session(for: work)
     #expect(home.page.webView.url?.absoluteString == "pitboard-fixture://claude.ai/")
     windows.remember(URL(string: "pitboard-fixture://claude.ai/chat/old"), of: work)
-    windows.closed(work.store)
+    windows.closed(work.id)
 
     let reopened = windows.session(for: work)
     #expect(
         reopened.page.webView.url?.absoluteString == "pitboard-fixture://claude.ai/chat/old")
-    windows.closed(work.store)
+    windows.closed(work.id)
 
     windows.remember(URL(string: "https://example.com/somewhere"), of: work)
     #expect(
         windows.session(for: work).page.webView.url?.absoluteString
             == "pitboard-fixture://claude.ai/chat/old",
         "a page off the site is never kept")
-    windows.closed(work.store)
+    windows.closed(work.id)
 
     windows.open(try SiteLink("https://claude.ai/chat/shared"), as: work)
     let linked = windows.session(for: work)
     #expect(
         linked.page.webView.url?.absoluteString == "pitboard-fixture://claude.ai/chat/shared")
-    windows.closed(work.store)
+    windows.closed(work.id)
 }
 
 /// A link chosen for an account whose window is open loads in that window, where Back returns
@@ -168,7 +177,7 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
 
     windows.open(try SiteLink("https://chatgpt.com/c/abc"), as: main)
     #expect(session.page.webView.url?.absoluteString == "pitboard-fixture://chatgpt.com/c/abc")
-    windows.closed(main.store)
+    windows.closed(main.id)
     #expect(windows.sessions.isEmpty)
 }
 
@@ -180,9 +189,9 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     let first = windows.session(for: main)
     #expect(first.note?.kind == .signIn)
     #expect(first.note?.text.contains("dana@work.example") == true)
-    windows.closed(main.store)
+    windows.closed(main.id)
     #expect(windows.session(for: main).note == nil)
-    windows.closed(main.store)
+    windows.closed(main.id)
 }
 
 /// Forgetting an account closes its window and deletes its store, and nobody else's.
@@ -196,12 +205,12 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     _ = windows.session(for: spare)
 
     _ = await windows.model.forget("claude/personal")
-    #expect(windows.sessions.keys.sorted() == [spare.store])
-    #expect(windows.account(personal.store) == nil)
+    #expect(windows.sessions.keys.sorted() == [spare.id])
+    #expect(windows.account(personal.id) == nil)
     // The sweep runs after the read; give it its turn.
     for _ in 0..<50 where stores.removed.isEmpty { await Task.yield() }
-    #expect(stores.removed == [personal.store])
-    windows.closed(spare.store)
+    #expect(stores.removed == [personal.id])
+    windows.closed(spare.id)
 }
 
 /// A read that failed says nothing about who was forgotten, so nothing is deleted, not even a
@@ -248,9 +257,9 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     await model.noticeOtherChangesForTesting()
     #expect(windows.sessions.isEmpty)
     for _ in 0..<50 where stores.removed.isEmpty { await Task.yield() }
-    #expect(stores.removed == [personal.store])
+    #expect(stores.removed == [personal.id])
     #expect(
-        PageRecord(defaults: defaults, directory: "/test").page(of: personal.store) == nil,
+        PageRecord(defaults: defaults, directory: "/test").page(of: personal.id) == nil,
         "its last page goes with it")
 }
 
@@ -260,12 +269,15 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     let windows = await windows()
     let work = account("work", in: windows)
     windows.request(work)
-    #expect(windows.requested == [work.store])
-    #expect(windows.takeRequests() == [work.store])
+    #expect(windows.requested == [work.id])
+    #expect(windows.takeRequests() == [work.id])
     #expect(windows.requested.isEmpty)
 }
 
-// MARK: - Pages and downloads
+// MARK: - Pages
+
+// What a page may do, what a download is called and what a dialog is titled are the core's
+// rules, tested in pitboard-ffi. These are WebKit's side.
 
 @Test func zoomFollowsSafarisSteps() {
     #expect(Page.zoom(from: 1, toward: .zoomIn) == 1.15)
@@ -286,41 +298,9 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     #expect(Page.isShown(NSError(domain: "WebKitErrorDomain", code: 101)))
 }
 
-@Test func aSignInWindowIsSizedAsThePageAsks() {
-    #expect(PopupWindow.size(width: nil, height: nil) == CGSize(width: 500, height: 640))
-    #expect(PopupWindow.size(width: 100, height: 100) == CGSize(width: 320, height: 400))
-    #expect(PopupWindow.size(width: 900, height: nil) == CGSize(width: 900, height: 640))
-}
-
-/// A download never overwrites a file, and two downloads never get one name.
-@Test func aDownloadIsNumberedPastNamesTaken() {
-    let folder = URL(fileURLWithPath: "/Downloads")
-    let taken: Set<String> = ["/Downloads/report.pdf", "/Downloads/report 2.pdf"]
-    #expect(
-        DownloadCenter.destination(
-            suggested: "report.pdf", in: folder, taken: { taken.contains($0.path) }
-        ).path
-            == "/Downloads/report 3.pdf")
-    #expect(
-        DownloadCenter.destination(suggested: "notes", in: folder, taken: { _ in false }).path
-            == "/Downloads/notes")
-    #expect(
-        DownloadCenter.destination(suggested: "", in: folder, taken: { _ in false }).path
-            == "/Downloads/Download")
-    #expect(
-        DownloadCenter.destination(suggested: "a/b.txt", in: folder, taken: { _ in false }).path
-            == "/Downloads/b.txt")
-}
-
-@Test func aDownloadsHostIsReadFromInsideABlobLink() {
-    #expect(DownloadCenter.host(of: URL(string: "blob:https://claude.ai/1-2")) == "claude.ai")
-    #expect(DownloadCenter.host(of: URL(string: "https://example.com/x.zip")) == "example.com")
-    #expect(DownloadCenter.host(of: URL(string: "data:text/plain,x")) == nil)
-    #expect(DownloadCenter.host(of: nil) == nil)
-}
-
-/// A page that keeps ending its content process says so in place of loading forever: a heavy
-/// page ends it after it has loaded, so loading again is no sign it works.
+/// A page that keeps ending its content process says so in place of loading forever, as the
+/// core's rule decides from when it last ended: a heavy page ends it after it has loaded, so
+/// loading again is no sign it works.
 @MainActor
 @Test func aPageThatKeepsCrashingSaysSo() {
     var now = Date(timeIntervalSince1970: 0)
@@ -334,7 +314,8 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     #expect(page.failure == "The page stopped working.")
 
     page.reload()
-    now += Page.crashWindow + 1
+    // Past the minute within which a second end counts.
+    now += 61
     page.contentEnded()
     #expect(page.failure == nil, "a crash long after the last one is loaded again")
     page.close()
@@ -348,14 +329,4 @@ private func account(_ label: String, in windows: AccountWindows) -> WindowAccou
     #expect(!PageWebView.keeps("WKMenuItemIdentifierDownloadMedia"))
     #expect(PageWebView.keeps("WKMenuItemIdentifierCopyLink"))
     #expect(PageWebView.keeps(""))
-}
-
-/// A dialog says who asks: the page, or a page embedded in it.
-@Test func aDialogSaysWhoAsks() {
-    #expect(PageDialogs.title(host: "chatgpt.com", isMainFrame: true) == "chatgpt.com says")
-    #expect(
-        PageDialogs.title(host: "artifact.example", isMainFrame: false)
-            == "An embedded page at artifact.example says")
-    #expect(PageDialogs.title(host: "", isMainFrame: false) == "An embedded page says")
-    #expect(PageDialogs.title(host: "", isMainFrame: true) == "An embedded page says")
 }

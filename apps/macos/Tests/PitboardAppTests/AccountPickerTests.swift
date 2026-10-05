@@ -15,7 +15,7 @@ private let accounts = status([
 ])
 
 private func store(_ site: Site, _ uuid: String) -> UUID {
-    storeID(site: site, accountUuid: uuid)
+    UUID(uuidString: storeId(site: site, accountUuid: uuid))!
 }
 
 /// Every link from outside waits for a choice, and the choice offered is the account chosen
@@ -87,8 +87,9 @@ private func store(_ site: Site, _ uuid: String) -> UUID {
 @Test func choosingAnAccountRemembersItForTheSite() throws {
     let inbox = LinkInbox(scheme: "pitboard")
     inbox.receive(URL(string: "pitboard://open?url=https%3A%2F%2Fchatgpt.com%2F")!)
-    let spare = try #require(windowAccounts(in: accounts).first { $0.label == "spare" })
+    let spare = try #require(
+        windowAccounts(accounts: accounts.accounts).first { $0.label == "spare" })
     inbox.chose(spare)
     #expect(inbox.arrival == nil)
-    #expect(inbox.lastChosen == [Site.chatGPT.host: spare.store])
+    #expect(inbox.lastChosen == [Site.chatGPT.host: spare.id])
 }

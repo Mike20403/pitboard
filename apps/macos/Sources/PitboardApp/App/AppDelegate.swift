@@ -1,4 +1,5 @@
 import AppKit
+import PitboardKit
 import SwiftUI
 
 /// What only an app delegate can do for Pitboard: the Dock icon's menu, a click on the Dock
@@ -27,10 +28,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         for entry in windows.menus {
             switch entry {
-            case .one(let account):
-                menu.addItem(item(entry.title, opening: account))
-            case .several(_, let accounts):
-                let item = NSMenuItem(title: entry.title, action: nil, keyEquivalent: "")
+            case .one(let title, let account):
+                menu.addItem(item(title, opening: account))
+            case .several(let title, _, let accounts):
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
                 let submenu = NSMenu()
                 for account in accounts {
                     submenu.addItem(self.item(account.title, opening: account))
@@ -50,7 +51,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func item(_ title: String, opening account: WindowAccount) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: #selector(openAccount), keyEquivalent: "")
         item.target = self
-        item.representedObject = account.store
+        item.representedObject = account.id
         return item
     }
 

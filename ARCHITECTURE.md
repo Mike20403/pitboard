@@ -82,13 +82,25 @@ pages load, as a browser would.
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app.
+  - `sites.rs` gives both apps `pitboard-sites`' sites and links as records of their own,
+    and says a site's sign-in steps as a window on this system can follow them: a window on
+    a Mac cannot use a passkey.
+  - `account_windows/` holds the rules of an account's window that each app's web code
+    asks as its engine asks it: which accounts have a window and the store each one's data
+    is kept in (`stores.rs`, `accounts.rs`), where a page may go and what becomes of a
+    response (`policy.rs`), what a window says (`notes.rs`), what a page may do and how its
+    dialogs say who asks (`pages.rs`), and what a download is called (`downloads.rs`). What
+    differs by system there, such as how a copy of a file is numbered, which names are one
+    file, or an alert's "on this Mac", is a `match` on `host::OS`, as what a window cannot
+    sign in with is in `sites.rs`.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
   IDNA alone.
   - `site.rs` declares each site as values: its host, the tool whose accounts it serves and
     the hosts that redirect to it. The hosts its sign-in goes to, the hosts it blocks, its
-    sign-in paths, its store name and its sign-in steps are values too. Nothing else names a
-    site, so a site is added to `ALL`, with its fixture page and tests.
+    sign-in paths, its store name, its sign-in steps and whether its sign-in offers a
+    passkey are values too. Nothing else names a site, so a site is added to `ALL`, with its
+    fixture page and tests.
   - `link.rs` checks a link from outside: a site's own host or alias, over `https`, with no
     port or user information, and never a sign-in path. `LinkRefusal` says why one is
     refused, in the sentence every front end shows.
@@ -96,6 +108,9 @@ pages load, as a browser would.
   - `address.rs` splits a link as Foundation's `URLComponents` does, which is how the macOS
     app read one before the rule was Rust. [Foundation's URLs](#foundations-urls) has what
     was measured.
+  - `web.rs` reads a page's address, for an account window's rules, as Foundation's `URL`
+    does: its scheme, and the host, port and user it names, with the host a request goes
+    to.
 - `crates/pitboard-share-ffi`: `pitboard-sites` as UniFFI bindings for the macOS Share
   extension alone, a static library with one function, `share_link`. It checks a shared
   page and writes the Pitboard link that hands it to the app, or says why not in the
@@ -187,11 +202,14 @@ pages load, as a browser would.
   sentences and column words of `words.rs` the apps show, which read only what they are
   given; `sites`, `sites_for`, `site_names`, `site_link`, `read_pitboard_link`,
   `pitboard_link` and `link_refusal_reason`, which are `pitboard-sites`' and read only what
-  they are given too; `command_line_places` and `app_command_line`, which only join paths;
-  `can_run`, which asks the file system about one path; and `home_directory` and
-  `pitboard_directory`, which read the environment they are given and, without `HOME`, this
-  account's passwd entry. `find_command_line` looks along a search path, so the app makes it
-  off the main thread.
+  they are given too; the account windows' rules, such as `store_id`, `window_accounts`,
+  `decide_navigation` and `window_note`, which read only what they are given as well, so a
+  web view's delegate asks them as it is asked; `download_destination`, which asks the file
+  system whether each name it tries is taken; `command_line_places` and `app_command_line`,
+  which only join paths; `can_run`, which asks the file system about one path; and
+  `home_directory` and `pitboard_directory`, which read the environment they are given and,
+  without `HOME`, this account's passwd entry. `find_command_line` looks along a search
+  path, so the app makes it off the main thread.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core. The account windows key their records by Pitboard's directory standardised as
@@ -332,21 +350,29 @@ Code or Codex login. The facts this rests on are under
 - `apps/macos/Sources/PitboardLinkTarget`: where a Pitboard link goes, which the app and the
   Share extension both link. `LinkTarget.swift` names the Info.plist key `PitboardURLScheme`
   that gives each build its scheme, and finds the app an extension is inside.
+- `crates/pitboard-ffi/src/account_windows`: the windows' rules, in the
+  [code map](#code-map). Which accounts have a window, the store each one's data is kept
+  in, the menus' entries and the forget alert's text; where each navigation, new window,
+  response and download of a page goes; what a window says above its page and before it
+  removes what it keeps; what a page may use and close; whose words a dialog says; what a
+  download is called and where it comes from; what becomes of a page whose content stops;
+  and how big a sign-in window opens. The Swift below turns what WebKit says into what
+  these read, and does what they decide.
 - `apps/macos/Sources/PitboardApp/AccountWindows`: the windows.
-  - `WindowAccount.swift` lists the accounts that have a window and derives each one's
-    store. The menus' entries and the forget alert's text come from it too.
-  - `NavigationPolicy.swift` decides where each navigation, new window, response and
-    download of a page goes, as a pure function of what WebKit says. `WindowNote.swift` is
-    what a window says above its page.
+  - `WindowAccount.swift` gives a window's store as the `UUID` WebKit names a store by and
+    the scene keeps a window's value as.
+  - `NavigationPolicy.swift` turns WebKit's URLs and a navigation's target frame into what
+    `decide_navigation` reads. `WindowNote.swift` is what a window says above its page.
   - `Page.swift` owns one `WKWebView` and publishes its title, address, progress and
     history, in the shape of SwiftUI's `WebPage`. `PageDelegate.swift` answers WebKit's
-    navigation and UI delegates for a page by asking the policy.
+    navigation and UI delegates for a page by asking the core's rules.
   - `WebSession.swift` is one open window: its account, policy, page, note and sign-in
     window. `PopupWindow.swift` is that sign-in window, an AppKit window, since WebKit needs
     its web view back before a SwiftUI scene could open.
-  - `Downloads.swift` keeps every window's downloads past the window, names their files
-    and asks before one the site's own page did not start. `PageDialogs.swift` shows a
-    page's alerts, questions and file choosers as sheets, and asks that download question.
+  - `Downloads.swift` keeps every window's downloads past the window, gives each the name
+    `download_destination` chooses, and asks before one the site's own page did not start.
+    `PageDialogs.swift` shows a page's alerts, questions and file choosers as sheets, and
+    asks that download question.
   - `WebViewHost.swift` places a page's web view in SwiftUI, with the system find bar above
     it. `AccountWindowView.swift` is the window, and `AccountWindowCommands.swift` its scene
     and its items in the **File**, **Edit**, **View** and **Go** menus.
@@ -381,10 +407,14 @@ Code or Codex login. The facts this rests on are under
 ### What must stay true
 
 - One store per account, derived from the account. A window's store is a version 5 UUID of
-  `<store name>:<account id>` in a fixed namespace. It is also the window's value, so there
-  is one window per account, and a rename keeps its sign-in. The namespace and the store
-  names, `claude` and `codex`, never change: a change would leave every window without its
-  data, and the next sweep would delete that data. Golden tests pin them.
+  `<store name>:<account id>` in a fixed namespace, which `store_id` writes in lower case.
+  It is also the window's value, so there is one window per account, and a rename keeps its
+  sign-in. The namespace and the store names, `claude` and `codex`, never change: a change
+  would leave every window without its data, and the next sweep would delete that data.
+  Golden tests in `stores.rs` pin them, and that the account id is lowered a character at
+  a time, as Swift's `lowercased()` lowered it for every store released, where
+  `str::to_lowercase` lowers a sigma that ends a word otherwise. A store id an app hands
+  back is compared without regard to case, since Foundation writes a UUID in upper case.
 - A store is recorded before WebKit makes it, in the app's preferences, under the path of
   the Pitboard directory the app reads. A store WebKit made and nobody recorded would never
   be deleted.
@@ -792,6 +822,33 @@ app.
   apart from `ｃ%EF%BD%8Caude.ai`: `pitboard-sites` decodes its escapes before IDNA, as the
   WHATWG standard does, and takes it for `claude.ai`, where the Swift `SiteLink` said it was
   on `cｌaude.ai`.
+- `URL(string:)` reads a host otherwise than `URLComponents`, and an account window's rules
+  compared the `URL` WebKit handed them, so `pitboard-sites`' `WebAddress` reads one as
+  `URL.host` does, measured on 5 October 2026. A host in ASCII is percent-decoded and kept
+  in its case, `xn--bcher-kva.de` and `XN--BCHER-KVA.de` as written, and so is one with an
+  `xn--` label IDNA refuses, `xn--claude-.ai`, for which `URLComponents.host` is nil. A
+  host that is not ASCII is given in IDNA's ASCII form, `аpple.com` with a Cyrillic а as
+  `xn--pple-43d.com`, and one IDNA refuses makes no `URL`. An IP literal is given without
+  its brackets. `https:///x`, `https:claude.ai/x`, `blob:` and `data:` links name no host.
+  `port` is `0` for `:0`, and nil for `claude.ai:`; `user` is empty, not nil, for
+  `https://@claude.ai/`. `WebAddress` reads two things otherwise: it keeps a port no `Int`
+  holds, and names no host in `//claude.ai/x`, where `URL` reads `claude.ai` on no scheme.
+- `NSString` splits a file name into a base and an extension at its last `.`, and finds no
+  extension where it would be empty or hold a space, or where the base would be empty, `.`
+  or `..`: `....a` has the extension `a`, `...a` none. `lastPathComponent` drops the
+  slashes at the end, and is `/` for slashes alone. Measured the same day on 98 names, with
+  the Swift `DownloadCenter` naming 52 of them as a download, free and with its own name
+  taken.
+- A file `URL`'s `path` is decomposed: `URL(fileURLWithPath:)` and `appendingPathComponent`
+  give `Báo cáo.pdf` as `Ba\u{301}o ca\u{301}o.pdf`. So the Swift `DownloadCenter`, which
+  compared `URL`s, numbered a download whose name a running one had in either form, though
+  not `\u{F900}.pdf` against `\u{8C48}.pdf`, its canonical decomposition, nor two names
+  that differ only in case. APFS, on this Mac's volume that is not case-sensitive, takes
+  each pair for one file: one made under either name is found under the other. Measured the
+  same day. `download_destination` compares the names it reserved decomposed, so it numbers
+  the U+F900 pair too, and takes two that differ only in case for two, as the Swift did.
+- `CharacterSet.whitespaces`, which trims a `Content-Disposition`, is a tab, Unicode's
+  `Zs` and U+200B ZERO WIDTH SPACE, checked over every scalar. It holds no newline.
 
 ### claude.ai and chatgpt.com
 

@@ -1,11 +1,12 @@
 import AppKit
 import Foundation
+import PitboardKit
 import WebKit
 
 /// The dialogs a page asks for, as sheets on its window, titled with the site that asks, and
 /// as an embedded page's when a frame inside the page asks, so a frame cannot pass its words
-/// off as the site's own. A page with no window gets WebKit's own answer: an alert is
-/// dismissed, a question and a file chooser are cancelled.
+/// off as the site's own: the core's `dialogTitle`. A page with no window gets WebKit's own
+/// answer: an alert is dismissed, a question and a file chooser are cancelled.
 @MainActor
 enum PageDialogs {
     static func alert(_ message: String, from frame: WKFrameInfo, in window: NSWindow?) async {
@@ -57,15 +58,10 @@ enum PageDialogs {
         -> Bool
     {
         guard let window else { return false }
+        let question = downloadQuestion(name: name, host: host)
         let alert = NSAlert()
-        if let host, !host.isEmpty {
-            alert.messageText = "Download “\(name)” from \(host)?"
-        } else {
-            alert.messageText = "Download “\(name)”?"
-        }
-        alert.informativeText =
-            "A page inside the site, such as an artifact, asked to save this file in your "
-            + "Downloads folder."
+        alert.messageText = question.title
+        alert.informativeText = question.message
         alert.addButton(withTitle: "Download")
         alert.addButton(withTitle: "Cancel")
         return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
@@ -73,19 +69,9 @@ enum PageDialogs {
 
     private static func dialog(_ message: String, from frame: WKFrameInfo) -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = title(
-            host: frame.securityOrigin.host, isMainFrame: frame.isMainFrame)
+        alert.messageText = dialogTitle(
+            host: frame.securityOrigin.host, mainFrame: frame.isMainFrame)
         alert.informativeText = message
         return alert
-    }
-
-    /// Who a dialog says asks: the page's own host, or a page embedded in it, by its host when
-    /// it has one. A frame of an origin of its own, such as a sandboxed one, has none.
-    nonisolated static func title(host: String, isMainFrame: Bool) -> String {
-        switch (isMainFrame, host.isEmpty) {
-        case (true, false): "\(host) says"
-        case (false, false): "An embedded page at \(host) says"
-        case (_, true): "An embedded page says"
-        }
     }
 }

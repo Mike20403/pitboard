@@ -47,7 +47,7 @@ final class LinkInbox {
 
     /// The person chose `account` for the link waiting.
     func chose(_ account: WindowAccount) {
-        lastChosen[account.site.host] = account.store
+        lastChosen[account.site.host] = account.id
         arrival = nil
     }
 
@@ -87,12 +87,12 @@ enum PickerState: Equatable {
             self = problem.map(PickerState.readFailed) ?? .reading
             return
         }
-        let accounts = windowAccounts(in: status).filter { $0.site == link.site }
-        let mine = Set(accounts.map(\.store))
+        let accounts = windowAccounts(accounts: status.accounts).filter { $0.site == link.site }
+        let mine = Set(accounts.map(\.id))
         // Chosen last for this site, else the account in use, else the first.
         let chosen =
             lastChosen[link.site.host].flatMap { mine.contains($0) ? $0 : nil }
-            ?? accounts.first(where: \.inUse)?.store ?? accounts.first?.store
+            ?? accounts.first(where: \.inUse)?.id ?? accounts.first?.id
         guard let chosen else {
             self = .noAccount(link)
             return

@@ -66,7 +66,7 @@ impl SiteLink {
             return Err(LinkRefusal::NoLink);
         }
         let authority = parts.authority.as_ref().ok_or(LinkRefusal::NoLink)?;
-        let host = authority.host.to_lowercase();
+        let host = authority.host.as_deref().unwrap_or_default().to_lowercase();
         if host.is_empty() {
             return Err(LinkRefusal::NoLink);
         }
@@ -532,6 +532,7 @@ mod tests {
             "https://claude.ai:abc/x",
             "https://claude.ai:443:443/x",
             "https://clau\u{200d}de.ai/x",
+            "https://xn--claude-.ai/x",
             "claude.ai:443/x",
             "https//claude.ai",
             "ftp://claude.ai/x",

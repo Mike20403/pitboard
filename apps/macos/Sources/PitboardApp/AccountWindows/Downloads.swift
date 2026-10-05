@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import PitboardKit
 import WebKit
 
 /// One file an account window is downloading, or has downloaded, into the downloads folder.
@@ -58,8 +59,8 @@ final class Transfer: Identifiable {
 ///
 /// Downloads carry on after their window closes: the person asked for the file, not for the
 /// window to stay open. WebKit quarantines each file itself, as a browser's are, and makes a
-/// suggested name safe; what is left here is never overwriting a file and asking before a
-/// frame or a page off the site saves one.
+/// suggested name safe; what is left is never overwriting a file, whose name the core's
+/// `downloadDestination` gives, and asking before a frame or a page off the site saves one.
 @MainActor
 @Observable
 final class DownloadCenter: NSObject, WKDownloadDelegate {
@@ -85,7 +86,7 @@ final class DownloadCenter: NSObject, WKDownloadDelegate {
     /// first when `asking` says to.
     func start(_ download: WKDownload, for account: WindowAccount, asking: Bool) {
         let transfer = Transfer(
-            download: download, store: account.store,
+            download: download, store: account.id,
             name: download.originalRequest?.url?.lastPathComponent ?? "Download")
         transfers.append(transfer)
         self.asking[ObjectIdentifier(download)] = (transfer, asking)
@@ -144,9 +145,10 @@ final class DownloadCenter: NSObject, WKDownloadDelegate {
         }
         // It may have been cancelled, or failed, while the question was up.
         guard transfer.state == .starting else { return nil }
-        let destination = Self.destination(
-            suggested: suggestedFilename, in: folder,
-            taken: { [reserved] in reserved.contains($0) || Self.exists($0) })
+        let destination = URL(
+            fileURLWithPath: downloadDestination(
+                folder: folder.path, suggested: suggestedFilename,
+                reserved: reserved.map(\.path)))
         reserved.insert(destination)
         transfer.started(at: destination)
         return destination
@@ -178,49 +180,15 @@ final class DownloadCenter: NSObject, WKDownloadDelegate {
 
     // MARK: - Names
 
-    /// Where a download named `suggested` is saved in `folder`: the name, then `report 2.pdf`,
-    /// `report 3.pdf` and so on while `taken` says a name is. WebKit wants a file that does
-    /// not exist yet and cancels without a word otherwise, and two downloads can ask at once.
-    /// WebKit has already made the name safe: measured on macOS 27, it turns
-    /// `../../evil:name.txt` into `_.._evil_name.txt`.
-    nonisolated static func destination(
-        suggested: String, in folder: URL, taken: (URL) -> Bool
-    ) -> URL {
-        var name = (suggested as NSString).lastPathComponent
-        if name.isEmpty || name == "/" { name = "Download" }
-        let base = (name as NSString).deletingPathExtension
-        let suffix = (name as NSString).pathExtension
-        var candidate = folder.appendingPathComponent(name)
-        var number = 2
-        while taken(candidate) {
-            let numbered = suffix.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(suffix)"
-            candidate = folder.appendingPathComponent(numbered)
-            number += 1
-        }
-        return candidate
-    }
-
-    nonisolated private static func exists(_ url: URL) -> Bool {
-        FileManager.default.fileExists(atPath: url.path)
-    }
-
     /// The site a download comes from, as its question names it: the host of the frame that
-    /// started it where macOS says, else of its address. Foundation reads no host from a
-    /// `blob:` link, so the one inside it is read instead.
+    /// started it where macOS says, else the core's reading of its address, which reads the
+    /// host inside a `blob:` link.
     static func host(of download: WKDownload) -> String? {
         // A download the app started has an empty frame, whose host is empty.
         if #available(macOS 15.2, *) {
             let host = download.originatingFrame.securityOrigin.host
             if !host.isEmpty { return host }
         }
-        return host(of: download.originalRequest?.url)
-    }
-
-    nonisolated static func host(of url: URL?) -> String? {
-        guard let url else { return nil }
-        if url.scheme?.lowercased() == "blob" {
-            return URL(string: String(url.absoluteString.dropFirst("blob:".count)))?.host
-        }
-        return url.host
+        return downloadHost(url: download.originalRequest?.url?.absoluteString)
     }
 }

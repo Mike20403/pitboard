@@ -1,3 +1,4 @@
+import PitboardKit
 import SwiftUI
 
 /// An account's window on its site: titled with the account, the page below a toolbar to go
@@ -24,7 +25,7 @@ struct AccountWindowView: View {
             .appWindow(windows.presence)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("account-window")
-            .task(id: account?.store) {
+            .task(id: account?.id) {
                 guard let account else { return }
                 session = windows.session(for: account)
             }
@@ -69,6 +70,7 @@ private struct SessionView: View {
 
     var body: some View {
         let page = session.page
+        let removal = removeDataAlert(account: account)
         VStack(spacing: 0) {
             if let note = session.note {
                 NoteBar(note: note) { session.note = nil }
@@ -88,13 +90,13 @@ private struct SessionView: View {
                     .disabled(!page.canGoForward)
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                if !windows.downloads.transfers(for: account.store).isEmpty {
+                if !windows.downloads.transfers(for: account.id).isEmpty {
                     Button("Downloads", systemImage: Symbol.downloads) {
                         showingDownloads.toggle()
                     }
                     .help("Show this window’s downloads")
                     .popover(isPresented: $showingDownloads, arrowEdge: .bottom) {
-                        DownloadsList(downloads: windows.downloads, store: account.store)
+                        DownloadsList(downloads: windows.downloads, store: account.id)
                     }
                 }
                 if page.isLoading {
@@ -117,20 +119,13 @@ private struct SessionView: View {
                 removingData = true
             }
         }
-        .alert(
-            "Remove \(account.site.name) data for “\(account.label)”?",
-            isPresented: $removingData
-        ) {
+        .alert(removal.title, isPresented: $removingData) {
             Button("Remove", role: .destructive) {
                 Task { await windows.removeWebsiteData(of: session) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(
-                "Pitboard removes the cookies and everything else \(account.site.name) keeps "
-                    + "in this window on this Mac, which signs this window out. "
-                    + "\(account.site.name) is not told: the account stays signed in on your "
-                    + "other devices and browsers.")
+            Text(removal.message)
         }
     }
 }
