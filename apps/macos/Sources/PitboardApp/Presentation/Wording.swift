@@ -4,31 +4,17 @@ import PitboardKit
 /// Phrases the window and the settings both say, out of a view so a test can read them.
 /// A sentence about time that is quietly wrong is worse than no sentence, and inside a
 /// `body` there is nothing to assert against.
+///
+/// Where the core's `words` has a sentence, the app calls it through the bindings' free
+/// functions instead of keeping a copy, so the command line and the app say it alike. Those
+/// read no clock, file or keychain, so a view calls them where it draws. This file holds
+/// what the core does not say for the app, and the glue that hands those functions what a
+/// view has.
 
-/// The answer to the question the whole tool exists for: how long the account you are on
-/// is good for. `burning` is a limit filling rather than a limit resetting, which is the
-/// difference between "about an hour left" and "whole again in an hour".
-func lasting(_ seconds: Int64, burning: Bool) -> String {
-    // Under a minute the units formatter says "0 min", which reads as though nothing were
-    // left when the difference is seconds either way.
-    guard seconds >= 60 else { return burning ? "about to run out" : "resets any moment" }
-    let span = Duration.seconds(seconds)
-        .formatted(
-            .units(allowed: [.days, .hours, .minutes], width: .narrow).locale(english))
-    return burning ? "about \(span) left at this rate" : "resets in \(span)"
-}
-
-/// What a renewal run did. Everything here is a login that was going to expire, so "nothing
-/// happened" is the good answer and has to read like one.
-func renewalNote(_ renewals: [Renewed]) -> String {
-    let renewed = renewals.filter { $0.outcome == "renewed" }.count
-    switch (renewals.count, renewed) {
-    case (0, _): return "Nothing was due."
-    case (_, 0): return "\(renewals.count) due; none could be renewed this time."
-    case (let all, let done) where all == done:
-        return done == 1 ? "Renewed one." : "Renewed all \(done)."
-    case (let all, let done): return "Renewed \(done) of \(all)."
-    }
+/// When a limit resets, as the column beside its bar says it and `pitboard status` says it
+/// too: "resets in 2h 05m", "resetting now", and nothing where no reset is known.
+func resetText(_ window: Limit, at now: Date) -> String {
+    window.resetsAt.map { resets(resetsAt: $0, now: Int64(now.timeIntervalSince1970)) } ?? ""
 }
 
 /// How the `pitboard` a terminal runs is kept up to date: with the app when it is the one
@@ -40,59 +26,15 @@ func updateNote(bundled: Bool) -> String {
         : "Installed apart from this app, so update it the way you installed it."
 }
 
-/// How a person names a window in a sentence: "5-hour", "weekly", "daily", "3-hour".
-///
-/// From its length, which is the one thing both services agree on: Anthropic names its
-/// windows and OpenAI times them, and "session" means nothing to somebody reading about a
-/// Codex account. A window whose length is not known is named from its kind.
-func windowName(_ window: Limit) -> String {
-    guard let seconds = window.lengthSeconds, seconds > 0 else {
-        switch window.kind {
-        case "session", "five_hour": return "5-hour"
-        case "seven_day": return "weekly"
-        case let kind where kind.hasPrefix("weekly"): return "weekly"
-        default: return window.kind.replacingOccurrences(of: "_", with: " ")
-        }
-    }
-    switch seconds {
-    case 7 * 86_400: return "weekly"
-    case 86_400: return "daily"
-    case let days where days % 86_400 == 0: return "\(days / 86_400)-day"
-    case let hours where hours % 3600 == 0: return "\(hours / 3600)-hour"
-    case let minutes where minutes % 60 == 0: return "\(minutes / 60)-minute"
-    default: return "\(seconds)-second"
-    }
-}
-
-/// The same name, short enough for the column beside a bar: "5h", "week", "day", "3h".
-func windowShortName(_ window: Limit) -> String {
-    let base: String
-    if let seconds = window.lengthSeconds, seconds > 0 {
-        switch seconds {
-        case 7 * 86_400: base = "week"
-        case 86_400: base = "day"
-        case let days where days % 86_400 == 0: base = "\(days / 86_400)d"
-        case let hours where hours % 3600 == 0: base = "\(hours / 3600)h"
-        case let minutes where minutes % 60 == 0: base = "\(minutes / 60)m"
-        default: base = "\(seconds)s"
-        }
-    } else {
-        switch window.kind {
-        case "session", "five_hour": base = "5h"
-        case "weekly_all", "seven_day", "weekly_scoped": base = "week"
-        default: base = window.kind
-        }
-    }
-    return window.scope.map { "\(base) · \($0)" } ?? base
-}
-
 /// A limit as VoiceOver says it: "5-hour limit, 42 percent used, resets in 3 hours". The
-/// column beside the bar says "5h" and "in 30m", which is read letter by letter or as a
-/// unit: "m" is read as "meters".
+/// column beside the bar says "5h" and "resets in 30m", which is read letter by letter or as
+/// a unit: "m" is read as "meters". Once the reset is due it says so, as the column does.
 func spokenLimit(_ window: Limit, resettingIn seconds: TimeInterval?) -> String {
-    let name = window.scope.map { "\(windowName(window)) \($0)" } ?? windowName(window)
+    let limit = limitName(limit: window)
+    let name = window.scope.map { "\(limit) \($0)" } ?? limit
     let used = "\(name) limit, \(Int(window.percent.rounded())) percent used"
-    guard let seconds, seconds > 0 else { return used }
+    guard let seconds else { return used }
+    guard seconds > 0 else { return "\(used), resetting now" }
     let span = Duration.seconds(max(60, Int64(seconds))).formatted(
         .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2)
             .locale(english))
@@ -110,8 +52,9 @@ func restartNotice(program: String, from: String) -> String {
         + "quit and started again."
 }
 
-/// The locale spans of time are written in. Pitboard says everything else in English, and a
-/// sentence that switches language halfway, "about 1h 30min left", reads as a mistake.
+/// The locale VoiceOver's spans of time are written in. Pitboard says everything else in
+/// English, and a sentence that switches language halfway, "resets in 1 Stunde", reads as a
+/// mistake.
 private let english = Locale(identifier: "en_US_POSIX")
 
 /// The tool a bare label means, as the core reads one.
@@ -136,17 +79,6 @@ func split(_ typed: String) -> (provider: String, label: String) {
 /// bare label has always meant, and with its tool for any other.
 func typed(_ account: Account) -> String? {
     account.provider == defaultProvider ? account.label : account.qualified
-}
-
-/// How long until a moment, short enough for the column beside a bar: "in 3h", "in 2d 4h",
-/// "in 12m". Nil once it has passed: the next reading is what says whether a limit actually
-/// reset.
-func resetsIn(_ seconds: TimeInterval) -> String? {
-    guard seconds > 0 else { return nil }
-    let hours = Int(seconds / 3600)
-    if hours >= 24 { return "in \(hours / 24)d \(hours % 24)h" }
-    if hours >= 1 { return "in \(hours)h \(Int(seconds / 60) % 60)m" }
-    return "in \(max(1, Int(seconds / 60)))m"
 }
 
 /// A change as the activity list names it: what was done, by the verb the log keeps.

@@ -13,6 +13,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Debug**), the command line's messages and help, and the docs. The command is still
   `pitboard`, and nothing it reads, writes or prints as a key changes. The `home` check of
   `pitboard doctor --json` is now named `Pitboard home`; its code is still `home`.
+- `pitboard status` names a limit whose length is not a whole number of hours by its
+  minutes or seconds, as the app does, such as `90m` or `45s`. It showed the limit's kind
+  instead, such as `90_minute`, a name Pitboard builds from the length of a Codex limit.
+  `pitboard status --json` still gives the kind.
+- The app says when a limit resets the way `pitboard status` does: **resets in 2h 05m**,
+  with the minutes in two digits, and **resetting now** once that time has come. It said
+  **in 2h 5m**, and nothing once the time had passed, so a limit whose reset was due showed
+  its old figure with nothing beside it. VoiceOver says **resetting now** too.
+- The app says how long an account lasts with the spans `pitboard status` uses, such as
+  **About 1h 05m left at this rate** or **Resets in 3d 2h**, where it said **About 1h 5m
+  left at this rate** or **Resets in 3d 2h 5m**. Under a minute, `pitboard status` says
+  `about to run out` or `resets any moment`, as the app does, where it said
+  `about <1m left at this rate` or `resets in <1m`.
+- `pitboard doctor` and the app's **This Mac** pane sum up the checks in the same words:
+  `Everything Pitboard checks is in order.` when every check holds,
+  `One thing is worth looking at.` or `2 things are worth looking at.` when checks only
+  warn, and `1 broken: do not switch accounts until fixed.` when a check fails. `doctor`
+  said `Everything Pitboard relies on holds.` or `2 to look at; nothing is broken.`, and the
+  app counted a check that fails as one more thing worth looking at.
+- `pitboard renew` and the app's **Renew Now** report a run in the same words:
+  `No parked login was due.`, `Renewed one.`, `Renewed all 2.` or
+  `Renewed 1 of 2; the rest are tried again next time.` `renew` said `Renewed 1.` or
+  `Renewed 2.` when it renewed everything due, and the app said `Nothing was due.` or
+  `Renewed 1 of 2.`
 
 ### Fixed
 

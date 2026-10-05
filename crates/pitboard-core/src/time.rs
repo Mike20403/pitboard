@@ -89,18 +89,6 @@ pub fn moment(epoch: i64, now: i64) -> String {
     local(epoch, pattern)
 }
 
-/// A length of time to the precision a person reads: "6d 4h", "2h 05m", "47m", "<1m".
-pub fn span(seconds: i64) -> String {
-    let s = seconds.max(0);
-    let (days, hours, minutes) = (s / 86_400, s % 86_400 / 3_600, s % 3_600 / 60);
-    match (days, hours) {
-        (0, 0) if minutes == 0 => "<1m".into(),
-        (0, 0) => format!("{minutes}m"),
-        (0, h) => format!("{h}h {minutes:02}m"),
-        (d, h) => format!("{d}d {h}h"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,15 +116,6 @@ mod tests {
         ] {
             assert_eq!(parse(bad), None, "should refuse {bad:?}");
         }
-    }
-
-    #[test]
-    fn spans_read_at_a_glance() {
-        assert_eq!(span(-5), "<1m");
-        assert_eq!(span(59), "<1m");
-        assert_eq!(span(60 * 47), "47m");
-        assert_eq!(span(3600 * 2 + 60 * 5), "2h 05m");
-        assert_eq!(span(86_400 * 6 + 3600 * 4 + 59), "6d 4h");
     }
 
     #[test]

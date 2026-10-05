@@ -107,7 +107,7 @@ private struct GeneralSettings: View {
                         .disabled(machine.renewing)
                 } label: {
                     Text(
-                        machine.renewals.map(renewalNote)
+                        machine.renewals.map { renewalNote(renewals: $0) }
                             ?? "Renew every parked login that is due.")
                 }
             } header: {

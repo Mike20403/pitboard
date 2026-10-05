@@ -65,6 +65,13 @@ pages load, as a browser would.
   - `status.rs`, `doctor.rs`, `statusline.rs` and `schedule.rs` serve the commands of the
     same names. `schedule.rs` decides what daily renewal runs and whose it is; the host's
     scheduler writes it.
+  - `words.rs`: the sentences and column words Pitboard says in more than one place, each
+    a function of typed values: spans of time, a limit's names, when it resets, how long an
+    account lasts, a parked login's life, a renewal run and doctor's summary. It also holds
+    `usage_level`, the steps at which a limit's colour changes. A thing said both in a
+    column and in a sentence has a function for each form. The command line calls these
+    functions directly, and the macOS app calls the ones it shows through `pitboard-ffi`.
+    Clock times are not in it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
@@ -129,10 +136,13 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, one error type, the functions `tools` and
-  `sign_in_view`, and two objects, `SignIn` and `Pitboard`. The two functions read only
-  what they are given and answer at once. Every other call is synchronous and may block on
-  the keychain, a lock or the network, and `PitboardKit` makes each off the main thread.
+- `pitboard-ffi` exports records, enums, one error type, free functions and two objects,
+  `SignIn` and `Pitboard`. The free functions are `tools`, `sign_in_view`, the rule
+  `same_reset` from `usage.rs`, and `usage_level` and the sentences and column words of
+  `words.rs` the apps show. They read only what they are given, and no clock, file or
+  keychain, so a view calls them where it draws. A call to an object is synchronous and may
+  block on the keychain, a lock or the network, and `PitboardKit` makes each one off the
+  main thread.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.

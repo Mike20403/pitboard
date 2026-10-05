@@ -108,7 +108,7 @@ Each account's row has these parts:
 | --- | --- |
 | Name | A symbol, the account's label and its email address. |
 | Right side | **In Use**, or a button: **Use** or **Sign In Again**. |
-| A line per limit | The limit's short name, such as **5h** or **week**, then a bar and the percentage used. Last is the time to its reset, such as **in 2h 10m**. The bar is green under 70%, orange from 70% and red from 90%. |
+| A line per limit | The limit's short name, such as **5h** or **week**, then a bar and the percentage used. Last is when it resets, such as **resets in 2h 10m**, or **resetting now** once that time has come. The bar is green under 70%, orange from 70% and red from 90%. |
 | Notes | In this order: why the account cannot be used, why its numbers are old, how long it lasts at the rate it has been used and how long its parked login lasts. The last appears only for a Claude Code account not in use. |
 
 For what each line means, see [Check what each account has left](/guides/usage#read-the-lines-under-each-account).
@@ -139,7 +139,7 @@ The **Activity** pane lists the last 500 changes Pitboard made, newest first, fr
 
 ### This Mac pane
 
-The **This Mac** pane runs the same checks as [`pitboard doctor`](/reference/maintenance-commands#doctor) each time you open it. Each check shows a green, orange or red symbol, what it found and, if it did not pass, what to do. **Check Again** (Command-R) runs them again.
+The **This Mac** pane runs the same checks as [`pitboard doctor`](/reference/maintenance-commands#doctor) each time you open it. A line over them sums them up as the last line of `pitboard doctor` does, such as **One thing is worth looking at.** Each check shows a green, orange or red symbol, what it found and, if it did not pass, what to do. **Check Again** (Command-R) runs them again.
 
 ## Account actions
 

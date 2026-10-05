@@ -3,6 +3,7 @@
 //! terminal, or when `NO_COLOR` asks it to.
 
 use anstyle::{AnsiColor, Style};
+use pitboard_core::words::{self, UsageLevel};
 use std::fmt::Display;
 use unicode_width::UnicodeWidthStr;
 
@@ -29,14 +30,13 @@ pub fn columns(text: &str) -> usize {
     UnicodeWidthStr::width(text)
 }
 
-/// How alarming a share of a limit is.
+/// How alarming a share of a limit is: the colour of its level, which changes where the
+/// app's tint does.
 pub fn level(percent: f64) -> Style {
-    if percent >= 90.0 {
-        BAD
-    } else if percent >= 70.0 {
-        WARN
-    } else {
-        GOOD
+    match words::usage_level(percent) {
+        UsageLevel::Plenty => GOOD,
+        UsageLevel::Low => WARN,
+        UsageLevel::Out => BAD,
     }
 }
 

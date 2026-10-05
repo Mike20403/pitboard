@@ -17,7 +17,7 @@ use crate::provider::claude::paths as claude;
 use crate::provider::claude::slot;
 use crate::provider::codex::paths as codex;
 use crate::state::{Park, State};
-use crate::{home, park, store, switch, time, usage};
+use crate::{home, park, store, switch, time, usage, words};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -909,7 +909,7 @@ fn judge_dormant(park: &ParkFact, now: i64) -> Option<Check> {
         format!("account {}", park.typed()),
         format!(
             "not switched to for {}; Pitboard has kept its login alive that whole time",
-            time::span(dormant_for)
+            words::span(dormant_for)
         ),
         format!(
             "Every `pitboard` renews it, so its refresh token is rotated and kept live on \
@@ -984,6 +984,16 @@ fn judge_credential(facts: &Facts) -> Check {
 /// A parked login this close to expiring is worth renewing now.
 pub const RENEW_WITHIN: i64 = 3 * 86_400;
 
+/// Whether a parked login is due to be renewed by when its refresh token expires, at
+/// `refresh_expires_at`: within [`RENEW_WITHIN`], and not yet. One that has expired cannot
+/// be renewed, and its account needs a sign-in. A renewal run, doctor's parked login check,
+/// the standing `pitboard status` gives an account and the column form of a parked login's
+/// life all ask this, so they agree on when a login is due. A run also renews a login whose
+/// access token has lapsed, which `switch::renew` decides.
+pub fn renewal_due(refresh_expires_at: i64, now: i64) -> bool {
+    (1..RENEW_WITHIN).contains(&(refresh_expires_at - now))
+}
+
 fn judge_park(fact: &ParkFact, now: i64) -> Check {
     let code = account_code(fact.provider, "parked_login", "codex_parked_login");
     let name = format!("account {}", fact.typed());
@@ -1003,25 +1013,18 @@ fn judge_park(fact: &ParkFact, now: i64) -> Check {
             renew,
         );
     }
-    match park.refresh_expires_at {
-        Some(at) if at <= now => warn(
-            code,
-            name,
-            format!("its parked login expired {}", time::moment(at, now)),
-            renew,
-        ),
-        Some(at) if at - now < RENEW_WITHIN => warn(
-            code,
-            name,
-            format!("its parked login expires in {}", time::span(at - now)),
-            renew,
-        ),
-        Some(at) => ok(
-            code,
-            name,
-            format!("parked, good for {}", time::span(at - now)),
-        ),
-        None => ok(code, name, "parked"),
+    let Some(at) = park.refresh_expires_at else {
+        return ok(code, name, "parked");
+    };
+    // The column `pitboard status` shows, after this check's own words.
+    let life = words::parked_life_column(at, now);
+    if !park.restorable_at(now) {
+        let when = time::moment(at, now);
+        warn(code, name, format!("its parked login {life} {when}"), renew)
+    } else if renewal_due(at, now) {
+        warn(code, name, format!("its parked login {life}"), renew)
+    } else {
+        ok(code, name, format!("parked, {life}"))
     }
 }
 
@@ -1138,7 +1141,7 @@ fn judge_asking(facts: &Facts) -> Check {
                 name,
                 format!(
                     "{n} account(s) not being asked about for up to {}",
-                    time::span(longest)
+                    words::span(longest)
                 ),
                 format!(
                     "{holders} asked for less traffic, or could not be reached. The numbers \
@@ -2292,6 +2295,32 @@ mod tests {
                 );
             }
         }
+        // A parked login's life is said in the column `pitboard status` shows, after the
+        // check's own words, and an expired one with when it expired.
+        assert_eq!(
+            named(&checks, "account fine").detail,
+            "parked, good for 20d 0h"
+        );
+        assert_eq!(
+            named(&checks, "account soon").detail,
+            "its parked login expires in 1d 0h"
+        );
+        assert_eq!(
+            named(&checks, "account gone").detail,
+            format!("its parked login expired {}", time::moment(NOW - 1, NOW))
+        );
+    }
+
+    /// A parked login is due to be renewed from three days before its refresh token expires
+    /// until it does. Past that it cannot be renewed, so it is not due: its account needs a
+    /// sign-in instead.
+    #[test]
+    fn a_parked_login_is_due_from_three_days_before_it_expires() {
+        assert!(!renewal_due(NOW + RENEW_WITHIN, NOW));
+        assert!(renewal_due(NOW + RENEW_WITHIN - 1, NOW));
+        assert!(renewal_due(NOW + 1, NOW));
+        assert!(!renewal_due(NOW, NOW));
+        assert!(!renewal_due(NOW - 60, NOW));
     }
 
     #[test]

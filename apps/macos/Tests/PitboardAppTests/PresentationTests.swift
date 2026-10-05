@@ -355,13 +355,18 @@ func anAccountThatNeedsSigningInAgainSaysSoWhileSomethingElseRuns() {
 }
 
 /// How long an account lasts is a sentence of its own in the window, so it starts with a
-/// capital whichever way the account is going.
+/// capital whichever way the account is going. Its span of time reads as the reset beside
+/// each bar does, and as `pitboard status` says it, minutes in two digits. Under a minute it
+/// says so in words, since rounding to "0 min" reads as though nothing were left and "<1m"
+/// is shorthand where a sentence can be plain.
 @Test func howLongAnAccountLastsIsSaidAsASentence() {
     let pace = { (left: Int64?, burning: Bool) in
         described(reported(account("work", signedIn: true), lasts: left, burning: burning)).pace
     }
     #expect(pace(5400, true) == "About 1h 30m left at this rate")
     #expect(pace(5400, false) == "Resets in 1h 30m")
+    #expect(pace(3900, false) == "Resets in 1h 05m")
+    #expect(pace(3 * 86_400 + 7200 + 300, true) == "About 3d 2h left at this rate")
     #expect(pace(30, true) == "About to run out")
     #expect(pace(0, false) == "Resets any moment")
     #expect(pace(nil, true) == nil, "nothing to go on yet")
@@ -1089,18 +1094,6 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     #expect([Notice.Severity.error, .info, .warning].sorted() == severities)
 }
 
-/// A limit turns amber at 70% and red at 90%, and stays red past 100%. The steps are where
-/// its colour changes, so each side of each is checked.
-@Test func aLimitsLevelChangesAtSeventyAndAtNinety() {
-    #expect(UsageLevel(percent: 0) == .plenty)
-    #expect(UsageLevel(percent: 69.9) == .plenty)
-    #expect(UsageLevel(percent: 70) == .low)
-    #expect(UsageLevel(percent: 89.9) == .low)
-    #expect(UsageLevel(percent: 90) == .out)
-    #expect(UsageLevel(percent: 100) == .out)
-    #expect(UsageLevel(percent: 130) == .out)
-}
-
 /// The settings list what the menu bar can show in this order and by these names. The raw
 /// values are what the preference is stored as, so changing one would quietly reset what
 /// everybody chose.
@@ -1114,22 +1107,18 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
 
 // MARK: - Wording
 
-/// The column beside a bar says how long until a limit resets in the fewest characters that
-/// stay true: minutes under an hour, never "0m" while there is time left, hours and minutes
-/// under a day, days and hours after that. Nothing once it has passed, since the next reading
-/// is what says whether it reset.
-@Test func aResetIsSaidInTheLargestUnitsThatFit() {
-    #expect(resetsIn(-5) == nil)
-    #expect(resetsIn(0) == nil)
-    #expect(resetsIn(1) == "in 1m")
-    #expect(resetsIn(59) == "in 1m")
-    #expect(resetsIn(125) == "in 2m")
-    #expect(resetsIn(3599) == "in 59m")
-    #expect(resetsIn(3600) == "in 1h 0m")
-    #expect(resetsIn(3 * 3600 + 25 * 60) == "in 3h 25m")
-    #expect(resetsIn(86_399) == "in 23h 59m")
-    #expect(resetsIn(86_400) == "in 1d 0h")
-    #expect(resetsIn(2 * 86_400 + 4 * 3600 + 59 * 60) == "in 2d 4h")
+/// The column beside a bar says when a limit resets as `pitboard status` does, minutes in two
+/// digits, and that it is resetting once that moment has come. A limit with no reset known
+/// has nothing there. Every span it can say is the core's to test.
+@Test func aResetIsSaidAsTheCommandLineSaysIt() {
+    let resets = { (at: Date?) in
+        resetText(window("session", 42, resets: at.map(epoch)), at: noon)
+    }
+    #expect(resets(noon.addingTimeInterval(3600 + 5 * 60)) == "resets in 1h 05m")
+    #expect(resets(noon.addingTimeInterval(2 * 86_400 + 4 * 3600)) == "resets in 2d 4h")
+    #expect(resets(noon) == "resetting now")
+    #expect(resets(noon.addingTimeInterval(-60)) == "resetting now")
+    #expect(resets(nil) == "")
 }
 
 /// A moment later today is a clock time, and one on another day names its day as well,
@@ -1154,27 +1143,6 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     let justAfter = clockTime(pastMidnight, from: midday, calendar: utc)
     #expect(justAfter.count > shortTime(pastMidnight).count)
     #expect(justAfter.hasSuffix(" \(shortTime(pastMidnight))"))
-}
-
-/// When a parked login stops working decides whether a switch to it will. Nothing is said with
-/// nothing to go on, a login past it says it has expired, and otherwise it counts whole days
-/// left, one day in the singular.
-@Test func aParkedLoginsLifeIsCountedInWholeDays() {
-    let life = { (left: TimeInterval) in
-        parkedLife(parked(expiring: noon.addingTimeInterval(left)), now: noon)
-    }
-    #expect(parkedLife(nil, now: noon) == nil)
-    #expect(
-        parkedLife(Parked(parkedAt: 0, accessExpiresAt: 99, refreshExpiresAt: nil), now: noon)
-            == nil)
-    #expect(life(-60) == "Its parked login has expired")
-    #expect(life(0) == "Its parked login has expired")
-    #expect(life(1) == "Parked login good for under a day")
-    #expect(life(86_399) == "Parked login good for under a day")
-    #expect(life(86_400) == "Parked login good for 1 more day")
-    #expect(life(2 * 86_400 - 1) == "Parked login good for 1 more day")
-    #expect(life(2 * 86_400) == "Parked login good for 2 more days")
-    #expect(life(30 * 86_400) == "Parked login good for 30 more days")
 }
 
 /// The activity list names a change by the verb the log keeps, in words, and one it does not

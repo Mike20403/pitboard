@@ -83,7 +83,7 @@ impl Window {
         self.same_limit(other)
             && matches!(
                 (self.resets_at, other.resets_at),
-                (Some(x), Some(y)) if x.abs_diff(y) < SAME_RESET
+                (Some(x), Some(y)) if same_reset(x, y)
             )
     }
 }
@@ -109,6 +109,13 @@ fn limit(kind: &str) -> &str {
 /// windows.
 const SAME_RESET: u64 = 60;
 
+/// Whether two resets of a limit are one: less than `SAME_RESET` apart. Public so that
+/// whatever else tells one window of a limit from its next, such as the app deciding
+/// whether a spent limit was already mentioned, counts them the way readings are merged.
+pub fn same_reset(a: i64, b: i64) -> bool {
+    a.abs_diff(b) < SAME_RESET
+}
+
 /// Which of two measurements of one account's limit is the newer: `Greater` when `a` is.
 ///
 /// A later reset is a later window, whatever its share. Within one window use only rises,
@@ -132,7 +139,7 @@ const SAME_RESET: u64 = 60;
 /// before this.
 pub(crate) fn recency(a: &Window, b: &Window, now: i64) -> Ordering {
     match (a.resets_at, b.resets_at) {
-        (Some(x), Some(y)) if x.abs_diff(y) >= SAME_RESET => x.cmp(&y),
+        (Some(x), Some(y)) if !same_reset(x, y) => x.cmp(&y),
         _ => a.used(now).total_cmp(&b.used(now)),
     }
 }
@@ -474,6 +481,21 @@ mod tests {
         let passed = measured("five_hour", 20.0, Some(NOW + HOUR + 1));
         assert_eq!(recency(&passed, &answered, NOW), Ordering::Less);
         assert_eq!(recency(&answered, &passed, NOW), Ordering::Greater);
+    }
+
+    /// The rule the app keys what it has told somebody by: resets under a minute apart, in
+    /// either order, are one, and a minute apart are two.
+    #[test]
+    fn resets_under_a_minute_apart_are_one_reset() {
+        assert!(same_reset(NOW, NOW));
+        assert!(same_reset(NOW, NOW + 59));
+        assert!(same_reset(NOW + 59, NOW));
+        assert!(!same_reset(NOW, NOW + 60));
+        assert!(!same_reset(NOW + 60, NOW));
+        assert!(
+            !same_reset(0, NOW),
+            "no reset known is no reset in particular"
+        );
     }
 
     /// A window that has reset has nothing used, however full it was, so any use of the

@@ -25,13 +25,14 @@ Pitboard never renews the login a tool is using. Renewing a parked login that co
 
 A parked login the service refuses is dropped, and its account needs a sign-in again. A parked login the service could not renew, because the service was unreachable or asked for less traffic, is tried again next time.
 
-`renew` prints one of these lines, and exits with status 0 even when nothing could be renewed:
+`renew` prints one of these lines, and exits with status 0 even when nothing could be renewed. **Renew Now** in the app's settings shows the same lines:
 
 | Output | When |
 | --- | --- |
 | `No parked login was due.` | Nothing was due. Also printed, with nothing renewed, while another Pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read. |
 | `2 due; none could be renewed this time.` | No due parked login was renewed. |
-| `Renewed 2.` | Every due parked login was renewed. |
+| `Renewed one.` | The one due parked login was renewed. |
+| `Renewed all 2.` | Every due parked login was renewed. |
 | `Renewed 1 of 2; the rest are tried again next time.` | Some due parked logins were renewed. |
 
 ```sh
@@ -39,7 +40,7 @@ pitboard renew
 ```
 
 ```text
-Renewed 2.
+Renewed all 2.
 ```
 
 See [Keep parked logins alive](/guides/renewal#renew-now).
@@ -206,13 +207,14 @@ Usage: pitboard doctor [OPTIONS]
 | `!` | `warn` | Worth a look. Nothing is broken. |
 | `✗` | `fail` | Something Pitboard relies on does not hold. |
 
-The last line sums up:
+The last line sums up, in the same words as the line over the checks in the app's **This Mac** pane:
 
 | Last line | When |
 | --- | --- |
-| `Everything Pitboard relies on holds.` | Every check holds. |
-| `2 to look at; nothing is broken.` | Some checks warn and none fails. |
-| `1 broken: do not switch accounts until fixed.` | At least one check fails. |
+| `Everything Pitboard checks is in order.` | Every check holds. |
+| `One thing is worth looking at.` | One check warns and none fails. |
+| `2 things are worth looking at.` | More than one check warns and none fails. |
+| `1 broken: do not switch accounts until fixed.` | At least one check fails. The number counts the checks that fail. |
 
 `doctor` exits with status 3 when a check fails, and 0 otherwise. With `--json`, a failed check also sets `ok` to `false` and gives the error code `checks_failed`. For the fields, see [JSON output](/reference/json-output#data-by-command).
 

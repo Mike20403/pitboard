@@ -4,35 +4,6 @@ import Testing
 
 @testable import PitboardApp
 
-/// The difference between a limit filling and a limit resetting is the difference between
-/// "switch now" and "stay where you are", and both are a number of seconds.
-@Test func aRunwayReadsAsBurningOrAsResting() {
-    #expect(lasting(5400, burning: true) == "about 1h 30m left at this rate")
-    #expect(lasting(5400, burning: false) == "resets in 1h 30m")
-}
-
-/// Rounding an almost-empty window down to "0 min" reads as though it were already gone,
-/// and rounding it up reads as though there were time.
-@Test func almostNoRunwayIsSaidInWordsRatherThanZero() {
-    #expect(lasting(30, burning: true) == "about to run out")
-    #expect(lasting(0, burning: false) == "resets any moment")
-    #expect(lasting(-10, burning: true) == "about to run out")
-}
-
-private func renewed(_ outcome: String) -> Renewed {
-    Renewed(label: "acc", provider: "claude", outcome: outcome)
-}
-
-/// Nothing due is the ordinary case, and it has to read as ordinary rather than as a
-/// failure to do anything.
-@Test func aRenewalRunSaysWhatItDid() {
-    #expect(renewalNote([]) == "Nothing was due.")
-    #expect(renewalNote([renewed("renewed")]) == "Renewed one.")
-    #expect(renewalNote([renewed("renewed"), renewed("renewed")]) == "Renewed all 2.")
-    #expect(renewalNote([renewed("renewed"), renewed("expired")]) == "Renewed 1 of 2.")
-    #expect(renewalNote([renewed("expired")]) == "1 due; none could be renewed this time.")
-}
-
 /// A `pitboard` installed apart from the app is updated the way it was installed, and none
 /// of those ways does it by itself. Saying it "updates on its own" read as though nothing
 /// needed doing, until the app moved on and the command line refused its newer files.
@@ -52,26 +23,31 @@ private func renewed(_ outcome: String) -> Renewed {
     #expect(levels.allSatisfy { !$0.spoken.isEmpty })
 }
 
-/// A window is named by how long it runs, which both services agree on, so a Codex limit
-/// reads the way a Claude Code one does.
-@Test func aWindowIsNamedForItsLength() {
-    #expect(windowName(window("five_hour", 1, length: 18_000)) == "5-hour")
-    #expect(windowName(window("seven_day", 1, length: 604_800)) == "weekly")
-    #expect(windowName(window("1_day", 1, length: 86_400)) == "daily")
-    #expect(windowName(window("3_hour", 1, length: 10_800)) == "3-hour")
-    #expect(windowName(window("2_day", 1, length: 172_800)) == "2-day")
-    #expect(windowShortName(window("3_hour", 1, length: 10_800)) == "3h")
-    #expect(windowShortName(window("1_day", 1, length: 86_400)) == "day")
-    #expect(windowShortName(window("seven_day", 1, length: 604_800)) == "week")
+/// This Mac heads its checks with the last line of `pitboard doctor`: what is worth looking
+/// at while checks only warn, and not to switch accounts while one fails.
+@Test func thisMacSaysNotToSwitchWhileACheckFails() {
+    let check = { (level: Level) in
+        Check(code: "keychain", name: "Keychain", level: level, detail: "", advice: "")
+    }
+    #expect(doctorSummary(checks: [check(.ok)]) == "Everything Pitboard checks is in order.")
+    #expect(
+        doctorSummary(checks: [check(.warn), check(.ok)]) == "One thing is worth looking at.")
+    #expect(
+        doctorSummary(checks: [check(.warn), check(.fail)])
+            == "1 broken: do not switch accounts until fixed.")
 }
 
-/// A reading taken before the length was kept names its window the way it always did.
-@Test func aWindowOfUnknownLengthIsNamedFromItsKind() {
-    #expect(windowName(window("session", 1)) == "5-hour")
-    #expect(windowName(window("weekly_all", 1)) == "weekly")
-    #expect(windowName(window("primary_window", 1)) == "primary window")
-    #expect(windowShortName(window("session", 1)) == "5h")
-    #expect(windowShortName(window("weekly_scoped", 1, scope: "Fable")) == "week · Fable")
+/// Renew Now says what it did in the words `pitboard renew` says it in. Nothing due is the
+/// ordinary case and reads as the good answer it is.
+@Test func renewNowSaysWhatItDidAsTheCommandLineDoes() {
+    let renewed = { (outcome: String) in
+        Renewed(label: "work", provider: "claude", outcome: outcome)
+    }
+    #expect(renewalNote(renewals: []) == "No parked login was due.")
+    #expect(renewalNote(renewals: [renewed("renewed")]) == "Renewed one.")
+    #expect(
+        renewalNote(renewals: [renewed("renewed"), renewed("renewal_deferred")])
+            == "Renewed 1 of 2; the rest are tried again next time.")
 }
 
 /// VoiceOver reads the column's "30m" as thirty meters and "5h" as letters, so a limit is
@@ -85,27 +61,21 @@ private func renewed(_ outcome: String) -> Renewed {
             == "30-minute limit, 12 percent used")
     #expect(
         spokenLimit(window("weekly_scoped", 98, scope: "Fable"), resettingIn: 0)
-            == "weekly Fable limit, 98 percent used",
-        "a reset already passed is not said, as the column does not show it")
+            == "weekly Fable limit, 98 percent used, resetting now",
+        "a reset whose time has come is said, as the column says it")
 }
 
-/// Pitboard says everything else in English, so a span of time inside one of its sentences is
-/// English too, whatever the region of the Mac: "about 1h 30min left" reads as a mistake. A
-/// test cannot change the region of the process it runs in, so this checks that the same
-/// spans in German read differently, which is what a span following a German Mac's region
-/// would show, and that Pitboard's read as English.
-@Test func aSpanOfTimeReadsTheSameInEveryRegion() {
-    let german = Locale(identifier: "de_DE")
-    let narrow = Duration.seconds(5400).formatted(
-        .units(allowed: [.days, .hours, .minutes], width: .narrow).locale(german))
+/// Pitboard says everything else in English, so a span of time VoiceOver reads inside one of
+/// its sentences is English too, whatever the region of the Mac: "resets in 3 Stunden"
+/// reads as a mistake. A test cannot change the region of the process it runs in, so this
+/// checks that the same span in German reads differently, which is what a span following a
+/// German Mac's region would show, and that Pitboard's reads as English. The spans shown on
+/// screen are the core's, which has no region.
+@Test func aSpokenSpanOfTimeReadsTheSameInEveryRegion() {
     let wide = Duration.seconds(3 * 3600).formatted(
         .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2)
-            .locale(german))
-    #expect(narrow.hasSuffix("30min"), "the German shorthand, told apart from 30m")
+            .locale(Locale(identifier: "de_DE")))
     #expect(wide != "3 hours")
-
-    #expect(lasting(5400, burning: true) == "about 1h 30m left at this rate")
-    #expect(lasting(3 * 86_400 + 7200, burning: false) == "resets in 3d 2h")
     #expect(
         spokenLimit(window("five_hour", 42, length: 18_000), resettingIn: 90 * 60)
             == "5-hour limit, 42 percent used, resets in 1 hour, 30 minutes")

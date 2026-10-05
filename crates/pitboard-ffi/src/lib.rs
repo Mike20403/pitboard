@@ -1,12 +1,13 @@
 //! Pitboard's core for its native apps, as UniFFI bindings.
 //!
-//! Every call is synchronous. All but `tools` and `sign_in_view` may block on the keychain, a
-//! lock or the network, so an app calls them off its main thread. Timestamps are epoch
+//! A call to a `Pitboard` or a `SignIn` is synchronous and may block on the keychain, a lock
+//! or the network, so an app makes it off its main thread. The free functions read only what
+//! they are given, and no clock, file or keychain, and return at once. Timestamps are epoch
 //! seconds.
 
 use pitboard_core::context::Context;
 use pitboard_core::service::{self, Changing};
-use pitboard_core::{doctor, status, switch, usage};
+use pitboard_core::{doctor, status, switch, usage, words};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -487,6 +488,105 @@ pub struct Diagnosis {
     pub checks: Vec<Check>,
     /// No check failed.
     pub healthy: bool,
+}
+
+// What the apps show as the core says or decides it, as free functions of the records the
+// apps hold: the sentences, column words and usage level of `pitboard_core::words`, and
+// `usage::same_reset`, the rule merging readings follows. Each wraps the core's function of
+// the same name. The command line calls those directly wherever it says the same thing, and
+// never these. None reads a clock, a file or the keychain, so a view may call one on the
+// main thread as it draws.
+
+/// A limit in the column form, beside its bar: "5h", "week", "30m", "week · Fable".
+#[uniffi::export]
+pub fn limit_column(limit: Limit) -> String {
+    words::limit_column(&limit.kind, limit.length_seconds, limit.scope.as_deref())
+}
+
+/// A limit in the sentence form, without its scope: "5-hour", "weekly", "daily".
+#[uniffi::export]
+pub fn limit_name(limit: Limit) -> String {
+    words::limit_name(&limit.kind, limit.length_seconds)
+}
+
+/// How much of a limit is used, in the three steps its colour changes at.
+#[derive(Debug, PartialEq, uniffi::Enum)]
+pub enum UsageLevel {
+    /// Under 70%.
+    Plenty,
+    /// From 70%.
+    Low,
+    /// From 90%, and past 100%.
+    Out,
+}
+
+/// The step a limit is at, from a `Limit`'s `percent`, which passes 100 when a service
+/// reports more used than the limit.
+#[uniffi::export]
+pub fn usage_level(percent: f64) -> UsageLevel {
+    match words::usage_level(percent) {
+        words::UsageLevel::Plenty => UsageLevel::Plenty,
+        words::UsageLevel::Low => UsageLevel::Low,
+        words::UsageLevel::Out => UsageLevel::Out,
+    }
+}
+
+/// When a limit resets, as of `now`: "resets in 2h 05m", or "resetting now" once it is due.
+#[uniffi::export]
+pub fn resets(resets_at: i64, now: i64) -> String {
+    words::resets(resets_at, now)
+}
+
+/// How long an account lasts, from an `Account`'s `lasts_seconds` and `lasts_burning`:
+/// "about 1h 30m left at this rate", "resets in 1h 30m", and under a minute "about to run
+/// out" or "resets any moment". `None` where `lasts_seconds` is, until there is enough to go
+/// on.
+#[uniffi::export]
+pub fn runway(seconds: Option<i64>, burning: bool) -> Option<String> {
+    use pitboard_core::history::Runway;
+    words::runway(match seconds {
+        None => Runway::Unknown,
+        Some(seconds) if burning => Runway::Burning(seconds),
+        Some(seconds) => Runway::Resting(seconds),
+    })
+}
+
+/// How long a parked login stays usable, as of `now`, in the sentence form: "Parked login
+/// good for 20 more days". `None` when nothing says.
+#[uniffi::export]
+pub fn parked_life(parked: Option<Parked>, now: i64) -> Option<String> {
+    words::parked_life(parked?.refresh_expires_at, now)
+}
+
+/// What a renewal run did, from what `Pitboard::renew` returned: "No parked login was due.",
+/// "Renewed one.", "Renewed 1 of 2; the rest are tried again next time.".
+#[uniffi::export]
+pub fn renewal_note(renewals: Vec<Renewed>) -> String {
+    let renewed = renewals
+        .iter()
+        .filter(|r| r.outcome == switch::Renewal::Renewed.code())
+        .count();
+    words::renewal_note(renewals.len(), renewed)
+}
+
+/// The line over a diagnosis's checks: what is worth looking at while checks only warn,
+/// and not to switch accounts while one fails.
+#[uniffi::export]
+pub fn doctor_summary(checks: Vec<Check>) -> String {
+    words::doctor_summary(checks.iter().map(|c| match c.level {
+        Level::Ok => doctor::Level::Ok,
+        Level::Warn => doctor::Level::Warn,
+        Level::Fail => doctor::Level::Fail,
+    }))
+}
+
+/// Whether two resets of a limit are one, as the core counts them when it merges readings:
+/// less than a minute apart, in either order. A session is given a reset in whole seconds
+/// and Anthropic's answer a fraction that is dropped, so one window can come back a second
+/// apart.
+#[uniffi::export]
+pub fn same_reset(between: i64, and: i64) -> bool {
+    usage::same_reset(between, and)
 }
 
 fn account(row: status::Row, now: i64) -> Account {
@@ -977,6 +1077,120 @@ mod tests {
         };
         assert_eq!(code, "schedule_program_unnamed");
         assert!(message.contains("command line"), "{message}");
+    }
+
+    fn limit(kind: &str, length_seconds: Option<i64>, scope: Option<&str>) -> Limit {
+        Limit {
+            kind: kind.into(),
+            length_seconds,
+            scope: scope.map(str::to_owned),
+            percent: 42.0,
+            resets_at: None,
+            severity: None,
+            is_active: true,
+        }
+    }
+
+    /// The apps name a limit from the record they were given, as the command line names
+    /// the reading it came from.
+    #[test]
+    fn a_limit_is_named_from_its_record() {
+        let fable = limit("weekly_scoped", Some(604_800), Some("Fable"));
+        assert_eq!(limit_column(fable), "week · Fable");
+        let fable = limit("weekly_scoped", Some(604_800), Some("Fable"));
+        assert_eq!(
+            limit_name(fable),
+            "weekly",
+            "a sentence places the scope itself"
+        );
+        assert_eq!(limit_column(limit("90_minute", Some(5_400), None)), "90m");
+        assert_eq!(limit_name(limit("session", None, None)), "5-hour");
+    }
+
+    /// An account's runway reaches the apps as seconds and whether its limit is filling,
+    /// and reads the way `pitboard status` says it. Without the seconds there is nothing to
+    /// say, whichever way the account is going.
+    #[test]
+    fn a_runway_is_said_from_an_accounts_two_fields() {
+        assert_eq!(
+            runway(Some(5_400), true).as_deref(),
+            Some("about 1h 30m left at this rate")
+        );
+        assert_eq!(
+            runway(Some(3_900), false).as_deref(),
+            Some("resets in 1h 05m")
+        );
+        assert_eq!(runway(Some(30), true).as_deref(), Some("about to run out"));
+        assert_eq!(
+            runway(Some(30), false).as_deref(),
+            Some("resets any moment")
+        );
+        assert_eq!(runway(None, true), None);
+        assert_eq!(runway(None, false), None);
+    }
+
+    /// Only a renewal that renewed counts as one: a deferred or refused one was due and
+    /// was not renewed.
+    #[test]
+    fn a_renewal_note_counts_what_was_renewed() {
+        let renewed = |outcome: &str| Renewed {
+            label: "work".into(),
+            provider: "claude".into(),
+            outcome: outcome.into(),
+        };
+        assert_eq!(renewal_note(Vec::new()), "No parked login was due.");
+        assert_eq!(
+            renewal_note(vec![renewed("renewed"), renewed("renewal_deferred")]),
+            "Renewed 1 of 2; the rest are tried again next time."
+        );
+        assert_eq!(
+            renewal_note(vec![renewed("parked_login_refused")]),
+            "1 due; none could be renewed this time."
+        );
+    }
+
+    /// A check that warns is worth looking at, and one that fails outweighs every warning.
+    #[test]
+    fn the_doctor_summary_says_not_to_switch_while_a_check_fails() {
+        let check = |level: Level| Check {
+            code: "credential".into(),
+            name: "credential".into(),
+            level,
+            detail: String::new(),
+            advice: String::new(),
+        };
+        assert_eq!(
+            doctor_summary(vec![check(Level::Ok)]),
+            "Everything Pitboard checks is in order."
+        );
+        assert_eq!(
+            doctor_summary(vec![
+                check(Level::Warn),
+                check(Level::Ok),
+                check(Level::Fail)
+            ]),
+            "1 broken: do not switch accounts until fixed."
+        );
+        assert_eq!(
+            doctor_summary(vec![check(Level::Warn), check(Level::Warn)]),
+            "2 things are worth looking at."
+        );
+    }
+
+    /// The apps read a parked login's life from the record they hold, in the sentence form.
+    #[test]
+    fn a_parked_logins_life_is_read_from_its_record() {
+        let parked = |refresh_expires_at| Parked {
+            parked_at: 0,
+            access_expires_at: None,
+            refresh_expires_at,
+        };
+        assert_eq!(parked_life(None, 1_000), None);
+        assert_eq!(parked_life(Some(parked(None)), 1_000), None);
+        assert_eq!(
+            parked_life(Some(parked(Some(1_000 + 3 * 86_400))), 1_000).as_deref(),
+            Some("Parked login good for 3 more days")
+        );
     }
 
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never

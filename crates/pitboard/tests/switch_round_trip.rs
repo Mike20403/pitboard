@@ -415,6 +415,31 @@ fn a_parked_login_anthropic_refuses_is_dropped_with_the_way_back() {
     renewal.assert();
 }
 
+/// `pitboard renew` says what it did in the sentence the app's Renew Now shows: nothing due
+/// reads as the good answer it is, and one renewal as one.
+#[test]
+fn renew_says_what_it_did_as_the_app_says_it() {
+    let mut env = two_accounts("renew-words");
+    let (out, err, code) = env.run(&["renew"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out, "No parked login was due.\n");
+
+    access_lapsed(&env, "beta");
+    let renewal = env.answers_renewal(
+        "refresh-b",
+        200,
+        serde_json::json!({
+            "access_token": "access-refresh-b2", "refresh_token": "refresh-b2",
+            "expires_in": 28_800, "refresh_token_expires_in": 2_592_000,
+            "scope": "user:inference user:profile", "token_type": "Bearer"
+        }),
+    );
+    let (out, err, code) = env.run(&["renew"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out, "Renewed one.\n");
+    renewal.assert();
+}
+
 #[test]
 fn forgetting_the_signed_in_account_is_refused() {
     let env = two_accounts("forget");
