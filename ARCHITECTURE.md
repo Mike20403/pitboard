@@ -96,14 +96,18 @@ pages load, as a browser would.
   - `model/` is the app model both apps are to show, which neither uses yet: the Swift
     model in `PitboardApp` still decides what the macOS app shows. An app makes a
     `PitboardModel`, sends it an `Intent` for each thing asked of it, and its
-    `ModelListener` is told of each numbered `Snapshot`. `state.rs` holds what the model
-    knows and decides what follows each message; `lanes.rs` runs what it decides, on a
-    lane of reads and a lane that asks what is installed, and tells the listener on a
-    thread of its own; `mod.rs` holds the exported types and the actor thread that owns
-    the state. So far the model reads the accounts, looks every two seconds for a change
-    made elsewhere, and asks which tools are installed. Its tests are files of their own
-    there: `reading.rs` and `cadence.rs` drive the state by hand, and `threaded.rs` drives
-    the model through its threads over the real core.
+    `ModelListener` is told of each numbered `Snapshot`; its `AppControl` quits and opens
+    other apps. `state.rs` holds what the model knows and decides what follows each
+    message; `lanes.rs` runs what it decides, on a lane of reads, a lane of changes, one
+    at a time, a lane that lists processes and asks the app's `AppControl` about other
+    apps, and a lane that asks what is installed, and tells the listener on a thread of
+    its own; `mod.rs` holds the exported types and the actor thread that owns the state. So
+    far the model reads the accounts, looks every two seconds for a change made elsewhere,
+    asks which tools are installed, switches, quits the app holding a tool's login when
+    the person lets it, gives up on a stuck switch, and keeps what each tool's last switch
+    said. Its tests are files of their own there: `reading.rs`, `switching.rs` and
+    `cadence.rs` drive the state by hand, `lanes.rs` has the lanes' own, and `threaded.rs`
+    drives the model through its threads over the real core.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
   IDNA alone.
@@ -205,14 +209,15 @@ pages load, as a browser would.
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
 - `pitboard-ffi` exports records, enums, three error types, free functions, three objects,
-  `SignIn`, `Pitboard` and `PitboardModel`, and one trait an app implements,
-  `ModelListener`. Nothing it exports is async. A call to `SignIn` or `Pitboard` is
-  synchronous and may block on the keychain, a lock, the network or the person's login
-  shell, and `PitboardKit` makes each off the main thread; making a `Pitboard` blocks on
-  none of them, since it reads its environment on first use. `PitboardModel` blocks on none
-  of them anywhere: making one starts its threads, `send` only posts an intent, `snapshot`
-  only copies the last snapshot, `shutdown` waits only for the actor to take what is
-  already in its mailbox, and the core is called on the model's own threads. The free
+  `SignIn`, `Pitboard` and `PitboardModel`, and two traits an app implements,
+  `ModelListener` and `AppControl`. Nothing it exports is async. A call to `SignIn` or
+  `Pitboard` is synchronous and may block on the keychain, a lock, the network or the
+  person's login shell, and `PitboardKit` makes each off the main thread; making a
+  `Pitboard` blocks on none of them, since it reads its environment on first use.
+  `PitboardModel` blocks on none of them anywhere: making one starts its threads, `send`
+  only posts an intent, `snapshot` only copies the last snapshot, `shutdown` waits only for
+  the actor to take what is already in its mailbox, and the core and the app's
+  `AppControl` are called on the model's own threads. The free
   functions block on nothing, and the app makes them where it likes: `tools`,
   `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
   sentences and column words of `words.rs` the apps show, which read only what they are
@@ -231,9 +236,31 @@ pages load, as a browser would.
   to run as jobs, which run on the model's lanes and answer as messages. A call the Swift
   model awaited is a job, except that a read's two stamps and the read are one job, and a
   look's two stamps are one, so no look lands between a read's stamps and the read. A read
-  that started before a change the poll noticed, counted in `changes_seen` when the read's
-  job is made and compared when it lands, is dropped, and a read records when the index and
-  the readings were written as they stood before it.
+  that started before a change, one the poll noticed or one this app made, counted in
+  `changes_seen` when the read's job is made and compared when it lands, is dropped, and a
+  read records when the index and the readings were written as they stood before it.
+- A switch is claimed inside `State::apply`, as its intent is taken and before its first
+  job is queued, and stays claimed until the read after it has landed, so one switch runs
+  at a time and the poll leaves the account index alone meanwhile. The switch runs on the
+  lane of changes, and what holds the login and quitting an app on the lane of processes,
+  so a read answers while either waits. An app is quit only when the person says so, the
+  way a person quits it and never by force, and is given 30 seconds, asked every 200
+  milliseconds whether it still runs; one that has not quit by then stops the switch before
+  anything changes. An `AppControl` that throws says the app still runs, so nothing is
+  switched under an app nobody saw go. Pitboard opens again only the copy it quit, as soon
+  as the switch is over, whether or not it worked. `Intent::QuitAndSwitch` names the
+  account of the question it answers, as `AppModel.quitAndSwitch` took the question, so an
+  app may close the question with `Intent::KeepAppOpen` before or after it sends the answer:
+  a question closed unanswered is kept until another switch is asked for, and an answer is
+  taken once.
+- What a tool's last switch said is kept apart from the read's warnings, one per tool, until
+  that tool no longer has the account it switched to signed in or the person puts it away:
+  a Codex switch's warning that open sessions still use the account it parked, and must not
+  sign out, outlives every read and every write that leaves that account signed in.
+- `AppControl` names an app by one string, the id the core's holder detection gives it,
+  which on macOS is its bundle id, in `provider/codex/holders.rs`. What names an app on
+  Windows, and so what the core's holder detection gives there, is a question still open
+  for the owner; the trait takes one string so that a Windows id fits it unchanged.
 - One thread tells a `ModelListener`, so snapshots arrive in revision order, and a snapshot
   is told only where it differs from the last. The model never holds a lock while it calls
   out, so a listener may call `snapshot`, `send` and `shutdown`. Dropping a `PitboardModel`
@@ -243,7 +270,8 @@ pages load, as a browser would.
   real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in
   a scratch directory, and the Swift and C# tests make no model. So no record or intent of
   the model crosses the bindings in a test yet, and no test has the library call a listener
-  written in Swift or C#.
+  or an `AppControl` written in Swift or C#. Every `AppControl` a test hands the model is a
+  stand-in that records what it was asked, never one that reaches a real app.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core. The account windows key their records by Pitboard's directory standardised as
@@ -919,14 +947,35 @@ Nothing here ran on Windows.
   checksum of every export, the model's constructor and methods and
   `ModelListener.changed` among them, and hand the library each foreign trait's table of
   calls.
-- A trait an app implements is an interface of the trait's own name, `ModelListener`. Its
-  error is an exception named for it, `PlatformException`, whose variant the app throws.
+- A trait an app implements is an interface of the trait's own name, `ModelListener` and
+  `AppControl`. Its error is an exception named for it, `PlatformException`, whose variant
+  the app throws. An `Option<String>` it gives back is a `string?`.
 - A record holds a list as an array, and a C# record compares arrays by reference, so two
   snapshots read alike are not equal. `ModelTests.ASnapshotCarriesWhatWasRead` measures it.
 - A call's checksum is taken over what UniFFI records of it: its module, object and name,
   its arguments, the types it takes, gives and throws, and its doc comment. A record type is
   recorded by its module and name alone, so no checksum covers a record's fields. Read in
   `uniffi_macros` 0.31.2, `fnsig.rs` and `record.rs`.
+
+### The Swift bindings
+
+Measured with `build-xcframework.sh` and `swift test --package-path apps/macos`, with the
+Swift UniFFI 0.31.2 generates and the Swift 6.4 of Xcode 27.1, on 5 October 2026.
+
+- A method of a trait an app implements may not have a name on the generator's list of
+  Swift keywords, which has `open` though Swift takes `open` as a method's name, as
+  `PitboardApp`'s own `AppControl.open` is. The generator puts such a name in backticks, and
+  writes the C header's table of calls through the same filter, so the header has
+  `` UniffiCallbackInterfaceAppControlMethod2 _Nonnull `open`; ``, which clang refuses
+  ("expected member name or ';' after declaration specifiers"), and the bindings do not
+  build. Read in `uniffi_bindgen` 0.31.2: the list in `bindings/swift/gen_swift/mod.rs`, and
+  `BridgingHeaderTemplate.h` naming each field through `var_name`. `AppControl`'s method that
+  opens an app again is `reopen` for that reason.
+- A type the bindings export that `PitboardApp` also declares is the app's own inside
+  `PitboardApp`, and ambiguous in a module that imports both, as the app's tests do: with
+  the bindings' `AppControl` beside the app's protocol of that name, `swift test` stopped at
+  "'AppControl' is ambiguous for type lookup in this context" in `Fixtures.swift`, which
+  names the app's as `PitboardApp.AppControl` since.
 
 ### The model's timers
 
@@ -941,5 +990,8 @@ with Swift 6.4.
   a long sleep its five-minute read came as the machine woke, where the model's comes up to
   five minutes of waking time later. An app sends `Intent::Woke` as the machine wakes, which
   reads at once, as the Swift model read on `NSWorkspace.didWakeNotification`.
+- The 30 seconds an app is given to quit run on `Instant` too, where the Swift model's ran
+  on `ContinuousClock`: a machine put to sleep while an app is asked to quit gives it its
+  30 seconds of waking time, where the Swift gave it none once the machine woke.
 - On Linux the standard library reads `CLOCK_MONOTONIC`, and on Windows
   `QueryPerformanceCounter`. How either counts a sleep was not read.

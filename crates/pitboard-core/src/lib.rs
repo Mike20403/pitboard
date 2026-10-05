@@ -81,4 +81,16 @@ pub mod testing {
     pub fn variables() -> impl Iterator<Item = &'static str> {
         crate::context::variables()
     }
+
+    /// A sign-in to `which`'s tool that finished with `document`, the login the tool would
+    /// have stored, as JSON, and never ran the tool: what enrolling a second account by
+    /// signing in privately needs, in a test that may run no tool.
+    pub fn signed_in(
+        ctx: &crate::context::Context,
+        which: crate::provider::ProviderId,
+        document: &str,
+    ) -> crate::error::Result<crate::switch::SignIn> {
+        let document = serde_json::from_str(document).expect("a login a test wrote as JSON");
+        crate::switch::planted(ctx, which, document)
+    }
 }

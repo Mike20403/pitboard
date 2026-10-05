@@ -71,7 +71,7 @@ extension AppModel {
         testing service: any Core, watching: Bool = false,
         defaults: UserDefaults = TestDefaults(), commandLineTool: CommandLineTool = .nowhere,
         loginItem: any LoginItem = StandInLoginItem(),
-        appControl: any AppControl = StandInAppControl()
+        appControl: any PitboardApp.AppControl = StandInAppControl()
     ) {
         self.init(
             watching: watching, service: service, defaults: defaults,
@@ -81,9 +81,10 @@ extension AppModel {
 }
 
 /// Other apps, as a test says they are, and nothing on the machine running the tests: this
-/// Mac may have ChatGPT open.
+/// Mac may have ChatGPT open. Named with its module, since the bindings now have an
+/// `AppControl` too: the Rust model's, which takes this one's place once the app uses it.
 @MainActor
-final class StandInAppControl: AppControl {
+final class StandInAppControl: PitboardApp.AppControl {
     var running: Set<String>
     /// Whether an app asked to quit does. One busy with work, or whose person said no, does
     /// not.

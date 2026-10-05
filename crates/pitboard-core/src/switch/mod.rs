@@ -28,6 +28,8 @@ mod uninstall;
 
 pub use crate::pending::Reclaimed;
 pub use adopt::{Adopted, adopt};
+#[cfg(feature = "test-support")]
+pub(crate) use enroll::planted;
 pub use enroll::{Enrolled, Said, SignIn, WatchedSignIn, enroll, sign_in, sign_in_watched};
 pub use forget::forget;
 pub(crate) use journal::interrupted_tool;
