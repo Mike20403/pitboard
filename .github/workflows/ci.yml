@@ -127,12 +127,15 @@ jobs:
         with:
           global-json-file: apps/windows/global.json
       - run: cargo build --locked --release -p pitboard-ffi
+      # Read from the static library: the release profile strips the shared one, and with
+      # it the metadata the generator reads, which it answers by writing nothing at all.
       - run: |
           mkdir -p apps/windows/Pitboard.Core/Generated
           cargo run --locked --release -p uniffi-bindgen-csharp -- \
-            --library target/release/libpitboard_ffi.so \
+            --library target/release/libpitboard_ffi.a \
             --out-dir apps/windows/Pitboard.Core/Generated \
             --config crates/pitboard-ffi/uniffi.toml --no-format
+          test -s apps/windows/Pitboard.Core/Generated/pitboard_ffi.cs
       # global.json, which pins the SDK and the test platform, is read from where dotnet runs.
       - working-directory: apps/windows
         run: >
