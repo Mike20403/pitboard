@@ -1,7 +1,7 @@
 //! `pitboard status` for a person and for a program.
 
 use crate::ui::{self, BAD, BOLD, DIM, GOOD, WARN, pad, paint};
-use pitboard_core::doctor::RENEW_WITHIN;
+use pitboard_core::doctor::renewal_due;
 use pitboard_core::provider::ProviderId;
 use pitboard_core::state::Key;
 use pitboard_core::status::{Report, Row, Stale};
@@ -63,17 +63,17 @@ fn standing(row: &Row, now: i64) -> String {
         None => paint(WARN, format!("nothing parked · {sign_in_again}")),
         Some(p) if !p.restorable_at(now) => paint(BAD, format!("login expired · {sign_in_again}")),
         Some(p) => match p.refresh_expires_at {
-            Some(at) if at - now < RENEW_WITHIN => paint(
+            Some(at) if renewal_due(at, now) => paint(
                 WARN,
                 format!(
-                    "ready · expires in {} · {sign_in_again}",
-                    words::span(at - now)
+                    "ready · {} · {sign_in_again}",
+                    words::parked_life_column(at, now)
                 ),
             ),
             Some(at) => format!(
                 "{} {}",
                 paint(GOOD, "ready"),
-                paint(DIM, format!("· good for {}", words::span(at - now)))
+                paint(DIM, format!("· {}", words::parked_life_column(at, now)))
             ),
             None => paint(GOOD, "ready"),
         },

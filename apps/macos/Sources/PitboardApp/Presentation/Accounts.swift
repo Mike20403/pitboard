@@ -181,7 +181,9 @@ struct AccountDescription: Equatable {
             account.unplaced || !account.switchable && !account.signedIn
             ? account.staleExplanation : nil
         staleNote = problem == nil ? account.staleExplanation : nil
-        parkedNote = account.signedIn ? nil : parkedLife(account.parked, now: now)
+        parkedNote =
+            account.signedIn
+            ? nil : parkedLife(parked: account.parked, now: Int64(now.timeIntervalSince1970))
         let lasts = runway(seconds: account.lastsSeconds, burning: account.lastsBurning)
         pace = lasts?.capitalizedFirst
         summary = Self.summary(
@@ -211,19 +213,6 @@ struct AccountDescription: Equatable {
             return "\(scoped) used up until \(clockTime(back, from: now))"
         }.joined(separator: ", ").capitalizedFirst
     }
-}
-
-/// When a parked login stops being usable, as a note under an account not in use. The
-/// command line says the same thing; without it nothing says a switch is about to stop
-/// working.
-func parkedLife(_ parked: Parked?, now: Date = Date()) -> String? {
-    guard let at = parked?.refreshExpiresAt else { return nil }
-    let left = Date(timeIntervalSince1970: TimeInterval(at)).timeIntervalSince(now)
-    guard left > 0 else { return "Its parked login has expired" }
-    let days = Int(left / 86_400)
-    return days >= 1
-        ? "Parked login good for \(days) more day\(days == 1 ? "" : "s")"
-        : "Parked login good for under a day"
 }
 
 /// A moment later today as a clock time, and a later day by its weekday as well, so a reset

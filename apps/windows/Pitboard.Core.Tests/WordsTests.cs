@@ -29,6 +29,7 @@ public sealed class WordsTests
         Assert.AreEqual("about 1h 30m left at this rate", PitboardFfiMethods.Runway(5_400, true));
         Assert.AreEqual("about to run out", PitboardFfiMethods.Runway(30, true));
         Assert.IsNull(PitboardFfiMethods.Runway(null, true));
+        Assert.IsNull(PitboardFfiMethods.ParkedLife(null, 1_000));
         Assert.IsTrue(PitboardFfiMethods.SameReset(between: 1_000, and: 1_059));
         Assert.IsFalse(PitboardFfiMethods.SameReset(between: 1_000, and: 1_060));
     }

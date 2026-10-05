@@ -551,6 +551,13 @@ pub fn runway(seconds: Option<i64>, burning: bool) -> Option<String> {
     })
 }
 
+/// How long a parked login stays usable, as of `now`, in the sentence form: "Parked login
+/// good for 20 more days". `None` when nothing says.
+#[uniffi::export]
+pub fn parked_life(parked: Option<Parked>, now: i64) -> Option<String> {
+    words::parked_life(parked?.refresh_expires_at, now)
+}
+
 /// What a renewal run did, from what `Pitboard::renew` returned: "No parked login was due.",
 /// "Renewed one.", "Renewed 1 of 2; the rest are tried again next time.".
 #[uniffi::export]
@@ -1167,6 +1174,22 @@ mod tests {
         assert_eq!(
             doctor_summary(vec![check(Level::Warn), check(Level::Warn)]),
             "2 things are worth looking at."
+        );
+    }
+
+    /// The apps read a parked login's life from the record they hold, in the sentence form.
+    #[test]
+    fn a_parked_logins_life_is_read_from_its_record() {
+        let parked = |refresh_expires_at| Parked {
+            parked_at: 0,
+            access_expires_at: None,
+            refresh_expires_at,
+        };
+        assert_eq!(parked_life(None, 1_000), None);
+        assert_eq!(parked_life(Some(parked(None)), 1_000), None);
+        assert_eq!(
+            parked_life(Some(parked(Some(1_000 + 3 * 86_400))), 1_000).as_deref(),
+            Some("Parked login good for 3 more days")
         );
     }
 

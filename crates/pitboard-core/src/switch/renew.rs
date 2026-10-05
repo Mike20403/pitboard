@@ -68,7 +68,7 @@ impl Due {
                 access_lapsed
                     || held
                         .refresh_expires_at
-                        .is_some_and(|at| at - now < crate::doctor::RENEW_WITHIN)
+                        .is_some_and(|at| crate::doctor::renewal_due(at, now))
             }
         }
     }

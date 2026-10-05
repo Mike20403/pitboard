@@ -4,12 +4,12 @@
 //! these functions directly. The macOS app calls the ones it shows through `pitboard-ffi`,
 //! which exports a free function of the same name for each, so where both say a thing they
 //! say it in the same words. A thing said both in a column and in a sentence, such as a
-//! limit's name, has a function for each form.
+//! limit's name or a parked login's life, has a function for each form.
 //!
 //! All of it is English. Clock times are not here: the command line writes them with
 //! `time::moment`, and the app in the format its Mac is set to.
 
-use crate::doctor::Level;
+use crate::doctor::{Level, renewal_due};
 use crate::history::Runway;
 
 const MINUTE: i64 = 60;
@@ -131,6 +131,32 @@ pub fn runway(runway: Runway) -> Option<String> {
         Runway::Resting(seconds) => format!("resets in {}", span(seconds)),
         Runway::Unknown => return None,
     })
+}
+
+/// How long a parked login stays usable, in the sentence form: a note under an account not
+/// in use, counted in whole days. Without it nothing says a switch to the account is about
+/// to stop working. Nothing when the login says nothing about it.
+pub fn parked_life(refresh_expires_at: Option<i64>, now: i64) -> Option<String> {
+    let left = refresh_expires_at? - now;
+    Some(match left / DAY {
+        _ if left <= 0 => "Its parked login has expired".into(),
+        0 => "Parked login good for under a day".into(),
+        1 => "Parked login good for 1 more day".into(),
+        days => format!("Parked login good for {days} more days"),
+    })
+}
+
+/// How long a parked login stays usable, in the column form `pitboard status` puts after
+/// "ready" and doctor's parked login check after words of its own: "good for 20d 0h";
+/// "expires in 2d 4h" once it is due to be renewed, as [`renewal_due`] decides; and
+/// "expired" once it has, where doctor adds when and `pitboard status` says "login expired"
+/// in place of "ready".
+pub fn parked_life_column(refresh_expires_at: i64, now: i64) -> String {
+    match refresh_expires_at - now {
+        left if left <= 0 => "expired".into(),
+        left if renewal_due(refresh_expires_at, now) => format!("expires in {}", span(left)),
+        left => format!("good for {}", span(left)),
+    }
 }
 
 /// What a renewal run did: how many parked logins were due, and how many of those were
@@ -306,6 +332,58 @@ mod tests {
             Some("about 1m left at this rate")
         );
         assert_eq!(runway(Runway::Resting(60)).as_deref(), Some("resets in 1m"));
+    }
+
+    /// When a parked login stops working decides whether a switch to it will. The sentence
+    /// form says nothing with nothing to go on, says a login past it has expired, and
+    /// otherwise counts whole days left, one day in the singular.
+    #[test]
+    fn a_parked_logins_life_in_a_sentence_is_counted_in_whole_days() {
+        const NOW: i64 = 1_789_935_000;
+        let life = |left: i64| parked_life(Some(NOW + left), NOW);
+        assert_eq!(parked_life(None, NOW), None);
+        assert_eq!(life(-60).as_deref(), Some("Its parked login has expired"));
+        assert_eq!(life(0).as_deref(), Some("Its parked login has expired"));
+        assert_eq!(
+            life(1).as_deref(),
+            Some("Parked login good for under a day")
+        );
+        assert_eq!(
+            life(86_399).as_deref(),
+            Some("Parked login good for under a day")
+        );
+        assert_eq!(
+            life(86_400).as_deref(),
+            Some("Parked login good for 1 more day")
+        );
+        assert_eq!(
+            life(2 * 86_400 - 1).as_deref(),
+            Some("Parked login good for 1 more day")
+        );
+        assert_eq!(
+            life(2 * 86_400).as_deref(),
+            Some("Parked login good for 2 more days")
+        );
+        assert_eq!(
+            life(30 * 86_400).as_deref(),
+            Some("Parked login good for 30 more days")
+        );
+    }
+
+    /// The column form beside "ready" in `pitboard status`: what is left of a parked login
+    /// to the minute, and from the moment it is due to be renewed, that it expires.
+    #[test]
+    fn a_parked_logins_life_in_a_column_says_when_it_expires() {
+        use crate::doctor::RENEW_WITHIN;
+        const NOW: i64 = 1_789_935_000;
+        let life = |left: i64| parked_life_column(NOW + left, NOW);
+        assert_eq!(life(20 * 86_400), "good for 20d 0h");
+        assert_eq!(life(RENEW_WITHIN), "good for 3d 0h");
+        assert_eq!(life(RENEW_WITHIN - 1), "expires in 2d 23h");
+        assert_eq!(life(3_900), "expires in 1h 05m");
+        assert_eq!(life(30), "expires in <1m");
+        assert_eq!(life(0), "expired");
+        assert_eq!(life(-60), "expired");
     }
 
     /// Nothing due is the ordinary case, and it has to read as ordinary rather than as a

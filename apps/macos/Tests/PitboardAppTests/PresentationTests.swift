@@ -1145,27 +1145,6 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     #expect(justAfter.hasSuffix(" \(shortTime(pastMidnight))"))
 }
 
-/// When a parked login stops working decides whether a switch to it will. Nothing is said with
-/// nothing to go on, a login past it says it has expired, and otherwise it counts whole days
-/// left, one day in the singular.
-@Test func aParkedLoginsLifeIsCountedInWholeDays() {
-    let life = { (left: TimeInterval) in
-        parkedLife(parked(expiring: noon.addingTimeInterval(left)), now: noon)
-    }
-    #expect(parkedLife(nil, now: noon) == nil)
-    #expect(
-        parkedLife(Parked(parkedAt: 0, accessExpiresAt: 99, refreshExpiresAt: nil), now: noon)
-            == nil)
-    #expect(life(-60) == "Its parked login has expired")
-    #expect(life(0) == "Its parked login has expired")
-    #expect(life(1) == "Parked login good for under a day")
-    #expect(life(86_399) == "Parked login good for under a day")
-    #expect(life(86_400) == "Parked login good for 1 more day")
-    #expect(life(2 * 86_400 - 1) == "Parked login good for 1 more day")
-    #expect(life(2 * 86_400) == "Parked login good for 2 more days")
-    #expect(life(30 * 86_400) == "Parked login good for 30 more days")
-}
-
 /// The activity list names a change by the verb the log keeps, in words, and one it does not
 /// know yet by the verb itself made readable rather than not at all.
 @Test func aChangeIsNamedByItsVerbAndAnUnknownOneReadably() {
