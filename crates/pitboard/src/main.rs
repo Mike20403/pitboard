@@ -521,12 +521,10 @@ fn renew(pitboard: &Pitboard) -> Report {
         .iter()
         .filter(|(_, r)| matches!(r, Renewal::Renewed))
         .count();
-    let human = match (outcomes.len(), renewed) {
-        (0, _) => "No parked login was due.\n".to_string(),
-        (_, 0) => format!("{} due; none could be renewed this time.\n", outcomes.len()),
-        (all, done) if all == done => format!("Renewed {done}.\n"),
-        (all, done) => format!("Renewed {done} of {all}; the rest are tried again next time.\n"),
-    };
+    let human = format!(
+        "{}\n",
+        pitboard_core::words::renewal_note(outcomes.len(), renewed)
+    );
     Report::done(
         "renew",
         json!({

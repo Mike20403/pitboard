@@ -11,19 +11,6 @@ import PitboardKit
 /// what the core does not say for the app, and the glue that hands those functions what a
 /// view has.
 
-/// What a renewal run did. Everything here is a login that was going to expire, so "nothing
-/// happened" is the good answer and has to read like one.
-func renewalNote(_ renewals: [Renewed]) -> String {
-    let renewed = renewals.filter { $0.outcome == "renewed" }.count
-    switch (renewals.count, renewed) {
-    case (0, _): return "Nothing was due."
-    case (_, 0): return "\(renewals.count) due; none could be renewed this time."
-    case (let all, let done) where all == done:
-        return done == 1 ? "Renewed one." : "Renewed all \(done)."
-    case (let all, let done): return "Renewed \(done) of \(all)."
-    }
-}
-
 /// When a limit resets, as the column beside its bar says it and `pitboard status` says it
 /// too: "resets in 2h 05m", "resetting now", and nothing where no reset is known.
 func resetText(_ window: Limit, at now: Date) -> String {

@@ -551,6 +551,17 @@ pub fn runway(seconds: Option<i64>, burning: bool) -> Option<String> {
     })
 }
 
+/// What a renewal run did, from what `Pitboard::renew` returned: "No parked login was due.",
+/// "Renewed one.", "Renewed 1 of 2; the rest are tried again next time.".
+#[uniffi::export]
+pub fn renewal_note(renewals: Vec<Renewed>) -> String {
+    let renewed = renewals
+        .iter()
+        .filter(|r| r.outcome == switch::Renewal::Renewed.code())
+        .count();
+    words::renewal_note(renewals.len(), renewed)
+}
+
 /// The line over a diagnosis's checks: what is worth looking at while checks only warn,
 /// and not to switch accounts while one fails.
 #[uniffi::export]
@@ -1109,6 +1120,26 @@ mod tests {
         );
         assert_eq!(runway(None, true), None);
         assert_eq!(runway(None, false), None);
+    }
+
+    /// Only a renewal that renewed counts as one: a deferred or refused one was due and
+    /// was not renewed.
+    #[test]
+    fn a_renewal_note_counts_what_was_renewed() {
+        let renewed = |outcome: &str| Renewed {
+            label: "work".into(),
+            provider: "claude".into(),
+            outcome: outcome.into(),
+        };
+        assert_eq!(renewal_note(Vec::new()), "No parked login was due.");
+        assert_eq!(
+            renewal_note(vec![renewed("renewed"), renewed("renewal_deferred")]),
+            "Renewed 1 of 2; the rest are tried again next time."
+        );
+        assert_eq!(
+            renewal_note(vec![renewed("parked_login_refused")]),
+            "1 due; none could be renewed this time."
+        );
     }
 
     /// A check that warns is worth looking at, and one that fails outweighs every warning.

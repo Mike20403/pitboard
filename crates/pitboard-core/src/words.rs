@@ -133,6 +133,23 @@ pub fn runway(runway: Runway) -> Option<String> {
     })
 }
 
+/// What a renewal run did: how many parked logins were due, and how many of those were
+/// renewed. Everything due was going to expire, so nothing due is the good answer, and it
+/// has to read like one rather than like a failure to do anything. The sentence does not say
+/// why the rest were not renewed, and they fare differently: one whose service could not be
+/// reached or asked for less traffic is tried again on the next run, one the service refused
+/// has been dropped and its account needs a sign-in, and one that failed is named by its
+/// error code in `pitboard renew --json`.
+pub fn renewal_note(due: usize, renewed: usize) -> String {
+    match (due, renewed) {
+        (0, _) => "No parked login was due.".into(),
+        (due, 0) => format!("{due} due; none could be renewed this time."),
+        (1, 1) => "Renewed one.".into(),
+        (due, done) if due == done => format!("Renewed all {done}."),
+        (due, done) => format!("Renewed {done} of {due}; the rest are tried again next time."),
+    }
+}
+
 /// The line under doctor's checks, or over them in the app. Checks that only warn are
 /// counted as worth looking at. One that fails outweighs every warning: the line then
 /// counts what is broken and says not to switch accounts, since a check fails only when
@@ -289,6 +306,24 @@ mod tests {
             Some("about 1m left at this rate")
         );
         assert_eq!(runway(Runway::Resting(60)).as_deref(), Some("resets in 1m"));
+    }
+
+    /// Nothing due is the ordinary case, and it has to read as ordinary rather than as a
+    /// failure to do anything. Otherwise the sentence counts what was renewed of what was
+    /// due.
+    #[test]
+    fn a_renewal_run_says_what_it_did() {
+        assert_eq!(renewal_note(0, 0), "No parked login was due.");
+        assert_eq!(renewal_note(1, 1), "Renewed one.");
+        assert_eq!(renewal_note(2, 2), "Renewed all 2.");
+        assert_eq!(
+            renewal_note(2, 1),
+            "Renewed 1 of 2; the rest are tried again next time."
+        );
+        assert_eq!(
+            renewal_note(1, 0),
+            "1 due; none could be renewed this time."
+        );
     }
 
     /// Warnings are counted as things worth looking at. A check that fails outweighs every

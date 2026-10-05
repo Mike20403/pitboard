@@ -39,15 +39,15 @@ For why parked logins need renewing, see [Keep parked logins alive](/guides/rene
 
 Renews every due parked login, as `pitboard renew` does, then reads usage again, as **Refresh** in Pitboard's menu does. For when a parked login is due, see [Maintenance commands](/reference/maintenance-commands#renew).
 
-The text beside the button then gives the result:
+The text beside the button then gives the result, in the same line `pitboard renew` prints:
 
-- **Nothing was due.**
+- **No parked login was due.**
+- **2 due; none could be renewed this time.**
 - **Renewed one.**
-- **Renewed all 3.**
-- **Renewed 2 of 3.**
-- **3 due; none could be renewed this time.**
+- **Renewed all 2.**
+- **Renewed 1 of 2; the rest are tried again next time.**
 
-**Nothing was due.** also appears while another Pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read.
+**No parked login was due.** also appears while another Pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read.
 
 ## Command Line
 

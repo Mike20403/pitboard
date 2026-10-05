@@ -4,20 +4,6 @@ import Testing
 
 @testable import PitboardApp
 
-private func renewed(_ outcome: String) -> Renewed {
-    Renewed(label: "acc", provider: "claude", outcome: outcome)
-}
-
-/// Nothing due is the ordinary case, and it has to read as ordinary rather than as a
-/// failure to do anything.
-@Test func aRenewalRunSaysWhatItDid() {
-    #expect(renewalNote([]) == "Nothing was due.")
-    #expect(renewalNote([renewed("renewed")]) == "Renewed one.")
-    #expect(renewalNote([renewed("renewed"), renewed("renewed")]) == "Renewed all 2.")
-    #expect(renewalNote([renewed("renewed"), renewed("expired")]) == "Renewed 1 of 2.")
-    #expect(renewalNote([renewed("expired")]) == "1 due; none could be renewed this time.")
-}
-
 /// A `pitboard` installed apart from the app is updated the way it was installed, and none
 /// of those ways does it by itself. Saying it "updates on its own" read as though nothing
 /// needed doing, until the app moved on and the command line refused its newer files.
@@ -49,6 +35,19 @@ private func renewed(_ outcome: String) -> Renewed {
     #expect(
         doctorSummary(checks: [check(.warn), check(.fail)])
             == "1 broken: do not switch accounts until fixed.")
+}
+
+/// Renew Now says what it did in the words `pitboard renew` says it in. Nothing due is the
+/// ordinary case and reads as the good answer it is.
+@Test func renewNowSaysWhatItDidAsTheCommandLineDoes() {
+    let renewed = { (outcome: String) in
+        Renewed(label: "work", provider: "claude", outcome: outcome)
+    }
+    #expect(renewalNote(renewals: []) == "No parked login was due.")
+    #expect(renewalNote(renewals: [renewed("renewed")]) == "Renewed one.")
+    #expect(
+        renewalNote(renewals: [renewed("renewed"), renewed("renewal_deferred")])
+            == "Renewed 1 of 2; the rest are tried again next time.")
 }
 
 /// VoiceOver reads the column's "30m" as thirty meters and "5h" as letters, so a limit is

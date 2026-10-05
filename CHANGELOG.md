@@ -32,6 +32,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   warn, and `1 broken: do not switch accounts until fixed.` when a check fails. `doctor`
   said `Everything Pitboard relies on holds.` or `2 to look at; nothing is broken.`, and the
   app counted a check that fails as one more thing worth looking at.
+- `pitboard renew` and the app's **Renew Now** report a run in the same words:
+  `No parked login was due.`, `Renewed one.`, `Renewed all 2.` or
+  `Renewed 1 of 2; the rest are tried again next time.` `renew` said `Renewed 1.` or
+  `Renewed 2.` when it renewed everything due, and the app said `Nothing was due.` or
+  `Renewed 1 of 2.`
 
 ### Fixed
 

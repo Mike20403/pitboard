@@ -34,11 +34,14 @@ public sealed class WordsTests
     }
 
     [TestMethod]
-    public void ChecksAreSummedUp()
+    public void ChecksAndRenewalsAreSummedUp()
     {
         Check[] checks = [new("keychain", "Keychain", Level.Warn, "locked", "Unlock it.")];
         Assert.AreEqual("One thing is worth looking at.", PitboardFfiMethods.DoctorSummary(checks));
         Check[] broken = [.. checks, new("credential", "Credential", Level.Fail, "unreadable", "Sign in.")];
         Assert.AreEqual("1 broken: do not switch accounts until fixed.", PitboardFfiMethods.DoctorSummary(broken));
+        Renewed[] renewals = [new("work", "claude", "renewed")];
+        Assert.AreEqual("Renewed one.", PitboardFfiMethods.RenewalNote(renewals));
+        Assert.AreEqual("No parked login was due.", PitboardFfiMethods.RenewalNote([]));
     }
 }
