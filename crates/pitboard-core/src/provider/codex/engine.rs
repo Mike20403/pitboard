@@ -241,6 +241,11 @@ impl Provider for Codex {
         }
     }
 
+    /// It reads nothing typed back, so it refuses nothing, whatever it prints.
+    fn refused_code(&self, _since: &str) -> bool {
+        false
+    }
+
     /// Nothing measured yet. Codex reads an API key from its own login document, which moves
     /// with the account, and whether an environment key takes precedence over a ChatGPT
     /// login in 0.154.0 has not been read closely enough to warn about.
@@ -595,6 +600,7 @@ mod tests {
                 .read_sign_in(&format!("{SAID}Paste code here if prompted > "))
                 .wants_code
         );
+        assert!(!Codex.refused_code("Invalid code. Please make sure the full code was copied.\n"));
     }
 
     /// The loopback line the conformance run looks for is one this passes over, so a build

@@ -9,14 +9,22 @@
 //! time to quit. `discovery` asks which tools are installed, which can wait on the person's
 //! login shell, and is needed before the first read can say anything useful about it, so it
 //! waits behind nothing. A lane ends once the actor has gone and its last job is done.
+//!
+//! Each sign-in has a thread of its own, as the Swift model's SignInCalls made one for each
+//! call that waits on a person in a browser: it starts the tool's sign-in, hands on what the
+//! tool says until it stops, and then enrols what it signed in to, or lets it go, as it is
+//! told. Typing a code back and stopping a sign-in run on `sign_in_calls`, apart from the
+//! thread reading, which they would otherwise wait behind until the browser came back. Once
+//! the actor has gone, that lane stops every sign-in still under way, so each thread ends.
 
 use super::state::{Answer, Cadence, Job, Msg, QuitOutcome, split};
 use super::{AppControl, ModelListener, QuitQuestion, Snapshot};
-use crate::{Holding, Pitboard, Remedy};
+use crate::{Holding, Pitboard, Remedy, SignIn};
+use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// Which lane a job runs on.
@@ -26,6 +34,10 @@ pub(crate) enum Lane {
     Changes,
     Processes,
     Discovery,
+    /// The sign-in's own thread.
+    SignIn,
+    /// Typing a code back to a sign-in and stopping one.
+    SignInCalls,
 }
 
 impl Job {
@@ -36,6 +48,8 @@ impl Job {
             Job::Switch { .. } | Job::Abandon => Lane::Changes,
             Job::Holding { .. } | Job::Quit { .. } | Job::Open { .. } => Lane::Processes,
             Job::AskInstalled => Lane::Discovery,
+            Job::SignIn { .. } | Job::SignInOver { .. } => Lane::SignIn,
+            Job::PasteCode { .. } | Job::StopSignIn { .. } => Lane::SignInCalls,
         }
     }
 }
@@ -46,6 +60,10 @@ pub(crate) struct Lanes {
     changes: Sender<Job>,
     processes: Sender<Job>,
     discovery: Sender<Job>,
+    sign_in_calls: Sender<Job>,
+    /// What a sign-in's own thread works with and answers to.
+    worker: Arc<Worker>,
+    answers: Sender<Msg>,
 }
 
 impl Lanes {
@@ -62,12 +80,20 @@ impl Lanes {
             apps,
             quit_within: cadence.quit_within,
             quit_checked_every: cadence.quit_checked_every,
+            sign_ins: SignIns::default(),
         });
         Lanes {
-            reads: lane("pitboard-reads", &worker, answers),
-            changes: lane("pitboard-changes", &worker, answers),
-            processes: lane("pitboard-processes", &worker, answers),
-            discovery: lane("pitboard-discovery", &worker, answers),
+            reads: lane("pitboard-reads", &worker, answers, |_| {}),
+            changes: lane("pitboard-changes", &worker, answers, |_| {}),
+            processes: lane("pitboard-processes", &worker, answers, |_| {}),
+            discovery: lane("pitboard-discovery", &worker, answers, |_| {}),
+            // Once the actor has gone, nothing is left to say a sign-in is over, so every one
+            // still under way is stopped.
+            sign_in_calls: lane("pitboard-sign-in-calls", &worker, answers, |worker| {
+                worker.sign_ins.close();
+            }),
+            worker,
+            answers: answers.clone(),
         }
     }
 
@@ -78,13 +104,63 @@ impl Lanes {
             Lane::Changes => &self.changes,
             Lane::Processes => &self.processes,
             Lane::Discovery => &self.discovery,
+            Lane::SignInCalls => &self.sign_in_calls,
+            Lane::SignIn => return self.sign_in(job),
         };
         // A lane that has gone has nothing left to answer to.
         let _ = lane.send(job);
     }
+
+    /// Starts a sign-in on a thread of its own, or tells one whether to enrol.
+    fn sign_in(&self, job: Job) {
+        match job {
+            Job::SignIn { id, qualified } => self.start_sign_in(id, qualified, |run| {
+                std::thread::Builder::new()
+                    .name("pitboard-sign-in".into())
+                    .spawn(run)
+                    .map(drop)
+            }),
+            Job::SignInOver { id, enrol } => self.worker.sign_ins.tell(id, enrol),
+            // Every other job has a lane of its own.
+            _ => {}
+        }
+    }
+
+    /// Starts the sign-in `id` to `qualified` on the thread `spawn` starts. One the system
+    /// cannot start comes to nothing, as one that stops with a panic does: this runs on the
+    /// actor's own thread, which a panic would stop, and the model with it.
+    fn start_sign_in(
+        &self,
+        id: u64,
+        qualified: String,
+        spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
+    ) {
+        let (tell, told) = channel();
+        self.worker.sign_ins.begin(id, tell);
+        let worker = Arc::clone(&self.worker);
+        let answers = self.answers.clone();
+        let lost = Job::SignIn {
+            id,
+            qualified: qualified.clone(),
+        };
+        let started = spawn(Box::new(move || {
+            signing_in(&worker, &answers, id, qualified, &told);
+        }));
+        if started.is_err() {
+            self.worker.sign_ins.end(id);
+            let _ = self.answers.send(Msg::Done(Answer::Lost(lost)));
+        }
+    }
 }
 
-fn lane(name: &str, worker: &Arc<Worker>, answers: &Sender<Msg>) -> Sender<Job> {
+/// A lane named `name`, which does `closing` once the actor has gone and its last job is
+/// done.
+fn lane(
+    name: &str,
+    worker: &Arc<Worker>,
+    answers: &Sender<Msg>,
+    closing: fn(&Worker),
+) -> Sender<Job> {
     let (jobs, taken) = channel::<Job>();
     let worker = Arc::clone(worker);
     let answers = answers.clone();
@@ -100,9 +176,180 @@ fn lane(name: &str, worker: &Arc<Worker>, answers: &Sender<Msg>) -> Sender<Job> 
                     break;
                 }
             }
+            closing(&worker);
         })
         .expect("the system starts a thread for one of the model's lanes");
     jobs
+}
+
+/// A sign-in on a thread of its own, as `Job::SignIn` starts one. Starting the tool can wait
+/// on the person's login shell, and reading what it says waits on a person in a browser.
+///
+/// Once the tool has stopped saying anything, it waits to be told whether to enrol what the
+/// tool signed in to, which only the sign-in still under way is. A sign-in that is not is
+/// stopped, which reaps a tool that ended by itself and stops one the model has gone from.
+fn signing_in(
+    worker: &Worker,
+    answers: &Sender<Msg>,
+    id: u64,
+    qualified: String,
+    told: &Receiver<bool>,
+) {
+    let tell = |answer| answers.send(Msg::Done(answer)).is_ok();
+    let session = match catch_unwind(AssertUnwindSafe(|| worker.core.sign_in(qualified.clone()))) {
+        Ok(Ok(session)) => session,
+        Ok(Err(error)) => {
+            tell(Answer::SignInStarted {
+                id,
+                started: Err(error),
+            });
+            return worker.sign_ins.end(id);
+        }
+        Err(_) => {
+            tell(Answer::Lost(Job::SignIn { id, qualified }));
+            return worker.sign_ins.end(id);
+        }
+    };
+    let enrol = worker.sign_ins.started(id, &session)
+        && tell(Answer::SignInStarted {
+            id,
+            started: Ok(()),
+        })
+        && {
+            // A read that stopped with a panic is taken as the tool having stopped saying
+            // anything, so the sign-in is still over, one way or the other.
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                while let Some(text) = session.next_line() {
+                    if !tell(Answer::SignInSaid { id, text }) {
+                        break;
+                    }
+                }
+            }));
+            // Too late to stop it from here: what it signed in to may be being enrolled.
+            worker.sign_ins.quiet(id);
+            tell(Answer::SignInQuiet { id })
+        }
+        && told.recv().unwrap_or(false);
+    if enrol {
+        let answer = match catch_unwind(AssertUnwindSafe(|| session.finish())) {
+            Ok(done) => Answer::SignInFinished { id, done },
+            Err(_) => Answer::Lost(Job::SignInOver { id, enrol: true }),
+        };
+        tell(answer);
+    } else {
+        session.cancel();
+        tell(Answer::Stopped);
+    }
+    worker.sign_ins.end(id);
+}
+
+/// The sign-ins under way, by id, which the actor's jobs and each sign-in's own thread
+/// share: the session to type a code back to and to stop, from when its tool has started
+/// until it stops saying anything, and the word its thread waits for after that.
+#[derive(Default)]
+pub(crate) struct SignIns {
+    held: Mutex<Held>,
+}
+
+#[derive(Default)]
+struct Held {
+    /// Set once the model has gone, after which a sign-in that starts is stopped at once.
+    closed: bool,
+    running: HashMap<u64, Running>,
+}
+
+struct Running {
+    session: Option<Arc<SignIn>>,
+    over: Option<Sender<bool>>,
+}
+
+impl SignIns {
+    fn held(&self) -> MutexGuard<'_, Held> {
+        // Every change here is whole whenever the lock is let go.
+        self.held
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The sign-in `id` is starting, and `over` is how its thread is told whether to enrol.
+    pub(crate) fn begin(&self, id: u64, over: Sender<bool>) {
+        self.held().running.insert(
+            id,
+            Running {
+                session: None,
+                over: Some(over),
+            },
+        );
+    }
+
+    /// The tool of the sign-in `id` has started as `session`, which a code can be typed back
+    /// to and which can be stopped from now on. False once the model has gone, when it is to
+    /// be stopped at once.
+    pub(crate) fn started(&self, id: u64, session: &Arc<SignIn>) -> bool {
+        let mut held = self.held();
+        if held.closed {
+            return false;
+        }
+        match held.running.get_mut(&id) {
+            Some(running) => {
+                running.session = Some(Arc::clone(session));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The tool of the sign-in `id` has stopped saying anything, and is no longer typed to or
+    /// stopped from outside.
+    pub(crate) fn quiet(&self, id: u64) {
+        if let Some(running) = self.held().running.get_mut(&id) {
+            running.session = None;
+        }
+    }
+
+    /// The session of the sign-in `id`, while a code can be typed back to it.
+    pub(crate) fn session(&self, id: u64) -> Option<Arc<SignIn>> {
+        self.held()
+            .running
+            .get(&id)
+            .and_then(|running| running.session.clone())
+    }
+
+    /// Tells the thread of the sign-in `id` whether to enrol what its tool signed in to.
+    pub(crate) fn tell(&self, id: u64, enrol: bool) {
+        let over = self
+            .held()
+            .running
+            .get_mut(&id)
+            .and_then(|running| running.over.take());
+        if let Some(over) = over {
+            let _ = over.send(enrol);
+        }
+    }
+
+    /// The thread of the sign-in `id` has ended.
+    pub(crate) fn end(&self, id: u64) {
+        self.held().running.remove(&id);
+    }
+
+    /// The model has gone: every sign-in still under way is stopped, and every thread
+    /// waiting to be told whether to enrol is told not to, by its word going.
+    pub(crate) fn close(&self) {
+        let stopping: Vec<Arc<SignIn>> = {
+            let mut held = self.held();
+            held.closed = true;
+            held.running
+                .values_mut()
+                .filter_map(|running| {
+                    running.over = None;
+                    running.session.take()
+                })
+                .collect()
+        };
+        for session in stopping {
+            session.cancel();
+        }
+    }
 }
 
 /// What every lane works with.
@@ -111,6 +358,7 @@ pub(crate) struct Worker {
     pub(crate) apps: Arc<dyn AppControl>,
     pub(crate) quit_within: Duration,
     pub(crate) quit_checked_every: Duration,
+    pub(crate) sign_ins: SignIns,
 }
 
 impl Worker {
@@ -173,6 +421,22 @@ impl Worker {
                 Answer::Opened
             }
             Job::Abandon => Answer::Abandoned(core.abandon_recovery()),
+            // Typed back as the Swift model typed it, whatever comes of it: the tool says
+            // itself whether it took the code.
+            Job::PasteCode { id, code } => {
+                if let Some(session) = self.sign_ins.session(id) {
+                    let _ = session.paste(code);
+                }
+                Answer::Pasted
+            }
+            Job::StopSignIn { id } => {
+                if let Some(session) = self.sign_ins.session(id) {
+                    session.cancel();
+                }
+                Answer::Stopped
+            }
+            // A sign-in runs on a thread of its own, and never here.
+            Job::SignIn { .. } | Job::SignInOver { .. } => Answer::Lost(job),
         }
     }
 }
@@ -277,6 +541,7 @@ mod tests {
             apps,
             quit_within: Duration::from_millis(50),
             quit_checked_every: Duration::from_millis(5),
+            sign_ins: SignIns::default(),
         }
     }
 
@@ -502,6 +767,188 @@ mod tests {
             QuitOutcome::StillRunning
         );
         assert!(unasked.is_running(CHATGPT));
+    }
+
+    /// A sign-in runs on a thread of its own, which is told whether to enrol, and a code typed
+    /// back and a stop run on the lane of sign-in calls, apart from it and from every other
+    /// lane: the thread waits on a browser, and the Swift model's SignInCalls ran each of
+    /// those calls apart from the one reading.
+    #[test]
+    fn a_sign_in_runs_on_a_thread_of_its_own() {
+        for job in [
+            Job::SignIn {
+                id: 1,
+                qualified: "claude/work".into(),
+            },
+            Job::SignInOver { id: 1, enrol: true },
+        ] {
+            assert_eq!(job.lane(), Lane::SignIn, "{job:?}");
+        }
+        for job in [
+            Job::PasteCode {
+                id: 1,
+                code: "c#s".into(),
+            },
+            Job::StopSignIn { id: 1 },
+        ] {
+            assert_eq!(job.lane(), Lane::SignInCalls, "{job:?}");
+        }
+    }
+
+    /// A sign-in's thread is told once whether to enrol. Once the model has gone, its word
+    /// goes, which tells it not to, and a sign-in whose tool starts after that is stopped as
+    /// it starts: nothing is left to say it is over.
+    #[test]
+    #[cfg(unix)]
+    fn a_sign_in_is_told_once_and_let_go_once_the_model_has_gone() {
+        let sign_ins = SignIns::default();
+        let (tell, told) = channel();
+        sign_ins.begin(1, tell);
+        sign_ins.tell(1, true);
+        sign_ins.tell(1, false);
+        assert_eq!(told.try_recv(), Ok(true));
+        assert!(told.try_recv().is_err(), "told once");
+
+        let mut world = World::new("let-go");
+        let claude = world.claude_stand_in();
+        let core = world.core();
+        let (tell, told) = channel();
+        sign_ins.begin(2, tell);
+        let session = core
+            .sign_in("claude/travel".into())
+            .expect("the stand-in starts");
+        assert!(sign_ins.started(2, &session));
+        assert!(sign_ins.session(2).is_some());
+        sign_ins.quiet(2);
+        assert!(
+            sign_ins.session(2).is_none(),
+            "nothing typed to or stopped once quiet"
+        );
+
+        let (tell_late, told_late) = channel();
+        sign_ins.begin(3, tell_late);
+        sign_ins.close();
+        assert!(told.recv().is_err(), "let go");
+        assert!(told_late.recv().is_err(), "let go before it started");
+        assert!(!sign_ins.started(3, &session), "stopped as it starts");
+        session.cancel();
+        let stopped = Instant::now();
+        while claude.is_running() {
+            assert!(
+                stopped.elapsed() < Duration::from_secs(20),
+                "the stand-in stopped"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// A sign-in whose thread the system cannot start comes to nothing, as one whose thread
+    /// stops with a panic does, which the model says as a failure. It starts on the actor's
+    /// own thread, where a panic stopped the model, which answered no intent after it, and
+    /// nothing is left waiting to be told whether to enrol.
+    #[test]
+    fn a_sign_in_whose_thread_cannot_start_comes_to_nothing() {
+        let world = World::new("no-thread");
+        let (answers, answered) = channel();
+        let lanes = Lanes::open(
+            world.core(),
+            StandInApps::new(&[], true),
+            Cadence::APP,
+            &answers,
+        );
+        let refused = catch_unwind(AssertUnwindSafe(|| {
+            lanes.start_sign_in(1, "claude/travel".into(), |_| {
+                Err(std::io::Error::other("no thread left"))
+            });
+        }));
+        assert!(refused.is_ok(), "the actor's thread goes on");
+        let answer = answered
+            .recv_timeout(Duration::from_secs(20))
+            .expect("an answer");
+        assert!(
+            matches!(
+                &answer,
+                Msg::Done(Answer::Lost(Job::SignIn { id: 1, qualified }))
+                    if qualified == "claude/travel"
+            ),
+            "{answer:?}"
+        );
+        assert!(
+            lanes.worker.sign_ins.held().running.is_empty(),
+            "nothing left waiting"
+        );
+    }
+
+    /// A code typed back and a stop reach a sign-in only while its tool has started and is
+    /// saying something: before, there is nothing to reach, and after, what it signed in to
+    /// may be being enrolled.
+    #[test]
+    #[cfg(unix)]
+    fn a_code_and_a_stop_reach_only_a_tool_that_has_started_and_still_speaks() {
+        let mut world = World::new("reach");
+        let claude = world.claude_stand_in();
+        let core = world.core();
+        let worker = worker(Arc::clone(&core), StandInApps::new(&[], true));
+        let (tell, _told) = channel();
+        worker.sign_ins.begin(1, tell);
+        let paste = Job::PasteCode {
+            id: 1,
+            code: "the-code#the-state".into(),
+        };
+        assert!(matches!(worker.work(paste.clone()), Answer::Pasted));
+
+        let session = core
+            .sign_in("claude/travel".into())
+            .expect("the stand-in starts");
+        assert!(worker.sign_ins.started(1, &session));
+        let mut said = String::new();
+        while !said.contains("Paste code") {
+            said.push_str(&session.next_line().expect("the stand-in's prompt"));
+        }
+        assert!(matches!(worker.work(paste), Answer::Pasted));
+        let typed = Instant::now();
+        while claude.typed().is_empty() {
+            assert!(
+                typed.elapsed() < Duration::from_secs(20),
+                "typed to the tool"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            claude.typed(),
+            ["the-code#the-state"],
+            "the one typed once it started"
+        );
+        // Stops the stand-in, which ends once it has taken the code, and reaps it.
+        session.cancel();
+
+        // In a home of its own: the core's one sign-in at a time is a file lock, which can
+        // outlive the cancel above for as long as a process another test starts meanwhile
+        // takes to run its program, as ARCHITECTURE.md's Measured facts say.
+        let mut stopping = World::new("reach-stop");
+        let claude = stopping.claude_stand_in();
+        let session = stopping
+            .core()
+            .sign_in("claude/again".into())
+            .expect("the stand-in starts");
+        assert!(worker.sign_ins.started(1, &session));
+        assert!(matches!(
+            worker.work(Job::StopSignIn { id: 1 }),
+            Answer::Stopped
+        ));
+        let stopped = Instant::now();
+        while claude.is_running() {
+            assert!(
+                stopped.elapsed() < Duration::from_secs(20),
+                "the stand-in stopped"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        worker.sign_ins.quiet(1);
+        assert!(matches!(
+            worker.work(Job::StopSignIn { id: 1 }),
+            Answer::Stopped
+        ));
     }
 
     /// An app is opened again through the app's own code, where `running` said it was, and

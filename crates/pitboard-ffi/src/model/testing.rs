@@ -6,8 +6,8 @@ use super::lanes;
 use super::state::{Answer, Cadence, Job, Msg, Now, State};
 use super::{AppControl, Intent, PlatformError, Snapshot};
 use crate::{
-    Abandoned, Account, Adoption, Holding, Limit, Made, Pitboard, PitboardError, Remedy, Source,
-    Status, Switch, Switched, Tool, Usage, Warning,
+    Abandoned, Account, Adoption, Enrolled, EnrolledAs, Holding, Limit, Made, Pitboard,
+    PitboardError, Remedy, Source, Status, Switch, Switched, Tool, Usage, Warning,
 };
 use pitboard_core::context::Context;
 use pitboard_core::provider::ProviderId;
@@ -160,6 +160,18 @@ pub(super) fn already_active(label: &str, warnings: Vec<Warning>) -> Result<Swit
         outcome: Switch::AlreadyActive {
             label: label.into(),
         },
+        warnings,
+    })
+}
+
+/// What a sign-in enrolled, as the core reports it.
+pub(super) fn enrolled_as(
+    outcome: EnrolledAs,
+    warnings: Vec<Warning>,
+) -> Result<Enrolled, Refusal> {
+    Ok(Enrolled {
+        email: "w@example.com".into(),
+        outcome,
         warnings,
     })
 }
@@ -332,7 +344,7 @@ pub(super) struct Refusal {
 }
 
 impl Refusal {
-    fn error(&self) -> PitboardError {
+    pub(super) fn error(&self) -> PitboardError {
         PitboardError::Failed {
             code: self.code.clone(),
             cause: None,
@@ -386,6 +398,18 @@ pub(super) struct Machine {
     pub apps: Arc<StandInApps>,
     /// What giving up on an interrupted switch gives.
     pub abandoned: Result<Option<Abandoned>, Refusal>,
+    /// What starting a sign-in's tool gives.
+    pub starting: Result<(), Refusal>,
+    /// What enrolling what a sign-in signed in to gives.
+    pub enrolling: Result<Enrolled, Refusal>,
+    /// Every sign-in started, as the model named the account.
+    pub signed_in: Vec<String>,
+    /// Every code typed back, to which sign-in.
+    pub pasted: Vec<(u64, String)>,
+    /// Every sign-in whose tool was stopped from outside.
+    pub stopped: Vec<u64>,
+    /// Every sign-in told whether to enrol, with what it was told.
+    pub over: Vec<(u64, bool)>,
 }
 
 impl Machine {
@@ -401,6 +425,12 @@ impl Machine {
             held: HashMap::new(),
             apps: StandInApps::new(&[], true),
             abandoned: Ok(None),
+            starting: Ok(()),
+            enrolling: enrolled_as(EnrolledAs::SignedIn, Vec::new()),
+            signed_in: Vec::new(),
+            pasted: Vec::new(),
+            stopped: Vec::new(),
+            over: Vec::new(),
         }
     }
 
@@ -462,6 +492,34 @@ impl Machine {
             }
             Job::Abandon => {
                 Answer::Abandoned(self.abandoned.clone().map_err(|refused| refused.error()))
+            }
+            // A sign-in's thread answers once its tool has started, as here, then with what
+            // the tool says, which a test hands on itself, and once it has stopped.
+            Job::SignIn { id, qualified } => {
+                self.signed_in.push(qualified);
+                Answer::SignInStarted {
+                    id,
+                    started: self.starting.clone().map_err(|refused| refused.error()),
+                }
+            }
+            Job::PasteCode { id, code } => {
+                self.pasted.push((id, code));
+                Answer::Pasted
+            }
+            Job::StopSignIn { id } => {
+                self.stopped.push(id);
+                Answer::Stopped
+            }
+            Job::SignInOver { id, enrol } => {
+                self.over.push((id, enrol));
+                if enrol {
+                    Answer::SignInFinished {
+                        id,
+                        done: self.enrolling.clone().map_err(|refused| refused.error()),
+                    }
+                } else {
+                    Answer::Stopped
+                }
             }
         }
     }
@@ -711,11 +769,88 @@ impl World {
             .expect("the account signed in privately, enrolled");
     }
 
+    /// A stand-in for `claude`, a script of the test's own that this machine's core runs as
+    /// `claude auth login` from now on. It writes what 2.1.289 writes before it opens the
+    /// browser, then reads each line typed back as the register's `sign_in_output` and
+    /// `sign_in_takes_another_code` hold: one that is not `<code>#<state>` with both halves it
+    /// refuses on stderr and reads on, and the first that is it takes, and ends signed in. It
+    /// stores no login: `signed_in_privately` plants the one it would have. Only the shell's
+    /// own commands run in it, so nothing it starts outlives it holding its output open. A
+    /// shell script, so it runs only where `/bin/sh` does, and so do the tests that use it.
+    #[cfg(unix)]
+    pub(super) fn claude_stand_in(&mut self) -> StandIn {
+        let bin = self.root.join("bin");
+        std::fs::create_dir_all(&bin).expect("a scratch bin");
+        let stand_in = StandIn {
+            pid: self.root.join("claude.pid"),
+            typed: self.root.join("claude.typed"),
+        };
+        let program = bin.join("claude");
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\n\
+                 [ \"$1 $2\" = \"auth login\" ] || exit 64\n\
+                 echo $$ > '{pid}'\n\
+                 printf 'Opening browser to sign in\u{2026}\\n'\n\
+                 printf \"If the browser didn't open, visit: \
+                 https://claude.com/cai/oauth/authorize?code=true&state=s\\n\"\n\
+                 printf 'Paste code here if prompted > '\n\
+                 while IFS= read -r line; do\n\
+                 \x20 printf '%s\\n' \"$line\" >> '{typed}'\n\
+                 \x20 case \"$line\" in\n\
+                 \x20   ?*'#'?*) printf 'Login successful.\\n'; exit 0 ;;\n\
+                 \x20   *) printf 'Invalid code. Please make sure the full code was copied.\\n' >&2 ;;\n\
+                 \x20 esac\n\
+                 done\n\
+                 exit 1\n",
+                pid = stand_in.pid.display(),
+                typed = stand_in.typed.display(),
+            ),
+        )
+        .expect("the stand-in");
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+                .expect("a stand-in that runs");
+        }
+        self.ctx = self.ctx.clone().with_claude_program(program);
+        stand_in
+    }
+
+    /// `who` signed in to Claude Code privately, as `claude auth login` leaves it for Pitboard:
+    /// a login stored in the keychain item Claude Code makes for Pitboard's private sign-in
+    /// directory, with Anthropic scripted to say whose it is and that its five-hour window is
+    /// `percent` used. `access` names its access token, so a new login of an account already
+    /// here can be told from the one it has. Planted once the sign-in has started, since
+    /// starting one clears whatever a sign-in before it left there.
+    #[cfg(unix)]
+    pub(super) fn signed_in_privately(&self, who: &str, access: &str, percent: f64) {
+        let dir = self.root.join(".pitboard").join("signin");
+        let service = pitboard_core::testing::service_for_dir(&dir.to_string_lossy());
+        let login = self.claude_login_as(who, access, percent);
+        self.host.live().plant(&service, &login);
+    }
+
+    /// Whether the login Claude Code has in use is the one whose access token is `access`.
+    #[cfg(unix)]
+    pub(super) fn claude_code_uses(&self, access: &str) -> bool {
+        self.host
+            .live()
+            .peek(&live_service(&self.ctx))
+            .is_some_and(|login| login.contains(&format!("\"accessToken\":\"{access}\"")))
+    }
+
     /// A Claude Code login of `who`, in the shape Claude Code stores one, with Anthropic
     /// scripted to say whose it is and that its five-hour window is `percent` used.
     fn claude_login(&self, who: &str, percent: f64) -> String {
+        self.claude_login_as(who, &format!("access-{who}"), percent)
+    }
+
+    /// The same, with its access token named `access`.
+    fn claude_login_as(&self, who: &str, access: &str, percent: f64) -> String {
         let now = epoch_now();
-        let access = format!("access-{who}");
+        let access = access.to_owned();
         self.api.owned_by(
             &access,
             pitboard_core::api::Owner {
@@ -825,6 +960,40 @@ impl World {
             .expect("when it was written");
         file.set_modified(written + Duration::from_secs(seconds))
             .expect("a later time");
+    }
+}
+
+/// What a test's stand-in for `claude` left: its process id, and every line typed back to it.
+#[cfg(unix)]
+pub(super) struct StandIn {
+    pid: PathBuf,
+    typed: PathBuf,
+}
+
+#[cfg(unix)]
+impl StandIn {
+    /// Every line typed back to it, in order.
+    pub(super) fn typed(&self) -> Vec<String> {
+        std::fs::read_to_string(&self.typed)
+            .map(|typed| typed.lines().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+
+    /// Whether the last one started is still running, as the shell's own `kill -0` says of
+    /// the process id it wrote, which is never this test's or anybody else's to stop.
+    pub(super) fn is_running(&self) -> bool {
+        let Ok(pid) = std::fs::read_to_string(&self.pid) else {
+            return false;
+        };
+        let pid = pid.trim();
+        assert!(
+            !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()),
+            "{pid:?}"
+        );
+        std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("kill -0 {pid} 2>/dev/null")])
+            .status()
+            .is_ok_and(|status| status.success())
     }
 }
 

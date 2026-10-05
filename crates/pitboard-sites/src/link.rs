@@ -4,6 +4,14 @@ use crate::address;
 use crate::site::{ALL, Conjunction, Site};
 use std::fmt;
 
+/// `text` without the white space around it, as the macOS app took it away from what was
+/// typed or shared with Foundation's `whitespacesAndNewlines`: Unicode's White_Space, and
+/// U+200B ZERO WIDTH SPACE, which was a space until Unicode 4.0.1. Measured on macOS 27 over
+/// every scalar.
+pub fn trimmed(text: &str) -> &str {
+    text.trim_matches(|c: char| c.is_whitespace() || c == '\u{200b}')
+}
+
 /// A link one of the sites opens: the site, and the address its window loads.
 ///
 /// Made only by checking a link from outside the app, so holding one means the check passed.
@@ -44,10 +52,7 @@ impl SiteLink {
     /// The link is read as Foundation's `URLComponents` reads it, which is how the macOS app
     /// read it before this rule was Rust: see the `address` module.
     pub fn parse(text: &str) -> Result<SiteLink, LinkRefusal> {
-        // Foundation's `whitespacesAndNewlines`: Unicode's White_Space, and U+200B ZERO
-        // WIDTH SPACE, which was a space until Unicode 4.0.1. Measured on macOS 27 over every
-        // scalar.
-        let trimmed = text.trim_matches(|c: char| c.is_whitespace() || c == '\u{200b}');
+        let trimmed = trimmed(text);
         if trimmed.chars().count() > Self::LONGEST {
             return Err(LinkRefusal::TooLong);
         }

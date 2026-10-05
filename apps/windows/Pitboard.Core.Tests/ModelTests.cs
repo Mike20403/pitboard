@@ -52,7 +52,8 @@ public sealed class ModelTests
             Status: new Status(At, [work], []), Warnings: [], ReadFailure: null, Stuck: false,
             Installed: [PitboardFfiMethods.Tools()[0]], SwitchUnderWay: null, QuitQuestion: null,
             LastSwitches: [], Abandoned: null, Failure: null,
-            WindowRequest: new WindowRequest(Serial: 0, Pane: null));
+            WindowRequest: new WindowRequest(Serial: 0, Pane: null),
+            SigningIn: null, Sheet: null, SheetFailure: null);
     }
 
     /// <summary>
@@ -181,7 +182,7 @@ public sealed class ModelTests
         var stillRunning = new Warning("sessions_still_running", "2 `codex` sessions are still running");
         var switched = new LastSwitch(
             Provider: "codex", To: "codex/work", FollowsAt: null,
-            Restart: new RestartNeeded(Program: "codex", From: "personal"), Warnings: [stillRunning]);
+            Restart: new RestartNeeded(Program: "codex", From: "personal"), Said: null, Warnings: [stillRunning]);
         var snapshot = Read(4) with
         {
             SwitchUnderWay = "codex/spare",
@@ -204,6 +205,88 @@ public sealed class ModelTests
         Assert.AreEqual(Pane.Accounts, snapshot.WindowRequest.Pane);
         Assert.AreEqual(new WindowRequest(3, Pane.Accounts), snapshot.WindowRequest);
         Assert.AreEqual(new RestartNeeded("codex", "personal"), switched.Restart);
+    }
+
+    /// <summary>
+    /// A sign-in is asked for by the tool and the name, a code is typed back as text, and
+    /// cancelling and closing a sheet carry nothing. The intent that signs in is a variant of
+    /// its own, which the exported SignIn object is not.
+    /// </summary>
+    [TestMethod]
+    public void AnIntentToSignInCarriesWhatItIsAbout()
+    {
+        Intent[] intents =
+        [
+            new Intent.SignIn(Provider: "claude", Name: "travel"), new Intent.PasteCode(Code: "the-code#the-state"),
+            new Intent.CancelSignIn(), new Intent.PresentSheet(Sheet: new Sheet.Add(Provider: null)),
+            new Intent.CloseSheet(),
+        ];
+
+        Assert.AreEqual<Intent>(new Intent.SignIn("claude", "travel"), intents[0]);
+        Assert.AreNotEqual<Intent>(new Intent.SignIn("codex", "travel"), intents[0]);
+        Assert.AreEqual("travel", intents.OfType<Intent.SignIn>().Single().Name);
+        Assert.AreEqual("the-code#the-state", intents.OfType<Intent.PasteCode>().Single().Code);
+        Assert.AreEqual<Intent>(new Intent.PresentSheet(new Sheet.Add(null)), intents[3]);
+        Assert.AreNotEqual<Intent>(new Intent.PresentSheet(new Sheet.Add("codex")), intents[3]);
+        Assert.AreEqual(1, intents.OfType<Intent.CancelSignIn>().Count());
+        Assert.AreNotEqual(typeof(SignIn), typeof(Intent.SignIn));
+    }
+
+    /// <summary>
+    /// A sheet is a variant with what it is about, and two of the same are equal, which decides
+    /// whether a sheet put up keeps what went wrong in the one up: the same one does, another
+    /// does not.
+    /// </summary>
+    [TestMethod]
+    public void ASheetIsAVariantWithWhatItIsAbout()
+    {
+        Sheet[] sheets =
+        [
+            new Sheet.Add(Provider: "codex"), new Sheet.SignInAgain(Provider: "claude", Label: "work"),
+            new Sheet.Name(Provider: "codex", Email: "c@example.com"), new Sheet.Rename(Provider: "claude", Label: "home"),
+        ];
+
+        Assert.AreEqual<Sheet>(new Sheet.Add("codex"), sheets[0]);
+        Assert.AreNotEqual<Sheet>(new Sheet.Add(null), sheets[0]);
+        Assert.AreEqual("work", sheets.OfType<Sheet.SignInAgain>().Single().Label);
+        Assert.AreEqual("c@example.com", sheets.OfType<Sheet.Name>().Single().Email);
+        Assert.AreNotEqual<Sheet>(new Sheet.Rename("claude", "work"), sheets[3]);
+    }
+
+    /// <summary>
+    /// A snapshot carries a sign-in under way, with what its tool said, the address to open and
+    /// whether a code is wanted, and refused; the sheet over the window, and what went wrong in
+    /// it; and what a sign-in to the account in use said, as its tool's last switch.
+    /// </summary>
+    [TestMethod]
+    public void ASnapshotCarriesASignInAndItsSheet()
+    {
+        var running = new RunningSignIn(
+            Id: 3, Provider: "claude", Name: "travel",
+            Said: "Paste code here if prompted > Invalid code. Please make sure the full code was copied.\n",
+            Url: "https://claude.com/cai/oauth/authorize?code=true", WantsCode: true, CodeRefused: true);
+        var signedIn = new LastSwitch(
+            Provider: "claude", To: "work", FollowsAt: null, Restart: null,
+            Said: "Signed in to work again. Its new login is the one in use now.", Warnings: []);
+        var snapshot = Read(5) with
+        {
+            SigningIn = running,
+            Sheet = new Sheet.SignInAgain(Provider: "claude", Label: "work"),
+            SheetFailure = new Failure(
+                Id: 4, Title: "Couldn’t sign in to work", Message: "`claude` is not on this machine",
+                Code: "claude_program_missing", Warnings: []),
+            LastSwitches = [signedIn],
+        };
+
+        Assert.AreEqual(3UL, snapshot.SigningIn?.Id);
+        Assert.IsTrue(snapshot.SigningIn?.WantsCode);
+        Assert.IsTrue(snapshot.SigningIn?.CodeRefused);
+        Assert.AreEqual("https://claude.com/cai/oauth/authorize?code=true", snapshot.SigningIn?.Url);
+        Assert.AreEqual(running, snapshot.SigningIn);
+        Assert.AreEqual<Sheet?>(new Sheet.SignInAgain("claude", "work"), snapshot.Sheet);
+        Assert.AreEqual("claude_program_missing", snapshot.SheetFailure?.Code);
+        Assert.AreEqual("Signed in to work again. Its new login is the one in use now.", snapshot.LastSwitches[0].Said);
+        Assert.IsNull(Read(5).SigningIn);
     }
 
     /// <summary>

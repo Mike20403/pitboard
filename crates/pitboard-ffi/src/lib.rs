@@ -29,7 +29,8 @@ pub use sites::{
 mod model;
 pub use model::{
     AppControl, AppLaunch, Failure, Intent, LastSwitch, ModelListener, Pane, PitboardModel,
-    PlatformError, QuitQuestion, ReadFailure, RestartNeeded, Snapshot, WindowRequest,
+    PlatformError, QuitQuestion, ReadFailure, RestartNeeded, RunningSignIn, Sheet, Snapshot,
+    WindowRequest,
 };
 
 mod account_windows;
@@ -535,7 +536,7 @@ pub struct Switched {
     pub warnings: Vec<Warning>,
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum EnrolledAs {
     /// The account signed in now.
     Current,
@@ -550,7 +551,7 @@ pub enum EnrolledAs {
 
 /// What enrolling an account came to. Its outcome is not named `enrolled`: C# gives a
 /// record's fields to its members, and a member may not share its record's name.
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Enrolled {
     pub email: String,
     pub outcome: EnrolledAs,

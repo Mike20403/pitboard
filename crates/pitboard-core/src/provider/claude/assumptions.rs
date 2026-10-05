@@ -275,6 +275,34 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         absent: &[],
     },
     Assumption {
+        name: "sign_in_takes_another_code",
+        fact: "`claude auth login` reads each line typed back while it waits, trims it and \
+               splits it at `#`. A line that is not `<code>#<state>` with both halves it \
+               refuses by writing `Invalid code. Please make sure the full code was copied.` \
+               and a newline to stderr, and it goes on reading in the same process, printing \
+               no prompt again, so another line can be typed back. The first line with both \
+               halves it takes, whatever its state half says. After that it still refuses a \
+               line without both halves, and ignores one with them; a code the token exchange \
+               then refuses ends the sign-in with `Login failed: ` on stderr and exit status 1",
+        read_from: "the `auth login` command's handler for each line read from stdin, which \
+                    trims and splits the line and refuses it before it looks at whether a code \
+                    was taken, returns after the refusal and leaves the line reader open, and \
+                    the OAuth service's `waitForAuthorizationCode` and \
+                    `handleManualAuthCodeInput`, which takes a code only while its resolver is \
+                    set, hands on the code half alone and clears the resolver",
+        // Read on 2026-10-05 from the Windows arm64 build's sources and the macOS and Linux
+        // builds of 2.1.289, all of which hold every literal below; 2.1.110 holds none.
+        verified_against: "2.1.289",
+        depends: "provider::claude::engine's refused_code, and the app model offering the \
+                  code field again once Claude Code has refused a code",
+        probe: &[
+            // The refusal, then the handler returning rather than ending the process.
+            "Invalid code. Please make sure the full code was copied.\n`);return}",
+            "if(this.manualAuthCodeResolver)this.authorizationCodeReceived=!0",
+        ],
+        absent: &[],
+    },
+    Assumption {
         name: "install_places",
         fact: "the native installer puts its launcher at `~/.local/bin/claude`, and says so \
                when that directory is not on `PATH`; a global npm install puts `claude` in \

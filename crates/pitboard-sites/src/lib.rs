@@ -21,6 +21,6 @@ mod site;
 mod web;
 
 pub use handoff::{pitboard_link, read_pitboard_link};
-pub use link::{LinkRefusal, SiteLink};
+pub use link::{LinkRefusal, SiteLink, trimmed};
 pub use site::{ALL, CHATGPT, CLAUDE, Conjunction, Site, listed};
 pub use web::WebAddress;
