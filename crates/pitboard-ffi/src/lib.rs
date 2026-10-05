@@ -28,9 +28,9 @@ pub use sites::{
 
 mod model;
 pub use model::{
-    AppControl, AppLaunch, Failure, Intent, LastSwitch, LocalTime, ModelListener, Notifications,
-    Pane, PitboardModel, PlatformError, QuitQuestion, ReadFailure, RestartNeeded, RunOutNotice,
-    RunningSignIn, Sheet, Snapshot, WindowRequest,
+    AppControl, AppLaunch, EarlierPreferences, Failure, Intent, LastSwitch, LocalTime,
+    ModelListener, Notifications, Pane, PitboardModel, PlatformError, QuitQuestion, ReadFailure,
+    RestartNeeded, RunOutNotice, RunningSignIn, Sheet, Snapshot, WindowRequest,
 };
 
 mod present;

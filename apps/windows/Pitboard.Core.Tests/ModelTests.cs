@@ -404,22 +404,32 @@ public sealed class ModelTests
     }
 
     /// <summary>
-    /// What the app was started with goes in as it was given: the environment, and the folder
-    /// the app is in.
+    /// What the app was started with goes in as it was given: the environment, the folder the
+    /// app is in, and its preferences as an earlier store held them, which an app with none
+    /// leaves out.
     /// </summary>
     [TestMethod]
     public void TheAppsLaunchIsItsEnvironmentAndWhereItIs()
     {
         var launch = new AppLaunch(
             new Dictionary<string, string> { ["USERPROFILE"] = @"C:\Users\x" }, @"C:\Program Files\Pitboard");
+        var moved = launch with
+        {
+            EarlierPreferences = new EarlierPreferences(
+                SecondAccountDeclined: ["codex"], HasBeenSeen: true, SecondAccountNudgeHidden: false),
+        };
 
         Assert.AreEqual(@"C:\Users\x", launch.Environment["USERPROFILE"]);
         Assert.AreEqual(@"C:\Program Files\Pitboard", launch.AppLocation);
+        Assert.IsNull(launch.EarlierPreferences);
+        Assert.AreEqual("codex", moved.EarlierPreferences?.SecondAccountDeclined.Single());
+        Assert.IsTrue(moved.EarlierPreferences?.HasBeenSeen);
     }
 
     /// <summary>
     /// The window is asked for by an intent, on a pane or none, and a failure it said is put
-    /// away by one; naming, renaming and forgetting carry what they are about.
+    /// away by one; naming, renaming, forgetting and declining a second account carry what
+    /// they are about.
     /// </summary>
     [TestMethod]
     public void AnIntentForTheWindowOrAnAccountCarriesWhatItIsAbout()
@@ -429,7 +439,7 @@ public sealed class ModelTests
             new Intent.ShowWindow(Pane: Pane.Machine), new Intent.ShowWindow(Pane: null), new Intent.DismissFailure(),
             new Intent.Enrol(Provider: "codex", Name: "job"),
             new Intent.Rename(Provider: "claude", Label: "work", To: "office"),
-            new Intent.Forget(Qualified: "claude/spare"),
+            new Intent.Forget(Qualified: "claude/spare"), new Intent.DeclineSecondAccount(Provider: "codex"),
         ];
 
         Assert.AreEqual<Intent>(new Intent.ShowWindow(Pane.Machine), intents[0]);
@@ -439,6 +449,7 @@ public sealed class ModelTests
         Assert.AreEqual("office", intents.OfType<Intent.Rename>().Single().To);
         Assert.AreEqual("claude/spare", intents.OfType<Intent.Forget>().Single().Qualified);
         Assert.AreEqual(1, intents.OfType<Intent.DismissFailure>().Count());
+        Assert.AreEqual("codex", intents.OfType<Intent.DeclineSecondAccount>().Single().Provider);
     }
 
     /// <summary>

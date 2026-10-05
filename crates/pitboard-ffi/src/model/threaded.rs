@@ -145,6 +145,7 @@ fn platform(apps: Arc<dyn AppControl>) -> Platform {
         apps,
         notifications: Arc::new(Posted::default()),
         local_time: Arc::new(Utc),
+        earlier: None,
     }
 }
 
@@ -967,6 +968,7 @@ fn model_telling_time(
             apps: StandInApps::new(&[], true),
             notifications: Arc::new(Posted::default()),
             local_time: Arc::clone(clock) as Arc<dyn LocalTime>,
+            earlier: None,
         },
         cadence,
     );
@@ -1108,6 +1110,7 @@ fn model_posting(
             apps: StandInApps::new(&[], true),
             notifications: Arc::clone(posted) as Arc<dyn super::Notifications>,
             local_time: Arc::new(Utc),
+            earlier: None,
         },
         QUICK,
     );
@@ -1165,4 +1168,93 @@ fn a_run_out_is_notified_once_across_a_relaunch() {
     });
     assert!(unposted.posted().is_empty(), "notified before the relaunch");
     reopened.shutdown();
+}
+
+/// An `app.json` that is there and cannot be read, here a directory where the file goes, is
+/// left as it is on the real core, and is not taken for a first launch: the window is not
+/// asked for. Taken as no file, as it was while any failure to read it read as none, the
+/// model opened the window and kept the defaults in its place.
+#[test]
+fn preferences_that_cannot_be_read_are_not_a_first_launch() {
+    let world = World::new("prefs-unreadable");
+    world.enrolled("work", "here", 100.0);
+    world.parked("spare", "there", 10.0);
+    let file = world.pitboard_dir().join("app.json");
+    std::fs::create_dir_all(&file).expect("a directory where the file goes");
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    // Advice waits for what the model keeps, so once it is shown the preferences are in.
+    let shown = told.until("the advice", advised);
+    assert_eq!(
+        shown.last().expect("a snapshot").window_request.serial,
+        0,
+        "not opened as though for the first time"
+    );
+    model.shutdown();
+    assert!(file.is_dir(), "left as it was");
+}
+
+/// The app's preferences are kept in Pitboard's directory on the real core, as the core keeps
+/// its own files, and so they follow it: a "Not Now" said over one machine's directory says
+/// nothing in another's, which takes what the app's earlier store held, once. The Swift kept
+/// them in UserDefaults, one store for every Pitboard directory: the owner's decision moved
+/// them.
+#[test]
+fn the_apps_preferences_follow_its_pitboard_directory() {
+    let one = World::new("prefs-one");
+    one.enrolled("work", "here", 10.0);
+    let told = Arc::new(Told::default());
+    let first_model = model(&one.core(), &told);
+    first_model.send(Intent::Start);
+    let nudged = |told: &[Snapshot]| {
+        told.last()
+            .is_some_and(|last| !last.reading && last.setup.is_some())
+    };
+    let first = told.until("the nudge", nudged);
+    let last = first.last().expect("a snapshot");
+    assert_eq!(
+        last.window_request.serial, 1,
+        "the first launch opens the window"
+    );
+    first_model.send(Intent::DeclineSecondAccount {
+        provider: "claude".into(),
+    });
+    told.until("the nudge declined", |told| {
+        told.last().is_some_and(|last| last.setup.is_none())
+    });
+    let kept = one.pitboard_dir().join("app.json");
+    eventually("the preferences kept", || {
+        std::fs::read_to_string(&kept).is_ok_and(|text| {
+            text == r#"{"second_account_declined":["claude"],"has_been_seen":true}"#
+        })
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&kept).expect("kept").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "private, as the core's own files are");
+    }
+    first_model.shutdown();
+
+    // Opened again over the same directory, it reads them back: no nudge, and no window.
+    let reopened = Arc::new(Told::default());
+    let again = model(&one.core(), &reopened);
+    again.send(Intent::Start);
+    let told = reopened.until("the account read again", |told| {
+        told.last()
+            .is_some_and(|last| !last.reading && last.status.is_some())
+    });
+    let last = told.last().expect("a snapshot");
+    assert_eq!(last.setup, None, "declined, as kept");
+    assert_eq!(last.window_request.serial, 0, "seen, as kept");
+    again.shutdown();
+
+    let other = World::new("prefs-other");
+    other.enrolled("work", "here", 10.0);
+    let elsewhere = Arc::new(Told::default());
+    let again = model(&other.core(), &elsewhere);
+    again.send(Intent::Start);
+    elsewhere.until("the nudge, in another directory", nudged);
+    again.shutdown();
 }

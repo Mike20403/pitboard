@@ -18,8 +18,9 @@
 //! the actor has gone, that lane stops every sign-in still under way, so each thread ends.
 
 use super::advice::Told;
+use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, QuitOutcome, split};
-use super::{AppControl, ModelListener, Notifications, QuitQuestion, Snapshot};
+use super::{AppControl, EarlierPreferences, ModelListener, Notifications, QuitQuestion, Snapshot};
 use crate::{Holding, Pitboard, Remedy, SignIn};
 use pitboard_core::app::AppFile;
 use std::collections::HashMap;
@@ -60,7 +61,7 @@ impl Job {
             Job::AskInstalled => Lane::Discovery,
             Job::SignIn { .. } | Job::SignInOver { .. } => Lane::SignIn,
             Job::PasteCode { .. } | Job::StopSignIn { .. } => Lane::SignInCalls,
-            Job::LoadKept | Job::KeepTold { .. } => Lane::Kept,
+            Job::LoadKept | Job::KeepTold { .. } | Job::KeepPreferences { .. } => Lane::Kept,
             Job::Post { .. } => Lane::Notify,
         }
     }
@@ -87,6 +88,7 @@ impl Lanes {
         core: Arc<Pitboard>,
         apps: Arc<dyn AppControl>,
         notifications: Arc<dyn Notifications>,
+        earlier: Option<EarlierPreferences>,
         cadence: Cadence,
         answers: &Sender<Msg>,
     ) -> Lanes {
@@ -94,6 +96,7 @@ impl Lanes {
             core,
             apps,
             notifications,
+            earlier,
             quit_within: cadence.quit_within,
             quit_checked_every: cadence.quit_checked_every,
             sign_ins: SignIns::default(),
@@ -377,6 +380,7 @@ pub(crate) struct Worker {
     pub(crate) core: Arc<Pitboard>,
     pub(crate) apps: Arc<dyn AppControl>,
     pub(crate) notifications: Arc<dyn Notifications>,
+    pub(crate) earlier: Option<EarlierPreferences>,
     pub(crate) quit_within: Duration,
     pub(crate) quit_checked_every: Duration,
     pub(crate) sign_ins: SignIns,
@@ -474,7 +478,8 @@ impl Worker {
             // Nothing kept, a record that is there and cannot be read, and one that does not
             // read as a record of what was told, are each nothing told. The record is written
             // whole the next time something is told, over one that could not be read too: at
-            // worst a run-out is notified once more.
+            // worst a run-out is notified once more. Preferences that are there and cannot be
+            // read are not none: they are left as they are, and never written over unread.
             Job::LoadKept => Answer::Kept {
                 told: core
                     .app_file(AppFile::Told)
@@ -482,7 +487,17 @@ impl Worker {
                     .flatten()
                     .and_then(|text| serde_json::from_str::<Told>(&text).ok())
                     .unwrap_or_default(),
+                preferences: core
+                    .app_file(AppFile::Preferences)
+                    .ok()
+                    .map(|text| Preferences::kept(text.as_deref(), self.earlier.as_ref())),
             },
+            Job::KeepPreferences { preferences } => {
+                if let Some(body) = preferences.text() {
+                    let _ = core.keep_app_file(AppFile::Preferences, &body);
+                }
+                Answer::Saved
+            }
             Job::KeepTold { told } => {
                 if let Ok(body) = serde_json::to_string(&told) {
                     let _ = core.keep_app_file(AppFile::Told, &body);
@@ -612,6 +627,7 @@ mod tests {
             core,
             apps,
             notifications: Arc::new(Posted::default()),
+            earlier: None,
             quit_within: Duration::from_millis(50),
             quit_checked_every: Duration::from_millis(5),
             sign_ins: SignIns::default(),
@@ -945,6 +961,7 @@ mod tests {
             world.core(),
             StandInApps::new(&[], true),
             Arc::new(Posted::default()),
+            None,
             Cadence::APP,
             &answers,
         );

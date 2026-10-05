@@ -28,6 +28,7 @@
 
 pub(crate) mod advice;
 mod lanes;
+mod preferences;
 pub(crate) mod state;
 
 #[cfg(test)]
@@ -36,6 +37,8 @@ mod advising;
 mod cadence;
 #[cfg(test)]
 mod changing;
+#[cfg(test)]
+mod keeping;
 #[cfg(test)]
 mod presenting;
 #[cfg(test)]
@@ -75,6 +78,26 @@ pub struct AppLaunch {
     /// the command line inside it that the renewal schedule runs. `None` for anything that
     /// is not an app, such as a test or a build directory.
     pub app_location: Option<String>,
+    /// The app's own preferences as its earlier store held them, before the model kept them
+    /// in Pitboard's directory: on macOS what UserDefaults holds, for the model to take once.
+    /// Where the model's own file is there it wins, and this is not read. `None` for an app
+    /// with no earlier store.
+    #[uniffi(default)]
+    pub earlier_preferences: Option<EarlierPreferences>,
+}
+
+/// The app's own preferences as an app's earlier store held them, as `AppLaunch` hands them
+/// over once.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EarlierPreferences {
+    /// The tools, by code, somebody said "Not Now" to a second account for:
+    /// `secondAccountDeclined`.
+    pub second_account_declined: Vec<String>,
+    /// Whether the app has ever shown anybody anything: `hasBeenSeen`.
+    pub has_been_seen: bool,
+    /// "Not Now" said before there was a second tool, which was about Claude Code:
+    /// `hideSecondAccountNudge`.
+    pub second_account_nudge_hidden: bool,
 }
 
 /// Something the person or the system asked the model for.
@@ -120,6 +143,10 @@ pub enum Intent {
     KeepAppOpen,
     /// Somebody has read what `provider`'s tool's last switch said, and put it away.
     DismissSwitch { provider: String },
+    /// Somebody keeps one account of `provider`'s tool on purpose: "Not Now" to the nudge to
+    /// add a second. Per tool, since that says nothing about another, and kept in the app's
+    /// preferences in Pitboard's directory.
+    DeclineSecondAccount { provider: String },
     /// Give up on an interrupted switch nothing can finish, keeping every login it names.
     AbandonStuckSwitch,
     /// Somebody has read what giving up on an interrupted switch kept, and put it away.
@@ -537,6 +564,7 @@ impl PitboardModel {
                 apps,
                 notifications,
                 local_time,
+                earlier: launch.earlier_preferences,
             },
             Cadence::APP,
         )
@@ -579,6 +607,8 @@ pub(crate) struct Platform {
     pub(crate) notifications: Arc<dyn Notifications>,
     /// The person's own clock.
     pub(crate) local_time: Arc<dyn LocalTime>,
+    /// The app's preferences as its earlier store held them, taken once.
+    pub(crate) earlier: Option<EarlierPreferences>,
 }
 
 impl PitboardModel {
@@ -599,6 +629,7 @@ impl PitboardModel {
             core,
             platform.apps,
             platform.notifications,
+            platform.earlier,
             cadence,
             &mailbox,
         );

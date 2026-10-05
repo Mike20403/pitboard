@@ -15,6 +15,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 [dependencies]
 pitboard-core.workspace = true
 pitboard-sites.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 thiserror.workspace = true

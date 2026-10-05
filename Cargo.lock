@@ -1347,6 +1347,7 @@ version = "0.7.0"
 dependencies = [
  "pitboard-core",
  "pitboard-sites",
+ "serde",
  "serde_json",
  "sha1",
  "thiserror",

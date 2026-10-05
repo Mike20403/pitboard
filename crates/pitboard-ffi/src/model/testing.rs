@@ -2,8 +2,10 @@
 //! other apps as a test says they are, and, for the threaded tests, a machine of the test's
 //! own that the real core runs on.
 
+use super::EarlierPreferences;
 use super::advice::Told;
 use super::lanes;
+use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, Now, State};
 use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
 use crate::{
@@ -449,6 +451,14 @@ pub(super) struct Machine {
     pub kept: Vec<Told>,
     /// Every notification posted, in order.
     pub posted: Vec<RunOutNotice>,
+    /// What `app.json` held before the model started, where it was there.
+    pub preferences_file: Option<String>,
+    /// `app.json` is there and cannot be read, whatever it holds.
+    pub preferences_unreadable: bool,
+    /// What the app's earlier store held of its preferences.
+    pub earlier: Option<EarlierPreferences>,
+    /// Every set of preferences the model kept, in order.
+    pub kept_preferences: Vec<Preferences>,
 }
 
 impl Machine {
@@ -479,6 +489,10 @@ impl Machine {
             told_before: Told::new(),
             kept: Vec::new(),
             posted: Vec::new(),
+            preferences_file: None,
+            preferences_unreadable: false,
+            earlier: None,
+            kept_preferences: Vec::new(),
         }
     }
 
@@ -598,7 +612,15 @@ impl Machine {
             }
             Job::LoadKept => Answer::Kept {
                 told: self.told_before.clone(),
+                preferences: (!self.preferences_unreadable).then(|| {
+                    Preferences::kept(self.preferences_file.as_deref(), self.earlier.as_ref())
+                }),
             },
+            Job::KeepPreferences { preferences } => {
+                self.preferences_file = preferences.text();
+                self.kept_preferences.push(preferences);
+                Answer::Saved
+            }
             Job::KeepTold { told } => {
                 self.kept.push(told);
                 Answer::Saved

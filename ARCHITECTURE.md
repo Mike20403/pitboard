@@ -95,26 +95,27 @@ pages load, as a browser would.
     differs by system there, such as how a copy of a file is numbered, which names are one
     file, or an alert's "on this Mac", is a `match` on `host::OS`, as what a window cannot
     sign in with is in `sites.rs`.
-  - `model/` is the app model both apps are to show, which neither uses yet: the Swift
-    model in `PitboardApp` still decides what the macOS app shows. An app makes a
-    `PitboardModel`, sends it an `Intent` for each thing asked of it, and its
-    `ModelListener` is told of each numbered `Snapshot`; its `AppControl` quits and opens
-    other apps, and its `Notifications` posts what has run out. `state.rs` holds what the
-    model knows and decides what follows each message, and `advice.rs` which account to
-    offer once the one in use has run out; `lanes.rs` runs what it decides, on a lane of
-    reads, a lane of changes, one at a time, a lane that lists processes and asks the app's
-    `AppControl` about other apps, a lane that asks what is installed, a thread of its own
-    for each sign-in, a lane that types a code back to one or stops it, a lane that reads
-    and writes what the model keeps in Pitboard's directory and one that posts through the
-    app's `Notifications`, and tells the listener on a thread of its own; `mod.rs` holds the
-    exported types and the actor thread that owns the state. So far the model reads the
-    accounts, looks every two seconds for a change made elsewhere, asks which tools are
-    installed, switches, quits the app holding a tool's login when the person lets it,
-    gives up on a stuck switch, keeps what each tool's last switch said, runs each tool's
-    own sign-in, enrols the login signed in now, renames and forgets, keeps the sheet over
-    the main window, and says which account to switch to once the one in use has run out,
-    notified once for each reset. Its tests are files of their own there: `reading.rs`,
-    `switching.rs`, `signing.rs`, `changing.rs`, `advising.rs`, `presenting.rs` and
+  - `model/` is the app model both apps are to show, which neither uses yet: the Swift model
+    in `PitboardApp` still decides what the macOS app shows. An app makes a `PitboardModel`,
+    sends it an `Intent` for each thing asked of it, and its `ModelListener` is told of each
+    numbered `Snapshot`; its `AppControl` quits and opens other apps, and its
+    `Notifications` posts what has run out. `state.rs` holds what the model knows and
+    decides what follows each message, `advice.rs` which account to offer once the one in
+    use has run out, and `preferences.rs` what the app's own preferences are; `lanes.rs`
+    runs what it decides, on a lane of reads, a lane of changes, one at a time, a lane that
+    lists processes and asks the app's `AppControl` about other apps, a lane that asks what
+    is installed, a thread of its own for each sign-in, a lane that types a code back to one
+    or stops it, a lane that reads and writes what the model keeps in Pitboard's directory
+    and one that posts through the app's `Notifications`, and tells the listener on a thread
+    of its own; `mod.rs` holds the exported types and the actor thread that owns the state.
+    So far the model reads the accounts, looks every two seconds for a change made
+    elsewhere, asks which tools are installed, switches, quits the app holding a tool's
+    login when the person lets it, gives up on a stuck switch, keeps what each tool's last
+    switch said, runs each tool's own sign-in, enrols the login signed in now, renames and
+    forgets, keeps the sheet over the main window, says which account to switch to once the
+    one in use has run out, notified once for each reset, and keeps the app's own
+    preferences. Its tests are files of their own there: `reading.rs`, `switching.rs`,
+    `signing.rs`, `changing.rs`, `advising.rs`, `keeping.rs`, `presenting.rs` and
     `cadence.rs` drive the state by hand, `lanes.rs` has the lanes' own, and `threaded.rs`
     drives the model through its threads over the real core.
   - `present/` makes each `Snapshot` from the model's state: `present` takes the state and
@@ -273,6 +274,19 @@ pages load, as a browser would.
   is notified once more. The window's advice is worked out as the Swift model worked it
   out, from what this launch has told, so it still says a run-out notified before a
   relaunch.
+- The app's own preferences, the tools somebody said "Not Now" to a second account for and
+  whether the app has ever shown anybody anything, are the model's, kept in `app.json` in
+  Pitboard's directory, so they follow `PITBOARD_HOME`. Where that file is there it wins;
+  where it is not, the model takes what the app's earlier store held, handed over in
+  `AppLaunch::earlier_preferences`, and keeps it at once, so that store is read once. The
+  model writes them only once they are read, from the file or, where there is none, from
+  that store, and never in their place: a file that is there and cannot be read, because it
+  is not this user's, a disk failed, another program holds it or it is not text, is left as
+  it is for as long as the app is open, a "Not Now" said meanwhile holding until it quits,
+  and is not taken for a first launch. Text that does not read as preferences is taken as
+  no file, and what that store held is written over it. Until they are read no tool is
+  nudged toward a second account, so a read that lands first never shows the step to
+  somebody who declined it. No foreign trait reaches the app's own store for them.
 - The app model's state belongs to its actor thread alone, and `State::apply` does no I/O:
   it calls neither the core nor the app, reads no clock and waits on nothing. It says what
   to run as jobs, which run on the model's lanes and answer as messages. A call the Swift

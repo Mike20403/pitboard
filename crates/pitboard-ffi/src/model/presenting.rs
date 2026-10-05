@@ -2034,7 +2034,7 @@ fn an_account_signed_in_without_a_name_is_asked_for_one() {
 }
 
 /// AppModelTests.swift's oneEnrolledAccountIsToldThereIsNothingToSwitchTo, and what the step
-/// above the accounts says of it.
+/// above the accounts says of it, which can be declined for its tool.
 #[test]
 fn one_enrolled_account_is_told_there_is_nothing_to_switch_to() {
     let (model, _) = reading(vec![
@@ -2058,12 +2058,20 @@ fn one_enrolled_account_is_told_there_is_nothing_to_switch_to() {
             detail: "work is the only account Pitboard knows, so there’s nothing to switch to. \
                      Adding another signs in to it and parks its login beside this one."
                 .into(),
-            actions: vec![Choice {
-                title: "Add Account…".into(),
-                intent: present_sheet(Sheet::Add {
-                    provider: Some("claude".into())
-                }),
-            }],
+            actions: vec![
+                Choice {
+                    title: "Add Account…".into(),
+                    intent: present_sheet(Sheet::Add {
+                        provider: Some("claude".into())
+                    }),
+                },
+                Choice {
+                    title: "Not Now".into(),
+                    intent: Intent::DeclineSecondAccount {
+                        provider: "claude".into()
+                    },
+                },
+            ],
         })
     );
 }

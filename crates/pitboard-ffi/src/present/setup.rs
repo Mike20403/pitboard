@@ -36,9 +36,18 @@ pub(crate) fn footing(seen: &Seen) -> Footing {
             email: login.email.clone(),
         };
     }
+    // Not before the preferences are in, which say which tools somebody declined it for: a
+    // read that lands first would show the step to them for as long as the file takes.
+    if seen.state.reading_preferences() {
+        return Footing::Ready;
+    }
     // Per tool: an account can only be switched to another account of its own tool.
     let providers: Vec<&str> = accounts.iter().map(|a| a.provider.as_str()).collect();
+    let declined = &seen.state.preferences.second_account_declined;
     for provider in in_order(&providers, &seen.tools) {
+        if declined.contains(&provider) {
+            continue;
+        }
         let enrolled: Vec<_> = accounts
             .iter()
             .filter(|account| account.provider == provider && account.label.is_some())
@@ -94,14 +103,24 @@ pub(crate) fn step(seen: &Seen, footing: &Footing) -> Option<SetupStep> {
                      switch to. Adding another signs in to it and parks its login beside this \
                      one."
                 ),
-                actions: vec![Choice {
-                    title: "Add Account…".into(),
-                    intent: Intent::PresentSheet {
-                        sheet: Sheet::Add {
-                            provider: Some(provider.clone()),
+                actions: vec![
+                    Choice {
+                        title: "Add Account…".into(),
+                        intent: Intent::PresentSheet {
+                            sheet: Sheet::Add {
+                                provider: Some(provider.clone()),
+                            },
                         },
                     },
-                }],
+                    // Somebody may keep one account on purpose and watch its limits, so the
+                    // nudge can be declined, for its tool alone.
+                    Choice {
+                        title: "Not Now".into(),
+                        intent: Intent::DeclineSecondAccount {
+                            provider: provider.clone(),
+                        },
+                    },
+                ],
             })
         }
         Footing::NoClaudeCode | Footing::NoOneSignedIn | Footing::Ready => None,

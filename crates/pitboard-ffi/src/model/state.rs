@@ -31,6 +31,7 @@
 //! the Swift model's tests reached with gates are reached here without a thread.
 
 use super::advice::{Advice, Told, rename_told};
+use super::preferences::Preferences;
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
 use super::{RunOutNotice, RunningSignIn, Sheet, WindowRequest};
 use crate::{
@@ -176,10 +177,12 @@ pub(crate) enum Job {
     /// Drop the account `qualified` names, and the login parked for it.
     Forget { qualified: String },
     /// Read what the model keeps of its own in Pitboard's directory: the record of what was
-    /// told.
+    /// told, and the app's preferences.
     LoadKept,
     /// Keep the record of what was told, the whole of it.
     KeepTold { told: Told },
+    /// Keep the app's preferences, the whole of them.
+    KeepPreferences { preferences: Preferences },
     /// Post a notification through the app's own system.
     Post { notice: RunOutNotice },
 }
@@ -306,10 +309,14 @@ pub(crate) enum Answer {
         qualified: String,
         done: Result<(), PitboardError>,
     },
-    /// What the model keeps of its own, as it was read: nothing where nothing was kept or it
-    /// could not be read.
+    /// What the model keeps of its own, as it was read: nothing told where nothing was kept
+    /// or it could not be read, and the app's preferences, with whether they came from their
+    /// file, as `Preferences::kept` reads them: from the file where it was there, and
+    /// otherwise as the app's earlier store held them. `None` where the file is there and
+    /// could not be read, which is not the same as no file.
     Kept {
         told: Told,
+        preferences: Option<(Preferences, bool)>,
     },
     /// What was kept was written, or could not be, which nothing here can mend: told again,
     /// a run-out is told once more after a relaunch, and nothing worse.
@@ -622,6 +629,11 @@ pub(crate) struct State {
     /// launch or an earlier one: kept in Pitboard's directory, so a run-out notified before
     /// a relaunch is not notified again after it.
     pub(crate) told: Told,
+    /// The app's own preferences, kept in Pitboard's directory.
+    pub(crate) preferences: Preferences,
+    /// Whether the preferences have been read. Until they are, and for good where they
+    /// could not be, nothing is written over what may be in their file.
+    preferences_read: bool,
     /// Whether what the model keeps is being read, from the moment it is started until it
     /// is in. Nothing is advised on meanwhile, and what is shown is advised on once it is in,
     /// so a run-out notified before a relaunch is never notified again because the read
@@ -672,6 +684,8 @@ impl State {
             advice: Vec::new(),
             told_this_launch: Told::new(),
             told: Told::new(),
+            preferences: Preferences::default(),
+            preferences_read: false,
             loading_kept: false,
             standing_in: false,
         }
@@ -718,6 +732,12 @@ impl State {
             .or(self.asking().map(|question| question.qualified.as_str()))
     }
 
+    /// Whether the app's preferences are still being read, which nothing that depends on
+    /// them should guess at meanwhile.
+    pub(crate) fn reading_preferences(&self) -> bool {
+        self.loading_kept
+    }
+
     /// The quit question, while it is asked.
     pub(crate) fn asking(&self) -> Option<&QuitQuestion> {
         self.quitting
@@ -760,6 +780,17 @@ impl State {
             }
             Intent::DismissSwitch { provider } => {
                 self.last_switches.retain(|last| last.provider != provider);
+            }
+            Intent::DeclineSecondAccount { provider } => {
+                // Kept once the preferences are read, with whatever they hold, and never over
+                // a file that could not be read: said meanwhile, it holds until the app quits.
+                if self.preferences.second_account_declined.insert(provider)
+                    && self.preferences_read
+                {
+                    jobs.push(Job::KeepPreferences {
+                        preferences: self.preferences.clone(),
+                    });
+                }
             }
             Intent::AbandonStuckSwitch => jobs.push(Job::Abandon),
             Intent::DismissAbandoned => self.abandoned = None,
@@ -985,9 +1016,32 @@ impl State {
     /// What the model keeps is in, or came to nothing. What it had told before is not
     /// notified again, and what is shown, read while it was read, is advised on now, unless
     /// it only stands in for a read that failed.
-    fn kept(&mut self, told: Told, jobs: &mut Vec<Job>) {
+    ///
+    /// The preferences read are the app's from now on, with any "Not Now" said meanwhile, and
+    /// kept at once where they did not come from their file, so the earlier store is taken
+    /// once. The first time the app has ever been opened, the window opens, once. Where they
+    /// could not be read, `None`, nothing is kept in place of what may be there, then or
+    /// later, and the window does not open as though for the first time.
+    fn kept(&mut self, told: Told, preferences: Option<(Preferences, bool)>, jobs: &mut Vec<Job>) {
         for (key, at) in told {
             self.told.entry(key).or_insert(at);
+        }
+        if let Some((read, from_file)) = preferences {
+            let mut preferences = read.clone();
+            preferences
+                .second_account_declined
+                .extend(self.preferences.second_account_declined.iter().cloned());
+            if !preferences.has_been_seen {
+                preferences.has_been_seen = true;
+                self.show_window(None);
+            }
+            if preferences != read || !from_file {
+                jobs.push(Job::KeepPreferences {
+                    preferences: preferences.clone(),
+                });
+            }
+            self.preferences = preferences;
+            self.preferences_read = true;
         }
         self.loading_kept = false;
         if let Some(status) = self.status.clone()
@@ -1130,7 +1184,7 @@ impl State {
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
             Answer::Opened | Answer::Pasted | Answer::Stopped | Answer::Saved | Answer::Posted => {}
-            Answer::Kept { told } => self.kept(told, jobs),
+            Answer::Kept { told, preferences } => self.kept(told, preferences, jobs),
             Answer::Enrolled {
                 provider,
                 from,
@@ -1217,8 +1271,8 @@ impl State {
                 }
                 Job::Forget { qualified } => self.forgot(&qualified, Err(None), now, jobs),
                 // Nothing kept could be read: nothing was told before, as far as anyone knows.
-                Job::LoadKept => self.kept(Told::new(), jobs),
-                Job::KeepTold { .. } | Job::Post { .. } => {}
+                Job::LoadKept => self.kept(Told::new(), None, jobs),
+                Job::KeepTold { .. } | Job::KeepPreferences { .. } | Job::Post { .. } => {}
             },
         }
     }
