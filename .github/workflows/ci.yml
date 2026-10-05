@@ -64,11 +64,11 @@ jobs:
       - run: rustup toolchain install
       - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # PitboardBindings is generated, so only what is written by hand is checked.
+      # PitboardBindings and PitboardShareBindings are generated, so only what is written by
+      # hand is checked.
       - run: >
           swift format lint --strict --recursive --configuration apps/macos/.swift-format
-          apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites
-          apps/macos/Sources/PitboardLinkTarget
+          apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardLinkTarget
           apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts
           .github/scripts
       - uses: ./.github/actions/xcodegen

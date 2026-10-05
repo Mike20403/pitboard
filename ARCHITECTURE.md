@@ -96,12 +96,17 @@ pages load, as a browser would.
   - `address.rs` splits a link as Foundation's `URLComponents` does, which is how the macOS
     app read one before the rule was Rust. [Foundation's URLs](#foundations-urls) has what
     was measured.
+- `crates/pitboard-share-ffi`: `pitboard-sites` as UniFFI bindings for the macOS Share
+  extension alone, a static library with one function, `share_link`. It checks a shared
+  page and writes the Pitboard link that hands it to the app, or says why not in the
+  sentence the app shows. It holds nothing of the core.
 - `crates/uniffi-bindgen-swift` and `crates/uniffi-bindgen-csharp`: generate the Swift and
   the C# bindings with exactly the UniFFI version the library uses. The bindings check
   method checksums when they load. The C# generator is NordSecurity's, pinned to a release
   built against that UniFFI; it is a build tool, so `deny.toml` leaves it out of the graph.
-  Every type the bindings export is declared in `pitboard-ffi`, because the C# generator
-  cannot use a type from another crate.
+  Every type the core's bindings export is declared in `pitboard-ffi`, because the C#
+  generator cannot use a type from another crate. `pitboard-share-ffi`, which only Swift
+  reads, declares its own.
 - `crates/pitboard-conformance`: checks a tool's register against a build of that tool.
 - `apps/`: the native apps, one directory for each system.
 - `apps/windows/`: the Windows app. `Pitboard.Core` is the core's C# bindings as an
@@ -109,9 +114,9 @@ pages load, as a browser would.
   `Pitboard.Core.Tests` calls the core through them.
 - `apps/macos/`: the menu bar app. The Swift package holds it as libraries its tests load
   without starting it. `PitboardKit` calls the bindings off the main thread,
-  `PitboardSites` is what the Share extension knows about the sites, `PitboardLinkTarget`
-  is where a Pitboard link goes, which the app and the extension both link, and
-  `PitboardApp` is everything the app does. The account windows are mapped under
+  `PitboardShareBindings` is `pitboard-share-ffi`'s, for the Share extension,
+  `PitboardLinkTarget` is where a Pitboard link goes, which the app and the extension both
+  link, and `PitboardApp` is everything the app does. The account windows are mapped under
   [Account windows](#account-windows).
   - `project.yml` is the app itself, the spec XcodeGen generates `Pitboard.xcodeproj`
     from. Its `Pitboard` target in `App` starts `PitboardApp` and adds Sparkle, and
@@ -120,9 +125,11 @@ pages load, as a browser would.
     which pins Sparkle's revision.
   - A renewal schedule written by an app up to 0.3.0 starts the app with `renew`.
     `App/Main.swift` then replaces the process with the command line inside the app.
-  - `scripts/build-xcframework.sh` builds the core and its Swift bindings for both Mac
-    architectures. `scripts/build-app.sh` generates the project and builds `Pitboard.app`
-    with `xcodebuild`, with the command line inside at `Contents/Helpers/pitboard`.
+  - `scripts/build-xcframework.sh` builds the core, as `PitboardFFI.xcframework`, and
+    `pitboard-share-ffi`, as `PitboardShareFFI.xcframework`, each with its Swift bindings,
+    for both Mac architectures. `scripts/build-app.sh` generates the project and builds
+    `Pitboard.app` with `xcodebuild`, with the command line inside at
+    `Contents/Helpers/pitboard`.
 - `packaging/`: the files a release writes into the tap `datlechin/homebrew-tap`. They are
   the casks `pitboard.rb` for the command line and `pitboard-app.rb` for the app,
   `tap_migrations.json`, and the tap's README.
@@ -138,8 +145,8 @@ pages load, as a browser would.
     app.
   - `workflows/rotation.yml` rehearses rotating the update key.
   - `actions/apple-keychain` imports the Developer ID certificate for every job that signs.
-  - `scripts/` holds the EdDSA key and signature helpers, and the scripts that add Sparkle
-    and the command line to the app's bill of materials.
+  - `scripts/` holds the EdDSA key and signature helpers, and the scripts that add Sparkle,
+    the command line and the Share extension's library to the app's bill of materials.
   - `dependabot.yml` asks for weekly updates of Cargo dependencies and GitHub Actions.
 
 ## Invariants
@@ -320,9 +327,8 @@ Code or Codex login. The facts this rests on are under
   [code map](#code-map). The app reaches it through `pitboard-ffi`'s `Site` and `SiteLink`
   records: its windows and menus ask `sites`, `sites_for` and `site_names`, and
   `LinkInbox.swift` reads each Pitboard link with `read_pitboard_link` and says a refusal
-  with `link_refusal_reason`. Only the tests make a link with `site_link`.
-  `apps/macos/Sources/PitboardSites` is the Share extension's Swift copy, which nothing else
-  links.
+  with `link_refusal_reason`. Only the tests make a link with `site_link`. The Share
+  extension reaches it through `pitboard-share-ffi`.
 - `apps/macos/Sources/PitboardLinkTarget`: where a Pitboard link goes, which the app and the
   Share extension both link. `LinkTarget.swift` names the Info.plist key `PitboardURLScheme`
   that gives each build its scheme, and finds the app an extension is inside.
@@ -367,8 +373,10 @@ Code or Codex login. The facts this rests on are under
   site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
   anywhere else recorded and opened nowhere.
 - `apps/macos/ShareExtension`: the `PitboardShare` target. It checks the shared page with
-  `SiteLink`, then opens a Pitboard link with the app it is inside, not whichever copy
-  Launch Services would pick.
+  `share_link`, which writes the Pitboard link too, then opens that link with the app it is
+  inside, not whichever copy Launch Services would pick. The flow of an app extension stays
+  Swift, and `PitboardLinkTarget` finds the app it is inside and the scheme its Info.plist
+  names.
 
 ### What must stay true
 
@@ -423,9 +431,20 @@ Code or Codex login. The facts this rests on are under
   `build-app.sh` claims `pitboard://` like the installed copy, until it is unregistered.
   `build-app.sh` fails a bundle whose app or extension names another scheme.
 - The Share extension stays sandboxed, with no other entitlement, and links only
-  `PitboardSites` and `PitboardLinkTarget`. `build-app.sh` signs it with its entitlements
-  before the app, and fails when its signature is not sandboxed. The release workflow
-  checks the installed copy again.
+  `PitboardShareBindings` and `PitboardLinkTarget`. `build-app.sh` signs it with its
+  entitlements before the app, and fails when its signature is not sandboxed. The release
+  workflow checks the installed copy again.
+- The extension checks a link by the same Rust as the app, `pitboard-sites`, but through
+  `pitboard-share-ffi`, and never links the core: the core's bindings check every export's
+  checksum when they load, so linking them brings all of it in. Two Rust static libraries
+  never meet in one binary, since each carries its own copy of Rust's standard library.
+  `build-app.sh` fails when the extension's binary has a `uniffi_pitboard_ffi_` symbol or
+  none of `uniffi_pitboard_share_ffi_`, or the app's has a `uniffi_pitboard_share_ffi_`
+  symbol or none of `uniffi_pitboard_ffi_`. No test target of the Swift package links
+  `PitboardShareBindings`, since SwiftPM may link every test target into one bundle.
+- `pitboard-sites` stays a leaf: no I/O, nothing of the core and no UniFFI, and `url` for
+  IDNA alone. Each binding crate declares its own types over it, since the C# generator
+  cannot use another crate's.
 
 ## Measured facts
 

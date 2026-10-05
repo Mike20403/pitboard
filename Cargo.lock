@@ -1352,6 +1352,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pitboard-share-ffi"
+version = "0.7.0"
+dependencies = [
+ "pitboard-sites",
+ "uniffi",
+]
+
+[[package]]
 name = "pitboard-sites"
 version = "0.7.0"
 dependencies = [

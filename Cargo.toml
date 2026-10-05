@@ -5,6 +5,7 @@ members = [
     "crates/pitboard",
     "crates/pitboard-ffi",
     "crates/pitboard-sites",
+    "crates/pitboard-share-ffi",
     "crates/uniffi-bindgen-swift",
     "crates/uniffi-bindgen-csharp",
     "crates/pitboard-conformance",
