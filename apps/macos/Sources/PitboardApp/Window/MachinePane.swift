@@ -45,16 +45,10 @@ struct MachinePane: View {
     }
 
     @ViewBuilder private var summary: some View {
-        let failing = machine.checks.filter { $0.level != .ok }.count
         if !machine.checks.isEmpty {
             HStack(alignment: .firstTextBaseline) {
-                Text(
-                    failing == 0
-                        ? "Everything Pitboard checks is in order."
-                        : failing == 1
-                            ? "One thing is worth looking at."
-                            : "\(failing) things are worth looking at."
-                )
+                // The last line of `pitboard doctor`, so the two never disagree.
+                Text(doctorSummary(checks: machine.checks))
                 Spacer()
                 if machine.checking {
                     ProgressView().controlSize(.small)

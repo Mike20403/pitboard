@@ -37,6 +37,20 @@ private func renewed(_ outcome: String) -> Renewed {
     #expect(levels.allSatisfy { !$0.spoken.isEmpty })
 }
 
+/// This Mac heads its checks with the last line of `pitboard doctor`: what is worth looking
+/// at while checks only warn, and not to switch accounts while one fails.
+@Test func thisMacSaysNotToSwitchWhileACheckFails() {
+    let check = { (level: Level) in
+        Check(code: "keychain", name: "Keychain", level: level, detail: "", advice: "")
+    }
+    #expect(doctorSummary(checks: [check(.ok)]) == "Everything Pitboard checks is in order.")
+    #expect(
+        doctorSummary(checks: [check(.warn), check(.ok)]) == "One thing is worth looking at.")
+    #expect(
+        doctorSummary(checks: [check(.warn), check(.fail)])
+            == "1 broken: do not switch accounts until fixed.")
+}
+
 /// VoiceOver reads the column's "30m" as thirty meters and "5h" as letters, so a limit is
 /// said in words: its name as a sentence says it, what it has used, and when it resets.
 @Test func aLimitIsSpokenInWordsAndNotInItsColumnsShorthand() {

@@ -9,6 +9,7 @@
 //! All of it is English. Clock times are not here: the command line writes them with
 //! `time::moment`, and the app in the format its Mac is set to.
 
+use crate::doctor::Level;
 use crate::history::Runway;
 
 const MINUTE: i64 = 60;
@@ -130,6 +131,27 @@ pub fn runway(runway: Runway) -> Option<String> {
         Runway::Resting(seconds) => format!("resets in {}", span(seconds)),
         Runway::Unknown => return None,
     })
+}
+
+/// The line under doctor's checks, or over them in the app. Checks that only warn are
+/// counted as worth looking at. One that fails outweighs every warning: the line then
+/// counts what is broken and says not to switch accounts, since a check fails only when
+/// something Pitboard relies on does not hold.
+pub fn doctor_summary(levels: impl IntoIterator<Item = Level>) -> String {
+    let (mut broken, mut worth_a_look) = (0, 0);
+    for level in levels {
+        match level {
+            Level::Fail => broken += 1,
+            Level::Warn => worth_a_look += 1,
+            Level::Ok => {}
+        }
+    }
+    match (broken, worth_a_look) {
+        (0, 0) => "Everything Pitboard checks is in order.".into(),
+        (0, 1) => "One thing is worth looking at.".into(),
+        (0, n) => format!("{n} things are worth looking at."),
+        (n, _) => format!("{n} broken: do not switch accounts until fixed."),
+    }
 }
 
 #[cfg(test)]
@@ -267,5 +289,39 @@ mod tests {
             Some("about 1m left at this rate")
         );
         assert_eq!(runway(Runway::Resting(60)).as_deref(), Some("resets in 1m"));
+    }
+
+    /// Warnings are counted as things worth looking at. A check that fails outweighs every
+    /// warning: the sentence then counts only what is broken, and says not to switch.
+    #[test]
+    fn the_doctor_summary_says_not_to_switch_while_a_check_fails() {
+        assert_eq!(
+            doctor_summary([Level::Ok, Level::Ok]),
+            "Everything Pitboard checks is in order."
+        );
+        assert_eq!(
+            doctor_summary([]),
+            "Everything Pitboard checks is in order."
+        );
+        assert_eq!(
+            doctor_summary([Level::Ok, Level::Warn]),
+            "One thing is worth looking at."
+        );
+        assert_eq!(
+            doctor_summary([Level::Warn, Level::Ok, Level::Warn]),
+            "2 things are worth looking at."
+        );
+        assert_eq!(
+            doctor_summary([Level::Fail]),
+            "1 broken: do not switch accounts until fixed."
+        );
+        assert_eq!(
+            doctor_summary([Level::Warn, Level::Ok, Level::Fail]),
+            "1 broken: do not switch accounts until fixed."
+        );
+        assert_eq!(
+            doctor_summary([Level::Fail, Level::Warn, Level::Fail]),
+            "2 broken: do not switch accounts until fixed."
+        );
     }
 }

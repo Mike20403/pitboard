@@ -206,13 +206,14 @@ Usage: pitboard doctor [OPTIONS]
 | `!` | `warn` | Worth a look. Nothing is broken. |
 | `✗` | `fail` | Something Pitboard relies on does not hold. |
 
-The last line sums up:
+The last line sums up, in the same words as the line over the checks in the app's **This Mac** pane:
 
 | Last line | When |
 | --- | --- |
-| `Everything Pitboard relies on holds.` | Every check holds. |
-| `2 to look at; nothing is broken.` | Some checks warn and none fails. |
-| `1 broken: do not switch accounts until fixed.` | At least one check fails. |
+| `Everything Pitboard checks is in order.` | Every check holds. |
+| `One thing is worth looking at.` | One check warns and none fails. |
+| `2 things are worth looking at.` | More than one check warns and none fails. |
+| `1 broken: do not switch accounts until fixed.` | At least one check fails. The number counts the checks that fail. |
 
 `doctor` exits with status 3 when a check fails, and 0 otherwise. With `--json`, a failed check also sets `ok` to `false` and gives the error code `checks_failed`. For the fields, see [JSON output](/reference/json-output#data-by-command).
 

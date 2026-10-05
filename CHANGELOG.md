@@ -26,6 +26,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   left at this rate** or **Resets in 3d 2h 5m**. Under a minute, `pitboard status` says
   `about to run out` or `resets any moment`, as the app does, where it said
   `about <1m left at this rate` or `resets in <1m`.
+- `pitboard doctor` and the app's **This Mac** pane sum up the checks in the same words:
+  `Everything Pitboard checks is in order.` when every check holds,
+  `One thing is worth looking at.` or `2 things are worth looking at.` when checks only
+  warn, and `1 broken: do not switch accounts until fixed.` when a check fails. `doctor`
+  said `Everything Pitboard relies on holds.` or `2 to look at; nothing is broken.`, and the
+  app counted a check that fails as one more thing worth looking at.
 
 ### Fixed
 

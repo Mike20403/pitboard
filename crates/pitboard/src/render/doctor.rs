@@ -2,6 +2,7 @@
 
 use crate::ui::{self, BAD, BOLD, DIM, GOOD, WARN, pad, paint};
 use pitboard_core::doctor::{Check, Diagnosis, Level};
+use pitboard_core::words;
 use serde_json::{Value, json};
 
 /// Whether a check belongs to Codex's section.
@@ -50,16 +51,17 @@ pub fn human(checks: &[Check]) -> String {
             ));
         }
     }
-    let count = |level| checks.iter().filter(|c| c.level == level).count();
-    let summary = match (count(Level::Fail), count(Level::Warn)) {
-        (0, 0) => paint(GOOD, "Everything Pitboard relies on holds."),
-        (0, w) => paint(WARN, format!("{w} to look at; nothing is broken.")),
-        (f, _) => paint(
-            BAD,
-            format!("{f} broken: do not switch accounts until fixed."),
-        ),
+    // The sentence the app heads its checks with, in the colour of the worst of them.
+    let any = |level| checks.iter().any(|c| c.level == level);
+    let style = if any(Level::Fail) {
+        BAD
+    } else if any(Level::Warn) {
+        WARN
+    } else {
+        GOOD
     };
-    out.push_str(&format!("\n{summary}\n"));
+    let summary = words::doctor_summary(checks.iter().map(|c| c.level));
+    out.push_str(&format!("\n{}\n", paint(style, summary)));
     out
 }
 
@@ -98,12 +100,39 @@ mod tests {
         }
     }
 
+    /// The last line is the sentence the app's This Mac pane heads its checks with, so the
+    /// two never disagree about the same machine. A check that fails outweighs every
+    /// warning: the line then counts what is broken and says not to switch, in red.
     #[test]
-    fn the_summary_says_whether_anything_is_broken() {
+    fn the_summary_says_what_the_app_says() {
         let plain = |checks: &[Check]| anstream::adapter::strip_str(&human(checks)).to_string();
-        assert!(plain(&[check(Level::Ok)]).ends_with("Everything Pitboard relies on holds.\n"));
-        assert!(plain(&[check(Level::Ok), check(Level::Warn)]).contains("1 to look at"));
-        assert!(plain(&[check(Level::Fail)]).contains("1 broken"));
+        assert!(
+            plain(&[check(Level::Ok)]).ends_with("\nEverything Pitboard checks is in order.\n")
+        );
+        assert!(
+            plain(&[check(Level::Ok), check(Level::Warn)])
+                .ends_with("\nOne thing is worth looking at.\n")
+        );
+        assert!(
+            plain(&[check(Level::Warn), check(Level::Warn)])
+                .ends_with("\n2 things are worth looking at.\n")
+        );
+        assert!(
+            plain(&[check(Level::Warn), check(Level::Fail)])
+                .ends_with("\n1 broken: do not switch accounts until fixed.\n")
+        );
+        assert!(
+            human(&[check(Level::Warn), check(Level::Fail)])
+                .contains(&paint(BAD, "1 broken: do not switch accounts until fixed."))
+        );
+        assert!(
+            human(&[check(Level::Ok), check(Level::Warn)])
+                .contains(&paint(WARN, "One thing is worth looking at."))
+        );
+        assert!(
+            human(&[check(Level::Ok)])
+                .contains(&paint(GOOD, "Everything Pitboard checks is in order."))
+        );
     }
 
     /// Codex's checks sit under a heading of their own, after everything about Claude

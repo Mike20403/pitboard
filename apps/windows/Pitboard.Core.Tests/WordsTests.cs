@@ -32,4 +32,13 @@ public sealed class WordsTests
         Assert.IsTrue(PitboardFfiMethods.SameReset(between: 1_000, and: 1_059));
         Assert.IsFalse(PitboardFfiMethods.SameReset(between: 1_000, and: 1_060));
     }
+
+    [TestMethod]
+    public void ChecksAreSummedUp()
+    {
+        Check[] checks = [new("keychain", "Keychain", Level.Warn, "locked", "Unlock it.")];
+        Assert.AreEqual("One thing is worth looking at.", PitboardFfiMethods.DoctorSummary(checks));
+        Check[] broken = [.. checks, new("credential", "Credential", Level.Fail, "unreadable", "Sign in.")];
+        Assert.AreEqual("1 broken: do not switch accounts until fixed.", PitboardFfiMethods.DoctorSummary(broken));
+    }
 }

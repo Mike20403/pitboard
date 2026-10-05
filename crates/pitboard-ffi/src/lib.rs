@@ -551,6 +551,17 @@ pub fn runway(seconds: Option<i64>, burning: bool) -> Option<String> {
     })
 }
 
+/// The line over a diagnosis's checks: what is worth looking at while checks only warn,
+/// and not to switch accounts while one fails.
+#[uniffi::export]
+pub fn doctor_summary(checks: Vec<Check>) -> String {
+    words::doctor_summary(checks.iter().map(|c| match c.level {
+        Level::Ok => doctor::Level::Ok,
+        Level::Warn => doctor::Level::Warn,
+        Level::Fail => doctor::Level::Fail,
+    }))
+}
+
 /// Whether two resets of a limit are one, as the core counts them when it merges readings:
 /// less than a minute apart, in either order. A session is given a reset in whole seconds
 /// and Anthropic's answer a fraction that is dropped, so one window can come back a second
@@ -1098,6 +1109,34 @@ mod tests {
         );
         assert_eq!(runway(None, true), None);
         assert_eq!(runway(None, false), None);
+    }
+
+    /// A check that warns is worth looking at, and one that fails outweighs every warning.
+    #[test]
+    fn the_doctor_summary_says_not_to_switch_while_a_check_fails() {
+        let check = |level: Level| Check {
+            code: "credential".into(),
+            name: "credential".into(),
+            level,
+            detail: String::new(),
+            advice: String::new(),
+        };
+        assert_eq!(
+            doctor_summary(vec![check(Level::Ok)]),
+            "Everything Pitboard checks is in order."
+        );
+        assert_eq!(
+            doctor_summary(vec![
+                check(Level::Warn),
+                check(Level::Ok),
+                check(Level::Fail)
+            ]),
+            "1 broken: do not switch accounts until fixed."
+        );
+        assert_eq!(
+            doctor_summary(vec![check(Level::Warn), check(Level::Warn)]),
+            "2 things are worth looking at."
+        );
     }
 
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never
