@@ -82,6 +82,20 @@ pages load, as a browser would.
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app.
+- `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
+  may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
+  IDNA alone.
+  - `site.rs` declares each site as values: its host, the tool whose accounts it serves and
+    the hosts that redirect to it. The hosts its sign-in goes to, the hosts it blocks, its
+    sign-in paths, its store name and its sign-in steps are values too. Nothing else names a
+    site, so a site is added to `ALL`, with its fixture page and tests.
+  - `link.rs` checks a link from outside: a site's own host or alias, over `https`, with no
+    port or user information, and never a sign-in path. `LinkRefusal` says why one is
+    refused, in the sentence every front end shows.
+  - `handoff.rs` writes and reads the Pitboard link, `<scheme>://open?url=<link>`.
+  - `address.rs` splits a link as Foundation's `URLComponents` does, which is how the macOS
+    app read one before the rule was Rust. [Foundation's URLs](#foundations-urls) has what
+    was measured.
 - `crates/uniffi-bindgen-swift` and `crates/uniffi-bindgen-csharp`: generate the Swift and
   the C# bindings with exactly the UniFFI version the library uses. The bindings check
   method checksums when they load. The C# generator is NordSecurity's, pinned to a release
@@ -708,6 +722,54 @@ one, measure it again.
   `NSHomeDirectory()`, `.libraryDirectory` and `homeDirectoryForCurrentUser` all still gave
   the real home. The core reads `HOME` and `PITBOARD_HOME`, so the record of stores is kept
   per Pitboard directory.
+
+### Foundation's URLs
+
+Measured on macOS 27.0 on 5 October 2026, by giving the Swift `SiteLink` and `Handoff` of
+0.7.0, and `URLComponents(string:)`, the same text as `pitboard-sites`. `pitboard-sites`
+reads a link as Foundation does, so a link from outside means what it meant to the macOS
+app.
+
+- `URLComponents(string:)` splits a link by RFC 3986. A path, query or fragment holding a
+  character RFC 3986 does not allow there is kept with every such character
+  percent-encoded, a `%` among them, so an escape already in it is encoded too: `/%41 x` is
+  kept as `/%2541%20x`. One holding none is kept as written, escapes and all. A second `#`
+  is `%23` in the fragment.
+- A host is never encoded: one with a character RFC 3986 does not allow, or a `%` that
+  starts no escape, makes no link. A host in plain ASCII is percent-decoded and kept in its
+  case, `claude.ai%00` included. One that is not, or that has an `xn--` label, goes through
+  ICU's IDNA: `ｃｌａｕｄｅ.ai` is `claude.ai`, `xn--bcher-kva.de` reads back as `bücher.de`,
+  and a joiner in a label makes no link. Anything between brackets is an IP literal.
+- `user` and `password` are nil where their bytes are not UTF-8, `port` is nil where an
+  `Int` cannot hold the number, and `path` is empty where its bytes are not UTF-8. So the
+  Swift `SiteLink` opened `https://%FF@claude.ai/` and `https://claude.ai:99999999999999999999/`
+  without what it dropped, took `claude.ai/magic-link/%FF` for no sign-in link, and opened
+  `claude.ai/x/../%FF` without seeing its dot segment. The Swift `Handoff` read
+  `pitboard://open/%FF?url=claude.ai` as `pitboard://open?url=claude.ai`. `pitboard-sites`
+  refuses each.
+- Swift compares strings by grapheme cluster, so a combining mark or a joiner right after a
+  `/` makes one character with it. The Swift `SiteLink` took `claude.ai/magic-link/%CC%81`
+  for no sign-in link, and `chat.com/` followed by a combining mark for no link at all. It
+  counted a link's length in clusters too, and opened one of 4106 clusters and 8194
+  scalars. `pitboard-sites` compares the text, and counts a link's length in Unicode
+  scalars.
+- `CharacterSet.whitespacesAndNewlines`, which trims a link, is Unicode's `White_Space` and
+  U+200B ZERO WIDTH SPACE, checked over every scalar.
+- The WHATWG URL standard, which the `url` crate and WebKit follow, reads a link otherwise.
+  It resolves dot segments, takes `\` for `/` in an `https` link, drops a default port such
+  as `:443`, finds a host in `https:claude.ai`, strips a tab or a newline and leaves a second
+  `#` as it is. It reads a host whose last label is a number as an IPv4 address, and decodes
+  a host's escapes before IDNA. So `pitboard-sites` asks `url` for IDNA alone, with a label
+  after the host so that no host is read as an address.
+- 450,000 generated links and Pitboard links, ASCII and not, had the same answer from both
+  apart from: Pitboard links that `URL(string:)` refuses, which never reach the macOS app,
+  though the Windows app, reading a Pitboard link from its command line as text, can be
+  given one; the things above that `pitboard-sites` refuses; grapheme clusters; and hosts
+  that are not ASCII, where ICU's and WHATWG's IDNA differ over empty labels, escapes and
+  what a label may hold. Each such host was refused by both, though one named it otherwise,
+  apart from `ｃ%EF%BD%8Caude.ai`: `pitboard-sites` decodes its escapes before IDNA, as the
+  WHATWG standard does, and takes it for `claude.ai`, where the Swift `SiteLink` said it was
+  on `cｌaude.ai`.
 
 ### claude.ai and chatgpt.com
 

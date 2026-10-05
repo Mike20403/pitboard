@@ -1,0 +1,17 @@
+[package]
+name = "pitboard-sites"
+description = "The sites Pitboard opens in an account's window, and which links from outside it opens."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# A leaf: no I/O, no UniFFI and nothing of pitboard-core, so the macOS Share extension can
+# link it through a library of its own without the core coming with it.
+[dependencies]
+url.workspace = true
+
+[lints]
+workspace = true

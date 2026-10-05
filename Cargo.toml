@@ -4,6 +4,7 @@ members = [
     "crates/pitboard-core",
     "crates/pitboard",
     "crates/pitboard-ffi",
+    "crates/pitboard-sites",
     "crates/uniffi-bindgen-swift",
     "crates/uniffi-bindgen-csharp",
     "crates/pitboard-conformance",
@@ -19,6 +20,7 @@ homepage = "https://usepitboard.com"
 
 [workspace.dependencies]
 pitboard-core = { path = "crates/pitboard-core", version = "=0.7.0" }
+pitboard-sites = { path = "crates/pitboard-sites" }
 anstream = "1"
 anstyle = "1"
 clap = { version = "4", features = ["derive"] }
@@ -45,6 +47,9 @@ uniffi = "=0.31.2"
 # trust. No bundled root store, so a corporate or system trust setting is honoured.
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# IDNA, for a host that is not plain ASCII. pitboard-sites splits a link itself, as
+# Foundation does, since the WHATWG standard url follows reads some links otherwise.
+url = "2.5"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
