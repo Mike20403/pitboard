@@ -41,6 +41,28 @@ fn enrolling_the_current_account_parks_nothing_while_it_stays_signed_in() {
     );
 }
 
+/// A switch writes its park's name down before it writes the login into it, and records the
+/// park in `state.json` once it has. The name stays on the list until the next change
+/// resolves it, and doctor counted it as one it could not read.
+#[test]
+fn doctor_finds_no_park_outstanding_after_a_switch() {
+    let env = two_accounts("pending-after-switch");
+    let (_, err, code) = env.run(&["use", "beta"]);
+    assert_eq!(code, 0, "switch failed: {err}");
+
+    let (out, err, _) = env.run(&["doctor", "--json"]);
+    let value = serde_json::from_str::<serde_json::Value>(&out)
+        .unwrap_or_else(|e| panic!("not JSON ({e}): {out}{err}"));
+    let pending = value["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["code"] == "pending_parks")
+        .expect("doctor checks the parks being reclaimed")
+        .clone();
+    assert_eq!(pending["level"], "ok", "{pending}");
+}
+
 #[test]
 fn a_full_switch_moves_the_identity_and_nothing_else() {
     let env = two_accounts("full");

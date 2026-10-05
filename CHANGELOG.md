@@ -58,6 +58,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `pitboard doctor`, and the app's checks, no longer warn that a parked login "could not be
+  read this time" after a switch, a sign-in that enrolled an account, or a renewal of a
+  parked login. Pitboard writes a park's name down before it writes the login, and the name
+  stayed on that list until the next change, so doctor counted a login it had already
+  recorded.
 - `pitboard doctor`'s advice about a login others on the machine can read is one
   sentence again, without a run of spaces in the middle of it.
 - The note under the sign-in sheet's **Code** field says what Claude Code does: it takes
