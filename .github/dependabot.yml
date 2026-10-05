@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # UniFFI moves only together with the C# generator, uniffi-bindgen-cs, which is released
+      # for one UniFFI version at a time. Cargo.toml says why.
+      - dependency-name: "uniffi*"
   - package-ecosystem: github-actions
     directory: /
     schedule:

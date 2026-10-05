@@ -45,8 +45,11 @@ unicode-normalization = "0.1"
 # Columns are counted in what a terminal shows, not in characters: a CJK label is two
 # columns wide per character and would push everything after it out of line.
 unicode-width = "0.2"
-# The generator must be this exact version too: bindings check method checksums at load time.
-uniffi = "=0.32.2"
+# Both generators must match this exact version, since bindings check method checksums at load
+# time. The Swift one is built from it. The C# one, uniffi-bindgen-cs, is released for one
+# UniFFI version at a time (v0.11.0+v0.31.0 reads 0.31), so this moves only with a release of
+# it for the new version; Dependabot leaves it alone.
+uniffi = "=0.31.2"
 # TLS: rustls for the protocol, the operating system for deciding which certificates to
 # trust. No bundled root store, so a corporate or system trust setting is honoured.
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
