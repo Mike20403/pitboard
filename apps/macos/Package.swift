@@ -3,8 +3,9 @@ import PackageDescription
 
 // Everything the app does, as libraries its tests can load without starting the app. The app
 // itself is Pitboard.xcodeproj, which links PitboardApp, adds Sparkle, and carries the UI
-// tests and the Share extension. The extension links PitboardSites alone: it is sandboxed,
-// and has no business with the core, its bindings or anything else the app links.
+// tests and the Share extension. The extension links PitboardSites and PitboardLinkTarget
+// alone: it is sandboxed, and has no business with the core, its bindings or anything else
+// the app links.
 let package = Package(
     name: "Pitboard",
     platforms: [.macOS(.v14)],
@@ -12,6 +13,7 @@ let package = Package(
         .library(name: "PitboardKit", targets: ["PitboardKit"]),
         .library(name: "PitboardApp", targets: ["PitboardApp"]),
         .library(name: "PitboardSites", targets: ["PitboardSites"]),
+        .library(name: "PitboardLinkTarget", targets: ["PitboardLinkTarget"]),
     ],
     targets: [
         // Both built by scripts/build-xcframework.sh and not committed.
@@ -27,9 +29,13 @@ let package = Package(
         // Pitboard link the Share extension hands one over in: Foundation only, and nothing
         // an app extension may not use.
         .target(name: "PitboardSites"),
-        .target(name: "PitboardApp", dependencies: ["PitboardKit", "PitboardSites"]),
+        // Where a Pitboard link goes: the scheme each build declares, and the app a Share
+        // extension is inside. Foundation only, so the app and its extension both link it.
+        .target(name: "PitboardLinkTarget"),
+        .target(name: "PitboardApp", dependencies: ["PitboardKit", "PitboardLinkTarget"]),
         .testTarget(name: "PitboardKitTests", dependencies: ["PitboardKit"]),
         .testTarget(name: "PitboardSitesTests", dependencies: ["PitboardSites"]),
-        .testTarget(name: "PitboardAppTests", dependencies: ["PitboardApp", "PitboardSites"]),
+        .testTarget(name: "PitboardLinkTargetTests", dependencies: ["PitboardLinkTarget"]),
+        .testTarget(name: "PitboardAppTests", dependencies: ["PitboardApp"]),
     ]
 )

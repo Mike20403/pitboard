@@ -105,14 +105,3 @@ func handingALinkOverGivesTheSameLink(_ original: String) {
 func anAmbiguousLinkIsUnreadable(_ text: String) {
     #expect(carried(text) == .failure(.unreadable))
 }
-
-@Test func theSchemeIsReadFromTheBundle() {
-    #expect(Handoff.schemeKey == "PitboardURLScheme")
-}
-
-@Test func anExtensionFindsTheAppItIsIn() {
-    let appex = URL(
-        fileURLWithPath: "/Applications/Pitboard.app/Contents/PlugIns/PitboardShare.appex")
-    #expect(Handoff.containingApp(of: appex)?.path == "/Applications/Pitboard.app")
-    #expect(Handoff.containingApp(of: URL(fileURLWithPath: "/tmp/PitboardShare.appex")) == nil)
-}

@@ -183,6 +183,7 @@ CI checks the format of the Swift written by hand, leaving out the generated bin
 ```sh
 swift format lint --strict --recursive --configuration apps/macos/.swift-format \
   apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites \
+  apps/macos/Sources/PitboardLinkTarget \
   apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts .github/scripts
 ```
 

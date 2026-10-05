@@ -6,18 +6,6 @@ import Foundation
 /// Anything on the Mac can open a Pitboard link, so the app reads one as strictly as it reads
 /// a link typed by a stranger, and opens nothing until the person chooses an account.
 public enum Handoff {
-    /// The Info.plist key both the app and the extension read their build's scheme from:
-    /// `pitboard` in a release, `pitboard-debug` in a debug build, so a debug build never
-    /// receives a link meant for a copy installed. A release build made from a branch claims
-    /// `pitboard` like the copy installed; the extension still hands its link to the app it
-    /// came in.
-    public static let schemeKey = "PitboardURLScheme"
-
-    /// The scheme `bundle` declares under `schemeKey`.
-    public static func scheme(in bundle: Bundle) -> String? {
-        bundle.object(forInfoDictionaryKey: schemeKey) as? String
-    }
-
     /// The Pitboard link that asks the app to open `link`, with everything but the unreserved
     /// characters percent-encoded. That is a subset of what JavaScript's `encodeURIComponent`
     /// leaves bare, so a link either of them builds reads back the same.
@@ -50,16 +38,5 @@ public enum Handoff {
             item.name == "url", let carried = item.value, !carried.isEmpty
         else { throw .unreadable }
         return try SiteLink(carried)
-    }
-
-    /// The app an extension is inside: `Pitboard.app` for
-    /// `Pitboard.app/Contents/PlugIns/PitboardShare.appex`, or nil when it is inside none.
-    public static func containingApp(of extensionURL: URL) -> URL? {
-        var folder = extensionURL.standardizedFileURL.deletingLastPathComponent()
-        while folder.path != "/" && !folder.path.isEmpty {
-            if folder.pathExtension == "app" { return folder }
-            folder = folder.deletingLastPathComponent()
-        }
-        return nil
     }
 }

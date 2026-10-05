@@ -44,6 +44,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - In the app, an empty `PITBOARD_CLAUDE` or `PITBOARD_CODEX` names nothing too, and the app
   looks for the program as it does when neither is set. Before, it offered the tool, then
   refused its sign-in because the program was not installed.
+- Pitboard checks a link shared with it, or carried in a `pitboard://` link, in its core
+  now, which changes three rare answers:
+  - A site's host followed by `/`, `?` or `#` and then a combining mark or a joiner, such
+    as `chat.com/` and an accent, is a link to that site. Pitboard took the mark and the
+    character before it as one, and found no link.
+  - A link is too long past 8,192 Unicode scalars, where it was past 8,192 characters as
+    they show on screen. A link of letters each followed by a combining accent is too long
+    at about half the length it was.
+  - A host written partly in full-width letters and partly in escapes, such as
+    `ｃ%EF%BD%8Caude.ai`, is claude.ai, as the WHATWG URL standard maps it. Pitboard said
+    it was another site.
 
 ### Fixed
 
@@ -80,6 +91,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The app takes a `claude` or `codex` it finds to be the tool's program only when it is a
   regular file you may run, as the command line does, and otherwise looks further. It took
   a directory with that name, offered the tool, and failed to start its sign-in.
+- The **Open Link** window and the Share sheet name claude.ai and chatgpt.com in English, as
+  the rest of what they say is. On a Mac set to another language they joined the two names
+  in that language, as in `There is no claude.aiまたはchatgpt.com link in what was shared.`
+
+### Security
+
+- Pitboard refuses a site's sign-in link from outside however its path is written. It took
+  `claude.ai/magic-link/%FF` and `chatgpt.com/api/auth/%C3`, whose paths hold a byte that is
+  not text, and `claude.ai/magic-link/%CC%81`, whose path has a combining mark after a
+  slash, for pages of the site, and offered to open them in an account's window. Somebody
+  else's sign-in link opened there would sign the window in as them, under your label. A
+  link that names a port or a user is refused whatever they hold: one whose port is too
+  long for a number, or whose user name is not text, was opened without them.
+- Pitboard refuses a link whose path has a `.` or `..` segment whatever else the path
+  holds. It opened `claude.ai/x/../%FF`, whose path holds a byte that is not text, though
+  WebKit drops the dot segments and loads another page than the link reads.
+- A `pitboard://` link that names a user or a port, or has a path, is one Pitboard cannot
+  read whatever they hold. One whose user, port or path is not text, such as
+  `pitboard://open/%FF?url=claude.ai`, was read as if it had none.
 
 ## [0.7.0] - 2026-10-04
 

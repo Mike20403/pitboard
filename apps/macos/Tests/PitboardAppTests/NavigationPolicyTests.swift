@@ -1,5 +1,5 @@
 import Foundation
-import PitboardSites
+import PitboardKit
 import Testing
 
 @testable import PitboardApp
@@ -199,7 +199,7 @@ private func emptyWindow(asker: NavigationRequest.Asker = .site) -> NavigationRe
     let link = try SiteLink("https://chat.openai.com/c/x?y=1#z")
     #expect(
         fixture.address(of: link).absoluteString == "pitboard-fixture://chatgpt.com/c/x?y=1#z")
-    #expect(chatGPT.address(of: link) == link.url)
+    #expect(chatGPT.address(of: link).absoluteString == link.url)
 }
 
 /// A frame given a blank window could fill it with a page of its own, which nothing on the

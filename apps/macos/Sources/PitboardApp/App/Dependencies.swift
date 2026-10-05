@@ -1,6 +1,6 @@
 import Foundation
 import PitboardKit
-import PitboardSites
+import PitboardLinkTarget
 
 /// Everything the app reaches outside itself through: the core, the defaults it keeps its
 /// own preferences in, the login item, other apps, the command line link, Notification
@@ -42,7 +42,7 @@ public struct Dependencies {
             notifies: true,
             watching: true,
             web: .live(defaults: .standard),
-            linkScheme: Handoff.scheme(in: .main) ?? "pitboard")
+            linkScheme: LinkTarget.scheme(in: .main) ?? "pitboard")
     }
 
     /// The world this launch runs in: `live()`, unless this is a debug build started with

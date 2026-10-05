@@ -19,6 +19,12 @@ use std::time::{Duration, Instant};
 
 uniffi::setup_scaffolding!();
 
+mod sites;
+pub use sites::{
+    Conjunction, LinkRefusal, Site, SiteLink, link_refusal_reason, pitboard_link,
+    read_pitboard_link, site_link, site_names, sites, sites_for,
+};
+
 /// Where each tool and Pitboard keep things, said outright, as a test does. The app passes
 /// the environment it was started with to [`Pitboard::for_app`] instead; `None` here means
 /// the tool's default.

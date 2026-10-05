@@ -1,7 +1,6 @@
 import CryptoKit
 import Foundation
 import PitboardKit
-import PitboardSites
 
 /// An enrolled account that has a window on a site: what the menus, the account picker and
 /// the window itself say about it, and the store that keeps its sign-in.
@@ -54,7 +53,7 @@ func windowAccounts(in status: Status?) -> [WindowAccount] {
         account.label != nil && !account.unplaced && !account.accountUuid.isEmpty
     }
     let placed = eligible.flatMap { account in
-        Site.sites(for: account.provider).map { (site: $0, account: account) }
+        sitesFor(provider: account.provider).map { (site: $0, account: account) }
     }
     return placed.map { site, account in
         let label = account.label ?? ""
@@ -70,7 +69,7 @@ func windowAccounts(in status: Status?) -> [WindowAccount] {
 /// as the store: two tools' accounts can share an account id.
 func siteWindows(of account: Account, in status: Status?) -> [WindowAccount] {
     windowAccounts(in: status).filter { window in
-        Site.sites(for: account.provider).contains(window.site)
+        sitesFor(provider: account.provider).contains(window.site)
             && window.store == storeID(site: window.site, accountUuid: account.accountUuid)
     }
 }
@@ -88,7 +87,7 @@ enum SiteMenu: Hashable, Identifiable {
         }
     }
 
-    var id: String { site.id }
+    var id: String { site.host }
 
     /// The item's title, or the submenu's.
     var title: String {
@@ -102,7 +101,7 @@ enum SiteMenu: Hashable, Identifiable {
 /// One menu entry per site that has an account with a window, in the sites' order.
 func siteMenus(in status: Status?) -> [SiteMenu] {
     let accounts = windowAccounts(in: status)
-    return Site.all.compactMap { site in
+    return sites().compactMap { site in
         let mine = accounts.filter { $0.site == site }
         switch mine.count {
         case 0: return nil

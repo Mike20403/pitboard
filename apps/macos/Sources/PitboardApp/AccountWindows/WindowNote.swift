@@ -1,5 +1,5 @@
 import Foundation
-import PitboardSites
+import PitboardKit
 
 /// Something an account window has to say, in the bar above its page, until it is
 /// dismissed or the next one replaces it.

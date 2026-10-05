@@ -14,6 +14,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 pitboard-core.workspace = true
+pitboard-sites.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true
 

@@ -1346,6 +1346,7 @@ name = "pitboard-ffi"
 version = "0.7.0"
 dependencies = [
  "pitboard-core",
+ "pitboard-sites",
  "thiserror",
  "uniffi",
 ]

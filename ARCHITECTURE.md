@@ -109,7 +109,8 @@ pages load, as a browser would.
   `Pitboard.Core.Tests` calls the core through them.
 - `apps/macos/`: the menu bar app. The Swift package holds it as libraries its tests load
   without starting it. `PitboardKit` calls the bindings off the main thread,
-  `PitboardSites` is what the app and its Share extension both know about the sites, and
+  `PitboardSites` is what the Share extension knows about the sites, `PitboardLinkTarget`
+  is where a Pitboard link goes, which the app and the extension both link, and
   `PitboardApp` is everything the app does. The account windows are mapped under
   [Account windows](#account-windows).
   - `project.yml` is the app itself, the spec XcodeGen generates `Pitboard.xcodeproj`
@@ -170,22 +171,25 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, one error type, free functions and two objects,
+- `pitboard-ffi` exports records, enums, two error types, free functions and two objects,
   `SignIn` and `Pitboard`. A call to an object is synchronous and may block on the keychain,
   a lock, the network or the person's login shell, and `PitboardKit` makes each off the main
   thread; making a `Pitboard` blocks on none of them, since it reads its environment on
   first use. The free functions block on nothing, and the app makes them where it likes:
   `tools`, `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
   sentences and column words of `words.rs` the apps show, which read only what they are
-  given; `command_line_places` and `app_command_line`, which only join paths; `can_run`,
-  which asks the file system about one path; and `home_directory` and `pitboard_directory`,
-  which read the environment they are given and, without `HOME`, this account's passwd
-  entry. `find_command_line` looks along a search path, so the app makes it off the main
-  thread.
-- The app has no rule of its own for what the core decides: its home, Pitboard's directory
-  and whether a path is a program are asked of the core. The account windows key their
-  records by Pitboard's directory standardised as Foundation standardises a file URL, as
-  they did before the core said where it is, in `WebEnvironment.recordKey` alone.
+  given; `sites`, `sites_for`, `site_names`, `site_link`, `read_pitboard_link`,
+  `pitboard_link` and `link_refusal_reason`, which are `pitboard-sites`' and read only what
+  they are given too; `command_line_places` and `app_command_line`, which only join paths;
+  `can_run`, which asks the file system about one path; and `home_directory` and
+  `pitboard_directory`, which read the environment they are given and, without `HOME`, this
+  account's passwd entry. `find_command_line` looks along a search path, so the app makes it
+  off the main thread.
+- The app has no rule of its own for what the core decides: its home, Pitboard's directory,
+  whether a path is a program, the sites and which links from outside it opens are asked of
+  the core. The account windows key their records by Pitboard's directory standardised as
+  Foundation standardises a file URL, as they did before the core said where it is, in
+  `WebEnvironment.recordKey` alone.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.
@@ -312,17 +316,16 @@ Code or Codex login. The facts this rests on are under
 
 ### Where the code is
 
-- `apps/macos/Sources/PitboardSites`: what a site is, and what a link from outside may be.
-  Foundation only, so the Share extension links it and nothing else of the app's.
-  - `Site.swift` declares each site as values: its host, its tool and the hosts that
-    redirect to it. The hosts its sign-in goes to, the hosts it blocks, its sign-in paths,
-    its store name and its sign-in steps are values too. Nothing else names a site, so a
-    site is added to `Site.all`, with its fixture page and tests.
-  - `SiteLink.swift` checks a link from outside: a site's own host or alias, over `https`,
-    with no port or user information, and never a sign-in path. `LinkRefusal` says why one
-    is refused.
-  - `Handoff.swift` writes and reads the Pitboard link, `<scheme>://open?url=<link>`, and
-    names the Info.plist key `PitboardURLScheme` that gives each build its scheme.
+- `crates/pitboard-sites`: what a site is, and what a link from outside may be, in the
+  [code map](#code-map). The app reaches it through `pitboard-ffi`'s `Site` and `SiteLink`
+  records: its windows and menus ask `sites`, `sites_for` and `site_names`, and
+  `LinkInbox.swift` reads each Pitboard link with `read_pitboard_link` and says a refusal
+  with `link_refusal_reason`. Only the tests make a link with `site_link`.
+  `apps/macos/Sources/PitboardSites` is the Share extension's Swift copy, which nothing else
+  links.
+- `apps/macos/Sources/PitboardLinkTarget`: where a Pitboard link goes, which the app and the
+  Share extension both link. `LinkTarget.swift` names the Info.plist key `PitboardURLScheme`
+  that gives each build its scheme, and finds the app an extension is inside.
 - `apps/macos/Sources/PitboardApp/AccountWindows`: the windows.
   - `WindowAccount.swift` lists the accounts that have a window and derives each one's
     store. The menus' entries and the forget alert's text come from it too.
@@ -420,9 +423,9 @@ Code or Codex login. The facts this rests on are under
   `build-app.sh` claims `pitboard://` like the installed copy, until it is unregistered.
   `build-app.sh` fails a bundle whose app or extension names another scheme.
 - The Share extension stays sandboxed, with no other entitlement, and links only
-  `PitboardSites`. `build-app.sh` signs it with its entitlements before the app, and fails
-  when its signature is not sandboxed. The release workflow checks the installed copy
-  again.
+  `PitboardSites` and `PitboardLinkTarget`. `build-app.sh` signs it with its entitlements
+  before the app, and fails when its signature is not sandboxed. The release workflow
+  checks the installed copy again.
 
 ## Measured facts
 

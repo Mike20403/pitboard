@@ -1,4 +1,5 @@
 import AppKit
+import PitboardLinkTarget
 import PitboardSites
 import SwiftUI
 import UniformTypeIdentifiers
@@ -47,8 +48,8 @@ final class ShareViewController: NSViewController {
         }
         // The app this extension came in, not whichever copy Launch Services picks: a debug
         // extension reaches the debug app.
-        guard let app = Handoff.containingApp(of: Bundle.main.bundleURL),
-            let scheme = Handoff.scheme(in: .main)
+        guard let app = LinkTarget.containingApp(of: Bundle.main.bundleURL),
+            let scheme = LinkTarget.scheme(in: .main)
         else {
             state.phase = .failed("Pitboard couldn’t find the app this extension came with.")
             return
