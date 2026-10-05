@@ -26,6 +26,11 @@ pub use sites::{
     read_pitboard_link, site_link, site_names, sites, sites_for,
 };
 
+mod model;
+pub use model::{
+    AppLaunch, Intent, ModelListener, PitboardModel, PlatformError, ReadFailure, Snapshot,
+};
+
 mod account_windows;
 pub use account_windows::{
     AlertText, Asker, FrameOrigin, NavigationDecision, NavigationPolicy, NavigationRequest,
@@ -111,7 +116,7 @@ impl Settings {
 }
 
 /// A tool Pitboard handles, as the app names it to a person.
-#[derive(Debug, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Tool {
     /// What a label's prefix and every `provider` field say: `claude`, `codex`.
     pub code: String,
@@ -247,7 +252,7 @@ pub fn pitboard_directory(environment: HashMap<String, String>) -> String {
 }
 
 /// Something to know about that did not stop the operation.
-#[derive(Debug, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Warning {
     pub code: String,
     pub message: String,
@@ -363,7 +368,7 @@ fn cause(error: &pitboard_core::error::Error) -> Option<Cause> {
     })
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Source {
     Live,
     ClaudeCodeCache,
@@ -372,7 +377,7 @@ pub enum Source {
 
 /// One limit an account is measured against, such as the five-hour session or the week.
 /// Named for what it is rather than `Window`, which SwiftUI and WinUI each have a type of.
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Limit {
     /// The service's own name for it: Anthropic's `session`, `weekly_all` or
     /// `weekly_scoped`, or one named after its length for OpenAI.
@@ -391,21 +396,21 @@ pub struct Limit {
     pub is_active: bool,
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Usage {
     pub source: Source,
     pub observed_at: Option<i64>,
     pub windows: Vec<Limit>,
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Parked {
     pub parked_at: i64,
     pub access_expires_at: Option<i64>,
     pub refresh_expires_at: Option<i64>,
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Account {
     /// Unique among the accounts of one status, and stable between two: the tool and the
     /// account, or the tool alone for a login that belongs to no account Pitboard can name.
@@ -444,7 +449,7 @@ pub struct Account {
     pub lasts_burning: bool,
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Status {
     pub now: i64,
     /// The signed-in account first.

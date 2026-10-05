@@ -93,6 +93,17 @@ pages load, as a browser would.
     differs by system there, such as how a copy of a file is numbered, which names are one
     file, or an alert's "on this Mac", is a `match` on `host::OS`, as what a window cannot
     sign in with is in `sites.rs`.
+  - `model/` is the app model both apps are to show, which neither uses yet: the Swift
+    model in `PitboardApp` still decides what the macOS app shows. An app makes a
+    `PitboardModel`, sends it an `Intent` for each thing asked of it, and its
+    `ModelListener` is told of each numbered `Snapshot`. `state.rs` holds what the model
+    knows and decides what follows each message; `lanes.rs` runs what it decides, on a
+    lane of reads and a lane that asks what is installed, and tells the listener on a
+    thread of its own; `mod.rs` holds the exported types and the actor thread that owns
+    the state. So far the model reads the accounts, looks every two seconds for a change
+    made elsewhere, and asks which tools are installed. Its tests are files of their own
+    there: `reading.rs` and `cadence.rs` drive the state by hand, and `threaded.rs` drives
+    the model through its threads over the real core.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
   IDNA alone.
@@ -193,12 +204,17 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, two error types, free functions and two objects,
-  `SignIn` and `Pitboard`. A call to an object is synchronous and may block on the keychain,
-  a lock, the network or the person's login shell, and `PitboardKit` makes each off the main
-  thread; making a `Pitboard` blocks on none of them, since it reads its environment on
-  first use. The free functions block on nothing, and the app makes them where it likes:
-  `tools`, `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
+- `pitboard-ffi` exports records, enums, three error types, free functions, three objects,
+  `SignIn`, `Pitboard` and `PitboardModel`, and one trait an app implements,
+  `ModelListener`. Nothing it exports is async. A call to `SignIn` or `Pitboard` is
+  synchronous and may block on the keychain, a lock, the network or the person's login
+  shell, and `PitboardKit` makes each off the main thread; making a `Pitboard` blocks on
+  none of them, since it reads its environment on first use. `PitboardModel` blocks on none
+  of them anywhere: making one starts its threads, `send` only posts an intent, `snapshot`
+  only copies the last snapshot, `shutdown` waits only for the actor to take what is
+  already in its mailbox, and the core is called on the model's own threads. The free
+  functions block on nothing, and the app makes them where it likes: `tools`,
+  `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
   sentences and column words of `words.rs` the apps show, which read only what they are
   given; `sites`, `sites_for`, `site_names`, `site_link`, `read_pitboard_link`,
   `pitboard_link` and `link_refusal_reason`, which are `pitboard-sites`' and read only what
@@ -210,6 +226,24 @@ pages load, as a browser would.
   `home_directory` and `pitboard_directory`, which read the environment they are given and,
   without `HOME`, this account's passwd entry. `find_command_line` looks along a search
   path, so the app makes it off the main thread.
+- The app model's state belongs to its actor thread alone, and `State::apply` does no I/O:
+  it calls neither the core nor the app, reads no clock and waits on nothing. It says what
+  to run as jobs, which run on the model's lanes and answer as messages. A call the Swift
+  model awaited is a job, except that a read's two stamps and the read are one job, and a
+  look's two stamps are one, so no look lands between a read's stamps and the read. A read
+  that started before a change the poll noticed, counted in `changes_seen` when the read's
+  job is made and compared when it lands, is dropped, and a read records when the index and
+  the readings were written as they stood before it.
+- One thread tells a `ModelListener`, so snapshots arrive in revision order, and a snapshot
+  is told only where it differs from the last. The model never holds a lock while it calls
+  out, so a listener may call `snapshot`, `send` and `shutdown`. Dropping a `PitboardModel`
+  waits on no thread, since .NET can free it from its finalizer thread
+  ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor alone.
+- No test makes the app model over the machine's own environment. Its Rust tests run the
+  real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in
+  a scratch directory, and the Swift and C# tests make no model. So no record or intent of
+  the model crosses the bindings in a test yet, and no test has the library call a listener
+  written in Swift or C#.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core. The account windows key their records by Pitboard's directory standardised as
@@ -871,3 +905,41 @@ That needs a person, in a debug build with a scratch home.
   **File** > **Share** in Chrome and in Firefox from 92. That was read from the browsers'
   source and bug trackers, and no browser was run. Which other browsers list the extension
   is not known.
+
+### The C# bindings
+
+Read in the C# that uniffi-bindgen-cs v0.11.0+v0.31.0 generated from `pitboard-ffi`, and
+measured by `apps/windows/Pitboard.Core.Tests` against the debug library, on 5 October 2026.
+Nothing here ran on Windows.
+
+- An exported object's class frees its Rust object from a finalizer: `~PitboardModel()`
+  calls `Destroy()`. So .NET's finalizer thread can be the one that drops a
+  `PitboardModel`, and its `Drop` waits on nothing.
+- The first call loads the library, and before it answers, the bindings compare the
+  checksum of every export, the model's constructor and methods and
+  `ModelListener.changed` among them, and hand the library each foreign trait's table of
+  calls.
+- A trait an app implements is an interface of the trait's own name, `ModelListener`. Its
+  error is an exception named for it, `PlatformException`, whose variant the app throws.
+- A record holds a list as an array, and a C# record compares arrays by reference, so two
+  snapshots read alike are not equal. `ModelTests.ASnapshotCarriesWhatWasRead` measures it.
+- A call's checksum is taken over what UniFFI records of it: its module, object and name,
+  its arguments, the types it takes, gives and throws, and its doc comment. A record type is
+  recorded by its module and name alone, so no checksum covers a record's fields. Read in
+  `uniffi_macros` 0.31.2, `fnsig.rs` and `record.rs`.
+
+### The model's timers
+
+Read on 5 October 2026 in Rust 1.98.1's standard library and in the macOS SDK of Xcode 27.1,
+with Swift 6.4.
+
+- `std::time::Instant` reads `CLOCK_UPTIME_RAW` on Apple's systems, which macOS's
+  `clock_gettime(3)` says does not increment while the system is asleep. The model's timers
+  run on it, so on macOS they count only the time the machine is awake.
+- The Swift model's loops slept with `Task.sleep(for:)`, whose clock is `.continuous` unless
+  it is given another, and `ContinuousClock` does not stop while the system is asleep. After
+  a long sleep its five-minute read came as the machine woke, where the model's comes up to
+  five minutes of waking time later. An app sends `Intent::Woke` as the machine wakes, which
+  reads at once, as the Swift model read on `NSWorkspace.didWakeNotification`.
+- On Linux the standard library reads `CLOCK_MONOTONIC`, and on Windows
+  `QueryPerformanceCounter`. How either counts a sleep was not read.
