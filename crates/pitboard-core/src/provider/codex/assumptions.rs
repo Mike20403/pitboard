@@ -192,8 +192,30 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                it runs piped in a private home with no terminal",
         read_from: "the login command and its local server",
         verified_against: VERIFIED_AGAINST,
-        depends: "provider::codex::engine::sign_in, and the watched sign-in the app runs",
+        depends: "provider::codex::engine's sign_in and read_sign_in, and the watched sign-in \
+                  the app runs",
         probe: &["Starting local login server"],
+        absent: &[],
+    },
+    Assumption {
+        name: "codex_login_prints_its_address",
+        fact: "`codex login` prints to stderr `Starting local login server on \
+               http://localhost:<port>.`, then `If your browser did not open, navigate to this \
+               URL to authenticate:`, a blank line and the address, bare on a line of its own: \
+               `<issuer>/oauth/authorize?…`, with the issuer `https://auth.openai.com`. So the \
+               first `https` address it prints is the one to open, and the loopback one before \
+               it, where the browser comes back to, is `http`. Nothing on that path reads stdin",
+        read_from: "print_login_server_start in cli/src/login.rs, and build_authorize_url and \
+                    DEFAULT_ISSUER in login/src/server.rs, at tag rust-v0.160.0, and the same \
+                    strings in the macOS and Linux binaries",
+        verified_against: "0.160.0",
+        depends: "provider::codex::engine's read_sign_in, and the address the app's sign-in \
+                  sheet offers",
+        probe: &[
+            "Starting local login server on http://localhost:",
+            "If your browser did not open, navigate to this URL to authenticate:",
+            "/oauth/authorize",
+        ],
         absent: &[],
     },
 ];

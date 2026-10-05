@@ -7,7 +7,7 @@ use super::{api, paths};
 use crate::context::Context;
 use crate::provider::{
     Adoption, Credential, Expiry, Identity, Isolation, LiveStore, ParkSemantics, Provider,
-    ProviderError, ProviderId, jwt,
+    ProviderError, ProviderId, SignInView, jwt,
 };
 use crate::store::{self, Live};
 use crate::usage::Snapshot;
@@ -229,6 +229,17 @@ impl Provider for Codex {
 
     /// Everything a sign-in writes goes inside its home, so the directory is all there is.
     fn discard_signin(&self, _ctx: &Context, _dir: &std::path::Path) {}
+
+    /// Read from 0.160.0. `codex login` prints to stderr where its loopback server listens,
+    /// `http://localhost:<port>`, and then, bare on a line of its own, the `https` address
+    /// on auth.openai.com to open when the browser did not. So the first `https` address is
+    /// the one to open. It reads nothing typed back, whatever it prints.
+    fn read_sign_in(&self, said: &str) -> SignInView {
+        SignInView {
+            url: crate::provider::https_address(said),
+            wants_code: false,
+        }
+    }
 
     /// Nothing measured yet. Codex reads an API key from its own login document, which moves
     /// with the account, and whether an environment key takes precedence over a ChatGPT
@@ -554,6 +565,52 @@ mod tests {
             }
         ));
         assert_eq!(Codex.park_semantics(), ParkSemantics::MoveOnly);
+    }
+
+    /// What `codex login` 0.160.0 prints to stderr once its loopback server listens, with
+    /// fewer of the address's parameters.
+    const SAID: &str = "Starting local login server on http://localhost:1455.\n\
+        If your browser did not open, navigate to this URL to authenticate:\n\n\
+        https://auth.openai.com/oauth/authorize?response_type=code\
+        &client_id=app_EMoamEEZ73f0CkXaXp7hrann\
+        &redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=s\n\n\
+        On a remote or headless machine? Use `codex login --device-auth` instead.\n";
+
+    /// The address to open is the one on auth.openai.com, not the loopback one printed
+    /// first, and no code is ever asked for.
+    #[test]
+    fn a_sign_in_offers_the_address_to_open_and_never_a_code() {
+        let read = Codex.read_sign_in(SAID);
+        assert_eq!(
+            read.url.as_deref(),
+            Some(
+                "https://auth.openai.com/oauth/authorize?response_type=code\
+                 &client_id=app_EMoamEEZ73f0CkXaXp7hrann\
+                 &redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=s"
+            )
+        );
+        assert!(!read.wants_code);
+        assert!(
+            !Codex
+                .read_sign_in(&format!("{SAID}Paste code here if prompted > "))
+                .wants_code
+        );
+    }
+
+    /// The loopback line the conformance run looks for is one this passes over, so a build
+    /// that printed its loopback as `https` first would be reported rather than offered.
+    #[test]
+    fn the_loopback_address_in_the_register_is_not_one_to_open() {
+        let fact = crate::assumptions::named("codex_login_prints_its_address").expect("listed");
+        let loopback = fact
+            .probe
+            .iter()
+            .find(|p| p.starts_with("Starting local login server"))
+            .expect("the loopback line is probed for");
+        assert_eq!(
+            crate::provider::https_address(&format!("{loopback}1455.")),
+            None
+        );
     }
 
     /// `last_refresh` is a timestamp, not a number of milliseconds. Writing the wrong one

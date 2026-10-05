@@ -10,7 +10,7 @@ use crate::api::{self, ApiError};
 use crate::context::Context;
 use crate::provider::{
     Adoption, Credential, Expiry, Identity, Isolation, LiveStore, ParkSemantics, Provider,
-    ProviderError, ProviderId,
+    ProviderError, ProviderId, SignInView,
 };
 use crate::switch;
 use crate::usage;
@@ -25,6 +25,11 @@ pub(crate) struct Claude;
 /// picks a switch up on its own. Measured against a running session; the three seconds of
 /// margin are for the round trip that follows the cache expiring.
 const ADOPTION_SECONDS: u32 = switch::ADOPTION_CEILING_SECONDS;
+
+/// What `claude auth login` prints to say it reads a code typed back: the start of its
+/// prompt `Paste code here if prompted > `, which the register's `sign_in_output` holds
+/// whole.
+const ASKS_FOR_A_CODE: &str = "Paste code";
 
 impl Provider for Claude {
     fn id(&self) -> ProviderId {
@@ -137,8 +142,10 @@ impl Provider for Claude {
     }
 
     /// Measured in 2.1.278: `claude auth login` opens the browser itself and finishes
-    /// through a loopback callback, printing progress with `stdout.write` and reading stdin
-    /// only as the fallback for a pasted code. So it needs no terminal: pipes are enough.
+    /// through a loopback callback, printing progress with `stdout.write`. Read from
+    /// 2.1.289, as the register's `sign_in_output` holds: it also reads a pasted code from
+    /// stdin, from the start and whether or not the callback is reached. So it needs no
+    /// terminal: pipes are enough.
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` is taken away because it would pin the credential
     /// slot back to a real one whatever `CLAUDE_CONFIG_DIR` says.
     fn sign_in(&self, ctx: &Context, dir: &std::path::Path) -> std::process::Command {
@@ -162,6 +169,21 @@ impl Provider for Claude {
     /// directory unless it is deleted by name.
     fn discard_signin(&self, ctx: &Context, dir: &std::path::Path) {
         let _ = live::discard_signin(ctx, dir);
+    }
+
+    /// Read from 2.1.289. Before it opens the browser, `claude auth login` writes to stdout
+    /// `Opening browser to sign in…`, then `If the browser didn't open, visit: ` and an
+    /// address, then its prompt with no newline after it, and from then on it reads a
+    /// pasted code. So the field is offered with the address. The address it prints is the
+    /// manual one, `https`, whose page shows the code to paste; the browser it opens itself
+    /// goes to another, which comes back to the loopback callback. It is printed bare, or as
+    /// a terminal hyperlink to itself where the environment says the terminal takes them,
+    /// and either way the address read is the one it goes to.
+    fn read_sign_in(&self, said: &str) -> SignInView {
+        SignInView {
+            url: crate::provider::https_address(said),
+            wants_code: said.contains(ASKS_FOR_A_CODE),
+        }
     }
 
     fn overridden_by(&self, ctx: &Context) -> Vec<String> {
@@ -264,5 +286,70 @@ fn from_api(error: ApiError) -> ProviderError {
         ApiError::InvalidGrant => ProviderError::InvalidGrant {
             service: ProviderId::Claude.service(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The manual address 2.1.289 prints, with its values made up.
+    const ADDRESS: &str = "https://claude.com/cai/oauth/authorize?code=true\
+        &client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code\
+        &redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback\
+        &scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=c&code_challenge_method=S256\
+        &state=s";
+
+    /// What `claude auth login` 2.1.289 writes before it opens the browser, piped, with the
+    /// address as its hyperlink helper wrote it: at the end of a line, and the prompt with no
+    /// newline after it.
+    fn said(address: &str) -> String {
+        format!(
+            "Opening browser to sign in\u{2026}\n\
+             If the browser didn't open, visit: {address}\n\
+             Paste code here if prompted > "
+        )
+    }
+
+    /// The address and the code field come together, because the tool prints both before
+    /// it opens the browser: the field is for the page the printed address leads to, which
+    /// shows a code.
+    #[test]
+    fn a_sign_in_offers_its_address_and_a_field_for_the_code_together() {
+        let said = said(ADDRESS);
+        let read = Claude.read_sign_in(&said);
+        assert_eq!(read.url.as_deref(), Some(ADDRESS));
+        assert!(read.wants_code);
+
+        let opening = &said[..said.find('\n').expect("a first line")];
+        assert_eq!(Claude.read_sign_in(opening), SignInView::default());
+    }
+
+    /// 2.1.289's hyperlink helper, which the address is printed through, writes it as an
+    /// OSC 8 hyperlink when its check says the terminal takes them, which it can say piped.
+    /// That is `ESC ] 8 ; ;`, the address and BEL, then the address again as the link's
+    /// text, then `ESC ] 8 ; ;` and BEL to end the link. The text is bright blue where colour
+    /// is on, as `FORCE_COLOR` turns it on piped. The address to open is the one the link
+    /// goes to, with nothing of the sequence or the text in it.
+    #[test]
+    fn an_address_printed_as_a_terminal_hyperlink_is_the_one_it_links_to() {
+        for text in [ADDRESS.to_owned(), format!("\u{1b}[94m{ADDRESS}\u{1b}[39m")] {
+            let printed = format!("\u{1b}]8;;{ADDRESS}\u{7}{text}\u{1b}]8;;\u{7}");
+            let read = Claude.read_sign_in(&said(&printed));
+            assert_eq!(read.url.as_deref(), Some(ADDRESS), "{printed:?}");
+            assert!(read.wants_code);
+        }
+    }
+
+    /// The prompt looked for is one the conformance run reads out of every build, so a
+    /// build that words it differently is reported, rather than leaving the field unoffered.
+    #[test]
+    fn the_prompt_looked_for_is_in_the_register() {
+        let fact = crate::assumptions::named("sign_in_output").expect("listed");
+        assert!(
+            fact.probe.iter().any(|p| p.starts_with(ASKS_FOR_A_CODE)),
+            "{:?}",
+            fact.probe
+        );
     }
 }

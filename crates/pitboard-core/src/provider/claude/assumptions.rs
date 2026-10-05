@@ -233,6 +233,48 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         ],
     },
     Assumption {
+        name: "sign_in_output",
+        fact: "`claude auth login` writes `Opening browser to sign in…`, then `If the browser \
+               didn't open, visit: <address>`, then `Paste code here if prompted > ` with no \
+               newline, all to stdout and before it opens the browser, and from then on reads \
+               a pasted `<code>#<state>` line from stdin. The address is the manual one: \
+               `https`, on claude.com for a claude.ai login and platform.claude.com for a \
+               Console one, coming back to platform.claude.com's page that shows the code. The \
+               browser it opens goes to another address, which comes back to the loopback. \
+               The address goes through a hyperlink helper, which writes it bare, or, where \
+               its check says the terminal takes hyperlinks, as an OSC 8 hyperlink: \
+               `ESC ] 8 ; ;`, the address, BEL, the address again as the link's text, bright \
+               blue where colour is on, then `ESC ] 8 ; ;` and BEL. Piped, the check says yes \
+               when `FORCE_HYPERLINK` is set to anything but 0 or nothing, which decides it \
+               when set; otherwise when `NETLIFY` is set, `TERM_PROGRAM` or `LC_TERMINAL` is \
+               ghostty, Hyper, kitty, alacritty, iTerm.app, iTerm2 or WarpTerminal, \
+               `TERMINAL_EMULATOR` is JetBrains-JediTerm, `WT_SESSION` is set outside tmux, \
+               `TERM_PROGRAM` is tmux 3.4 or later, or `TERM` contains kitty. A terminal \
+               attached to a background session answers for the check instead, and \
+               `auth login` has none",
+        read_from: "the `auth login` command's OAuth flow and `startOAuthFlow`, the authorize \
+                    address builder and its constants, the hyperlink helper the address is \
+                    printed through with `assumeSupport`, and the supports-hyperlinks check \
+                    it asks",
+        // Read from a newer build than the rest of this register.
+        verified_against: "2.1.289",
+        depends: "provider::claude::engine's read_sign_in, provider::printed, which reads \
+                  the hyperlink, and the address and code field the app's sign-in sheet \
+                  offers",
+        probe: &[
+            "If the browser didn't open, visit: ",
+            "Paste code here if prompted > ",
+            r#"CLAUDE_AI_AUTHORIZE_URL:"https://"#,
+            r#"CONSOLE_AUTHORIZE_URL:"https://"#,
+            r#"MANUAL_REDIRECT_URL:"https://"#,
+            // A sign-in address going through the hyperlink helper with `assumeSupport`, from
+            // after the helper's name, which the minifier chooses. `auth login` makes one of
+            // the three such calls in 2.1.289; 2.1.110 has none.
+            "{assumeSupport:!0})}",
+        ],
+        absent: &[],
+    },
+    Assumption {
         name: "plaintext_credential_mode",
         fact: "the plaintext credential is written and then chmod'd to 0600, in its storage \
                directory, under the fixed name `.credentials.json`",

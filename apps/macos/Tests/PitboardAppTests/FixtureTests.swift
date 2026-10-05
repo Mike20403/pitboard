@@ -271,8 +271,7 @@ func aClaudeCodeSignInWaitsForTheCodeAndThenParksTheAccount() async throws {
         }
         return said
     }
-    let shown = SigningIn(label: "travel", tool: "Claude Code")
-    shown.takesACode = session.takesACode()
+    let shown = SigningIn(label: "travel", provider: "claude", tool: "Claude Code")
     shown.add(said)
     #expect(shown.url == URL(string: "https://claude.ai/oauth/authorize?fixture=1"))
     #expect(shown.wantsCode)
@@ -308,8 +307,7 @@ func aCodexSignInFinishesByItself() async throws {
         while let line = session.nextLine() { said += line }
         return said
     }
-    let shown = SigningIn(label: "travel", tool: "Codex")
-    shown.takesACode = session.takesACode()
+    let shown = SigningIn(label: "travel", provider: "codex", tool: "Codex")
     shown.add(said)
     #expect(shown.url == URL(string: "https://auth.openai.com/oauth/authorize?fixture=1"))
     #expect(!shown.wantsCode)

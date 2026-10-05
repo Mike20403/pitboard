@@ -146,7 +146,8 @@ struct SignInSheet: View {
                     .onAppear { codeFocused = true }
                 } footer: {
                     Text(
-                        "\(signingIn.tool) asks for this only when your browser couldn’t reach it."
+                        "\(signingIn.tool) takes the code shown after you sign in, whether or "
+                            + "not your browser came back to it."
                     )
                     .footnote()
                 }

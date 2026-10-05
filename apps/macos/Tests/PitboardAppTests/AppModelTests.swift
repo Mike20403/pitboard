@@ -146,7 +146,6 @@ private final class Stub: Core, @unchecked Sendable {
 /// on the browser, until it is cancelled or `done` is signalled.
 private final class ScriptedSignIn: SignIn, @unchecked Sendable {
     private var lines: [String]
-    private let code: Bool
     private let waits: Bool
     let done = DispatchSemaphore(value: 0)
     private(set) var pasted: [String] = []
@@ -162,16 +161,14 @@ private final class ScriptedSignIn: SignIn, @unchecked Sendable {
     /// Holds finishing until it is signalled, as a tool still enrolling does.
     var finishing: DispatchSemaphore?
 
-    init(saying lines: [String], takesACode code: Bool, waits: Bool = false) {
+    init(saying lines: [String], waits: Bool = false) {
         self.lines = lines
-        self.code = code
         self.waits = waits
         super.init(noHandle: NoHandle())
     }
 
     required init(unsafeFromHandle handle: UInt64) { fatalError("not from the core") }
 
-    override func takesACode() -> Bool { code }
     override func nextLine() -> String? {
         guard lines.isEmpty else { return lines.removeFirst() }
         if waits { done.wait() }
@@ -605,7 +602,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aCodexSignInIsForCodex() async {
     let stub = Stub(.success(status([])))
-    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
+    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"])
     stub.session = session
     let model = AppModel(testing: stub)
     model.sheet = .add(provider: "codex")
@@ -627,7 +624,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
             "2 `codex` sessions started before this sign-in are still running and still using "
             + "`codex/work`'s old login.")
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
-    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
+    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"])
     session.enrolls = Enrolled(
         email: "w@example.com", outcome: .inUse(again: true), warnings: [oldLogin])
     stub.session = session
@@ -648,7 +645,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aFirstSignInToTheAccountInUseSaysItWasEnrolled() async throws {
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
-    let session = ScriptedSignIn(saying: [], takesACode: false)
+    let session = ScriptedSignIn(saying: [])
     session.enrolls = Enrolled(
         email: "w@example.com", outcome: .inUse(again: false), warnings: [])
     stub.session = session
@@ -673,7 +670,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
         "codex", from: "codex/personal", to: "codex/work", warnings: [stillRunning])
     let oldLogin = Warning(code: "sessions_keep_old_login", message: "2 sessions")
     let parked = Warning(code: "written_on_the_command_line", message: "on the argument line")
-    let session = ScriptedSignIn(saying: [], takesACode: false)
+    let session = ScriptedSignIn(saying: [])
     session.enrolls = Enrolled(
         email: "w@example.com", outcome: .inUse(again: true), warnings: [oldLogin, parked])
     stub.session = session
@@ -696,7 +693,7 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
     let untold = Warning(
         code: "sign_in_parked_not_in_use", message: "Codex goes on with the login it has")
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
-    let session = ScriptedSignIn(saying: [], takesACode: false)
+    let session = ScriptedSignIn(saying: [])
     session.enrolls = Enrolled(email: "w@example.com", outcome: .renewed, warnings: [untold])
     stub.session = session
     let model = AppModel(testing: stub)
@@ -729,28 +726,26 @@ private func account(_ label: String, signedIn: Bool, percent: Double) -> Accoun
 @MainActor
 @Test func aSignInOfAnotherAccountSaysNothingMore() async {
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
-    stub.session = ScriptedSignIn(
-        saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
+    stub.session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"])
     let model = AppModel(testing: stub)
     await model.signIn("personal", for: "codex")
     #expect(model.lastSwitches.isEmpty)
 }
 
-/// A code field is offered only by a sign-in whose tool reads one, whatever the tool prints,
-/// and what is typed goes to the tool off the main thread.
+/// Whether a code is asked for is the core's to read, in each tool's own words, and its
+/// cases are the core's tests. The sheet asks it about the tool being signed in to, a code
+/// typed back is not asked for again, and what is typed goes to the tool off the main thread.
 @MainActor
 @Test(.timeLimit(.minutes(1)))
 func aCodeIsAskedForOnlyWhereTheToolTakesOne() async throws {
     for (provider, takes) in [("claude", true), ("codex", false)] {
         let stub = Stub(.success(status([])))
-        let session = ScriptedSignIn(
-            saying: ["Paste code here if prompted > "], takesACode: takes, waits: true)
+        let session = ScriptedSignIn(saying: ["Paste code here if prompted > "], waits: true)
         stub.session = session
         let model = AppModel(testing: stub)
         let running = Task { await model.signIn("work", for: provider) }
 
         #expect(await eventually { model.signingIn?.said.contains("Paste code") == true })
-        #expect(model.signingIn?.takesACode == takes)
         #expect(model.signingIn?.wantsCode == takes)
         if takes {
             model.paste("abc")
@@ -772,8 +767,7 @@ func aCodeIsAskedForOnlyWhereTheToolTakesOne() async throws {
 func aCancelledSignInStopsTheToolAndReportsNothing() async {
     let stub = Stub(.success(status([])))
     let session = ScriptedSignIn(
-        saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], takesACode: false,
-        waits: true)
+        saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], waits: true)
     stub.session = session
     let model = AppModel(testing: stub)
     let running = Task { await model.signIn("work", for: "codex") }
@@ -807,8 +801,7 @@ func anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel() async throws
                 account("spare", switchable: false),
             ])))
     let session = ScriptedSignIn(
-        saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], takesACode: false,
-        waits: true)
+        saying: ["https://auth.openai.com/oauth/authorize?state=x\n"], waits: true)
     stub.session = session
     let model = AppModel(testing: stub)
     await model.refresh()
@@ -830,7 +823,7 @@ func anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel() async throws
 
     let spare = AccountDescription(accounts[2], switching: nil, busy: false).action
     #expect(spare == .signInAgain(provider: "claude", label: "spare"))
-    stub.session = ScriptedSignIn(saying: [], takesACode: true)
+    stub.session = ScriptedSignIn(saying: [])
     model.sheet = .signInAgain(provider: "claude", label: "spare")
     await model.signIn("spare", for: "claude")
     #expect(stub.signedIn == ["codex/work", "claude/spare"])
@@ -1003,27 +996,6 @@ private func standInApp(in directory: URL) throws -> URL {
         #expect(model.machine.scheduleFailed == nil)
         #expect(model.problem == nil)
     }
-}
-
-/// The address Codex prints is the one to open; the loopback address it also prints is
-/// where the browser comes back to.
-@MainActor
-@Test func theAddressToOpenIsTheOneThePersonGoesTo() {
-    let codexSaid = SigningIn(label: "work", tool: "Codex")
-    codexSaid.add("Starting local login server on http://localhost:1455.\n")
-    codexSaid.add(
-        "If your browser did not open, navigate to this URL to authenticate:\n\n"
-            + "https://auth.openai.com/oauth/authorize?response_type=code&state=x\u{1B}[0m\n")
-    #expect(
-        codexSaid.url?.absoluteString
-            == "https://auth.openai.com/oauth/authorize?response_type=code&state=x")
-    codexSaid.add("Paste code here if prompted > ")
-    #expect(!codexSaid.wantsCode, "Codex reads nothing, whatever it prints")
-
-    let claudeSaid = SigningIn(label: "work", tool: "Claude Code")
-    claudeSaid.takesACode = true
-    claudeSaid.add("Paste code here if prompted > ")
-    #expect(claudeSaid.wantsCode)
 }
 
 /// A timer producing a reading is not somebody asking for one, and the core decides whether
@@ -1787,7 +1759,7 @@ func aReadThatStartedBeforeAChangeIsDroppedWhenItLands(_ change: ChangeMidRead) 
     case .forgotten:
         await model.forget("codex/spare")
     case .signedIn:
-        stub.session = ScriptedSignIn(saying: [], takesACode: false)
+        stub.session = ScriptedSignIn(saying: [])
         await model.signIn("travel", for: "codex")
     case .gaveUp:
         stub.abandoned = Abandoned(from: "personal", to: "work", loginsKept: 2)
@@ -2108,8 +2080,7 @@ func aReadThatStartedBeforeAChangeIsDroppedWhenItLands(_ change: ChangeMidRead) 
 @Test(.timeLimit(.minutes(1)))
 func aSecondSignInWhileOneRunsStartsNothing() async {
     let stub = Stub(.success(status([])))
-    let session = ScriptedSignIn(
-        saying: ["https://auth.openai.com/oauth\n"], takesACode: false, waits: true)
+    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], waits: true)
     stub.session = session
     let model = AppModel(testing: stub)
     let running = Task { await model.signIn("work", for: "codex") }
@@ -2134,7 +2105,7 @@ func aSecondSignInWhileOneRunsStartsNothing() async {
 @Test(.timeLimit(.minutes(1)))
 func aSignInCancelledWhileItStartsStopsWhatStarted() async {
     let stub = Stub(.success(status([])))
-    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], takesACode: false)
+    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"])
     stub.session = session
     let gate = Gate()
     stub.duringSignIn = { await gate.pass() }
@@ -2161,8 +2132,7 @@ func aSignInCancelledWhileItStartsStopsWhatStarted() async {
 @Test(.timeLimit(.minutes(1)))
 func aFinishedSignInClosesOnlyTheSheetItStartedFrom() async {
     let stub = Stub(.success(status([])))
-    let session = ScriptedSignIn(
-        saying: ["https://auth.openai.com/oauth\n"], takesACode: false, waits: true)
+    let session = ScriptedSignIn(saying: ["https://auth.openai.com/oauth\n"], waits: true)
     stub.session = session
     let model = AppModel(testing: stub)
     model.sheet = .add(provider: "codex")
@@ -2189,7 +2159,7 @@ func aFinishedSignInClosesOnlyTheSheetItStartedFrom() async {
 func aSignInCancelledWhileItFinishesLeavesWhatCameAfterIt(stoppedFirst: Bool) async {
     let travel = account("travel", of: "codex")
     let stub = Stub(.success(status([account("work", of: "codex", signedIn: true)])))
-    let late = ScriptedSignIn(saying: [], takesACode: false)
+    let late = ScriptedSignIn(saying: [])
     let finishing = DispatchSemaphore(value: 0)
     late.finishing = finishing
     if stoppedFirst {
@@ -2206,8 +2176,7 @@ func aSignInCancelledWhileItFinishesLeavesWhatCameAfterIt(stoppedFirst: Bool) as
     #expect(await eventually { late.finished })
     model.cancelSignIn()
 
-    let next = ScriptedSignIn(
-        saying: ["https://claude.ai/oauth/authorize\n"], takesACode: true, waits: true)
+    let next = ScriptedSignIn(saying: ["https://claude.ai/oauth/authorize\n"], waits: true)
     stub.session = next
     model.sheet = .add(provider: "claude")
     let running = Task { await model.signIn("other", for: "claude") }

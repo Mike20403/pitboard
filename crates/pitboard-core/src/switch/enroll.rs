@@ -195,8 +195,8 @@ impl WatchedSignIn {
         self.said.clone()
     }
 
-    /// Types a line back, for a code the tool asks to be pasted when the browser cannot
-    /// reach its callback.
+    /// Types a line back, for a code the tool reads from stdin while it waits on the
+    /// browser.
     pub fn paste(&mut self, line: &str) -> Result<()> {
         use std::io::Write;
         let stdin = self.child.stdin.as_mut().ok_or(Error::SignInIncomplete)?;
