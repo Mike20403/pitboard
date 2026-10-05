@@ -1,4 +1,5 @@
 import AppKit
+import PitboardKit
 import SwiftUI
 import WebKit
 
@@ -45,12 +46,6 @@ final class PopupWindow: NSObject, NSWindowDelegate {
     /// The window's identifier, which UI tests find a sign-in window by.
     nonisolated static let identifier = "sign-in"
 
-    /// The size of a sign-in window: what the page asked for, no smaller than 320 by 400
-    /// points, and 500 by 640 for a side it did not name.
-    nonisolated static func size(width: Double?, height: Double?) -> CGSize {
-        CGSize(width: max(320, width ?? 500), height: max(400, height ?? 640))
-    }
-
     func close() {
         window.close()
     }
@@ -70,8 +65,10 @@ private struct PopupView: View {
 
     var body: some View {
         let place = page.url.map { $0.host() ?? $0.absoluteString } ?? ""
+        // As small as the core's rule lets a sign-in window open.
+        let smallest = signInWindowSize(width: 0, height: 0)
         PageContent(page: page)
-            .frame(minWidth: 320, minHeight: 400)
+            .frame(minWidth: smallest.width, minHeight: smallest.height)
             .navigationTitle(page.title.isEmpty ? place : page.title)
             .navigationSubtitle(page.title.isEmpty ? "" : place)
     }

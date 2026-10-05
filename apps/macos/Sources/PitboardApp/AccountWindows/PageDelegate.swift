@@ -1,10 +1,11 @@
 import AppKit
 import Foundation
+import PitboardKit
 import WebKit
 
-/// What one page of an account window asks WebKit's delegates, answered by the window's
-/// policy: where each navigation goes, what is downloaded, which windows open, and the
-/// dialogs, file choosers and permissions a page asks for.
+/// What one page of an account window asks WebKit's delegates, answered by the core's rules
+/// for the window: where each navigation goes, what is downloaded, which windows open, and
+/// the dialogs, file choosers and permissions a page asks for.
 ///
 /// The same delegate serves an account window's own page and a sign-in window's, by the
 /// page's role, so a sign-in window says and refuses what the account window does.
@@ -34,16 +35,16 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         // asks for the window it wants, where the window is decided: refused here, it never
         // would be, and a sign-in link would open nothing.
         if request.target == .newWindow && !request.download { return .allow }
-        switch session.policy.decide(request, in: role) {
+        switch decideNavigation(policy: session.policy, role: role, request: request) {
         case .load, .loadInPage, .popup:
             return .allow
         case .download:
             return .download
-        case .openElsewhere(let url):
-            session.handOver(url, clicked: request.clicked)
+        case .openElsewhere(let url, let note):
+            session.handOver(url, note: note)
             return .cancel
-        case .refuse(let kind):
-            session.say(kind)
+        case .refuse(let note):
+            session.say(note)
             return .cancel
         case .ignore:
             return .cancel
@@ -54,14 +55,12 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         _ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse
     ) async -> WKNavigationResponsePolicy {
         guard let session else { return .cancel }
-        let disposition = (navigationResponse.response as? HTTPURLResponse)?
-            .value(forHTTPHeaderField: "Content-Disposition")
-        let decision = session.policy.decideResponse(
-            canShow: navigationResponse.canShowMIMEType, disposition: disposition,
-            fromSite: fromSite(navigationResponse))
-        switch decision {
+        switch decideResponse(
+            policy: session.policy, role: role, response: facts(navigationResponse))
+        {
         case .show: return .allow
-        case .download: return role == .window ? .download : .cancel
+        case .download: return .download
+        case .ignore: return .cancel
         }
     }
 
@@ -71,7 +70,10 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     ) {
         guard let session, let page else { return download.cancel(nil) }
         let request = session.request(for: navigationAction, of: page)
-        guard case .download(let ask) = session.policy.decide(request, in: role) else {
+        guard
+            case .download(let ask) = decideNavigation(
+                policy: session.policy, role: role, request: request)
+        else {
             return download.cancel(nil)
         }
         session.download(download, ask: ask)
@@ -81,16 +83,22 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         _ webView: WKWebView, navigationResponse: WKNavigationResponse,
         didBecome download: WKDownload
     ) {
-        guard let session, role == .window else { return download.cancel(nil) }
-        session.download(download, ask: !fromSite(navigationResponse))
+        guard let session,
+            case .download(let ask) = decideResponse(
+                policy: session.policy, role: role, response: facts(navigationResponse))
+        else {
+            return download.cancel(nil)
+        }
+        session.download(download, ask: ask)
     }
 
-    /// Whether a response is to the window's own page on the site.
-    private func fromSite(_ response: WKNavigationResponse) -> Bool {
-        guard role == .window, response.isForMainFrame, let url = response.response.url else {
-            return false
-        }
-        return session?.policy.isSite(url) == true
+    /// What WebKit says about `response`, as the core's response rule reads it.
+    private func facts(_ response: WKNavigationResponse) -> ResponseFacts {
+        ResponseFacts(
+            url: response.response.url?.absoluteString, mainFrame: response.isForMainFrame,
+            canShow: response.canShowMIMEType,
+            disposition: (response.response as? HTTPURLResponse)?
+                .value(forHTTPHeaderField: "Content-Disposition"))
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!)
@@ -138,7 +146,7 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     ) -> WKWebView? {
         guard let session, let page else { return nil }
         let request = session.request(for: navigationAction, of: page)
-        switch session.policy.decide(request, in: role) {
+        switch decideNavigation(policy: session.policy, role: role, request: request) {
         case .popup:
             return session.openPopup(
                 configuration: configuration, features: windowFeatures, over: webView.window)
@@ -148,10 +156,10 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
             webView.startDownload(using: navigationAction.request) { [weak session] download in
                 session?.download(download, ask: ask)
             }
-        case .openElsewhere(let url):
-            session.handOver(url, clicked: request.clicked)
-        case .refuse(let kind):
-            session.say(kind)
+        case .openElsewhere(let url, let note):
+            session.handOver(url, note: note)
+        case .refuse(let note):
+            session.say(note)
         case .load, .ignore:
             break
         }
@@ -161,7 +169,7 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webViewDidClose(_ webView: WKWebView) {
         // A sign-in window's page closes it once it is done. An account window's page cannot
         // close the account's window.
-        if role == .popup { session?.closePopup() }
+        if pageMayClose(role: role) { session?.closePopup() }
     }
 
     // MARK: - Dialogs, files and permissions
@@ -194,12 +202,21 @@ final class PageDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         await PageDialogs.chooseFiles(parameters, in: webView.window)
     }
 
-    /// The camera and the microphone are never given to a page: Pitboard asks macOS for
-    /// neither, and a voice conversation belongs in the site's own app.
+    /// The camera and the microphone, which the core never gives a page: Pitboard asks macOS
+    /// for neither, and a voice conversation belongs in the site's own app. Anything else
+    /// WebKit asks about is refused too.
     func webView(
         _ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
         initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType
     ) async -> WKPermissionDecision {
-        .deny
+        let asked: [PagePermission] =
+            switch type {
+            case .camera: [.camera]
+            case .microphone: [.microphone]
+            case .cameraAndMicrophone: [.camera, .microphone]
+            @unknown default: []
+            }
+        let allowed = !asked.isEmpty && asked.allSatisfy { pageMayUse(permission: $0) }
+        return allowed ? .prompt : .deny
     }
 }

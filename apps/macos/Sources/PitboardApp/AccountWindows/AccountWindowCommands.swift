@@ -1,3 +1,4 @@
+import PitboardKit
 import SwiftUI
 
 /// The account windows' scene: one window per enrolled account, keyed by its store, so
@@ -66,12 +67,12 @@ struct SiteMenuItems: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        ForEach(windows.menus) { menu in
+        ForEach(windows.menus, id: \.self) { menu in
             switch menu {
-            case .one(let account):
-                Button(menu.title) { open(account) }
-            case .several(_, let accounts):
-                Menu(menu.title) {
+            case .one(let title, let account):
+                Button(title) { open(account) }
+            case .several(let title, _, let accounts):
+                Menu(title) {
                     ForEach(accounts) { account in
                         Button(account.title) { open(account) }
                     }
@@ -82,6 +83,6 @@ struct SiteMenuItems: View {
 
     private func open(_ account: WindowAccount) {
         windows.presence.activate()
-        openWindow(id: AccountWindowScene.id, value: account.store)
+        openWindow(id: AccountWindowScene.id, value: account.id)
     }
 }

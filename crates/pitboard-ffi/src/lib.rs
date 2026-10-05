@@ -3,7 +3,8 @@
 //! A call to a `Pitboard` or a `SignIn` is synchronous and may block on the keychain, a lock,
 //! the network or the person's login shell, so an app makes it off its main thread. Making a
 //! `Pitboard` blocks on none of them. The free functions answer at once from what they are
-//! given, apart from `can_run`, which asks the file system about one path, and
+//! given, apart from `can_run`, which asks the file system about one path,
+//! `download_destination`, which asks it whether each name it tries is taken, and
 //! `find_command_line`, which looks along a search path and is made off the main thread.
 //! Timestamps are epoch seconds.
 
@@ -23,6 +24,17 @@ mod sites;
 pub use sites::{
     Conjunction, LinkRefusal, Site, SiteLink, link_refusal_reason, pitboard_link,
     read_pitboard_link, site_link, site_names, sites, sites_for,
+};
+
+mod account_windows;
+pub use account_windows::{
+    AlertText, Asker, FrameOrigin, NavigationDecision, NavigationPolicy, NavigationRequest,
+    NavigationTarget, PagePermission, PageRole, ProcessEnded, ResponseDecision, ResponseFacts,
+    SignInWindowSize, SiteMenu, WindowAccount, WindowNoteKind, after_content_process_ended,
+    decide_navigation, decide_response, dialog_title, download_destination, download_host,
+    download_question, forget_message, frame_asker, is_site_page, opening_note, page_may_close,
+    page_may_use, remove_data_alert, sign_in_window_size, site_menus, store_id, window_accounts,
+    window_address, window_home, window_note, window_of_store, windows_of,
 };
 
 /// Where each tool and Pitboard keep things, said outright, as a test does. The app passes

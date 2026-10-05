@@ -1,0 +1,66 @@
+//! The rules of an account's window on its site, for both apps: which accounts have a window
+//! and which store keeps each one's data, where a page may go, what a window says, what a
+//! download is called, and what a page may do. Each app's web code asks them as its engine
+//! asks it, WebKit on macOS and WebView2 on Windows, on its main thread: each answers at once
+//! from what it is given, and only `download_destination` looks at the file system.
+//!
+//! What follows the app's reads is still each app's own: which windows close and which stores
+//! go after a read, the records of stores and last pages, the links waiting for a window, and
+//! the account picker.
+//!
+//! What differs by system is a `match` on `host::OS`, as the core's facts about the system
+//! are, so a system added there does not compile until each is said for it. Each such fact
+//! takes the system as an argument, so the tests say every system's on any of them.
+
+mod accounts;
+mod downloads;
+mod notes;
+mod pages;
+mod policy;
+mod stores;
+
+pub use accounts::{
+    SiteMenu, WindowAccount, forget_message, site_menus, window_accounts, window_of_store,
+    windows_of,
+};
+pub use downloads::{download_destination, download_host, download_question};
+pub use notes::{WindowNoteKind, opening_note, remove_data_alert, window_note};
+pub use pages::{
+    PagePermission, ProcessEnded, SignInWindowSize, after_content_process_ended, dialog_title,
+    page_may_close, page_may_use, sign_in_window_size,
+};
+pub use policy::{
+    Asker, FrameOrigin, NavigationDecision, NavigationPolicy, NavigationRequest, NavigationTarget,
+    PageRole, ResponseDecision, ResponseFacts, decide_navigation, decide_response, frame_asker,
+    is_site_page, window_address, window_home,
+};
+pub use stores::store_id;
+
+use pitboard_core::host::Os;
+
+/// What an alert says: its title, and the sentences below it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, uniffi::Record)]
+pub struct AlertText {
+    pub title: String,
+    pub message: String,
+}
+
+/// How a sentence names the machine Pitboard runs on, which keeps what a window keeps.
+fn this_machine(os: Os) -> &'static str {
+    match os {
+        Os::MacOs => "this Mac",
+        // No app runs on Linux.
+        Os::Linux => "this computer",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mac_is_called_one() {
+        assert_eq!(this_machine(Os::MacOs), "this Mac");
+        assert_eq!(this_machine(Os::Linux), "this computer");
+    }
+}

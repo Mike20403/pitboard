@@ -124,8 +124,8 @@ struct AccountPicker: View {
                 chosen = $0
             }
             List(accounts, selection: selection) { account in
-                AccountChoice(account: account, open: windows.sessions[account.store] != nil)
-                    .tag(account.store)
+                AccountChoice(account: account, open: windows.sessions[account.id] != nil)
+                    .tag(account.id)
             }
             .frame(minHeight: 96, idealHeight: 160, maxHeight: 360)
             .contextMenu(forSelectionType: UUID.self) { _ in
@@ -164,11 +164,11 @@ struct AccountPicker: View {
     }
 
     private func open(_ link: SiteLink, as store: UUID, from accounts: [WindowAccount]) {
-        guard let account = accounts.first(where: { $0.store == store }) else { return }
+        guard let account = accounts.first(where: { $0.id == store }) else { return }
         windows.open(link, as: account)
         windows.inbox.chose(account)
         windows.presence.activate()
-        openWindow(id: AccountWindowScene.id, value: account.store)
+        openWindow(id: AccountWindowScene.id, value: account.id)
     }
 }
 
