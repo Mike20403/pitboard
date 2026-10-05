@@ -11,6 +11,8 @@
 !/Pitboard.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 /PitboardFFI.xcframework
 /Sources/PitboardBindings/
+/PitboardShareFFI.xcframework
+/Sources/PitboardShareBindings/
 /.build/
 # What Xcode keeps for whoever has the project open: window state, breakpoints, and the
 # package it opens beside the project.

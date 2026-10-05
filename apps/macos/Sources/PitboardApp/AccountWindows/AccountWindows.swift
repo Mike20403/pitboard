@@ -1,6 +1,5 @@
 import Foundation
 import PitboardKit
-import PitboardSites
 import WebKit
 
 /// Every account's window on its site: which accounts have one, the session of each open
@@ -156,7 +155,7 @@ extension NavigationPolicy {
     /// `link` on the window's scheme: the link itself in a live run, and the fixture's
     /// stand-in for it in a fixture, so a fixture's window never reaches the network.
     func address(of link: SiteLink) -> URL {
-        guard var parts = URLComponents(url: link.url, resolvingAgainstBaseURL: false) else {
+        guard var parts = URLComponents(string: link.url) else {
             return home
         }
         parts.scheme = scheme

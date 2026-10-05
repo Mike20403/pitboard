@@ -1,5 +1,5 @@
 import Foundation
-import PitboardSites
+import PitboardKit
 
 /// Which page asks: an account window's own, or a sign-in window one of its pages opened.
 enum PageRole: Equatable {
@@ -207,7 +207,7 @@ struct NavigationPolicy: Equatable {
         return .other
     }
 
-    private func matches(_ url: URL, hosts: Set<String>) -> Bool {
+    private func matches(_ url: URL, hosts: [String]) -> Bool {
         guard url.scheme?.lowercased() == scheme, let host = url.host?.lowercased(),
             hosts.contains(host), url.port == nil, url.user == nil, url.password == nil
         else { return false }

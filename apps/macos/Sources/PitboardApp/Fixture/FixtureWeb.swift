@@ -1,6 +1,6 @@
 #if DEBUG
     import Foundation
-    import PitboardSites
+    import PitboardKit
     import WebKit
 
     extension WebEnvironment {
@@ -63,10 +63,10 @@
         /// The page served for `url`.
         static func page(for url: URL) -> String {
             let host = url.host?.lowercased() ?? ""
-            if let site = Site.all.first(where: { $0.host == host }) {
+            if let site = sites().first(where: { $0.host == host }) {
                 return sitePage(site, path: url.path)
             }
-            if Site.all.contains(where: { $0.signInHosts.contains(host) }) {
+            if sites().contains(where: { $0.signInHosts.contains(host) }) {
                 return signInPage(host)
             }
             if host == artifactHost {

@@ -1,5 +1,6 @@
 import AppKit
-import PitboardSites
+import PitboardLinkTarget
+import PitboardShareBindings
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -9,8 +10,10 @@ import UniformTypeIdentifiers
 /// Sandboxed, as an app extension must be, with no network, no files and no group shared with
 /// the app. It reads the one web address the host shares, checks it is a link of one of the
 /// sites, so sharing any other page never starts Pitboard, and opens a Pitboard link with the
-/// app it is inside. The app checks the link again all the same, since anything on the Mac
-/// can open a Pitboard link.
+/// app it is inside. The check and the Pitboard link are Rust's, from pitboard-share-ffi,
+/// which is pitboard-sites and nothing of the core: the rule the app reads the link by. The
+/// app checks the link again all the same, since anything on the Mac can open a Pitboard
+/// link.
 final class ShareViewController: NSViewController {
     private let state = ShareState()
     private var started = false
@@ -38,17 +41,23 @@ final class ShareViewController: NSViewController {
     }
 
     private func share() async {
-        let link: SiteLink
+        let scheme = LinkTarget.scheme(in: .main)
+        let pitboardLink: String
         do {
-            link = try SiteLink(await sharedURL()?.absoluteString ?? "")
+            // A page Pitboard does not open is said so before the app is looked for.
+            pitboardLink = try shareLink(
+                text: await sharedURL()?.absoluteString ?? "", scheme: scheme ?? "")
+        } catch ShareRefusal.Refused(let reason) {
+            state.phase = .refused(reason)
+            return
         } catch {
-            state.phase = .refused(error.localizedDescription)
+            state.phase = .failed(error.localizedDescription)
             return
         }
         // The app this extension came in, not whichever copy Launch Services picks: a debug
         // extension reaches the debug app.
-        guard let app = Handoff.containingApp(of: Bundle.main.bundleURL),
-            let scheme = Handoff.scheme(in: .main)
+        guard let app = LinkTarget.containingApp(of: Bundle.main.bundleURL), scheme != nil,
+            let link = URL(string: pitboardLink)
         else {
             state.phase = .failed("Pitboard couldn’t find the app this extension came with.")
             return
@@ -57,8 +66,7 @@ final class ShareViewController: NSViewController {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             try await NSWorkspace.shared.open(
-                [Handoff.url(opening: link, scheme: scheme)], withApplicationAt: app,
-                configuration: configuration)
+                [link], withApplicationAt: app, configuration: configuration)
             extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
         } catch {
             state.phase = .failed(error.localizedDescription)

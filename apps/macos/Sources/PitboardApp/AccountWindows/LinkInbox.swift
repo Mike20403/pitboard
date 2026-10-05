@@ -1,6 +1,5 @@
 import Foundation
 import PitboardKit
-import PitboardSites
 
 /// The link the Share extension handed over, waiting for the person to choose which
 /// account's window opens it.
@@ -21,9 +20,9 @@ final class LinkInbox {
 
     /// What arrived and is waiting for an account, or nil.
     private(set) var arrival: Arrival?
-    /// The account last chosen for each site, chosen first next time, as Safari opens a link
-    /// in the profile used last. Kept for as long as the app runs.
-    private(set) var lastChosen: [Site.ID: UUID] = [:]
+    /// The account last chosen for each site, by the site's host, chosen first next time, as
+    /// Safari opens a link in the profile used last. Kept for as long as the app runs.
+    private(set) var lastChosen: [String: UUID] = [:]
     @ObservationIgnored private let scheme: String
 
     /// An inbox for Pitboard links of `scheme`, this build's.
@@ -31,17 +30,24 @@ final class LinkInbox {
         self.scheme = scheme
     }
 
-    /// Takes a Pitboard link the app was asked to open, replacing one still waiting.
+    /// Takes a Pitboard link the app was asked to open, replacing one still waiting. The core
+    /// reads it, and checks the link it carries as it checks any link from outside.
     func receive(_ url: URL) {
-        arrival = Arrival(
-            link: Result { () throws(LinkRefusal) in
-                try Handoff.link(in: url, scheme: scheme)
-            })
+        let link: Result<SiteLink, LinkRefusal>
+        do {
+            link = .success(try readPitboardLink(text: url.absoluteString, scheme: scheme))
+        } catch let refusal as LinkRefusal {
+            link = .failure(refusal)
+        } catch {
+            // The bindings throw nothing else unless the core itself failed.
+            link = .failure(.Unreadable)
+        }
+        arrival = Arrival(link: link)
     }
 
     /// The person chose `account` for the link waiting.
     func chose(_ account: WindowAccount) {
-        lastChosen[account.site.id] = account.store
+        lastChosen[account.site.host] = account.store
         arrival = nil
     }
 
@@ -67,12 +73,12 @@ enum PickerState: Equatable {
 
     init(
         _ arrived: Result<SiteLink, LinkRefusal>, status: Status?, problem: String?,
-        lastChosen: [Site.ID: UUID]
+        lastChosen: [String: UUID]
     ) {
         let link: SiteLink
         switch arrived {
         case .failure(let refusal):
-            self = .refused(refusal.localizedDescription)
+            self = .refused(linkRefusalReason(refusal: refusal))
             return
         case .success(let accepted):
             link = accepted
@@ -85,7 +91,7 @@ enum PickerState: Equatable {
         let mine = Set(accounts.map(\.store))
         // Chosen last for this site, else the account in use, else the first.
         let chosen =
-            lastChosen[link.site.id].flatMap { mine.contains($0) ? $0 : nil }
+            lastChosen[link.site.host].flatMap { mine.contains($0) ? $0 : nil }
             ?? accounts.first(where: \.inUse)?.store ?? accounts.first?.store
         guard let chosen else {
             self = .noAccount(link)

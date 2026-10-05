@@ -82,12 +82,31 @@ pages load, as a browser would.
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app.
+- `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
+  may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
+  IDNA alone.
+  - `site.rs` declares each site as values: its host, the tool whose accounts it serves and
+    the hosts that redirect to it. The hosts its sign-in goes to, the hosts it blocks, its
+    sign-in paths, its store name and its sign-in steps are values too. Nothing else names a
+    site, so a site is added to `ALL`, with its fixture page and tests.
+  - `link.rs` checks a link from outside: a site's own host or alias, over `https`, with no
+    port or user information, and never a sign-in path. `LinkRefusal` says why one is
+    refused, in the sentence every front end shows.
+  - `handoff.rs` writes and reads the Pitboard link, `<scheme>://open?url=<link>`.
+  - `address.rs` splits a link as Foundation's `URLComponents` does, which is how the macOS
+    app read one before the rule was Rust. [Foundation's URLs](#foundations-urls) has what
+    was measured.
+- `crates/pitboard-share-ffi`: `pitboard-sites` as UniFFI bindings for the macOS Share
+  extension alone, a static library with one function, `share_link`. It checks a shared
+  page and writes the Pitboard link that hands it to the app, or says why not in the
+  sentence the app shows. It holds nothing of the core.
 - `crates/uniffi-bindgen-swift` and `crates/uniffi-bindgen-csharp`: generate the Swift and
   the C# bindings with exactly the UniFFI version the library uses. The bindings check
   method checksums when they load. The C# generator is NordSecurity's, pinned to a release
   built against that UniFFI; it is a build tool, so `deny.toml` leaves it out of the graph.
-  Every type the bindings export is declared in `pitboard-ffi`, because the C# generator
-  cannot use a type from another crate.
+  Every type the core's bindings export is declared in `pitboard-ffi`, because the C#
+  generator cannot use a type from another crate. `pitboard-share-ffi`, which only Swift
+  reads, declares its own.
 - `crates/pitboard-conformance`: checks a tool's register against a build of that tool.
 - `apps/`: the native apps, one directory for each system.
 - `apps/windows/`: the Windows app. `Pitboard.Core` is the core's C# bindings as an
@@ -95,8 +114,9 @@ pages load, as a browser would.
   `Pitboard.Core.Tests` calls the core through them.
 - `apps/macos/`: the menu bar app. The Swift package holds it as libraries its tests load
   without starting it. `PitboardKit` calls the bindings off the main thread,
-  `PitboardSites` is what the app and its Share extension both know about the sites, and
-  `PitboardApp` is everything the app does. The account windows are mapped under
+  `PitboardShareBindings` is `pitboard-share-ffi`'s, for the Share extension,
+  `PitboardLinkTarget` is where a Pitboard link goes, which the app and the extension both
+  link, and `PitboardApp` is everything the app does. The account windows are mapped under
   [Account windows](#account-windows).
   - `project.yml` is the app itself, the spec XcodeGen generates `Pitboard.xcodeproj`
     from. Its `Pitboard` target in `App` starts `PitboardApp` and adds Sparkle, and
@@ -105,9 +125,11 @@ pages load, as a browser would.
     which pins Sparkle's revision.
   - A renewal schedule written by an app up to 0.3.0 starts the app with `renew`.
     `App/Main.swift` then replaces the process with the command line inside the app.
-  - `scripts/build-xcframework.sh` builds the core and its Swift bindings for both Mac
-    architectures. `scripts/build-app.sh` generates the project and builds `Pitboard.app`
-    with `xcodebuild`, with the command line inside at `Contents/Helpers/pitboard`.
+  - `scripts/build-xcframework.sh` builds the core, as `PitboardFFI.xcframework`, and
+    `pitboard-share-ffi`, as `PitboardShareFFI.xcframework`, each with its Swift bindings,
+    for both Mac architectures. `scripts/build-app.sh` generates the project and builds
+    `Pitboard.app` with `xcodebuild`, with the command line inside at
+    `Contents/Helpers/pitboard`.
 - `packaging/`: the files a release writes into the tap `datlechin/homebrew-tap`. They are
   the casks `pitboard.rb` for the command line and `pitboard-app.rb` for the app,
   `tap_migrations.json`, and the tap's README.
@@ -123,8 +145,8 @@ pages load, as a browser would.
     app.
   - `workflows/rotation.yml` rehearses rotating the update key.
   - `actions/apple-keychain` imports the Developer ID certificate for every job that signs.
-  - `scripts/` holds the EdDSA key and signature helpers, and the scripts that add Sparkle
-    and the command line to the app's bill of materials.
+  - `scripts/` holds the EdDSA key and signature helpers, and the scripts that add Sparkle,
+    the command line and the Share extension's library to the app's bill of materials.
   - `dependabot.yml` asks for weekly updates of Cargo dependencies and GitHub Actions.
 
 ## Invariants
@@ -156,22 +178,25 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, one error type, free functions and two objects,
+- `pitboard-ffi` exports records, enums, two error types, free functions and two objects,
   `SignIn` and `Pitboard`. A call to an object is synchronous and may block on the keychain,
   a lock, the network or the person's login shell, and `PitboardKit` makes each off the main
   thread; making a `Pitboard` blocks on none of them, since it reads its environment on
   first use. The free functions block on nothing, and the app makes them where it likes:
   `tools`, `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
   sentences and column words of `words.rs` the apps show, which read only what they are
-  given; `command_line_places` and `app_command_line`, which only join paths; `can_run`,
-  which asks the file system about one path; and `home_directory` and `pitboard_directory`,
-  which read the environment they are given and, without `HOME`, this account's passwd
-  entry. `find_command_line` looks along a search path, so the app makes it off the main
-  thread.
-- The app has no rule of its own for what the core decides: its home, Pitboard's directory
-  and whether a path is a program are asked of the core. The account windows key their
-  records by Pitboard's directory standardised as Foundation standardises a file URL, as
-  they did before the core said where it is, in `WebEnvironment.recordKey` alone.
+  given; `sites`, `sites_for`, `site_names`, `site_link`, `read_pitboard_link`,
+  `pitboard_link` and `link_refusal_reason`, which are `pitboard-sites`' and read only what
+  they are given too; `command_line_places` and `app_command_line`, which only join paths;
+  `can_run`, which asks the file system about one path; and `home_directory` and
+  `pitboard_directory`, which read the environment they are given and, without `HOME`, this
+  account's passwd entry. `find_command_line` looks along a search path, so the app makes it
+  off the main thread.
+- The app has no rule of its own for what the core decides: its home, Pitboard's directory,
+  whether a path is a program, the sites and which links from outside it opens are asked of
+  the core. The account windows key their records by Pitboard's directory standardised as
+  Foundation standardises a file URL, as they did before the core said where it is, in
+  `WebEnvironment.recordKey` alone.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.
@@ -298,17 +323,15 @@ Code or Codex login. The facts this rests on are under
 
 ### Where the code is
 
-- `apps/macos/Sources/PitboardSites`: what a site is, and what a link from outside may be.
-  Foundation only, so the Share extension links it and nothing else of the app's.
-  - `Site.swift` declares each site as values: its host, its tool and the hosts that
-    redirect to it. The hosts its sign-in goes to, the hosts it blocks, its sign-in paths,
-    its store name and its sign-in steps are values too. Nothing else names a site, so a
-    site is added to `Site.all`, with its fixture page and tests.
-  - `SiteLink.swift` checks a link from outside: a site's own host or alias, over `https`,
-    with no port or user information, and never a sign-in path. `LinkRefusal` says why one
-    is refused.
-  - `Handoff.swift` writes and reads the Pitboard link, `<scheme>://open?url=<link>`, and
-    names the Info.plist key `PitboardURLScheme` that gives each build its scheme.
+- `crates/pitboard-sites`: what a site is, and what a link from outside may be, in the
+  [code map](#code-map). The app reaches it through `pitboard-ffi`'s `Site` and `SiteLink`
+  records: its windows and menus ask `sites`, `sites_for` and `site_names`, and
+  `LinkInbox.swift` reads each Pitboard link with `read_pitboard_link` and says a refusal
+  with `link_refusal_reason`. Only the tests make a link with `site_link`. The Share
+  extension reaches it through `pitboard-share-ffi`.
+- `apps/macos/Sources/PitboardLinkTarget`: where a Pitboard link goes, which the app and the
+  Share extension both link. `LinkTarget.swift` names the Info.plist key `PitboardURLScheme`
+  that gives each build its scheme, and finds the app an extension is inside.
 - `apps/macos/Sources/PitboardApp/AccountWindows`: the windows.
   - `WindowAccount.swift` lists the accounts that have a window and derives each one's
     store. The menus' entries and the forget alert's text come from it too.
@@ -350,8 +373,10 @@ Code or Codex login. The facts this rests on are under
   site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
   anywhere else recorded and opened nowhere.
 - `apps/macos/ShareExtension`: the `PitboardShare` target. It checks the shared page with
-  `SiteLink`, then opens a Pitboard link with the app it is inside, not whichever copy
-  Launch Services would pick.
+  `share_link`, which writes the Pitboard link too, then opens that link with the app it is
+  inside, not whichever copy Launch Services would pick. The flow of an app extension stays
+  Swift, and `PitboardLinkTarget` finds the app it is inside and the scheme its Info.plist
+  names.
 
 ### What must stay true
 
@@ -406,9 +431,20 @@ Code or Codex login. The facts this rests on are under
   `build-app.sh` claims `pitboard://` like the installed copy, until it is unregistered.
   `build-app.sh` fails a bundle whose app or extension names another scheme.
 - The Share extension stays sandboxed, with no other entitlement, and links only
-  `PitboardSites`. `build-app.sh` signs it with its entitlements before the app, and fails
-  when its signature is not sandboxed. The release workflow checks the installed copy
-  again.
+  `PitboardShareBindings` and `PitboardLinkTarget`. `build-app.sh` signs it with its
+  entitlements before the app, and fails when its signature is not sandboxed. The release
+  workflow checks the installed copy again.
+- The extension checks a link by the same Rust as the app, `pitboard-sites`, but through
+  `pitboard-share-ffi`, and never links the core: the core's bindings check every export's
+  checksum when they load, so linking them brings all of it in. Two Rust static libraries
+  never meet in one binary, since each carries its own copy of Rust's standard library.
+  `build-app.sh` fails when the extension's binary has a `uniffi_pitboard_ffi_` symbol or
+  none of `uniffi_pitboard_share_ffi_`, or the app's has a `uniffi_pitboard_share_ffi_`
+  symbol or none of `uniffi_pitboard_ffi_`. No test target of the Swift package links
+  `PitboardShareBindings`, since SwiftPM may link every test target into one bundle.
+- `pitboard-sites` stays a leaf: no I/O, nothing of the core and no UniFFI, and `url` for
+  IDNA alone. Each binding crate declares its own types over it, since the C# generator
+  cannot use another crate's.
 
 ## Measured facts
 
@@ -708,6 +744,54 @@ one, measure it again.
   `NSHomeDirectory()`, `.libraryDirectory` and `homeDirectoryForCurrentUser` all still gave
   the real home. The core reads `HOME` and `PITBOARD_HOME`, so the record of stores is kept
   per Pitboard directory.
+
+### Foundation's URLs
+
+Measured on macOS 27.0 on 5 October 2026, by giving the Swift `SiteLink` and `Handoff` of
+0.7.0, and `URLComponents(string:)`, the same text as `pitboard-sites`. `pitboard-sites`
+reads a link as Foundation does, so a link from outside means what it meant to the macOS
+app.
+
+- `URLComponents(string:)` splits a link by RFC 3986. A path, query or fragment holding a
+  character RFC 3986 does not allow there is kept with every such character
+  percent-encoded, a `%` among them, so an escape already in it is encoded too: `/%41 x` is
+  kept as `/%2541%20x`. One holding none is kept as written, escapes and all. A second `#`
+  is `%23` in the fragment.
+- A host is never encoded: one with a character RFC 3986 does not allow, or a `%` that
+  starts no escape, makes no link. A host in plain ASCII is percent-decoded and kept in its
+  case, `claude.ai%00` included. One that is not, or that has an `xn--` label, goes through
+  ICU's IDNA: `ｃｌａｕｄｅ.ai` is `claude.ai`, `xn--bcher-kva.de` reads back as `bücher.de`,
+  and a joiner in a label makes no link. Anything between brackets is an IP literal.
+- `user` and `password` are nil where their bytes are not UTF-8, `port` is nil where an
+  `Int` cannot hold the number, and `path` is empty where its bytes are not UTF-8. So the
+  Swift `SiteLink` opened `https://%FF@claude.ai/` and `https://claude.ai:99999999999999999999/`
+  without what it dropped, took `claude.ai/magic-link/%FF` for no sign-in link, and opened
+  `claude.ai/x/../%FF` without seeing its dot segment. The Swift `Handoff` read
+  `pitboard://open/%FF?url=claude.ai` as `pitboard://open?url=claude.ai`. `pitboard-sites`
+  refuses each.
+- Swift compares strings by grapheme cluster, so a combining mark or a joiner right after a
+  `/` makes one character with it. The Swift `SiteLink` took `claude.ai/magic-link/%CC%81`
+  for no sign-in link, and `chat.com/` followed by a combining mark for no link at all. It
+  counted a link's length in clusters too, and opened one of 4106 clusters and 8194
+  scalars. `pitboard-sites` compares the text, and counts a link's length in Unicode
+  scalars.
+- `CharacterSet.whitespacesAndNewlines`, which trims a link, is Unicode's `White_Space` and
+  U+200B ZERO WIDTH SPACE, checked over every scalar.
+- The WHATWG URL standard, which the `url` crate and WebKit follow, reads a link otherwise.
+  It resolves dot segments, takes `\` for `/` in an `https` link, drops a default port such
+  as `:443`, finds a host in `https:claude.ai`, strips a tab or a newline and leaves a second
+  `#` as it is. It reads a host whose last label is a number as an IPv4 address, and decodes
+  a host's escapes before IDNA. So `pitboard-sites` asks `url` for IDNA alone, with a label
+  after the host so that no host is read as an address.
+- 450,000 generated links and Pitboard links, ASCII and not, had the same answer from both
+  apart from: Pitboard links that `URL(string:)` refuses, which never reach the macOS app,
+  though the Windows app, reading a Pitboard link from its command line as text, can be
+  given one; the things above that `pitboard-sites` refuses; grapheme clusters; and hosts
+  that are not ASCII, where ICU's and WHATWG's IDNA differ over empty labels, escapes and
+  what a label may hold. Each such host was refused by both, though one named it otherwise,
+  apart from `ｃ%EF%BD%8Caude.ai`: `pitboard-sites` decodes its escapes before IDNA, as the
+  WHATWG standard does, and takes it for `claude.ai`, where the Swift `SiteLink` said it was
+  on `cｌaude.ai`.
 
 ### claude.ai and chatgpt.com
 

@@ -1,0 +1,7 @@
+[bindings.swift]
+module_name = "PitboardShareBindings"
+ffi_module_name = "PitboardShareFFI"
+ffi_module_filename = "PitboardShareFFI"
+generate_immutable_records = true
+# The extension shows the refusal's own sentence, which the error carries.
+omit_localized_error_conformance = true

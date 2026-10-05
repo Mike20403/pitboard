@@ -9,6 +9,19 @@ let claudeCode = Tool(
 let codex = Tool(code: "codex", name: "Codex", program: "codex", service: "OpenAI")
 let bothTools = [claudeCode, codex]
 
+extension Site {
+    /// The sites as the core declares them: what each test of a window's rules runs against.
+    static var claude: Site { sitesFor(provider: "claude")[0] }
+    static var chatGPT: Site { sitesFor(provider: "codex")[0] }
+}
+
+extension SiteLink {
+    /// `text` checked as a link from outside, as the core checks one.
+    init(_ text: String) throws {
+        self = try siteLink(text: text)
+    }
+}
+
 func window(
     _ kind: String, _ percent: Double, resets: Int64? = 100, scope: String? = nil,
     active: Bool = true, length: Int64? = nil

@@ -1,6 +1,5 @@
 import Foundation
 import PitboardKit
-import PitboardSites
 import Testing
 
 @testable import PitboardApp

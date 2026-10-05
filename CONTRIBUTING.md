@@ -107,9 +107,12 @@ CI also runs:
 ## The app
 
 The Swift package in `apps/macos/` links the core as `apps/macos/PitboardFFI.xcframework`, with
-bindings generated into `apps/macos/Sources/PitboardBindings`. Neither is committed. Build them
-before you open the project the first time, and again whenever the core changes. They are
-built for both kinds of Mac, so Rust needs both targets.
+bindings generated into `apps/macos/Sources/PitboardBindings`. The Share extension links
+`pitboard-share-ffi` instead, the check of a shared link and nothing of the core, as
+`apps/macos/PitboardShareFFI.xcframework` with bindings in
+`apps/macos/Sources/PitboardShareBindings`. None of these is committed. Build them before you
+open the project the first time, and again whenever the core or `pitboard-sites` changes. They
+are built for both kinds of Mac, so Rust needs both targets.
 
 The Xcode project is generated from `apps/macos/project.yml` by
 [XcodeGen](https://github.com/yonaskolb/XcodeGen), and only its `Package.resolved` is
@@ -182,7 +185,7 @@ CI checks the format of the Swift written by hand, leaving out the generated bin
 
 ```sh
 swift format lint --strict --recursive --configuration apps/macos/.swift-format \
-  apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardSites \
+  apps/macos/Sources/PitboardApp apps/macos/Sources/PitboardKit apps/macos/Sources/PitboardLinkTarget \
   apps/macos/App apps/macos/ShareExtension apps/macos/UITests apps/macos/Tests apps/macos/scripts .github/scripts
 ```
 

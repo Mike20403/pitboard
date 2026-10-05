@@ -32,6 +32,10 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# A crate that is never published may name another of this workspace by path alone, as the
+# bindings crates name pitboard-sites. pitboard-core, which is published, is named with its
+# exact version, which a release raises.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

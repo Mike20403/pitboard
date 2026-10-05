@@ -271,10 +271,13 @@ Read on 22 September 2026, against Sparkle 2.10.0.
 - The two macOS targets resolved to the same 83 components, which is why the app has one
   bill of materials. macOS and musl differed by 7, which is why each command line target
   has its own.
-- The app's bill of materials is read from the bindings crate, `pitboard-ffi`. The command
-  line inside the app added 4 components. `.github/scripts/sbom-add-sparkle.py` adds
-  Sparkle, which `Cargo.lock` does not list, at the version the Xcode project's
-  `Package.resolved` pins.
+- The app's bill of materials is read from the bindings crate, `pitboard-ffi`.
+  `.github/scripts/sbom-add-crate.py` folds in the command line inside the app, which added
+  4 components, and the Share extension's `pitboard-share-ffi`, which added 1, itself, since
+  everything it is built from is in `pitboard-ffi`'s too. That was measured on 5 October
+  2026 with cargo-cyclonedx 0.5.9. `.github/scripts/sbom-add-sparkle.py` adds Sparkle,
+  which `Cargo.lock` does not list, at the version the Xcode project's `Package.resolved`
+  pins.
 - crates.io issues a Trusted Publishing token that lasts 30 minutes. It matches on
   repository owner, repository name, workflow file name and, when one is given, the
   environment.

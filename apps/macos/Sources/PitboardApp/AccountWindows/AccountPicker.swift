@@ -1,4 +1,4 @@
-import PitboardSites
+import PitboardKit
 import SwiftUI
 
 /// Asks which account's window opens a link shared from another app, in the manner of Photos'
@@ -40,7 +40,7 @@ struct AccountPicker: View {
                 ContentUnavailableView(
                     "No Link to Open", systemImage: Symbol.site,
                     description: Text(
-                        "Share a \(Site.names(.or)) page with Pitboard from your browser’s "
+                        "Share a \(siteNames(conjunction: .or)) page with Pitboard from your browser’s "
                             + "Share menu to open it as one of your accounts."))
                 HStack {
                     Spacer()
@@ -105,13 +105,15 @@ struct AccountPicker: View {
             .explanatory()
             HStack {
                 Button("Open in Browser") {
-                    NSWorkspace.shared.open(link.url)
+                    if let url = URL(string: link.url) { NSWorkspace.shared.open(url) }
                     windows.inbox.dismiss()
                 }
                 Spacer()
                 cancelButton
-                Button("Add Account…") { windows.model.present(.add(provider: link.site.tool)) }
-                    .keyboardShortcut(.defaultAction)
+                Button("Add Account…") {
+                    windows.model.present(.add(provider: link.site.provider))
+                }
+                .keyboardShortcut(.defaultAction)
             }
         case .choose(let link, let accounts, let preferred):
             Text("Open this \(link.site.name) link as:").font(.headline)
@@ -175,7 +177,7 @@ private struct LinkLine: View {
     let link: SiteLink
 
     var body: some View {
-        let url = link.url.absoluteString
+        let url = link.url
         Text(url.hasPrefix("https://") ? String(url.dropFirst("https://".count)) : url)
             .font(.callout.monospaced())
             .lineLimit(1)

@@ -1,12 +1,11 @@
 import Foundation
 import PitboardKit
-import PitboardSites
 import Testing
 
 @testable import PitboardApp
 
 private func link(_ text: String) -> Result<SiteLink, LinkRefusal> {
-    Result { () throws(LinkRefusal) in try SiteLink(text) }
+    Result { try SiteLink(text) }.mapError { $0 as? LinkRefusal ?? .Unreadable }
 }
 
 private let accounts = status([
@@ -36,12 +35,12 @@ private func store(_ site: Site, _ uuid: String) -> UUID {
 
     let again = PickerState(
         .success(claude), status: accounts, problem: nil,
-        lastChosen: [Site.claude.id: store(.claude, "p")])
+        lastChosen: [Site.claude.host: store(.claude, "p")])
     #expect(again == .choose(claude, offered, chosen: store(.claude, "p")))
 
     let stale = PickerState(
         .success(claude), status: accounts, problem: nil,
-        lastChosen: [Site.claude.id: store(.chatGPT, "m")])
+        lastChosen: [Site.claude.host: store(.chatGPT, "m")])
     #expect(
         stale == .choose(claude, offered, chosen: store(.claude, "w")),
         "an account of another site is never chosen")
@@ -52,7 +51,7 @@ private func store(_ site: Site, _ uuid: String) -> UUID {
     #expect(
         PickerState(
             link("https://example.com/"), status: accounts, problem: nil, lastChosen: [:])
-            == .refused(LinkRefusal.notASite(host: "example.com").localizedDescription))
+            == .refused(linkRefusalReason(refusal: .NotASite(host: "example.com"))))
     #expect(
         PickerState(.success(claude), status: nil, problem: nil, lastChosen: [:]) == .reading)
     #expect(
@@ -73,12 +72,12 @@ private func store(_ site: Site, _ uuid: String) -> UUID {
 
     inbox.receive(URL(string: "pitboard-debug://open?url=https%3A%2F%2Fclaude.ai%2Fnew")!)
     let first = try #require(inbox.arrival)
-    #expect(try first.link.get().url.absoluteString == "https://claude.ai/new")
+    #expect(try first.link.get().url == "https://claude.ai/new")
 
     inbox.receive(URL(string: "pitboard://open?url=https%3A%2F%2Fclaude.ai%2Fnew")!)
     let second = try #require(inbox.arrival)
     #expect(second != first, "shown as new")
-    #expect(second.link == .failure(.unreadable), "another build's scheme")
+    #expect(second.link == .failure(.Unreadable), "another build's scheme")
 
     inbox.dismiss()
     #expect(inbox.arrival == nil)
@@ -91,5 +90,5 @@ private func store(_ site: Site, _ uuid: String) -> UUID {
     let spare = try #require(windowAccounts(in: accounts).first { $0.label == "spare" })
     inbox.chose(spare)
     #expect(inbox.arrival == nil)
-    #expect(inbox.lastChosen == [Site.chatGPT.id: spare.store])
+    #expect(inbox.lastChosen == [Site.chatGPT.host: spare.store])
 }

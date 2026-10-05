@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import PitboardKit
-import PitboardSites
 import Testing
 import WebKit
 

@@ -148,6 +148,32 @@ sandboxed=$(codesign -d --entitlements - --xml "$appex" 2>/dev/null |
     echo "the share extension is not sandboxed" >&2
     exit 1
 }
+# The extension checks a link with pitboard-share-ffi and links nothing of the core, whose
+# bindings would bring every export in. The app links the core and not the extension's
+# library: each Rust static library carries its own copy of Rust's standard library, and two
+# must never meet in one binary. Each binary must also hold the library it links, so one
+# with no symbols to read fails here rather than passing.
+links() {
+    nm -a "$1" | grep -q "$2"
+}
+extension_binary=$appex/Contents/MacOS/PitboardShare
+app_binary=$app/Contents/MacOS/Pitboard
+links "$extension_binary" uniffi_pitboard_share_ffi_ || {
+    echo "the share extension does not link pitboard-share-ffi" >&2
+    exit 1
+}
+if links "$extension_binary" uniffi_pitboard_ffi_; then
+    echo "the share extension links the core" >&2
+    exit 1
+fi
+links "$app_binary" uniffi_pitboard_ffi_ || {
+    echo "the app does not link the core" >&2
+    exit 1
+}
+if links "$app_binary" uniffi_pitboard_share_ffi_; then
+    echo "the app links the share extension's library" >&2
+    exit 1
+fi
 # shellcheck disable=SC2086
 codesign --force $options --sign "$identity" "$app"
 codesign --verify --strict --deep "$app"

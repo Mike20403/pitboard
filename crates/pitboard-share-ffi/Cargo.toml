@@ -1,0 +1,23 @@
+[package]
+name = "pitboard-share-ffi"
+description = "The check a Share extension makes of a link, as generated bindings, with nothing of Pitboard's core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+# A static library for the macOS app's Share extension alone. The app links pitboard-ffi,
+# and the two never meet in one binary: each carries its own Rust standard library.
+crate-type = ["lib", "staticlib"]
+
+# pitboard-sites and UniFFI, and nothing of the core: the extension is sandboxed, and links
+# nothing it does not use.
+[dependencies]
+pitboard-sites.workspace = true
+uniffi.workspace = true
+
+[lints]
+workspace = true

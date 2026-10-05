@@ -140,8 +140,9 @@ targets:
       - target: PitboardShare
         embed: true
 
-  # Links PitboardSites alone: it is sandboxed, and has no business with the core, its
-  # bindings or anything else the app links.
+  # Links PitboardShareBindings, pitboard-share-ffi's Swift, and PitboardLinkTarget alone: it
+  # is sandboxed, and has no business with the core, its bindings or anything else the app
+  # links.
   PitboardShare:
     type: app-extension
     platform: macOS
@@ -168,7 +169,9 @@ targets:
           PRODUCT_BUNDLE_IDENTIFIER: com.usepitboard.Pitboard.share
     dependencies:
       - package: Pitboard
-        product: PitboardSites
+        product: PitboardShareBindings
+      - package: Pitboard
+        product: PitboardLinkTarget
 
   PitboardUITests:
     type: bundle.ui-testing
