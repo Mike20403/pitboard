@@ -82,13 +82,17 @@ pages load, as a browser would.
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app.
+  - `sites.rs` gives both apps `pitboard-sites`' sites and links as records of their own,
+    and says a site's sign-in steps as a window on this system can follow them: a window on
+    a Mac cannot use a passkey.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
   IDNA alone.
   - `site.rs` declares each site as values: its host, the tool whose accounts it serves and
     the hosts that redirect to it. The hosts its sign-in goes to, the hosts it blocks, its
-    sign-in paths, its store name and its sign-in steps are values too. Nothing else names a
-    site, so a site is added to `ALL`, with its fixture page and tests.
+    sign-in paths, its store name, its sign-in steps and whether its sign-in offers a
+    passkey are values too. Nothing else names a site, so a site is added to `ALL`, with its
+    fixture page and tests.
   - `link.rs` checks a link from outside: a site's own host or alias, over `https`, with no
     port or user information, and never a sign-in path. `LinkRefusal` says why one is
     refused, in the sentence every front end shows.
@@ -96,6 +100,9 @@ pages load, as a browser would.
   - `address.rs` splits a link as Foundation's `URLComponents` does, which is how the macOS
     app read one before the rule was Rust. [Foundation's URLs](#foundations-urls) has what
     was measured.
+  - `web.rs` reads a page's address, for an account window's rules, as Foundation's `URL`
+    does: its scheme, and the host, port and user it names, with the host a request goes
+    to.
 - `crates/pitboard-share-ffi`: `pitboard-sites` as UniFFI bindings for the macOS Share
   extension alone, a static library with one function, `share_link`. It checks a shared
   page and writes the Pitboard link that hands it to the app, or says why not in the
@@ -792,6 +799,17 @@ app.
   apart from `ｃ%EF%BD%8Caude.ai`: `pitboard-sites` decodes its escapes before IDNA, as the
   WHATWG standard does, and takes it for `claude.ai`, where the Swift `SiteLink` said it was
   on `cｌaude.ai`.
+- `URL(string:)` reads a host otherwise than `URLComponents`, and an account window's rules
+  compared the `URL` WebKit handed them, so `pitboard-sites`' `WebAddress` reads one as
+  `URL.host` does, measured on 5 October 2026. A host in ASCII is percent-decoded and kept
+  in its case, `xn--bcher-kva.de` and `XN--BCHER-KVA.de` as written, and so is one with an
+  `xn--` label IDNA refuses, `xn--claude-.ai`, for which `URLComponents.host` is nil. A
+  host that is not ASCII is given in IDNA's ASCII form, `аpple.com` with a Cyrillic а as
+  `xn--pple-43d.com`, and one IDNA refuses makes no `URL`. An IP literal is given without
+  its brackets. `https:///x`, `https:claude.ai/x`, `blob:` and `data:` links name no host.
+  `port` is `0` for `:0`, and nil for `claude.ai:`; `user` is empty, not nil, for
+  `https://@claude.ai/`. `WebAddress` reads two things otherwise: it keeps a port no `Int`
+  holds, and names no host in `//claude.ai/x`, where `URL` reads `claude.ai` on no scheme.
 
 ### claude.ai and chatgpt.com
 

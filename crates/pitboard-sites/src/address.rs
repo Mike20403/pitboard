@@ -32,8 +32,14 @@ pub(crate) struct Authority {
     /// Whether it names a user, even an empty one, as `https://@claude.ai/` does.
     pub(crate) user_info: bool,
     /// Percent-decoded, and through IDNA where that applies, in the case it was written in.
-    /// An IP literal keeps its brackets.
-    pub(crate) host: String,
+    /// An IP literal keeps its brackets. `None` where IDNA refuses an `xn--` label of a host
+    /// in ASCII, for which `URLComponents` names no host.
+    pub(crate) host: Option<String>,
+    /// The host as Foundation's `URL.host` gives it, which a page's address is compared by:
+    /// percent-decoded, in the case it was written in, a host that is not ASCII as IDNA's
+    /// ASCII form and a host in ASCII as written, even where IDNA refuses one of its `xn--`
+    /// labels, and an IP literal without its brackets.
+    pub(crate) url_host: String,
     /// The port, as digits without leading zeros, when one is written: `claude.ai:` names
     /// none, and `claude.ai:0443` names 443.
     pub(crate) port: Option<String>,
@@ -52,16 +58,8 @@ impl Address<'_> {
 /// `text` split into its parts, or `None` where Foundation finds no link with a scheme: no
 /// scheme, a scheme RFC 3986 does not allow, or an authority it cannot read.
 pub(crate) fn parse(text: &str) -> Option<Address<'_>> {
-    // A scheme ends at the first `:`, where that comes before any `/`, `?` or `#`.
-    let end = text.find([':', '/', '?', '#'])?;
-    if !text[end..].starts_with(':') {
-        return None;
-    }
-    let scheme = &text[..end];
-    if !is_scheme(scheme) {
-        return None;
-    }
-    let rest = &text[end + 1..];
+    let scheme = scheme(text)?;
+    let rest = &text[scheme.len() + 1..];
     let (rest, fragment) = match rest.split_once('#') {
         Some((rest, fragment)) => (rest, Some(encoded(fragment, in_query))),
         None => (rest, None),
@@ -102,6 +100,14 @@ pub(crate) fn query_items(query: &str) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
+/// The scheme of `text`, as written, or `None` where it has none RFC 3986 allows. A scheme
+/// ends at the first `:`, where that comes before any `/`, `?` or `#`.
+pub(crate) fn scheme(text: &str) -> Option<&str> {
+    let end = text.find([':', '/', '?', '#'])?;
+    let scheme = &text[..end];
+    (text[end..].starts_with(':') && is_scheme(scheme)).then_some(scheme)
+}
+
 /// RFC 3986: a letter, then letters, digits, `+`, `-` and `.`.
 fn is_scheme(scheme: &str) -> bool {
     let mut bytes = scheme.bytes();
@@ -116,7 +122,7 @@ fn authority(text: &str) -> Option<Authority> {
         Some(at) => (true, &text[at + 1..]),
         None => (false, text),
     };
-    let (host, port) = if host_port.starts_with('[') {
+    let ((host, url_host), port) = if host_port.starts_with('[') {
         let close = host_port.find(']')?;
         let after = &host_port[close + 1..];
         let port = if after.is_empty() {
@@ -142,15 +148,23 @@ fn authority(text: &str) -> Option<Authority> {
     Some(Authority {
         user_info,
         host,
+        url_host,
         port,
     })
 }
 
-/// A host by name. Each ASCII character must be one RFC 3986 allows in one. One that is not
-/// plain ASCII, or that has a label starting `xn--`, is mapped through IDNA, as Foundation
-/// maps it, and read back in Unicode: `bücher.de` stays `bücher.de`, and `ｃｌａｕｄｅ.ai` is
-/// `claude.ai`. Otherwise it is percent-decoded, and must decode to UTF-8.
-fn reg_name(raw: &str) -> Option<String> {
+/// A host by name, as `URLComponents` reads it and then as `URL.host` does. Each ASCII
+/// character must be one RFC 3986 allows in one. One that is not plain ASCII, or that has a
+/// label starting `xn--`, is mapped through IDNA, as Foundation maps it, and read back in
+/// Unicode: `bücher.de` stays `bücher.de`, and `ｃｌａｕｄｅ.ai` is `claude.ai`. Otherwise
+/// it is percent-decoded, and must decode to UTF-8.
+///
+/// `URL.host` gives a host that is not ASCII in IDNA's ASCII form, `xn--bcher-kva.de`, which
+/// is the name a request goes to, and keeps a host in ASCII as written. Where IDNA refuses an
+/// `xn--` label of a host in ASCII, as it refuses `xn--claude-.ai`, `URLComponents` names no
+/// host and `URL.host` that host as written. A host that is not ASCII and that IDNA refuses
+/// makes no link to either.
+fn reg_name(raw: &str) -> Option<(Option<String>, String)> {
     let allowed = raw
         .bytes()
         .all(|b| !b.is_ascii() || is_unreserved(b) || is_sub_delim(b) || b == b'%');
@@ -163,7 +177,8 @@ fn reg_name(raw: &str) -> Option<String> {
             .is_some_and(|start| start.eq_ignore_ascii_case("xn--"))
     });
     if raw.is_ascii() && !punycode {
-        return decoded(raw);
+        let host = decoded(raw)?;
+        return Some((Some(host.clone()), host));
     }
     // The WHATWG standard reads a host whose last label is a number as an IPv4 address, and
     // refuses `ü.1` as one; Foundation reads no host so. Each mapping is asked of the host
@@ -173,13 +188,22 @@ fn reg_name(raw: &str) -> Option<String> {
             .strip_suffix(".x")
             .map(str::to_owned)
     };
-    let ascii = mapped(raw, url::quirks::domain_to_ascii)?;
-    mapped(&ascii, url::quirks::domain_to_unicode)
+    let idna = mapped(raw, url::quirks::domain_to_ascii).and_then(|ascii| {
+        let unicode = mapped(&ascii, url::quirks::domain_to_unicode)?;
+        Some((unicode, ascii))
+    });
+    match idna {
+        Some((unicode, _)) if raw.is_ascii() => Some((Some(unicode), decoded(raw)?)),
+        Some((unicode, ascii)) => Some((Some(unicode), ascii)),
+        None if raw.is_ascii() => Some((None, decoded(raw)?)),
+        None => None,
+    }
 }
 
 /// `[...]`, brackets kept and percent-decoded, which Foundation takes as a host however little
-/// it reads as an address. Never a site's.
-fn ip_literal(raw: &str) -> Option<String> {
+/// it reads as an address, and then the same without its brackets, as `URL.host` gives it.
+/// Never a site's.
+fn ip_literal(raw: &str) -> Option<(Option<String>, String)> {
     let inside = &raw[1..raw.len() - 1];
     let allowed = inside
         .bytes()
@@ -187,7 +211,7 @@ fn ip_literal(raw: &str) -> Option<String> {
     if !allowed || !escapes_are_whole(inside) {
         return None;
     }
-    decoded(raw)
+    Some((Some(decoded(raw)?), decoded(inside)?))
 }
 
 /// Whether every `%` in `text` starts an escape of two hexadecimal digits.
@@ -292,7 +316,7 @@ mod tests {
     use super::*;
 
     fn host(text: &str) -> Option<String> {
-        Some(parse(text)?.authority?.host)
+        parse(text)?.authority?.host
     }
 
     /// Foundation's reading of each, measured on macOS 27 with `URLComponents(string:)`.
@@ -427,6 +451,7 @@ mod tests {
             "https://claude.ai%zz/",
             "https://%FF.ai/",
             "https://xn--/",
+            "https://xn--claude-.ai/",
             "https://[/",
             "https://[::1]x/",
             "https://[ ]/",

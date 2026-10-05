@@ -37,7 +37,10 @@ pub fn read_pitboard_link(text: &str, scheme: &str) -> Result<SiteLink, LinkRefu
     let authority = parts.authority.as_ref().ok_or(LinkRefusal::Unreadable)?;
     let path = parts.decoded_path();
     let readable = parts.scheme.to_lowercase() == scheme.to_lowercase()
-        && authority.host.to_lowercase() == "open"
+        && authority
+            .host
+            .as_deref()
+            .is_some_and(|host| host.to_lowercase() == "open")
         && (path.is_empty() || path == "/")
         && !authority.user_info
         && authority.port.is_none()

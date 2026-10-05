@@ -4,6 +4,7 @@
 //!
 //! None reads a clock, a file or the keychain: each answers at once, on any thread.
 
+use pitboard_core::host::{OS, Os};
 use std::fmt;
 
 /// A website Pitboard opens in an account's window: whose accounts it serves, which hosts are
@@ -35,7 +36,8 @@ pub struct Site {
     /// Hashed into the store id of each of the site's windows. It never changes once a site
     /// has shipped: a change would leave every window of the site without its data.
     pub store_name: String,
-    /// How to sign in to the site in a window, as the steps its sign-in page shows.
+    /// How to sign in to the site in a window, as the steps its sign-in page shows, and what
+    /// of them a window on this system cannot do.
     pub sign_in_steps: String,
     /// What the blocked hosts leave unusable in the site's window.
     pub blocked_services: String,
@@ -54,9 +56,29 @@ impl From<&pitboard_sites::Site> for Site {
             blocked_hosts: owned(site.blocked_hosts),
             sign_in_paths: site.sign_in_paths.iter().map(|path| owned(path)).collect(),
             store_name: site.store_name.into(),
-            sign_in_steps: site.sign_in_steps.into(),
+            sign_in_steps: sign_in_steps(OS, site),
             blocked_services: site.blocked_services.into(),
         }
+    }
+}
+
+/// How to sign in to `site` in a window on `os`: the steps its sign-in page shows, then a
+/// passkey's, where the site offers one and a window on `os` cannot use it.
+fn sign_in_steps(os: Os, site: &pitboard_sites::Site) -> String {
+    let passkeys = match os {
+        // WebKit gives a page a passkey only in an app macOS lets act as a browser, and
+        // Pitboard is not one.
+        Os::MacOs => false,
+        // No app runs on Linux, and nothing was measured there, so none is promised.
+        Os::Linux => false,
+    };
+    if site.passkeys && !passkeys {
+        format!(
+            "{} Passkeys do not work in this window.",
+            site.sign_in_steps
+        )
+    } else {
+        site.sign_in_steps.to_owned()
     }
 }
 
@@ -235,6 +257,31 @@ mod tests {
         );
         assert!(sites_for("gemini".into()).is_empty());
         assert_eq!(site_names(Conjunction::Or), "claude.ai or chatgpt.com");
+    }
+
+    /// The steps chatgpt.com's window gives, as `Site.swift` said them before they were Rust:
+    /// a passkey works in no window on a Mac. Whether one does is the system's to say, so
+    /// pitboard-sites holds the steps without it.
+    #[test]
+    fn a_window_says_a_passkey_does_not_work_where_it_does_not() {
+        for os in [Os::MacOs, Os::Linux] {
+            assert_eq!(
+                sign_in_steps(os, &pitboard_sites::CHATGPT),
+                "Enter your email address, then its password or the code chatgpt.com emails \
+                 you, or click Continue with Microsoft or Continue with Apple. Passkeys do not \
+                 work in this window."
+            );
+            assert_eq!(
+                sign_in_steps(os, &pitboard_sites::CLAUDE),
+                "Click Continue with email, open the email on your phone, tap its link, then \
+                 enter here the code claude.ai shows there.",
+                "claude.ai's steps say nothing of a passkey"
+            );
+        }
+        assert_eq!(
+            sites_for("codex".into())[0].sign_in_steps,
+            sign_in_steps(OS, &pitboard_sites::CHATGPT)
+        );
     }
 
     /// The bindings check a link and read a Pitboard link as pitboard-sites does, and say a

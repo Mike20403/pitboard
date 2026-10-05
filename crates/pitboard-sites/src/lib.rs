@@ -6,6 +6,8 @@
 //!   opened. Only a site's own page over `https`, never its sign-in.
 //! - [`pitboard_link`] and [`read_pitboard_link`]: the Pitboard link,
 //!   `<scheme>://open?url=<link>`, in which a link reaches the app.
+//! - [`WebAddress`]: a page's address as an account window's rules read it, to tell the
+//!   site's own pages from the rest.
 //!
 //! A leaf, with no I/O and nothing of the core: both apps reach it through pitboard-ffi, and
 //! the macOS Share extension, which is sandboxed and links nothing of the core, through
@@ -16,7 +18,9 @@ mod address;
 mod handoff;
 mod link;
 mod site;
+mod web;
 
 pub use handoff::{pitboard_link, read_pitboard_link};
 pub use link::{LinkRefusal, SiteLink};
-pub use site::{ALL, CHATGPT, CLAUDE, Conjunction, Site};
+pub use site::{ALL, CHATGPT, CLAUDE, Conjunction, Site, listed};
+pub use web::WebAddress;
