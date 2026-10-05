@@ -7,7 +7,7 @@ import SwiftUI
 /// A grid, so the columns line up across rows and the name column is as wide as its widest
 /// name: a limit scoped to one model is named "week · Sonnet 4.5", which no fixed width
 /// holds at every text size. The time left moves on once a minute, which is as often as
-/// "in 2h 10m" changes.
+/// "resets in 2h 10m" changes.
 struct UsageBars: View {
     let limits: [Limit]
 
@@ -33,11 +33,11 @@ struct UsageBar: View {
     let window: Limit
     let now: Date
     @ScaledMetric(relativeTo: .callout) private var percentWidth: CGFloat = 38
-    @ScaledMetric(relativeTo: .callout) private var resetsWidth: CGFloat = 70
+    @ScaledMetric(relativeTo: .callout) private var resetsWidth: CGFloat = 110
 
     var body: some View {
         GridRow {
-            Text(windowShortName(window))
+            Text(limitColumn(limit: window))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .accessibilityLabel(spokenLimit(window, resettingIn: secondsLeft))
@@ -45,14 +45,14 @@ struct UsageBar: View {
                 EmptyView()
             }
             .gaugeStyle(.linearCapacity)
-            .tint(UsageLevel(percent: window.percent).tint)
+            .tint(usageLevel(percent: window.percent).tint)
             .accessibilityHidden(true)
             Text("\(Int(window.percent.rounded()))%")
                 .monospacedDigit()
                 .frame(minWidth: percentWidth, alignment: .trailing)
                 .gridColumnAlignment(.trailing)
                 .accessibilityHidden(true)
-            Text(secondsLeft.flatMap(resetsIn) ?? "")
+            Text(resetText(window, at: now))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .frame(minWidth: resetsWidth, alignment: .trailing)

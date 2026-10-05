@@ -47,6 +47,7 @@ pub mod statusline;
 pub mod switch;
 pub mod time;
 pub mod usage;
+pub mod words;
 
 pub(crate) mod atomic;
 pub(crate) mod fault;

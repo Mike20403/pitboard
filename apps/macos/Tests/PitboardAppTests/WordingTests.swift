@@ -52,28 +52,6 @@ private func renewed(_ outcome: String) -> Renewed {
     #expect(levels.allSatisfy { !$0.spoken.isEmpty })
 }
 
-/// A window is named by how long it runs, which both services agree on, so a Codex limit
-/// reads the way a Claude Code one does.
-@Test func aWindowIsNamedForItsLength() {
-    #expect(windowName(window("five_hour", 1, length: 18_000)) == "5-hour")
-    #expect(windowName(window("seven_day", 1, length: 604_800)) == "weekly")
-    #expect(windowName(window("1_day", 1, length: 86_400)) == "daily")
-    #expect(windowName(window("3_hour", 1, length: 10_800)) == "3-hour")
-    #expect(windowName(window("2_day", 1, length: 172_800)) == "2-day")
-    #expect(windowShortName(window("3_hour", 1, length: 10_800)) == "3h")
-    #expect(windowShortName(window("1_day", 1, length: 86_400)) == "day")
-    #expect(windowShortName(window("seven_day", 1, length: 604_800)) == "week")
-}
-
-/// A reading taken before the length was kept names its window the way it always did.
-@Test func aWindowOfUnknownLengthIsNamedFromItsKind() {
-    #expect(windowName(window("session", 1)) == "5-hour")
-    #expect(windowName(window("weekly_all", 1)) == "weekly")
-    #expect(windowName(window("primary_window", 1)) == "primary window")
-    #expect(windowShortName(window("session", 1)) == "5h")
-    #expect(windowShortName(window("weekly_scoped", 1, scope: "Fable")) == "week · Fable")
-}
-
 /// VoiceOver reads the column's "30m" as thirty meters and "5h" as letters, so a limit is
 /// said in words: its name as a sentence says it, what it has used, and when it resets.
 @Test func aLimitIsSpokenInWordsAndNotInItsColumnsShorthand() {
@@ -85,8 +63,8 @@ private func renewed(_ outcome: String) -> Renewed {
             == "30-minute limit, 12 percent used")
     #expect(
         spokenLimit(window("weekly_scoped", 98, scope: "Fable"), resettingIn: 0)
-            == "weekly Fable limit, 98 percent used",
-        "a reset already passed is not said, as the column does not show it")
+            == "weekly Fable limit, 98 percent used, resetting now",
+        "a reset whose time has come is said, as the column says it")
 }
 
 /// Pitboard says everything else in English, so a span of time inside one of its sentences is

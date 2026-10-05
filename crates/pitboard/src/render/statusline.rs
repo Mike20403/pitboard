@@ -2,7 +2,7 @@
 
 use crate::ui::{self, BOLD, DIM, paint};
 use pitboard_core::statusline::{Shares, StatusLine};
-use pitboard_core::time;
+use pitboard_core::words;
 
 fn shares(shares: Shares) -> String {
     let one = |share: Option<f64>| match share {
@@ -26,7 +26,7 @@ pub fn human(line: &StatusLine) -> String {
     for other in &line.others {
         let age = other
             .age
-            .map(|seconds| paint(DIM, format!(" ({})", time::span(seconds))))
+            .map(|seconds| paint(DIM, format!(" ({})", words::span(seconds))))
             .unwrap_or_default();
         parts.push(format!(
             "{} {}{age}",

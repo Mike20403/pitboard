@@ -5,44 +5,13 @@ use pitboard_core::doctor::RENEW_WITHIN;
 use pitboard_core::provider::ProviderId;
 use pitboard_core::state::Key;
 use pitboard_core::status::{Report, Row, Stale};
-use pitboard_core::time;
 use pitboard_core::usage::{Snapshot, Source, Window};
+use pitboard_core::{time, words};
 use serde_json::{Value, json};
 
-/// A window by how long it runs, where that is known, and otherwise by its kind.
-///
-/// The length is what makes two tools' windows comparable: OpenAI times every window and
-/// names none, Anthropic names every window and times none, and Pitboard knows the length
-/// of each either way. A kind is only the fallback, for a reading remembered from before
-/// the length was kept.
+/// A window in the column form, beside its bar, which the app's columns use too.
 fn window_name(w: &Window) -> String {
-    let base = w.length_seconds.and_then(length_name).unwrap_or_else(|| {
-        match w.kind.as_str() {
-            "session" | "five_hour" => "5h",
-            "weekly_all" | "seven_day" | "weekly_scoped" => "week",
-            other => other,
-        }
-        .to_string()
-    });
-    match &w.scope {
-        Some(scope) => format!("{base} · {scope}"),
-        None => base,
-    }
-}
-
-/// `5h`, `day`, `week`, `3d`: a length the way somebody says it, or `None` for one that
-/// is not a whole number of hours.
-fn length_name(seconds: i64) -> Option<String> {
-    const HOUR: i64 = 3600;
-    const DAY: i64 = 24 * HOUR;
-    match seconds {
-        s if s <= 0 => None,
-        s if s == 7 * DAY => Some("week".into()),
-        s if s == DAY => Some("day".into()),
-        s if s % DAY == 0 => Some(format!("{}d", s / DAY)),
-        s if s % HOUR == 0 => Some(format!("{}h", s / HOUR)),
-        _ => None,
-    }
+    words::limit_column(&w.kind, w.length_seconds, w.scope.as_deref())
 }
 
 /// How somebody would type this row's account, or a placeholder in its tool's own shape
@@ -98,13 +67,13 @@ fn standing(row: &Row, now: i64) -> String {
                 WARN,
                 format!(
                     "ready · expires in {} · {sign_in_again}",
-                    time::span(at - now)
+                    words::span(at - now)
                 ),
             ),
             Some(at) => format!(
                 "{} {}",
                 paint(GOOD, "ready"),
-                paint(DIM, format!("· good for {}", time::span(at - now)))
+                paint(DIM, format!("· good for {}", words::span(at - now)))
             ),
             None => paint(GOOD, "ready"),
         },
@@ -122,7 +91,7 @@ fn provenance(usage: &Snapshot, now: i64) -> Option<String> {
         Source::Remembered => Some(format!(
             "measured {}, {} ago",
             time::moment(at, now),
-            time::span(now - at)
+            words::span(now - at)
         )),
     }
 }
@@ -204,13 +173,9 @@ pub fn human(report: &Report) -> String {
             ));
         } else {
             for w in &windows {
-                let resets = w.resets_at.map_or_else(String::new, |at| {
-                    if at <= now {
-                        "resetting now".into()
-                    } else {
-                        format!("resets in {}", time::span(at - now))
-                    }
-                });
+                let resets = w
+                    .resets_at
+                    .map_or_else(String::new, |at| words::resets(at, now));
                 block.push_str(&format!(
                     "    {}  {}  {}  {}\n",
                     pad(&window_name(w), name_width),
@@ -228,8 +193,8 @@ pub fn human(report: &Report) -> String {
                         DIM,
                         match row.runway {
                             pitboard_core::history::Runway::Burning(_) =>
-                                format!("about {} left at this rate", time::span(seconds)),
-                            _ => format!("resets in {}", time::span(seconds)),
+                                format!("about {} left at this rate", words::span(seconds)),
+                            _ => format!("resets in {}", words::span(seconds)),
                         }
                     )
                 ));
@@ -532,7 +497,9 @@ mod tests {
     }
 
     /// Named by how long it runs, which is what makes one tool's window read like
-    /// another's; by its kind only where the length is not known.
+    /// another's; by its kind only where the length is not known. A length that is not a
+    /// whole number of hours is named by its minutes or seconds, as the app names it, and
+    /// not by the kind Pitboard gives such a window, `90_minute`.
     #[test]
     fn a_window_is_named_by_how_long_it_runs() {
         for (kind, length, named) in [
@@ -541,7 +508,8 @@ mod tests {
             ("1_day", Some(86_400), "day"),
             ("2_day", Some(172_800), "2d"),
             ("3_hour", Some(10_800), "3h"),
-            ("90_minute", Some(5_400), "90_minute"),
+            ("90_minute", Some(5_400), "90m"),
+            ("45_second", Some(45), "45s"),
             ("primary", None, "primary"),
             ("session", None, "5h"),
             ("weekly_all", None, "week"),

@@ -13,6 +13,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Debug**), the command line's messages and help, and the docs. The command is still
   `pitboard`, and nothing it reads, writes or prints as a key changes. The `home` check of
   `pitboard doctor --json` is now named `Pitboard home`; its code is still `home`.
+- `pitboard status` names a limit whose length is not a whole number of hours by its
+  minutes or seconds, as the app does, such as `90m` or `45s`. It showed the limit's kind
+  instead, such as `90_minute`, a name Pitboard builds from the length of a Codex limit.
+  `pitboard status --json` still gives the kind.
+- The app says when a limit resets the way `pitboard status` does: **resets in 2h 05m**,
+  with the minutes in two digits, and **resetting now** once that time has come. It said
+  **in 2h 5m**, and nothing once the time had passed, so a limit whose reset was due showed
+  its old figure with nothing beside it. VoiceOver says **resetting now** too.
 
 ### Fixed
 

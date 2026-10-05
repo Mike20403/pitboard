@@ -24,21 +24,10 @@ enum Design {
     static let iconSpacing: CGFloat = 8
 }
 
-/// How much of a limit is used, in three steps. Colour follows it in every place a limit is
-/// drawn, and the words always say the number itself.
-enum UsageLevel: Equatable {
-    case plenty
-    case low
-    case out
-
-    init(percent: Double) {
-        switch percent {
-        case 90...: self = .out
-        case 70...: self = .low
-        default: self = .plenty
-        }
-    }
-
+/// How much of a limit is used, in the core's three steps, which are where the command
+/// line's colour changes too. Colour follows it in every place a limit is drawn, and the
+/// words always say the number itself.
+extension UsageLevel {
     var tint: Color {
         switch self {
         case .plenty: .green

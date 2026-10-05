@@ -1,12 +1,13 @@
 //! Pitboard's core for its native apps, as UniFFI bindings.
 //!
-//! Every call is synchronous. All but `tools` and `sign_in_view` may block on the keychain, a
-//! lock or the network, so an app calls them off its main thread. Timestamps are epoch
+//! A call to a `Pitboard` or a `SignIn` is synchronous and may block on the keychain, a lock
+//! or the network, so an app makes it off its main thread. The free functions read only what
+//! they are given, and no clock, file or keychain, and return at once. Timestamps are epoch
 //! seconds.
 
 use pitboard_core::context::Context;
 use pitboard_core::service::{self, Changing};
-use pitboard_core::{doctor, status, switch, usage};
+use pitboard_core::{doctor, status, switch, usage, words};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -487,6 +488,62 @@ pub struct Diagnosis {
     pub checks: Vec<Check>,
     /// No check failed.
     pub healthy: bool,
+}
+
+// What the apps show as the core says or decides it, as free functions of the records the
+// apps hold: the sentences, column words and usage level of `pitboard_core::words`, and
+// `usage::same_reset`, the rule merging readings follows. Each wraps the core's function of
+// the same name. The command line calls those directly wherever it says the same thing, and
+// never these. None reads a clock, a file or the keychain, so a view may call one on the
+// main thread as it draws.
+
+/// A limit in the column form, beside its bar: "5h", "week", "30m", "week · Fable".
+#[uniffi::export]
+pub fn limit_column(limit: Limit) -> String {
+    words::limit_column(&limit.kind, limit.length_seconds, limit.scope.as_deref())
+}
+
+/// A limit in the sentence form, without its scope: "5-hour", "weekly", "daily".
+#[uniffi::export]
+pub fn limit_name(limit: Limit) -> String {
+    words::limit_name(&limit.kind, limit.length_seconds)
+}
+
+/// How much of a limit is used, in the three steps its colour changes at.
+#[derive(Debug, PartialEq, uniffi::Enum)]
+pub enum UsageLevel {
+    /// Under 70%.
+    Plenty,
+    /// From 70%.
+    Low,
+    /// From 90%, and past 100%.
+    Out,
+}
+
+/// The step a limit is at, from a `Limit`'s `percent`, which passes 100 when a service
+/// reports more used than the limit.
+#[uniffi::export]
+pub fn usage_level(percent: f64) -> UsageLevel {
+    match words::usage_level(percent) {
+        words::UsageLevel::Plenty => UsageLevel::Plenty,
+        words::UsageLevel::Low => UsageLevel::Low,
+        words::UsageLevel::Out => UsageLevel::Out,
+    }
+}
+
+/// When a limit resets, as of `now`: "resets in 2h 05m", or "resetting now" once it is due.
+#[uniffi::export]
+pub fn resets(resets_at: i64, now: i64) -> String {
+    words::resets(resets_at, now)
+}
+
+/// Whether two resets of a limit are one, as the core counts them when it merges readings:
+/// less than a minute apart, in either order. A session is given a reset in whole seconds
+/// and Anthropic's answer a fraction that is dropped, so one window can come back a second
+/// apart.
+#[uniffi::export]
+pub fn same_reset(between: i64, and: i64) -> bool {
+    usage::same_reset(between, and)
 }
 
 fn account(row: status::Row, now: i64) -> Account {
@@ -977,6 +1034,34 @@ mod tests {
         };
         assert_eq!(code, "schedule_program_unnamed");
         assert!(message.contains("command line"), "{message}");
+    }
+
+    fn limit(kind: &str, length_seconds: Option<i64>, scope: Option<&str>) -> Limit {
+        Limit {
+            kind: kind.into(),
+            length_seconds,
+            scope: scope.map(str::to_owned),
+            percent: 42.0,
+            resets_at: None,
+            severity: None,
+            is_active: true,
+        }
+    }
+
+    /// The apps name a limit from the record they were given, as the command line names
+    /// the reading it came from.
+    #[test]
+    fn a_limit_is_named_from_its_record() {
+        let fable = limit("weekly_scoped", Some(604_800), Some("Fable"));
+        assert_eq!(limit_column(fable), "week · Fable");
+        let fable = limit("weekly_scoped", Some(604_800), Some("Fable"));
+        assert_eq!(
+            limit_name(fable),
+            "weekly",
+            "a sentence places the scope itself"
+        );
+        assert_eq!(limit_column(limit("90_minute", Some(5_400), None)), "90m");
+        assert_eq!(limit_name(limit("session", None, None)), "5-hour");
     }
 
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never

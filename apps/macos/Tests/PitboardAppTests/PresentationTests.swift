@@ -1089,18 +1089,6 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
     #expect([Notice.Severity.error, .info, .warning].sorted() == severities)
 }
 
-/// A limit turns amber at 70% and red at 90%, and stays red past 100%. The steps are where
-/// its colour changes, so each side of each is checked.
-@Test func aLimitsLevelChangesAtSeventyAndAtNinety() {
-    #expect(UsageLevel(percent: 0) == .plenty)
-    #expect(UsageLevel(percent: 69.9) == .plenty)
-    #expect(UsageLevel(percent: 70) == .low)
-    #expect(UsageLevel(percent: 89.9) == .low)
-    #expect(UsageLevel(percent: 90) == .out)
-    #expect(UsageLevel(percent: 100) == .out)
-    #expect(UsageLevel(percent: 130) == .out)
-}
-
 /// The settings list what the menu bar can show in this order and by these names. The raw
 /// values are what the preference is stored as, so changing one would quietly reset what
 /// everybody chose.
@@ -1114,22 +1102,18 @@ func aWarningTheSwitchAndTheReadAfterItBothCarryIsSaidOnce() async {
 
 // MARK: - Wording
 
-/// The column beside a bar says how long until a limit resets in the fewest characters that
-/// stay true: minutes under an hour, never "0m" while there is time left, hours and minutes
-/// under a day, days and hours after that. Nothing once it has passed, since the next reading
-/// is what says whether it reset.
-@Test func aResetIsSaidInTheLargestUnitsThatFit() {
-    #expect(resetsIn(-5) == nil)
-    #expect(resetsIn(0) == nil)
-    #expect(resetsIn(1) == "in 1m")
-    #expect(resetsIn(59) == "in 1m")
-    #expect(resetsIn(125) == "in 2m")
-    #expect(resetsIn(3599) == "in 59m")
-    #expect(resetsIn(3600) == "in 1h 0m")
-    #expect(resetsIn(3 * 3600 + 25 * 60) == "in 3h 25m")
-    #expect(resetsIn(86_399) == "in 23h 59m")
-    #expect(resetsIn(86_400) == "in 1d 0h")
-    #expect(resetsIn(2 * 86_400 + 4 * 3600 + 59 * 60) == "in 2d 4h")
+/// The column beside a bar says when a limit resets as `pitboard status` does, minutes in two
+/// digits, and that it is resetting once that moment has come. A limit with no reset known
+/// has nothing there. Every span it can say is the core's to test.
+@Test func aResetIsSaidAsTheCommandLineSaysIt() {
+    let resets = { (at: Date?) in
+        resetText(window("session", 42, resets: at.map(epoch)), at: noon)
+    }
+    #expect(resets(noon.addingTimeInterval(3600 + 5 * 60)) == "resets in 1h 05m")
+    #expect(resets(noon.addingTimeInterval(2 * 86_400 + 4 * 3600)) == "resets in 2d 4h")
+    #expect(resets(noon) == "resetting now")
+    #expect(resets(noon.addingTimeInterval(-60)) == "resetting now")
+    #expect(resets(nil) == "")
 }
 
 /// A moment later today is a clock time, and one on another day names its day as well,

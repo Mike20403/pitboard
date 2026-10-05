@@ -17,7 +17,7 @@ use crate::provider::claude::paths as claude;
 use crate::provider::claude::slot;
 use crate::provider::codex::paths as codex;
 use crate::state::{Park, State};
-use crate::{home, park, store, switch, time, usage};
+use crate::{home, park, store, switch, time, usage, words};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -909,7 +909,7 @@ fn judge_dormant(park: &ParkFact, now: i64) -> Option<Check> {
         format!("account {}", park.typed()),
         format!(
             "not switched to for {}; Pitboard has kept its login alive that whole time",
-            time::span(dormant_for)
+            words::span(dormant_for)
         ),
         format!(
             "Every `pitboard` renews it, so its refresh token is rotated and kept live on \
@@ -1013,13 +1013,13 @@ fn judge_park(fact: &ParkFact, now: i64) -> Check {
         Some(at) if at - now < RENEW_WITHIN => warn(
             code,
             name,
-            format!("its parked login expires in {}", time::span(at - now)),
+            format!("its parked login expires in {}", words::span(at - now)),
             renew,
         ),
         Some(at) => ok(
             code,
             name,
-            format!("parked, good for {}", time::span(at - now)),
+            format!("parked, good for {}", words::span(at - now)),
         ),
         None => ok(code, name, "parked"),
     }
@@ -1138,7 +1138,7 @@ fn judge_asking(facts: &Facts) -> Check {
                 name,
                 format!(
                     "{n} account(s) not being asked about for up to {}",
-                    time::span(longest)
+                    words::span(longest)
                 ),
                 format!(
                     "{holders} asked for less traffic, or could not be reached. The numbers \

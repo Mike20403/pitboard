@@ -202,7 +202,7 @@ struct AccountDescription: Equatable {
         let windows = account.usage?.windows ?? []
         guard !windows.isEmpty else { return account.email }
         return windows.map { window in
-            let name = windowName(window)
+            let name = limitName(limit: window)
             let scoped = window.scope.map { "\(name) \($0)" } ?? name
             guard window.percent >= 100, let at = window.resetsAt else {
                 return "\(scoped) \(Int(window.percent.rounded()))%"

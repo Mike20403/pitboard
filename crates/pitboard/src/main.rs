@@ -555,7 +555,7 @@ fn schedule(pitboard: &Pitboard, what: &ScheduleCommand) -> Report {
             }),
             format!(
                 "Parked logins are renewed every {} by this computer's own scheduler.\n{}\n",
-                pitboard_core::time::span(i64::from(*every_seconds)),
+                pitboard_core::words::span(i64::from(*every_seconds)),
                 path.display()
             ),
         ),
