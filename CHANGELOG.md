@@ -56,6 +56,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - With `HOME` unset, the command line used the folder it was run from as your home: it kept
   its files in a `.pitboard` there, and looked for Claude Code's and Codex's beside it. It
   now uses your account's home directory, as the app does.
+- The command line takes a `claude` or `codex` to be the tool's program only when it is a
+  regular file you may run, as the system judges it when it starts one, and otherwise looks
+  further on `PATH`. It took a file only others may run, and then failed to start it.
 
 ## [0.7.0] - 2026-10-04
 

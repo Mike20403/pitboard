@@ -1,7 +1,8 @@
 //! Processes, the POSIX way.
 
+use std::ffi::CString;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 /// Whether process `pid` may still be running. A pid that cannot be probed is taken as
@@ -16,11 +17,18 @@ pub(crate) fn may_be_running(pid: u32) -> bool {
     probed == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-/// Whether `path` is a file somebody may run, as `execvp` judges it: a file, not a
-/// directory, with an execute bit.
+/// Whether `path` is a program this user may run, as `execvp` judges it: a regular file,
+/// once every link is followed, that `access` lets this user execute. An execute bit for
+/// somebody else is not enough, and `access` alone would take a directory, which this user
+/// may search, for one.
 pub(crate) fn can_run(path: &Path) -> bool {
-    std::fs::metadata(path)
-        .is_ok_and(|found| found.is_file() && found.permissions().mode() & 0o111 != 0)
+    let Ok(name) = CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: `name` is a NUL-terminated string that outlives the call, and `access` only
+    // reads it.
+    let executable = unsafe { libc::access(name.as_ptr(), libc::X_OK) } == 0;
+    executable && std::fs::metadata(path).is_ok_and(|found| found.is_file())
 }
 
 #[cfg(test)]
@@ -37,5 +45,50 @@ mod tests {
             pid
         };
         assert!(!may_be_running(exited));
+    }
+
+    /// A program is what `execvp` would start: a regular file, once every link is followed,
+    /// that this user may execute. One only its group and others may execute is not this
+    /// user's to run, however many execute bits it has; nor is a directory, which `access`
+    /// would let this user search.
+    #[test]
+    fn a_program_is_a_regular_file_this_user_may_execute() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("pitboard-can-run-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let made = |name: &str, mode: u32| {
+            let path = dir.join(name);
+            std::fs::write(&path, "#!/bin/sh\n").expect("a file");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+                .expect("its mode");
+            path
+        };
+        let everyone = made("everyone", 0o755);
+        let mine = made("mine", 0o700);
+        let theirs = made("theirs", 0o611);
+        let plain = made("plain", 0o644);
+        let folder = dir.join("folder");
+        std::fs::create_dir(&folder).expect("a directory");
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&mine, &link).expect("a link");
+        let dangling = dir.join("dangling");
+        std::os::unix::fs::symlink(dir.join("gone"), &dangling).expect("a link");
+
+        assert!(can_run(&everyone));
+        assert!(can_run(&mine));
+        assert!(can_run(&link), "a link to a program is that program");
+        assert!(!can_run(&plain));
+        assert!(!can_run(&folder), "a directory is not a program");
+        assert!(!can_run(&dangling));
+        assert!(!can_run(&dir.join("absent")));
+        // SAFETY: geteuid only reports this process's effective user id.
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(
+                !can_run(&theirs),
+                "only its group and others may execute it"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
