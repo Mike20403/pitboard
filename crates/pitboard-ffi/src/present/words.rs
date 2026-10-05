@@ -209,6 +209,30 @@ pub(crate) fn sessions_follow_in(tool: Option<&str>) -> String {
     }
 }
 
+/// "spare has 80% of its own left.", of the account advice offers.
+pub(crate) fn room_left(account: &str, left: i64) -> String {
+    format!("{account} has {left}% of its own left.")
+}
+
+/// "work has no 5-hour limit left", of the account in use that ran out.
+pub(crate) fn ran_out(account: &str, limit: &str) -> String {
+    format!("{account} has no {limit} limit left")
+}
+
+/// A sentence about one tool's account, said beside another tool's: "Claude Code: work has
+/// no 5-hour limit left".
+pub(crate) fn of_tool(tool: Option<&str>, sentence: &str) -> String {
+    match tool {
+        Some(tool) => format!("{tool}: {sentence}"),
+        None => sentence.to_owned(),
+    }
+}
+
+/// What a button that switches says: "Switch to spare".
+pub(crate) fn switch_to(label: &str) -> String {
+    format!("Switch to {label}")
+}
+
 /// The menu's one item for everything else to know about, more than one of them.
 pub(crate) fn things_to_look_at(count: usize) -> String {
     format!("{count} things to look at")

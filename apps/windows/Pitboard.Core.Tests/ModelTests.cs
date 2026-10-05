@@ -6,7 +6,8 @@ namespace Pitboard.Core.Tests;
 /// The app model's types, as the Windows app will hold them. One test makes a model and takes
 /// its first snapshot without starting it: a model reads nothing until it is sent an intent,
 /// and this one is given a fresh folder for every home it could read all the same. So the
-/// launch, the listener, AppControl, LocalTime and the snapshot cross the library there. The library
+/// launch, the listener, AppControl, Notifications, LocalTime and the snapshot cross the
+/// library there. The library
 /// calling a listener or an AppControl written in C# waits for a fixture's model, which can
 /// be started with no machine to read. What the model does is the Rust tests' to prove.
 ///
@@ -54,6 +55,27 @@ public sealed class ModelTests
 
         public string DateAndTime(long epoch) =>
             At(epoch).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// What an app's Notifications does: posts what it is given, and throws what its system
+    /// refuses as the one exception the model takes from it.
+    /// </summary>
+    private sealed class Posting : Notifications
+    {
+        public List<RunOutNotice> Posted { get; } = [];
+
+        public bool Allowed { get; set; } = true;
+
+        public void Post(RunOutNotice notice)
+        {
+            if (!Allowed)
+            {
+                throw new PlatformException.Failed("notifications are not allowed");
+            }
+
+            Posted.Add(notice);
+        }
     }
 
     private static Snapshot Read(ulong revision)
@@ -137,7 +159,8 @@ public sealed class ModelTests
             };
             var keeping = new Keeping();
             var apps = new StandInApps();
-            using var model = new PitboardModel(new AppLaunch(environment, null), keeping, apps, new InUtc());
+            var posting = new Posting();
+            using var model = new PitboardModel(new AppLaunch(environment, null), keeping, apps, posting, new InUtc());
 
             var first = model.Snapshot();
             model.Shutdown();
@@ -153,6 +176,7 @@ public sealed class ModelTests
             Assert.AreEqual(0UL, model.Snapshot().Revision);
             Assert.IsEmpty(keeping.Told);
             Assert.IsEmpty(apps.Asked);
+            Assert.IsEmpty(posting.Posted);
             Assert.IsEmpty(Directory.EnumerateFileSystemEntries(home));
         }
         finally
@@ -511,5 +535,29 @@ public sealed class ModelTests
         Assert.IsNull(PitboardFfiMethods.NameToSave(new Sheet.Name("claude", "a@example.com"), " \n"));
         Assert.IsNull(PitboardFfiMethods.NameToSave(new Sheet.Rename("claude", "work"), " work "));
         Assert.AreEqual("work", PitboardFfiMethods.NameToSave(new Sheet.SignInAgain("codex", "work"), ""));
+    }
+
+    /// <summary>
+    /// Notifications is an interface the app implements over its system's own, which the
+    /// model posts each run-out through once, with the account its Switch button switches
+    /// to, and a refusal is the one exception the model takes from it.
+    /// </summary>
+    [TestMethod]
+    public void NotificationsIsAnInterfaceTheAppImplements()
+    {
+        var posting = new Posting();
+        Notifications notifications = posting;
+        var ranOut = new RunOutNotice(
+            Id: "claude/work/session/-7200", Title: "work has no 5-hour limit left", Subtitle: null,
+            Body: "spare has 80% of its own left.", SwitchTo: "claude/spare");
+
+        notifications.Post(ranOut);
+        posting.Allowed = false;
+        var refused = Assert.ThrowsExactly<PlatformException.Failed>(() => notifications.Post(ranOut));
+
+        Assert.AreEqual(ranOut, posting.Posted.Single());
+        Assert.AreEqual<Intent>(new Intent.SwitchTo("claude/spare"), new Intent.SwitchTo(posting.Posted[0].SwitchTo));
+        Assert.IsNull(posting.Posted[0].Subtitle);
+        Assert.AreEqual("notifications are not allowed", refused.reason);
     }
 }

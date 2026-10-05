@@ -3,6 +3,7 @@
 //! by hand. Each closes only its own sheet, says what went wrong where it was asked, and reads
 //! the accounts afterwards.
 
+use super::advice::Told;
 use super::state::{Answer, Job};
 use super::switching::{a_read_that_started_before, switch};
 use super::testing::{
@@ -292,12 +293,12 @@ fn a_read_that_started_before_forgetting_is_dropped_when_it_lands() {
 }
 
 /// A rename changes what an account is called and nothing else about it. What its tool's
-/// last switch said is still true of it, so it is said under the new name, and one tool's
-/// rename says nothing about another tool's accounts. Keyed by the old name, the read after a
-/// rename took the switch for undone.
+/// last switch said is still true of it, and so is advice about it running out, so both are
+/// said under the new name, and one tool's rename says nothing about another tool's accounts.
+/// Keyed by the old name, the read after a rename took the switch for undone and the advice
+/// for new, and told it again.
 ///
-/// AppModelTests.swift's aRenameCarriesWhatWasSaidAboutTheAccount, what the last switches
-/// said: advice and what was told come with telling.
+/// AppModelTests.swift's aRenameCarriesWhatWasSaidAboutTheAccount.
 #[test]
 fn a_rename_carries_what_was_said_about_the_account() {
     let mut model = Hand::new();
@@ -318,13 +319,19 @@ fn a_rename_carries_what_was_said_about_the_account() {
             .as_ref()
             .map(|restart| restart.from.clone())
     };
+    let advice = |model: &Hand| model.state.advice.first().cloned().expect("advice");
     assert_eq!(from(&model).as_deref(), Some("personal"));
+    assert_eq!(advice(&model).switch_to, "claude/personal");
 
     // Each read after a rename fails here, so what is said is what the rename carried.
     machine.answer = Err(refusal("unreachable", "could not be reached", Vec::new()));
 
     model.send(rename("claude", "personal", "spare"));
     model.run(&mut machine);
+    assert_eq!(
+        (advice(&model).instead, advice(&model).switch_to),
+        ("spare".into(), "claude/spare".into())
+    );
     assert_eq!(
         from(&model).as_deref(),
         Some("personal"),
@@ -333,12 +340,23 @@ fn a_rename_carries_what_was_said_about_the_account() {
     model.send(rename("codex", "personal", "home"));
     model.run(&mut machine);
     assert_eq!(from(&model).as_deref(), Some("home"));
+    assert_eq!(
+        advice(&model).instead,
+        "spare",
+        "Claude Code's is another account"
+    );
     model.send(rename("codex", "work", "job"));
     model.run(&mut machine);
     assert_eq!(tos(&model), ["work", "codex/job"]);
+    assert_eq!(advice(&model).ran, "work");
     model.send(rename("claude", "work", "office"));
     model.run(&mut machine);
     assert_eq!(tos(&model), ["office", "codex/job"]);
+    assert_eq!(advice(&model).ran, "office");
+    let told = Told::from([("claude/office/session/".to_owned(), 100)]);
+    assert_eq!(model.state.told_this_launch, told);
+    assert_eq!(model.state.told, told);
+    assert_eq!(machine.kept.last(), Some(&told), "and kept so");
 
     machine.answer = Ok(status(vec![
         claude("office", true, 100.0),
@@ -361,6 +379,15 @@ fn a_rename_carries_what_was_said_about_the_account() {
             .any(|line| line.contains("keeps using home")),
         "{notice:?}"
     );
+    let offered: Vec<String> = model
+        .state
+        .advice
+        .iter()
+        .map(|advice| advice.switch_to.clone())
+        .collect();
+    assert_eq!(offered, ["claude/spare"]);
+    assert_eq!(model.state.told, told, "and not told again");
+    assert_eq!(machine.posted.len(), 1);
 }
 
 // What the Swift model did not do.

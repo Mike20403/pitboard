@@ -7,7 +7,7 @@
 use super::state::Cadence;
 #[cfg(unix)]
 use super::testing::StandIn;
-use super::testing::{CHATGPT, CHATGPT_CODEX, StandInApps, World};
+use super::testing::{CHATGPT, CHATGPT_CODEX, Posted, StandInApps, World};
 use super::{
     AppControl, Intent, LocalTime, ModelListener, PitboardModel, Platform, PlatformError, Sheet,
     Snapshot,
@@ -143,6 +143,7 @@ fn in_order(told: &[Snapshot]) -> bool {
 fn platform(apps: Arc<dyn AppControl>) -> Platform {
     Platform {
         apps,
+        notifications: Arc::new(Posted::default()),
         local_time: Arc::new(Utc),
     }
 }
@@ -964,6 +965,7 @@ fn model_telling_time(
         Arc::clone(told) as Arc<dyn ModelListener>,
         Platform {
             apps: StandInApps::new(&[], true),
+            notifications: Arc::new(Posted::default()),
             local_time: Arc::clone(clock) as Arc<dyn LocalTime>,
         },
         cadence,
@@ -1091,4 +1093,76 @@ fn naming_the_login_signed_in_now_enrols_it() {
     assert_eq!(last.sheet_failure, None);
     assert_eq!(last.failure, None);
     model.shutdown();
+}
+
+/// A model over `core` telling `told`, posting through `posted`, with no other app running.
+fn model_posting(
+    core: &Arc<Pitboard>,
+    told: &Arc<Told>,
+    posted: &Arc<Posted>,
+) -> Arc<PitboardModel> {
+    let model = PitboardModel::over(
+        Arc::clone(core),
+        Arc::clone(told) as Arc<dyn ModelListener>,
+        Platform {
+            apps: StandInApps::new(&[], true),
+            notifications: Arc::clone(posted) as Arc<dyn super::Notifications>,
+            local_time: Arc::new(Utc),
+        },
+        QUICK,
+    );
+    let _ = told.model.set(Arc::downgrade(&model));
+    model
+}
+
+/// Advice about `work` running out is shown.
+fn advised(told: &[Snapshot]) -> bool {
+    told.last().is_some_and(|last| {
+        last.notices
+            .iter()
+            .any(|notice| notice.id == "advice/claude/work/session/")
+    })
+}
+
+/// On the real core, an account in use that has run out, with another of its tool to switch
+/// to, is notified through the app's system once, and the record of it is kept in Pitboard's
+/// directory, so the app opened again over the same machine notifies nothing more, though its
+/// window still says it: the owner's decision. The Swift kept the record in memory and told
+/// it again after every relaunch.
+#[test]
+fn a_run_out_is_notified_once_across_a_relaunch() {
+    let world = World::new("run-out");
+    world.enrolled("work", "here", 100.0);
+    world.parked("spare", "there", 10.0);
+    let core = world.core();
+
+    let told = Arc::new(Told::default());
+    let posted = Arc::new(Posted::default());
+    let model = model_posting(&core, &told, &posted);
+    model.send(Intent::Start);
+    told.until("the advice", advised);
+    eventually("the notification posted", || posted.posted().len() == 1);
+    let notice = posted.posted().remove(0);
+    assert_eq!(notice.title, "work has no 5-hour limit left");
+    assert_eq!(notice.body, "spare has 90% of its own left.");
+    assert_eq!(notice.switch_to, "claude/spare");
+    assert_eq!(notice.subtitle, None);
+    let kept = world.pitboard_dir().join("told.json");
+    eventually("the record of it kept", || {
+        std::fs::read_to_string(&kept).is_ok_and(|text| text.contains("claude/work/session/"))
+    });
+    model.shutdown();
+
+    let again = Arc::new(Told::default());
+    let unposted = Arc::new(Posted::default());
+    let reopened = model_posting(&core, &again, &unposted);
+    reopened.send(Intent::Start);
+    again.until("the advice, said again in the window", advised);
+    reopened.send(Intent::Refresh { asked: true });
+    again.until("another read", |told| {
+        told.iter().filter(|snapshot| snapshot.reading).count() >= 2
+            && told.last().is_some_and(|last| !last.reading)
+    });
+    assert!(unposted.posted().is_empty(), "notified before the relaunch");
+    reopened.shutdown();
 }

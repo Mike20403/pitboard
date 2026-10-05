@@ -19,14 +19,19 @@
 //!
 //! It reads accounts, notices changes made elsewhere, switches, quits an app that holds a
 //! login when asked to, keeps what each tool's last switch said, runs sign-ins, enrols,
-//! renames and forgets, and keeps the sheet over the main window. What each snapshot says of
+//! renames and forgets, keeps the sheet over the main window, and says which account to
+//! switch to once the one in use has run out, notifying it through the app's
+//! `Notifications` once for each reset, across launches. What each snapshot says of
 //! all that, every sentence and row the menu bar, the menu and the window show, is made by
 //! `present`, in `crate::present`, which asks the app's `LocalTime` for each clock time. A
 //! minute tick makes it again for what depends on the time alone.
 
+pub(crate) mod advice;
 mod lanes;
 pub(crate) mod state;
 
+#[cfg(test)]
+mod advising;
 #[cfg(test)]
 mod cadence;
 #[cfg(test)]
@@ -75,9 +80,11 @@ pub struct AppLaunch {
 /// Something the person or the system asked the model for.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Intent {
-    /// Start what runs by itself: a read now and every five minutes, and a look every two
-    /// seconds for a change made somewhere else, which reads what is already known. Until
-    /// an app sends this, nothing runs by itself. Sent again, it starts nothing more.
+    /// Start what runs by itself: a read now and every five minutes, a look every two seconds
+    /// for a change made somewhere else, which reads what is already known, and the minute
+    /// tick; and read what the model keeps in Pitboard's directory, the record of what was
+    /// told. Until an app sends this, nothing runs by itself. Sent again, it starts nothing
+    /// more.
     Start,
     /// The machine woke from sleep: numbers read before it slept say nothing about now. An
     /// app sends it every time: on macOS the model's timers count only the time the machine
@@ -415,6 +422,35 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for PlatformError {
     }
 }
 
+/// A notification that an account in use has run out, and which account of the same tool has
+/// room: posted once for each reset of a limit, whether the app was quit and opened again
+/// meanwhile or not.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RunOutNotice {
+    /// The same for the same run-out, so the system shows it once: the account, the limit
+    /// and its reset.
+    pub id: String,
+    /// "work has no 5-hour limit left".
+    pub title: String,
+    /// The tool, beside another tool's accounts: "Claude Code".
+    pub subtitle: Option<String>,
+    /// "spare has 80% of its own left."
+    pub body: String,
+    /// The account its Switch button switches to, its label with its tool, for
+    /// `Intent::SwitchTo`. Pitboard never switches by itself.
+    pub switch_to: String,
+}
+
+/// The app's system's notifications. Called on a thread of the model's own, never the app's
+/// main thread, and answers at once: asking for permission, the first time there is
+/// something to say, is the app's to do then, and a refusal is no error, since the window
+/// says the same either way.
+#[uniffi::export(with_foreign)]
+pub trait Notifications: Send + Sync {
+    /// Posts `notice`, with a button that switches to its `switch_to`.
+    fn post(&self, notice: RunOutNotice) -> Result<(), PlatformError>;
+}
+
 /// The person's own clock, as the app's system formats it: their locale, and whether they read
 /// 12 or 24 hours. Asked as a snapshot is made, on the model's own thread, which every method
 /// answers at once without waiting on anything. Where one throws, the command line's form is
@@ -483,19 +519,25 @@ pub struct PitboardModel {
 impl PitboardModel {
     /// The app's model, over the core the app's environment and location make, read the
     /// way the command line reads its own, as `Pitboard::for_app` makes it; over `apps`, the
-    /// other apps on this machine; and saying clock times as `local_time` does, the person's
-    /// own. Nothing runs by itself until the app sends `Intent::Start`.
+    /// other apps on this machine; posting what has run out through `notifications`; and
+    /// saying clock times as `local_time` does, the person's own. Nothing runs by itself
+    /// until the app sends `Intent::Start`.
     #[uniffi::constructor]
     pub fn new(
         launch: AppLaunch,
         listener: Arc<dyn ModelListener>,
         apps: Arc<dyn AppControl>,
+        notifications: Arc<dyn Notifications>,
         local_time: Arc<dyn LocalTime>,
     ) -> Arc<Self> {
         PitboardModel::over(
             Pitboard::for_app(launch.environment, launch.app_location),
             listener,
-            Platform { apps, local_time },
+            Platform {
+                apps,
+                notifications,
+                local_time,
+            },
             Cadence::APP,
         )
     }
@@ -533,6 +575,8 @@ impl PitboardModel {
 pub(crate) struct Platform {
     /// Other apps on this machine.
     pub(crate) apps: Arc<dyn AppControl>,
+    /// The system's notifications.
+    pub(crate) notifications: Arc<dyn Notifications>,
     /// The person's own clock.
     pub(crate) local_time: Arc<dyn LocalTime>,
 }
@@ -551,7 +595,13 @@ impl PitboardModel {
         let shown = Arc::new(Mutex::new(first));
         let stopped = Arc::new(AtomicBool::new(false));
         let (mailbox, mail) = channel();
-        let lanes = Lanes::open(core, platform.apps, cadence, &mailbox);
+        let lanes = Lanes::open(
+            core,
+            platform.apps,
+            platform.notifications,
+            cadence,
+            &mailbox,
+        );
         let actor = Actor {
             state,
             lanes,

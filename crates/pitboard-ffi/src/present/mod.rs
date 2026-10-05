@@ -32,6 +32,9 @@ pub(crate) mod testing;
 
 pub use sheets::name_to_save;
 
+pub(crate) use accounts::in_order;
+pub(crate) use notices::run_out_notice;
+
 use crate::account_windows::AlertText;
 use crate::model::state::State;
 use crate::model::{Intent, LocalTime, Snapshot};

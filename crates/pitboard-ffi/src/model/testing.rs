@@ -2,9 +2,10 @@
 //! other apps as a test says they are, and, for the threaded tests, a machine of the test's
 //! own that the real core runs on.
 
+use super::advice::Told;
 use super::lanes;
 use super::state::{Answer, Cadence, Job, Msg, Now, State};
-use super::{AppControl, Intent, PlatformError, Snapshot};
+use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
 use crate::{
     Abandoned, Account, Adoption, Enrolled, EnrolledAs, Holding, Limit, Made, Pitboard,
     PitboardError, Remedy, Source, Status, Switch, Switched, Tool, Usage, Warning,
@@ -335,6 +336,26 @@ impl AppControl for StandInApps {
     }
 }
 
+/// The system's notifications, as a test has them: every notification posted is kept, and
+/// none reaches the machine running the tests.
+#[derive(Default)]
+pub(super) struct Posted {
+    posted: Mutex<Vec<RunOutNotice>>,
+}
+
+impl Posted {
+    pub(super) fn posted(&self) -> Vec<RunOutNotice> {
+        self.posted.lock().expect("a test's own lock").clone()
+    }
+}
+
+impl Notifications for Posted {
+    fn post(&self, notice: RunOutNotice) -> Result<(), PlatformError> {
+        self.posted.lock().expect("a test's own lock").push(notice);
+        Ok(())
+    }
+}
+
 /// A failure as the core reports one.
 #[derive(Debug, Clone)]
 pub(super) struct Refusal {
@@ -422,6 +443,12 @@ pub(super) struct Machine {
     pub renamed: Vec<(String, String)>,
     /// Every account forgotten, as the model named it.
     pub forgot: Vec<String>,
+    /// What was told about before the model started, as kept in Pitboard's directory.
+    pub told_before: Told,
+    /// Every record of what was told the model kept, in order.
+    pub kept: Vec<Told>,
+    /// Every notification posted, in order.
+    pub posted: Vec<RunOutNotice>,
 }
 
 impl Machine {
@@ -449,6 +476,9 @@ impl Machine {
             enrolled: Vec::new(),
             renamed: Vec::new(),
             forgot: Vec::new(),
+            told_before: Told::new(),
+            kept: Vec::new(),
+            posted: Vec::new(),
         }
     }
 
@@ -565,6 +595,17 @@ impl Machine {
                     qualified,
                     done: self.forgetting.clone().map_err(|refused| refused.error()),
                 }
+            }
+            Job::LoadKept => Answer::Kept {
+                told: self.told_before.clone(),
+            },
+            Job::KeepTold { told } => {
+                self.kept.push(told);
+                Answer::Saved
+            }
+            Job::Post { notice } => {
+                self.posted.push(notice);
+                Answer::Posted
             }
             Job::SignInOver { id, enrol } => {
                 self.over.push((id, enrol));
@@ -1006,6 +1047,11 @@ impl World {
         format!(
             r#"{{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{{"id_token":"{id_token}","access_token":"{access}","refresh_token":"refresh-{who}","account_id":"{who}"}},"last_refresh":"2026-10-01T08:00:00Z"}}"#
         )
+    }
+
+    /// Pitboard's directory on this machine.
+    pub(super) fn pitboard_dir(&self) -> PathBuf {
+        self.root.join(".pitboard")
     }
 
     /// Says the account index was written `seconds` later than it was. The index's time is

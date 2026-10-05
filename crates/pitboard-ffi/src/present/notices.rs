@@ -8,8 +8,11 @@ use super::{
     spoken_severity,
 };
 use crate::Warning;
+use crate::model::RunOutNotice;
+use crate::model::advice::Advice;
 use crate::model::state::split;
 use crate::model::{Intent, LastSwitch, Pane};
+use pitboard_core::words as said;
 
 /// Where a person goes to install Claude Code, the tool a machine without one is told
 /// about, as MenuBarContent.swift's `Links.installClaudeCode` named it.
@@ -31,6 +34,21 @@ fn notice(
         until: None,
         until_label: None,
         actions,
+    }
+}
+
+/// A button that switches to `qualified`, named by its label, held back while a switch is
+/// under way.
+pub(crate) fn switch_action(seen: &Seen, qualified: &str, label: &str) -> NoticeAction {
+    NoticeAction {
+        title: words::switch_to(label),
+        intent: Intent::SwitchTo {
+            qualified: qualified.to_owned(),
+        },
+        dismisses: false,
+        switches: true,
+        enabled: seen.state.switch_under_way().is_none(),
+        confirm: None,
     }
 }
 
@@ -142,6 +160,16 @@ pub(crate) fn notices(seen: &Seen, footing: &Footing) -> Vec<PanelNotice> {
             Vec::new(),
         ));
     }
+    for advice in &state.advice {
+        let limit = said::limit_name(&advice.window.kind, advice.window.length_seconds);
+        said.push(notice(
+            format!("advice/{}", advice.key_of()),
+            Severity::Warning,
+            words::of_tool(advice.tool.as_deref(), &words::ran_out(&advice.ran, &limit)),
+            vec![words::room_left(&advice.instead, advice.left)],
+            vec![switch_action(seen, &advice.switch_to, &advice.instead)],
+        ));
+    }
     for last in &state.last_switches {
         said.push(of_last_switch(seen, last));
     }
@@ -220,6 +248,25 @@ fn of_last_switch(seen: &Seen, last: &LastSwitch) -> PanelNotice {
                 provider: last.provider.clone(),
             })],
         )
+    }
+}
+
+/// The notification that tells somebody an account in use has run out, worded as the window's
+/// notice is: its title the account and the limit, the tool beneath it beside another tool's
+/// accounts, and the account offered with what it has left. Its id names the account, the
+/// limit and the reset, so the same run-out is one notification.
+pub(crate) fn run_out_notice(advice: &Advice) -> RunOutNotice {
+    let limit = said::limit_name(&advice.window.kind, advice.window.length_seconds);
+    RunOutNotice {
+        id: format!(
+            "{}-{}",
+            advice.key_of(),
+            advice.window.resets_at.unwrap_or(0)
+        ),
+        title: words::ran_out(&advice.ran, &limit),
+        subtitle: advice.tool.clone(),
+        body: words::room_left(&advice.instead, advice.left),
+        switch_to: advice.switch_to.clone(),
     }
 }
 

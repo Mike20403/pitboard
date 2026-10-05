@@ -30,14 +30,16 @@
 //! A test hands `apply` answers in whatever order it likes, which is how the interleavings
 //! the Swift model's tests reached with gates are reached here without a thread.
 
+use super::advice::{Advice, Told, rename_told};
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
-use super::{RunningSignIn, Sheet, WindowRequest};
+use super::{RunOutNotice, RunningSignIn, Sheet, WindowRequest};
 use crate::{
     Abandoned, Account, Adoption, Enrolled, EnrolledAs, PitboardError, Status, Switch, Switched,
     Tool, Usage, Warning,
 };
 use pitboard_core::label::SEPARATOR;
 use pitboard_core::provider::{self, ProviderId};
+use pitboard_core::usage::same_reset;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -173,6 +175,13 @@ pub(crate) enum Job {
     },
     /// Drop the account `qualified` names, and the login parked for it.
     Forget { qualified: String },
+    /// Read what the model keeps of its own in Pitboard's directory: the record of what was
+    /// told.
+    LoadKept,
+    /// Keep the record of what was told, the whole of it.
+    KeepTold { told: Told },
+    /// Post a notification through the app's own system.
+    Post { notice: RunOutNotice },
 }
 
 /// A read under way, as things stood when it started.
@@ -297,6 +306,17 @@ pub(crate) enum Answer {
         qualified: String,
         done: Result<(), PitboardError>,
     },
+    /// What the model keeps of its own, as it was read: nothing where nothing was kept or it
+    /// could not be read.
+    Kept {
+        told: Told,
+    },
+    /// What was kept was written, or could not be, which nothing here can mend: told again,
+    /// a run-out is told once more after a relaunch, and nothing worse.
+    Saved,
+    /// A notification was posted, or could not be, which is the app's system's to say: the
+    /// window says the same either way.
+    Posted,
     /// A code was typed back, or could not be, which the tool says itself if it matters.
     Pasted,
     /// A sign-in's tool was stopped, or had stopped already.
@@ -590,6 +610,27 @@ pub(crate) struct State {
     pub(crate) saving: Vec<Sheet>,
     /// The minute tick, which makes again what is shown for the time alone.
     tick: Timer,
+    /// Accounts that have run out while another of the same tool has room, one per tool at
+    /// most, the newer first. Said in the window whether or not notifications are allowed,
+    /// so the advice does not depend on a permission.
+    pub(crate) advice: Vec<Advice>,
+    /// What has been told about since the model started, which decides what advice is new,
+    /// as Notifier.swift's `told` decided it: the window offers what was told, after a
+    /// relaunch too, for as long as the numbers bear it out.
+    pub(crate) told_this_launch: Told,
+    /// What has been told about in a notification, once per reset of a limit, in this
+    /// launch or an earlier one: kept in Pitboard's directory, so a run-out notified before
+    /// a relaunch is not notified again after it.
+    pub(crate) told: Told,
+    /// Whether what the model keeps is being read, from the moment it is started until it
+    /// is in. Nothing is advised on meanwhile, and what is shown is advised on once it is in,
+    /// so a run-out notified before a relaunch is never notified again because the read
+    /// after it landed first.
+    loading_kept: bool,
+    /// Whether what is shown is what stands in for a read that failed before anything was
+    /// shown, the last numbers measured, which nothing has advised on: as AppModel.swift's
+    /// fallback, it is not advised on once what is kept is in either.
+    standing_in: bool,
 }
 
 impl State {
@@ -628,6 +669,11 @@ impl State {
             sheet_failure: None,
             saving: Vec::new(),
             tick: Timer::Off,
+            advice: Vec::new(),
+            told_this_launch: Told::new(),
+            told: Told::new(),
+            loading_kept: false,
+            standing_in: false,
         }
     }
 
@@ -682,7 +728,7 @@ impl State {
 
     fn intent(&mut self, intent: Intent, now: Now, jobs: &mut Vec<Job>) {
         match intent {
-            Intent::Start => self.start(now),
+            Intent::Start => self.start(now, jobs),
             // Numbers read before the machine slept say nothing about now.
             Intent::Woke => self.refresh(Asked::default(), now, jobs),
             // A menu opening is somebody looking at what it says, which is the glance the
@@ -888,13 +934,16 @@ impl State {
         }
     }
 
-    /// Starts what runs by itself: a read now and every few minutes, and a look for changes
-    /// made somewhere else now and every few seconds. Once: a second start starts nothing.
-    fn start(&mut self, now: Now) {
+    /// Starts what runs by itself: what the model keeps read, a read now and every few
+    /// minutes, and a look for changes made somewhere else now and every few seconds. Once: a
+    /// second start starts nothing.
+    fn start(&mut self, now: Now, jobs: &mut Vec<Job>) {
         if self.started {
             return;
         }
         self.started = true;
+        self.loading_kept = true;
+        jobs.push(Job::LoadKept);
         self.timed_read = Timer::Due(now.running);
         self.look = Timer::Due(now.running);
         self.tick = Timer::Due(now.running + self.cadence.tick_every);
@@ -931,6 +980,69 @@ impl State {
             return;
         }
         self.read(asked, now, jobs);
+    }
+
+    /// What the model keeps is in, or came to nothing. What it had told before is not
+    /// notified again, and what is shown, read while it was read, is advised on now, unless
+    /// it only stands in for a read that failed.
+    fn kept(&mut self, told: Told, jobs: &mut Vec<Job>) {
+        for (key, at) in told {
+            self.told.entry(key).or_insert(at);
+        }
+        self.loading_kept = false;
+        if let Some(status) = self.status.clone()
+            && !self.standing_in
+        {
+            self.advise(&status, jobs);
+        }
+    }
+
+    /// Advice about a read, the app's own or numbers taken from what is recorded. What is new
+    /// is told, and what was said before stays for as long as the numbers bear it out. Advice
+    /// worked out afresh would leave out what has been told, and put it away at the next
+    /// read, seconds after it was said, with the account still out. One per tool, the newer
+    /// first. Nothing while what was told is still being read.
+    ///
+    /// What is new this launch is notified only where no launch has notified it at the same
+    /// reset, by the core's rule for one reset, and the record of that is kept.
+    fn advise(&mut self, read: &Status, jobs: &mut Vec<Job>) {
+        if self.loading_kept {
+            return;
+        }
+        let tools = crate::tools();
+        let new = Advice::about(read, &tools, &self.told_this_launch);
+        let mut kept = false;
+        for advice in &new {
+            let (key, at) = (advice.key_of(), advice.window.resets_at.unwrap_or(0));
+            self.told_this_launch.insert(key.clone(), at);
+            if self
+                .told
+                .get(&key)
+                .is_some_and(|&told| same_reset(told, at))
+            {
+                continue;
+            }
+            self.told.insert(key, at);
+            kept = true;
+            jobs.push(Job::Post {
+                notice: crate::present::run_out_notice(advice),
+            });
+        }
+        if kept {
+            jobs.push(Job::KeepTold {
+                told: self.told.clone(),
+            });
+        }
+        let standing: Vec<Advice> = new
+            .into_iter()
+            .chain(self.advice.iter().filter_map(|advice| advice.renewed(read)))
+            .collect();
+        let codes: Vec<&str> = standing.iter().map(|a| a.provider.as_str()).collect();
+        self.advice = crate::present::in_order(&codes, &tools)
+            .iter()
+            .filter_map(|provider| standing.iter().find(|a| &a.provider == provider))
+            .cloned()
+            .collect();
     }
 
     fn read(&mut self, asked: Asked, now: Now, jobs: &mut Vec<Job>) {
@@ -1001,7 +1113,7 @@ impl State {
                 changed_before,
                 read,
             } => self.read_landed(ticket, readings_before, changed_before, read, now, jobs),
-            Answer::ReadOffline { why, read } => self.known(why, read.ok(), now),
+            Answer::ReadOffline { why, read } => self.known(why, read.ok(), now, jobs),
             Answer::Looked { changed, measured } => self.looked(changed, measured, now, jobs),
             Answer::Installed { tools } => {
                 self.installed = Some(tools);
@@ -1017,7 +1129,8 @@ impl State {
                 reopen,
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
-            Answer::Opened | Answer::Pasted | Answer::Stopped => {}
+            Answer::Opened | Answer::Pasted | Answer::Stopped | Answer::Saved | Answer::Posted => {}
+            Answer::Kept { told } => self.kept(told, jobs),
             Answer::Enrolled {
                 provider,
                 from,
@@ -1064,7 +1177,7 @@ impl State {
             }
             Answer::Lost(job) => match job {
                 Job::Read { ticket, .. } => self.landed(ticket, now),
-                Job::ReadOffline { why } => self.known(why, None, now),
+                Job::ReadOffline { why } => self.known(why, None, now, jobs),
                 Job::Look => self.look_over(now),
                 Job::AskInstalled => self.installed_over(now, jobs),
                 // As the Swift model took a holding it could not read: nothing holds it.
@@ -1103,6 +1216,9 @@ impl State {
                     self.renamed(&renaming, Err(None), now, jobs);
                 }
                 Job::Forget { qualified } => self.forgot(&qualified, Err(None), now, jobs),
+                // Nothing kept could be read: nothing was told before, as far as anyone knows.
+                Job::LoadKept => self.kept(Told::new(), jobs),
+                Job::KeepTold { .. } | Job::Post { .. } => {}
             },
         }
     }
@@ -1265,7 +1381,9 @@ impl State {
                     .any(|w| w.code == "recovery_undetermined");
                 self.forget_switches_undone(&read);
                 self.warnings = read.warnings.clone();
+                self.advise(&read, jobs);
                 self.status = Some(read);
+                self.standing_in = false;
                 self.failure = None;
                 self.updated_ms = Some(now.epoch_ms);
                 // As they stood before the read, because a session can record newer
@@ -1305,12 +1423,13 @@ impl State {
     }
 
     /// What is already known came in, or could not be read.
-    fn known(&mut self, why: Why, read: Option<Status>, now: Now) {
+    fn known(&mut self, why: Why, read: Option<Status>, now: Now, jobs: &mut Vec<Job>) {
         match why {
             Why::InPlaceOf(ticket) => {
                 // Only where there is still nothing to show: a read that has landed since
                 // knows better.
                 if self.status.is_none() {
+                    self.standing_in = read.is_some();
                     self.status = read;
                 }
                 self.landed(ticket, now);
@@ -1318,7 +1437,9 @@ impl State {
             Why::Changed { measured } => {
                 if let Some(read) = read {
                     self.forget_switches_undone(&read);
+                    self.advise(&read, jobs);
                     self.status = Some(read);
+                    self.standing_in = false;
                     self.readings_at = Some(measured);
                 }
                 self.look_over(now);
@@ -1328,7 +1449,10 @@ impl State {
                 // while they were read. The Swift put them onto what was shown when the
                 // look found them, and so put back what that read had replaced.
                 if let (Some(read), Some(shown)) = (read, self.status.as_ref()) {
-                    self.status = Some(numbers(&read, shown));
+                    let overlaid = numbers(&read, shown);
+                    self.advise(&overlaid, jobs);
+                    self.status = Some(overlaid);
+                    self.standing_in = false;
                     self.readings_at = Some(measured);
                 }
                 self.look_over(now);
@@ -1488,6 +1612,10 @@ impl State {
             Ok(done) => {
                 self.changes_seen += 1;
                 self.said(qualified, done, now);
+                // Advice about this tool is about the account it has just left. Another
+                // tool's stays: it is as true as it was, and it is never told again.
+                let provider = split(qualified).0;
+                self.advice.retain(|advice| advice.provider != provider);
                 self.updated_ms = None;
                 self.refresh(
                     Asked {
@@ -1657,7 +1785,7 @@ impl State {
         match done {
             Ok(()) => {
                 self.changes_seen += 1;
-                self.carry(provider, label, to);
+                self.carry(provider, label, to, jobs);
                 let own = Sheet::Rename {
                     provider: provider.to_owned(),
                     label: label.to_owned(),
@@ -1680,8 +1808,22 @@ impl State {
         }
     }
 
-    /// What was said about the account `label` of `provider`'s tool, said about it as `to`.
-    fn carry(&mut self, provider: &str, label: &str, to: &str) {
+    /// What was said about the account `label` of `provider`'s tool, said about it as `to`:
+    /// what its tool's last switch said, advice about it, and what was told about it.
+    fn carry(&mut self, provider: &str, label: &str, to: &str, jobs: &mut Vec<Job>) {
+        for advice in &mut self.advice {
+            if advice.provider == provider {
+                *advice = advice.renaming(label, to);
+            }
+        }
+        rename_told(&mut self.told_this_launch, provider, label, to);
+        let before = self.told.clone();
+        rename_told(&mut self.told, provider, label, to);
+        if self.told != before {
+            jobs.push(Job::KeepTold {
+                told: self.told.clone(),
+            });
+        }
         let (old, new) = (typed_as_core(provider, label), typed_as_core(provider, to));
         for last in &mut self.last_switches {
             if last.provider != provider {

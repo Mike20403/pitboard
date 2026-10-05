@@ -522,6 +522,18 @@ impl Pitboard {
         readings::changed_at(&self.ctx)
     }
 
+    /// What the app keeps in `file` in Pitboard's directory, or `None` where it keeps nothing
+    /// there. One that is there and cannot be read is an error.
+    pub fn app_file(&self, file: crate::app::AppFile) -> std::io::Result<Option<String>> {
+        crate::app::read_app_file(&self.ctx, file)
+    }
+
+    /// Keeps `body` in the app's `file` in Pitboard's directory, private and whole, as the
+    /// core writes its own files.
+    pub fn keep_app_file(&self, file: crate::app::AppFile, body: &str) -> Result<()> {
+        crate::app::write_app_file(&self.ctx, file, body)
+    }
+
     /// The changes Pitboard has made, newest last.
     pub fn log(&self, limit: usize) -> Vec<audit::Entry> {
         audit::read(&self.ctx, limit)

@@ -28,9 +28,9 @@ pub use sites::{
 
 mod model;
 pub use model::{
-    AppControl, AppLaunch, Failure, Intent, LastSwitch, LocalTime, ModelListener, Pane,
-    PitboardModel, PlatformError, QuitQuestion, ReadFailure, RestartNeeded, RunningSignIn, Sheet,
-    Snapshot, WindowRequest,
+    AppControl, AppLaunch, Failure, Intent, LastSwitch, LocalTime, ModelListener, Notifications,
+    Pane, PitboardModel, PlatformError, QuitQuestion, ReadFailure, RestartNeeded, RunOutNotice,
+    RunningSignIn, Sheet, Snapshot, WindowRequest,
 };
 
 mod present;
@@ -989,6 +989,24 @@ impl Pitboard {
 
     fn core(&self) -> Arc<Made> {
         self.made.value()
+    }
+
+    /// What the app keeps in `file` in Pitboard's directory, as the model reads it: `None`
+    /// where it keeps nothing there, and an error where the file is there and cannot be read.
+    pub(crate) fn app_file(
+        &self,
+        file: pitboard_core::app::AppFile,
+    ) -> std::io::Result<Option<String>> {
+        self.core().core.app_file(file)
+    }
+
+    /// Keeps `body` in the app's `file` in Pitboard's directory, as the core writes its own.
+    pub(crate) fn keep_app_file(
+        &self,
+        file: pitboard_core::app::AppFile,
+        body: &str,
+    ) -> Result<(), PitboardError> {
+        Ok(self.core().core.keep_app_file(file, body)?)
     }
 }
 

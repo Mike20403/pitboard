@@ -1483,11 +1483,10 @@ fn giving_up_on_a_switch_says_what_was_kept_until_put_away() {
     assert!(model.shown().notices.is_empty());
 }
 
-/// The most pressing first: what stops Pitboard working, then what each tool's last switch
-/// said, then warnings, then what is only worth knowing.
+/// The most pressing first: what stops Pitboard working, then an account that ran out, then
+/// what each tool's last switch said, then warnings, then what is only worth knowing.
 ///
-/// PresentationTests.swift's noticesComeTheMostPressingFirst, but for advice, which comes
-/// with telling.
+/// PresentationTests.swift's noticesComeTheMostPressingFirst.
 #[test]
 fn notices_come_the_most_pressing_first() {
     let accounts = || {
@@ -1518,6 +1517,18 @@ fn notices_come_the_most_pressing_first() {
     machine.switched = switched("codex", "codex/side", "codex/job", Vec::new());
     switch(&mut model, &mut machine, "codex/job");
 
+    machine.answer = Ok(status(vec![
+        account(Some("work"))
+            .signed_in()
+            .limits(vec![window("session", 100.0)])
+            .build(),
+        account(Some("spare"))
+            .limits(vec![window("session", 20.0)])
+            .build(),
+        account(Some("job")).of("codex").signed_in().build(),
+    ]));
+    model.refresh(&mut machine);
+
     machine.answer = Err(refusal(
         "unreachable",
         "Anthropic could not be reached",
@@ -1530,7 +1541,7 @@ fn notices_come_the_most_pressing_first() {
         .iter()
         .map(|n| n.id.split('/').next().unwrap_or_default())
         .collect();
-    assert_eq!(kinds, ["read", "switch", "warning", "abandoned"]);
+    assert_eq!(kinds, ["read", "advice", "switch", "warning", "abandoned"]);
     let severities: Vec<Severity> = notices.iter().map(|n| n.severity).collect();
     assert_eq!(
         severities,
@@ -1538,23 +1549,168 @@ fn notices_come_the_most_pressing_first() {
             Severity::Error,
             Severity::Warning,
             Severity::Warning,
+            Severity::Warning,
             Severity::Info
         ]
     );
 }
 
+/// Advice offers the account of the same tool with the most room, as a button that switches
+/// to it by its label with its tool. It names the tool only once two are shown, so a machine
+/// with one tool reads as it always did.
+///
+/// PresentationTests.swift's adviceOffersTheAccountWithRoomAndNamesItsToolOnlyBesideAnother.
+#[test]
+fn advice_offers_the_account_with_room_and_names_its_tool_only_beside_another() {
+    let spent = || {
+        vec![
+            account(Some("work"))
+                .signed_in()
+                .limits(vec![window("session", 100.0)])
+                .build(),
+            account(Some("spare"))
+                .limits(vec![window("session", 20.0)])
+                .build(),
+        ]
+    };
+    let (alone, _) = reading(spent());
+    assert_eq!(
+        alone.shown().notices,
+        [notice(
+            "advice/claude/work/session/",
+            Severity::Warning,
+            "work has no 5-hour limit left",
+            &["spare has 80% of its own left."],
+            vec![NoticeAction {
+                title: "Switch to spare".into(),
+                intent: Intent::SwitchTo {
+                    qualified: "claude/spare".into()
+                },
+                dismisses: false,
+                switches: true,
+                enabled: true,
+                confirm: None,
+            }],
+        )]
+    );
+
+    let mut beside = spent();
+    beside.push(account(Some("job")).of("codex").signed_in().build());
+    let (beside, _) = reading(beside);
+    let titles: Vec<String> = beside
+        .shown()
+        .notices
+        .into_iter()
+        .map(|n| n.title)
+        .collect();
+    assert_eq!(titles, ["Claude Code: work has no 5-hour limit left"]);
+}
+
+/// A switch of one tool leaves another tool's accounts as they were. Advice about a Claude
+/// Code account still out, beside another that still has room, is as true after a Codex
+/// switch as before it, and it is never told again, so putting it away loses it.
+///
+/// PresentationTests.swift's adviceAboutOneToolOutlivesASwitchOfAnother.
+#[test]
+fn advice_about_one_tool_outlives_a_switch_of_another() {
+    let spent = || {
+        account(Some("work"))
+            .signed_in()
+            .limits(vec![window("session", 100.0)])
+            .build()
+    };
+    let spare = || {
+        account(Some("spare"))
+            .limits(vec![window("session", 20.0)])
+            .build()
+    };
+    let (mut model, mut machine) = reading(vec![
+        spent(),
+        spare(),
+        account(Some("side")).of("codex").signed_in().build(),
+        account(Some("job")).of("codex").build(),
+    ]);
+    assert_eq!(ids(&model.shown()), ["advice/claude/work/session/"]);
+
+    machine.answer = Ok(status(vec![
+        spent(),
+        spare(),
+        account(Some("side")).of("codex").build(),
+        account(Some("job")).of("codex").signed_in().build(),
+    ]));
+    machine.switched = switched("codex", "codex/side", "codex/job", Vec::new());
+    switch(&mut model, &mut machine, "codex/job");
+    assert_eq!(
+        ids(&model.shown()),
+        ["advice/claude/work/session/", "switch/codex"]
+    );
+}
+
+/// The menu turns advice into an item that switches, held back while a switch is under way,
+/// and only advice: a notice offers an account when one of its actions is a switch to it.
+///
+/// PresentationTests.swift's aNoticeOffersAnAccountOnlyWhenItCanSwitchToOne, over what the
+/// model says rather than notices a test made up.
+#[test]
+fn a_notice_offers_an_account_only_when_it_can_switch_to_one() {
+    let (mut model, _) = reading(vec![
+        account(Some("work"))
+            .signed_in()
+            .limits(vec![window("session", 100.0)])
+            .build(),
+        account(Some("spare"))
+            .limits(vec![window("session", 20.0)])
+            .build(),
+    ]);
+    let menu = model.shown().menu_notices;
+    assert_eq!(
+        menu.switches,
+        [MenuEntry {
+            title: "Switch to spare".into(),
+            subtitle: Some("work has no 5-hour limit left".into()),
+            help: None,
+            severity: None,
+            intent: Some(Intent::SwitchTo {
+                qualified: "claude/spare".into()
+            }),
+            link: None,
+            enabled: true,
+        }]
+    );
+    assert_eq!(
+        menu.others, None,
+        "advice is not something else to know about"
+    );
+
+    model.send(Intent::SwitchTo {
+        qualified: "claude/spare".into(),
+    });
+    let shown = model.shown();
+    assert!(!shown.menu_notices.switches[0].enabled);
+    assert!(!shown.notices[0].actions[0].enabled);
+}
+
 /// What can be done about a notice is a button under it, and putting it away is the icon at
 /// its end: never both, and never neither.
 ///
-/// PresentationTests.swift's aNoticesActionIsEitherAButtonOrWhatPutsItAway, but for the
-/// switch advice offers, which comes with telling.
+/// PresentationTests.swift's aNoticesActionIsEitherAButtonOrWhatPutsItAway.
 #[test]
 fn a_notices_action_is_either_a_button_or_what_puts_it_away() {
+    let accounts = |percent: f64| {
+        vec![
+            account(Some("work"))
+                .of("codex")
+                .signed_in()
+                .limits(vec![window("five_hour", percent)])
+                .build(),
+            account(Some("spare"))
+                .of("codex")
+                .limits(vec![window("five_hour", 20.0)])
+                .build(),
+        ]
+    };
     let mut model = at_noon();
-    let mut machine = Machine::reading(Ok(warned(
-        vec![account(Some("work")).of("codex").signed_in().build()],
-        vec![interrupted()],
-    )));
+    let mut machine = Machine::reading(Ok(warned(accounts(10.0), vec![interrupted()])));
     model.refresh(&mut machine);
     machine.switched = switched("codex", "codex/side", "codex/work", Vec::new());
     switch(&mut model, &mut machine, "codex/work");
@@ -1565,10 +1721,7 @@ fn a_notices_action_is_either_a_button_or_what_puts_it_away() {
     }));
     model.send(Intent::AbandonStuckSwitch);
     model.run(&mut machine);
-    machine.answer = Ok(warned(
-        vec![account(Some("work")).of("codex").signed_in().build()],
-        vec![interrupted()],
-    ));
+    machine.answer = Ok(warned(accounts(100.0), vec![interrupted()]));
     model.refresh(&mut machine);
 
     let actions: Vec<NoticeAction> = model
@@ -1578,10 +1731,14 @@ fn a_notices_action_is_either_a_button_or_what_puts_it_away() {
         .flat_map(|notice| notice.actions)
         .collect();
     let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
-    assert_eq!(titles, ["Give Up…", "Dismiss", "Dismiss"]);
+    assert_eq!(
+        titles,
+        ["Give Up…", "Switch to spare", "Dismiss", "Dismiss"]
+    );
     let dismisses: Vec<bool> = actions.iter().map(|a| a.dismisses).collect();
-    assert_eq!(dismisses, [false, true, true]);
-    assert!(actions.iter().all(|a| !a.switches));
+    assert_eq!(dismisses, [false, false, true, true]);
+    let switches: Vec<bool> = actions.iter().map(|a| a.switches).collect();
+    assert_eq!(switches, [false, true, false, false]);
 }
 
 /// The menu has no room for paragraphs: everything to know about that is more than a note is

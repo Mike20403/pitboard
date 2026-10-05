@@ -28,12 +28,17 @@ fn nothing_runs_by_itself_until_started() {
 }
 
 /// Starting reads the accounts at once and looks for changes at once, as the Swift model's
-/// loops did on their first turn. The read waits for what is installed, which the first
-/// read asks.
+/// loops did on their first turn, and reads what the model keeps, the record of what was
+/// told. The read waits for what is installed, which the first read asks, and not for what is
+/// kept, which only advice waits for.
 #[test]
 fn starting_reads_at_once_and_looks_for_changes() {
     let mut model = Hand::new();
-    assert_eq!(model.send(Intent::Start), [Job::Look, Job::AskInstalled]);
+    assert_eq!(
+        model.send(Intent::Start),
+        [Job::LoadKept, Job::Look, Job::AskInstalled]
+    );
+    let _kept = model.next();
     let look = model.next();
     let ask = model.next();
     let mut machine = machine();
