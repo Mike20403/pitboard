@@ -1,0 +1,9 @@
+# Pitboard reads its environment in context.rs, through a list of every variable it reads
+# (context::READ), which the tests withhold from whatever they run. A read made anywhere else
+# is one the tests cannot see, so it is refused unless an #[allow] there says why it is meant.
+disallowed-methods = [
+    { path = "std::env::var", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
+    { path = "std::env::var_os", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
+    { path = "std::env::vars", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
+    { path = "std::env::vars_os", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
+]

@@ -1,4 +1,5 @@
 import Foundation
+import PitboardKit
 import Testing
 import WebKit
 
@@ -168,6 +169,27 @@ private let three = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
         defaults.object(forKey: "webStores") as? [String: [String]] == [
             "/tmp/test/.pitboard": [two.uuidString]
         ])
+}
+
+/// The records are kept under the Pitboard directory the core reads, standardised as they
+/// were when the app worked the directory out itself, so an update keeps every store and page
+/// it recorded. The core gives the path as the environment does, `.`, `..` and trailing `/`
+/// included, and the key is that path without them.
+@Test func theRecordsAreKeptUnderTheCoresDirectoryStandardised() {
+    let dotted = ["PITBOARD_HOME": "/Users/dana/./work/../pitboard/"]
+    #expect(pitboardDirectory(environment: dotted) == "/Users/dana/./work/../pitboard/")
+    #expect(WebEnvironment.recordKey(environment: dotted) == "/Users/dana/pitboard")
+    #expect(
+        WebEnvironment.recordKey(environment: ["HOME": "/Users/dana"])
+            == "/Users/dana/.pitboard")
+    #expect(
+        WebEnvironment.recordKey(environment: ["HOME": "/Users/dana/"])
+            == "/Users/dana/.pitboard")
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    #expect(
+        WebEnvironment.recordKey(environment: [:])
+            == home.appendingPathComponent(".pitboard").standardizedFileURL.path,
+        "without HOME, the account's own, where Foundation found it")
 }
 
 /// A release build run with another home shares WebKit's stores with the copy installed. A

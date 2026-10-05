@@ -309,6 +309,10 @@ fn doctor(pitboard: &Pitboard) -> Report {
 
 /// Claude Code reads the line through a pipe and draws its colours, so they are kept even
 /// though stdout is not a terminal, unless `NO_COLOR` asks otherwise. The JSON form is plain.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "NO_COLOR is about this process's own output, and is on context::READ"
+)]
 fn statusline(pitboard: &Pitboard) -> Report {
     let mut input = String::new();
     // Claude Code pipes the session in. Typed at a prompt there is nothing to read, and

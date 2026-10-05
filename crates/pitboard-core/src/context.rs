@@ -1,13 +1,133 @@
-//! Everything Pitboard takes from its environment, read in one place. The CLI builds a
-//! `Context` from the process environment once. A program linking the library builds one
-//! itself: an app started from Finder does not see a shell's environment.
+//! Everything Pitboard takes from its environment, read in one place. Every front end builds
+//! its `Context` from the variables it was started with, by the same code: the command line
+//! from its own, once. An app passes the ones it was started with, which are not a shell's,
+//! so it also looks for each tool's program itself, in [`crate::app`].
+//!
+//! This module is where the process's environment is read. `clippy.toml` refuses
+//! `std::env::var` and its kind anywhere else, unless an `#[allow]` there says why.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the one module that reads this process's environment"
+)]
 
 use crate::api::{Anthropic, Api};
 use crate::host::Host;
+use crate::provider::ProviderId;
 use crate::provider::codex::api::{Network as OpenAiNetwork, OpenAi};
 use crate::time::{Clock, SystemClock};
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Every variable Pitboard reads from the environment it was started with, besides
+/// [`crate::settings::OVERRIDING_ENV`]: what [`Context::read`] consults, the shell an app
+/// asks for its `PATH`, and the three read straight from the process: `PATH` where a context
+/// was given no search path, and where Linux's host finds the path Pitboard was started by,
+/// `NO_COLOR` by the command line's status line, and `XPC_SERVICE_NAME` by launchd's host.
+/// Each of those reads carries an `#[allow]` saying why it is not made through
+/// [`Environment`].
+///
+/// [`Environment`] refuses, in a build with debug assertions, to read a name missing here,
+/// so every test that reads a context fails until a new variable is added. The tests take
+/// nothing on this list from whoever runs them, except what they pass on by name.
+const READ: &[&str] = &[
+    "HOME",
+    "USER",
+    "PATH",
+    "SHELL",
+    "PITBOARD_HOME",
+    "PITBOARD_NO_ARGV",
+    "PITBOARD_API_BASE",
+    "PITBOARD_CLAUDE",
+    "PITBOARD_CODEX",
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    "CLAUDE_CODE_CUSTOM_OAUTH_URL",
+    "CLAUDE_CODE_HOVER_REST",
+    "CODEX_HOME",
+    "NO_COLOR",
+    "XPC_SERVICE_NAME",
+];
+
+/// Every variable Pitboard reads from its environment, by name.
+pub(crate) fn variables() -> impl Iterator<Item = &'static str> {
+    READ.iter()
+        .chain(crate::settings::OVERRIDING_ENV.iter())
+        .copied()
+}
+
+/// The variables a process was started with, by name.
+///
+/// The command line has a shell's. An app the system started has launchd's, which name the
+/// home and the login and little else, unless somebody set more with `launchctl setenv`;
+/// whatever is there is read the way the command line reads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Environment(HashMap<OsString, OsString>);
+
+impl Environment {
+    /// This process's own.
+    pub fn of_this_process() -> Environment {
+        std::env::vars_os().collect()
+    }
+
+    /// `name`'s value, whatever bytes it holds, as a path may hold any.
+    pub(crate) fn path(&self, name: &str) -> Option<&OsStr> {
+        debug_assert!(
+            variables().any(|read| read == name),
+            "{name} is read but not listed in context::READ, so the tests would take it \
+             from whoever runs them"
+        );
+        self.0.get(OsStr::new(name)).map(OsString::as_os_str)
+    }
+
+    /// `name`'s value as text. One that is not UTF-8 reads as unset, as `std::env::var`
+    /// reads it.
+    pub(crate) fn text(&self, name: &str) -> Option<&str> {
+        self.path(name).and_then(OsStr::to_str)
+    }
+
+    /// Whether `name` holds anything: empty reads as unset.
+    pub(crate) fn set(&self, name: &str) -> bool {
+        self.text(name).is_some_and(|v| !v.is_empty())
+    }
+
+    /// The person's home: `HOME`, or, where it is unset, the account's own, as the passwd
+    /// database names it and Foundation finds it for an app. Set, even empty, it is what the
+    /// person said.
+    pub fn home(&self) -> PathBuf {
+        self.path("HOME")
+            .map(PathBuf::from)
+            .or_else(crate::host::user::home)
+            .unwrap_or_default()
+    }
+
+    /// Pitboard's own directory: `PITBOARD_HOME`, or `.pitboard` in [`Environment::home`].
+    /// The path as the environment gives it, with any `.`, `..` or trailing `/` it holds.
+    pub fn pitboard_home(&self) -> PathBuf {
+        self.path("PITBOARD_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.home().join(".pitboard"))
+    }
+
+    /// Every variable, as a program started in this environment is given them.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
+        self.0
+            .iter()
+            .map(|(name, value)| (name.as_os_str(), value.as_os_str()))
+    }
+}
+
+impl<K: Into<OsString>, V: Into<OsString>> FromIterator<(K, V)> for Environment {
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(pairs: I) -> Environment {
+        Environment(
+            pairs
+                .into_iter()
+                .map(|(name, value)| (name.into(), value.into()))
+                .collect(),
+        )
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Context {
@@ -254,41 +374,81 @@ impl Context {
     }
 
     /// The program named for this tool, found or not.
-    pub fn program_for(&self, tool: crate::provider::ProviderId) -> &std::path::Path {
+    pub fn program_for(&self, tool: ProviderId) -> &std::path::Path {
         match tool {
-            crate::provider::ProviderId::Claude => &self.claude_program,
-            crate::provider::ProviderId::Codex => &self.codex_program,
+            ProviderId::Claude => &self.claude_program,
+            ProviderId::Codex => &self.codex_program,
         }
     }
 
+    /// Run `program` for this tool, where an app found it.
+    pub(crate) fn set_program(&mut self, tool: ProviderId, program: PathBuf) {
+        match tool {
+            ProviderId::Claude => self.claude_program = program,
+            ProviderId::Codex => self.codex_program = program,
+        }
+    }
+
+    /// The command line's context, from this process's own environment.
     pub fn from_env() -> Context {
-        let var = |name: &str| std::env::var(name).ok();
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
+        Context::for_command_line(&Environment::of_this_process())
+    }
+
+    /// The command line's context, from the environment it was started with: a shell's, so
+    /// each tool's program is looked for on its `PATH` when it runs.
+    pub fn for_command_line(env: &Environment) -> Context {
+        Context::read(env, "cli")
+    }
+
+    /// The command line's context for a unit test: this process's environment, less every
+    /// variable Pitboard reads, so what the person running the tests exported changes
+    /// nothing a test checks. `PITBOARD_NO_ARGV=1` would fail a keychain test, and
+    /// `PITBOARD_CLAUDE` would name the program a test runs.
+    #[cfg(test)]
+    pub(crate) fn for_unit_test() -> Context {
+        let kept: Environment = std::env::vars_os()
+            .filter(|(name, _)| !variables().any(|read| name == read))
+            .collect();
+        Context::for_command_line(&kept)
+    }
+
+    /// Everything `env` says, read the same way for every front end; `caller` names the one
+    /// asking, for the audit log.
+    ///
+    /// Each tool's program is the one its own variable names, `PITBOARD_CLAUDE` or
+    /// `PITBOARD_CODEX`, or else its bare name, looked for on `PATH` when it runs. Where
+    /// to look is all a front end adds: an app has no shell's `PATH`, and finds the
+    /// programs before it runs anything.
+    pub(crate) fn read(env: &Environment, caller: &str) -> Context {
+        let home = env.home();
+        let owned = |name: &str| env.text(name).map(str::to_owned);
+        let program = |tool: ProviderId| {
+            env.path(tool.program_variable())
+                .filter(|named| !named.is_empty())
+                .map_or_else(|| PathBuf::from(tool.program()), PathBuf::from)
+        };
         Context {
-            pitboard_home: std::env::var_os("PITBOARD_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".pitboard")),
+            pitboard_home: env.pitboard_home(),
             home,
-            claude_config_dir: var("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()),
-            secure_storage_dir: var("CLAUDE_SECURESTORAGE_CONFIG_DIR"),
-            user: var("USER"),
-            custom_oauth: var("CLAUDE_CODE_CUSTOM_OAUTH_URL").is_some_and(|v| !v.is_empty()),
-            argv_fallback: !var("PITBOARD_NO_ARGV").is_some_and(|v| v == "1"),
+            claude_config_dir: owned("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()),
+            secure_storage_dir: owned("CLAUDE_SECURESTORAGE_CONFIG_DIR"),
+            user: owned("USER"),
+            custom_oauth: env.set("CLAUDE_CODE_CUSTOM_OAUTH_URL"),
+            argv_fallback: env.text("PITBOARD_NO_ARGV") != Some("1"),
             overriding_auth: crate::settings::OVERRIDING_ENV
                 .iter()
-                .filter(|name| var(name).is_some_and(|v| !v.is_empty()))
+                .filter(|name| env.set(name))
                 .map(|name| (*name).to_string())
                 .collect(),
-            caller: "cli".into(),
-            claude_program: PathBuf::from("claude"),
-            api_base: var("PITBOARD_API_BASE"),
-            hover_rest: var("CLAUDE_CODE_HOVER_REST").is_some_and(|v| v == "1" || v == "true"),
-            codex_home: var("CODEX_HOME").filter(|v| !v.is_empty()),
-            codex_program: PathBuf::from("codex"),
+            caller: caller.into(),
+            claude_program: program(ProviderId::Claude),
+            api_base: owned("PITBOARD_API_BASE"),
+            hover_rest: matches!(env.text("CLAUDE_CODE_HOVER_REST"), Some("1" | "true")),
+            codex_home: owned("CODEX_HOME").filter(|v| !v.is_empty()),
+            codex_program: program(ProviderId::Codex),
             schedule_program: None,
-            search_path: None,
+            // Unset is nowhere, as it is to the shell: nothing is found on an empty `PATH`.
+            search_path: Some(env.path("PATH").unwrap_or_default().to_os_string()),
             scheduled_job: None,
             clock: Arc::new(SystemClock),
             host: crate::host::current(),
@@ -330,6 +490,7 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn an_explicit_context_reads_claude_codes_settings_the_way_the_environment_does() {
@@ -348,7 +509,7 @@ mod tests {
 
     #[test]
     fn only_a_front_end_that_names_one_changes_what_the_schedule_runs() {
-        assert_eq!(Context::from_env().schedule_program(), None);
+        assert_eq!(Context::for_unit_test().schedule_program(), None);
         let ctx = Context::new(PathBuf::from("/Users/x"));
         assert_eq!(ctx.schedule_program(), None);
         let bundled = PathBuf::from("/Applications/Pitboard.app/Contents/Helpers/pitboard");
@@ -356,6 +517,101 @@ mod tests {
             ctx.with_schedule_program(bundled.clone())
                 .schedule_program(),
             Some(bundled.as_path())
+        );
+    }
+
+    /// The command line reads the environment it is handed rather than this process's, so
+    /// every variable can be tried without changing what the tests themselves run in.
+    #[test]
+    fn the_command_line_reads_the_environment_it_is_given() {
+        let env: Environment = [
+            ("HOME", "/Users/x"),
+            ("PITBOARD_CLAUDE", "/elsewhere/claude"),
+            ("PITBOARD_CODEX", ""),
+            ("CLAUDE_CODE_CUSTOM_OAUTH_URL", "https://oauth.example"),
+            ("ANTHROPIC_API_KEY", "not-a-key"),
+            ("ANTHROPIC_AUTH_TOKEN", ""),
+            ("PATH", "/opt/tools/bin:/usr/bin"),
+        ]
+        .into_iter()
+        .collect();
+        let ctx = Context::for_command_line(&env);
+        assert_eq!(ctx.claude_program(), Path::new("/elsewhere/claude"));
+        assert_eq!(
+            ctx.codex_program(),
+            Path::new("codex"),
+            "empty names nothing"
+        );
+        assert!(ctx.custom_oauth());
+        assert_eq!(
+            ctx.overriding_auth(),
+            ["ANTHROPIC_API_KEY"],
+            "empty is unset"
+        );
+        assert_eq!(ctx.search_path(), "/opt/tools/bin:/usr/bin");
+        assert_eq!(ctx.pitboard_home, PathBuf::from("/Users/x/.pitboard"));
+        assert_eq!(ctx.caller, "cli");
+        assert_eq!(
+            Context::for_command_line(&Environment::default()).search_path(),
+            "",
+            "no PATH is nowhere, not this process's"
+        );
+    }
+
+    /// A variable read without being listed is caught the first time a test reads it, so the
+    /// list the tests withhold from every command they run cannot fall behind what is read.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "PITBOARD_SOMETHING_NEW is read but not listed")]
+    fn a_variable_read_without_being_listed_is_caught() {
+        let _ = Environment::default().path("PITBOARD_SOMETHING_NEW");
+    }
+
+    /// With no `HOME`, the home is the account's own, as the passwd database names it, which
+    /// is where the app has always looked. The command line took an empty path instead, and
+    /// so kept its files in `.pitboard` wherever it was run from.
+    #[test]
+    fn without_home_the_home_is_the_accounts_own() {
+        let own = crate::host::user::home().expect("this account has a home");
+        let ctx = Context::for_command_line(&Environment::default());
+        assert_eq!(ctx.home, own);
+        assert_eq!(ctx.pitboard_home, own.join(".pitboard"));
+        let empty: Environment = [("HOME", "")].into_iter().collect();
+        assert_eq!(
+            Context::for_command_line(&empty).home,
+            PathBuf::new(),
+            "set, even empty, it is what the person said"
+        );
+    }
+
+    /// The home and Pitboard directory an app asks of the environment it was started with
+    /// are the ones the context it is given reads, path for path, so an app that keys records
+    /// of its own by Pitboard's directory keys them by the core's.
+    #[test]
+    fn the_homes_an_app_asks_for_are_the_contexts() {
+        let cases: [&[(&str, &str)]; 5] = [
+            &[],
+            &[("HOME", "/Users/x")],
+            &[("HOME", "/Users/x/")],
+            &[
+                ("HOME", "/Users/x"),
+                ("PITBOARD_HOME", "/elsewhere/./pitboard/"),
+            ],
+            &[("PITBOARD_HOME", "")],
+        ];
+        for pairs in cases {
+            let env: Environment = pairs.iter().copied().collect();
+            let ctx = Context::for_command_line(&env);
+            assert_eq!(env.home(), ctx.home, "{pairs:?}");
+            assert_eq!(env.pitboard_home(), ctx.pitboard_home, "{pairs:?}");
+        }
+        let given: Environment = [("PITBOARD_HOME", "/elsewhere/./pitboard/")]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            given.pitboard_home().as_os_str(),
+            "/elsewhere/./pitboard/",
+            "as the environment gives it"
         );
     }
 }

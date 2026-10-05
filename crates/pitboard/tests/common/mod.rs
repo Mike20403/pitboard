@@ -25,9 +25,30 @@ pub fn write_program(path: &Path, contents: &str) {
     assert!(status.success(), "could not write {}", path.display());
 }
 
-/// This test process's own environment: the machine's real keychain account and slot.
+/// What every command a test runs is given of the environment the tests run in: who is
+/// running them, which names their keychain account, and their home, which each tool's own
+/// variable moves away from in [`Env::command`]. Every other variable Pitboard reads is
+/// withheld. One exported in the shell that ran `cargo test`, such as `PITBOARD_CLAUDE`,
+/// would otherwise have a sign-in run the real `claude` with the real home.
+const PASSED_ON: [&str; 2] = ["HOME", "USER"];
+
+/// The variables Pitboard reads that no test takes from whoever runs it, from the core's own
+/// list of what it reads, so a variable added there is withheld here too.
+pub fn withheld() -> impl Iterator<Item = &'static str> {
+    pitboard_core::testing::variables().filter(|name| !PASSED_ON.contains(name))
+}
+
+/// This test process's own environment, less what is withheld: the machine's real keychain
+/// account, and the slot Claude Code reads by default.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the tests' own environment, from which this withholds what Pitboard reads"
+)]
 pub fn ctx() -> pitboard_core::context::Context {
-    pitboard_core::context::Context::from_env()
+    let passed: pitboard_core::context::Environment = std::env::vars_os()
+        .filter(|(name, _)| !withheld().any(|kept| name == kept))
+        .collect();
+    pitboard_core::context::Context::for_command_line(&passed)
 }
 
 /// Refuse a service name that this machine's Claude Code would actually read.
@@ -125,6 +146,17 @@ fn every_tool_is_pointed_at_a_scratch_home() {
             .any(|k| k == "CLAUDE_SECURESTORAGE_CONFIG_DIR"),
         "CLAUDE_SECURESTORAGE_CONFIG_DIR is inherited, so a test can read the real slot"
     );
+    // Nor is anything else Pitboard reads: each is taken away or set here.
+    let given: Vec<String> = command
+        .get_envs()
+        .map(|(k, _)| k.to_string_lossy().into_owned())
+        .collect();
+    for name in withheld() {
+        assert!(
+            given.iter().any(|k| k == name),
+            "{name} is inherited from whoever runs the tests"
+        );
+    }
 }
 
 use std::path::{Path, PathBuf};
@@ -166,6 +198,10 @@ pub fn uuid_for(test: &str, who: char) -> String {
     )
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    reason = "who runs the tests, whose keychain account a command is given as USER"
+)]
 pub fn account() -> String {
     std::env::var("USER").unwrap_or_else(|_| "claude-code-user".into())
 }
@@ -228,6 +264,10 @@ impl Env {
         self.usage.assert();
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the tests' own PATH, behind the scratch programs a command is given first"
+    )]
     pub fn command(&self, args: &[&str]) -> Command {
         let path = format!(
             "{}:{}",
@@ -235,9 +275,11 @@ impl Env {
             std::env::var("PATH").unwrap_or_default()
         );
         let mut c = Command::new(env!("CARGO_BIN_EXE_pitboard"));
+        for name in withheld() {
+            c.env_remove(name);
+        }
         c.args(args)
             .env("CLAUDE_CONFIG_DIR", &self.root)
-            .env_remove("CLAUDE_SECURESTORAGE_CONFIG_DIR")
             // Every tool Pitboard reads gets a scratch home of its own, empty unless a
             // test puts something in it. Without this the suite reads whatever the person
             // running it happens to be signed in to, which is both a flaky test and a real

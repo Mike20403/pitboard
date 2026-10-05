@@ -28,7 +28,160 @@ private struct ScratchHome {
         )
     }
 
+    /// What an app started with this home would have in its environment, and `extra`. Its
+    /// shell is not there, so no shell of the person's is ever started for its `PATH`.
+    func environment(_ extra: [String: String] = [:]) -> [String: String] {
+        [
+            "HOME": root.path, "PITBOARD_HOME": root.appendingPathComponent("pitboard").path,
+            "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path,
+            "CODEX_HOME": root.appendingPathComponent("codex").path, "USER": NSUserName(),
+            "PATH": "/usr/bin:/bin", "SHELL": root.appendingPathComponent("no-shell").path,
+        ].merging(extra) { $1 }
+    }
+
+    /// Signs Claude Code in to a made-up login the way it is kept where there is no keychain
+    /// item: `.credentials.json` in its config directory, mode 0600. Pitboard reads it after
+    /// the item this home's slot names, and that item is never there.
+    func signInToClaudeCode() throws {
+        let directory = root.appendingPathComponent("claude")
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)
+        let expires = Int64(Date().timeIntervalSince1970 * 1000) + 8 * 3_600_000
+        let login = """
+            {"claudeAiOauth": {"accessToken": "access-not-a-token", \
+            "refreshToken": "refresh-not-a-token", "expiresAt": \(expires), \
+            "scopes": ["user:inference", "user:profile"]}}
+            """
+        let file = directory.appendingPathComponent(".credentials.json")
+        try Data(login.utf8).write(to: file)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
     func remove() { try? FileManager.default.removeItem(at: root) }
+}
+
+/// A login shell of the test's own, which answers only once the test lets it go. It writes
+/// down each time it is asked, and whether it was let go or gave up waiting, which it does
+/// after two seconds or so, before the core stops waiting for it.
+private struct GatedShell {
+    let directory: URL
+    var path: String { directory.appendingPathComponent("shell").path }
+
+    init(in root: URL) throws {
+        directory = root.appendingPathComponent("gated-shell")
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)
+        let script = """
+            #!/bin/sh
+            [ "$1 $2 $3" = "-l -i -c" ] || exit 64
+            cd "$(/usr/bin/dirname "$0")" || exit 65
+            echo asked >> asks
+            waited=0
+            while [ ! -e open ]; do
+                waited=$((waited + 1))
+                [ "$waited" -gt 200 ] && { echo gave-up > outcome; exit 1; }
+                /bin/sleep 0.01
+            done
+            echo opened > outcome
+            exec /bin/sh -c "$4"
+            """
+        try script.write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+    }
+
+    /// How often it has been asked.
+    var asks: Int { lines("asks").count }
+
+    /// `opened` once let go, `gave-up` once it stopped waiting, nil before either.
+    var outcome: String? { lines("outcome").first.map(String.init) }
+
+    func open() throws { try Data().write(to: directory.appendingPathComponent("open")) }
+
+    private func lines(_ name: String) -> [Substring] {
+        let file = directory.appendingPathComponent(name)
+        return ((try? String(contentsOf: file, encoding: .utf8)) ?? "").split(separator: "\n")
+    }
+}
+
+/// Asking the person's login shell can take seconds, so the core asks it when something first
+/// needs the core, off the main thread, and once however many calls arrive together. The
+/// shell here answers only once the main thread lets it go, which a main thread busy asking
+/// it never could.
+@MainActor @Test func theLoginShellIsAskedOnceOffTheMainThread() async throws {
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let shell = try GatedShell(in: home.root)
+    let environment = home.environment([
+        "SHELL": shell.path, "PITBOARD_CLAUDE": "/nowhere/claude",
+        "PITBOARD_CODEX": "/nowhere/codex",
+    ])
+    let service = PitboardService.forThisApp(environment: environment, bundle: home.root)
+    #expect(service.tools().count == 2, "listing the tools asks nothing")
+    #expect(shell.asks == 0, "and nor does making the service")
+
+    // Waits on the main thread for the shell to be asked, then lets it go. `installed` is
+    // called from the main thread too, as the app calls it, and two more calls arrive with it.
+    let letGo = Task { @MainActor in
+        for _ in 0..<500 where shell.asks == 0 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        try? shell.open()
+    }
+    async let changed = service.changedAt()
+    async let diagnosis = service.doctor()
+    let found = await service.installed()
+    _ = await (changed, diagnosis)
+    await letGo.value
+
+    #expect(shell.outcome == "opened", "the main thread let the shell go while it was asked")
+    #expect(shell.asks == 1)
+    #expect(found.map(\.code) == ["claude", "codex"])
+    #expect(await service.searchPath() == "/usr/bin:/bin")
+    #expect(shell.asks == 1, "and asked no more")
+}
+
+/// The app reads what the command line reads from the environment it was started with: a
+/// custom OAuth endpoint refuses every change to a Claude Code account, a variable that signs
+/// Claude Code in some other way is reported, and so is Claude Code's successor credential
+/// backend switched on. The app used to pass on only the variables that move where things
+/// are kept.
+@Test func theAppReadsItsEnvironmentAsTheCommandLineDoes() async throws {
+    let home = try ScratchHome()
+    defer { home.remove() }
+    let environment = home.environment([
+        "CLAUDE_CODE_CUSTOM_OAUTH_URL": "https://oauth.example",
+        "ANTHROPIC_API_KEY": "not-a-key", "CLAUDE_CODE_HOVER_REST": "1",
+    ])
+    let service = PitboardService.forThisApp(environment: environment, bundle: home.root)
+    do {
+        _ = try await service.enrollCurrent("work")
+        Issue.record("a change to a Claude Code account must be refused")
+    } catch let PitboardError.Failed(code, _, _, _) {
+        #expect(code == "custom_oauth_endpoint")
+    }
+    let checks = await service.doctor().checks
+    #expect(checks.first { $0.code == "auth_source" }?.level == .warn)
+    #expect(checks.first { $0.code == "storage_v5" }?.detail != "inactive")
+}
+
+/// `PITBOARD_API_BASE` reaches the app as it reaches the command line: who the signed-in
+/// login belongs to is asked at the loopback address it names, which refuses the connection,
+/// and not at Anthropic. The app used to drop it, and asked Anthropic.
+@Test func theAppAsksWherePitboardAPIBaseSays() async throws {
+    let home = try ScratchHome()
+    defer { home.remove() }
+    try home.signInToClaudeCode()
+    let environment = home.environment(["PITBOARD_API_BASE": "http://127.0.0.1:1"])
+    let service = PitboardService.forThisApp(environment: environment, bundle: home.root)
+    do {
+        _ = try await service.enrollCurrent("work")
+        Issue.record("a login nobody could identify was enrolled")
+    } catch let PitboardError.Failed(code, cause, message, _) {
+        #expect(code == "identity_unverifiable")
+        #expect(cause?.code == "unreachable")
+        #expect(message.contains("Connection refused"), "\(message)")
+    }
 }
 
 @Test func statusOfAnEmptyHomeHasNoAccounts() async throws {
@@ -66,104 +219,6 @@ private struct ScratchHome {
     #expect(await neither.installed().isEmpty)
     let codex = PitboardService(settings: withCodex.settings(codex: "/nowhere/codex"))
     #expect(await codex.installed().map(\.code) == ["codex"])
-}
-
-/// Counts how often the settings were asked for, and whether any ask was on the main
-/// thread.
-private final class Asks: @unchecked Sendable {
-    // Unchecked because the counts are written from the service's queues; every read and
-    // write holds `lock`.
-    private let lock = NSLock()
-    private var asked = 0
-    private var onMain = false
-
-    func note() {
-        let main = Thread.isMainThread
-        lock.withLock {
-            asked += 1
-            onMain = onMain || main
-        }
-    }
-
-    var count: Int { lock.withLock { asked } }
-    var anyOnMain: Bool { lock.withLock { onMain } }
-}
-
-/// Where the tools are can take asking the person's login shell, so the settings are asked
-/// for when something first needs the core, off the main thread, and once however many
-/// calls arrive at the same time.
-@Test func theSettingsAreAskedForOnceOffTheMainThread() async throws {
-    let home = try ScratchHome()
-    defer { home.remove() }
-    let settings = home.settings(codex: "/nowhere/codex")
-    let asks = Asks()
-    let service = PitboardService {
-        asks.note()
-        return settings
-    }
-    #expect(service.tools().count == 2, "listing the tools asks nothing")
-    #expect(asks.count == 0)
-    async let installed = service.installed()
-    async let changed = service.changedAt()
-    async let diagnosis = service.doctor()
-    let (found, _, _) = await (installed, changed, diagnosis)
-    #expect(found.map(\.code) == ["codex"])
-    #expect(asks.count == 1)
-    #expect(!asks.anyOnMain)
-}
-
-/// A login shell too slow to answer, which startup files are while the machine is busy
-/// logging in, is asked once more when something next asks what is installed, a while later,
-/// and what it answers then is what is used. Once more and no more: a shell that is always
-/// that slow would otherwise cost its patience on every ask.
-@Test func aLoginShellTooSlowToAnswerIsAskedOnceMoreLater() async throws {
-    let (late, found) = (try ScratchHome(), try ScratchHome())
-    defer {
-        late.remove()
-        found.remove()
-    }
-    let (slow, answered) = (late.settings(), found.settings(codex: "/nowhere/codex"))
-    let asks = Asks()
-    let service = PitboardService(
-        asking: {
-            asks.note()
-            return asks.count == 1 ? (slow, true) : (answered, false)
-        }, askAgainAfter: 0.2)
-
-    #expect(await service.installed().isEmpty, "what the first, late, ask found")
-    #expect(await service.installed().isEmpty, "and nothing more until the while is up")
-    #expect(asks.count == 1)
-    try await Task.sleep(for: .milliseconds(300))
-    #expect(await service.installed().map(\.code) == ["codex"])
-    #expect(asks.count == 2)
-    #expect(await service.installed().map(\.code) == ["codex"])
-    #expect(asks.count == 2, "asked once more, and no more")
-}
-
-/// Not before the while is up, and never when the shell answered or could not be asked.
-@Test func aLoginShellIsNotAskedAgainSoonerOrForNothing() async throws {
-    let home = try ScratchHome()
-    defer { home.remove() }
-    let settings = home.settings()
-    let soon = Asks()
-    let early = PitboardService(
-        asking: {
-            soon.note()
-            return (settings, true)
-        }, askAgainAfter: 3600)
-    _ = await early.installed()
-    _ = await early.installed()
-    #expect(soon.count == 1)
-
-    let answered = Asks()
-    let service = PitboardService(
-        asking: {
-            answered.note()
-            return (settings, false)
-        }, askAgainAfter: 0)
-    _ = await service.installed()
-    _ = await service.installed()
-    #expect(answered.count == 1)
 }
 
 @Test func doctorReportsEveryCheck() async throws {

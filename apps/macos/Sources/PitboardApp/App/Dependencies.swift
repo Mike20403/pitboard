@@ -34,7 +34,7 @@ public struct Dependencies {
     /// This machine, as the person running the app has it.
     public static func live() -> Dependencies {
         Dependencies(
-            core: PitboardService(asking: { Settings.forCurrentUserAsked() }),
+            core: PitboardService.forThisApp(),
             defaults: .standard,
             loginItem: MainAppLoginItem(),
             appControl: WorkspaceAppControl(),

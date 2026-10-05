@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 /// directory in it, or the first file on `search`, a list in `PATH`'s form, that can be run.
 ///
 /// Found the way `execvp` finds one, which passes over a directory of that name and a file
-/// nobody may run, so what is found here is what starts. Only a directory named from the
-/// root is looked in: a relative one names a place relative to wherever Pitboard was
+/// this user may not run, so what is found here is what starts. Only a directory named from
+/// the root is looked in: a relative one names a place relative to wherever Pitboard was
 /// started, which says nothing about where a tool is installed, and a sign-in that runs
 /// from a directory of its own would read it as somewhere else again.
 pub(crate) fn find(named: &Path, search: &OsStr) -> Option<PathBuf> {
@@ -26,7 +26,18 @@ fn find_in(
         let named = std::path::absolute(named).ok()?;
         return runnable(&named).then_some(named);
     }
-    std::env::split_paths(search)
+    find_among(named, std::env::split_paths(search), runnable)
+}
+
+/// The first file called `named` in `dirs` that can be run, in their order, for a list of
+/// places that is not in `PATH`'s form. Only a directory named from the root is looked in,
+/// as on `PATH`.
+pub(crate) fn find_among(
+    named: &Path,
+    dirs: impl IntoIterator<Item = PathBuf>,
+    mut runnable: impl FnMut(&Path) -> bool,
+) -> Option<PathBuf> {
+    dirs.into_iter()
         .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join(named))
         .find(|candidate| runnable(candidate))

@@ -161,9 +161,8 @@ final class MachineModel {
     func findCommandLine() async {
         let path = await service.searchPath()
         let tool = commandLineTool
-        let directories = tool.directories(onPath: path)
         commandLine = await Task.detached(priority: .utility) {
-            tool.find(in: directories)
+            tool.find(onPath: path)
         }.value
     }
 

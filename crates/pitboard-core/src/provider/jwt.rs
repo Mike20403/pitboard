@@ -173,6 +173,10 @@ mod tests {
     /// It prints and asserts nothing secret: claim names and whether the token parsed.
     #[test]
     #[ignore = "needs a signed-in Codex on this machine"]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "run on purpose against the Codex login of whoever runs it"
+    )]
     fn a_real_codex_id_token_reads() {
         let Some(home) = std::env::var_os("HOME") else {
             return;

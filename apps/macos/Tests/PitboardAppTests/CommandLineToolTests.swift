@@ -39,41 +39,6 @@ private struct Scratch {
     func remove() { try? FileManager.default.removeItem(at: root) }
 }
 
-/// The first `pitboard` on the path is the one a terminal runs, and a link to this app's own,
-/// the way Homebrew makes one, is this app's own however many links it takes to get there.
-/// A directory, a file nobody can run and a link to nothing are not a `pitboard`.
-@Test func theFirstPitboardFoundSaysWhoseItIs() throws {
-    let scratch = try Scratch()
-    defer { scratch.remove() }
-    let empty = try scratch.directory("empty")
-    let folder = try scratch.directory("folder")
-    _ = try scratch.directory("folder/pitboard")
-    let plain = try scratch.directory("plain")
-    try scratch.program(at: URL(fileURLWithPath: "\(plain)/pitboard"), runnable: false)
-    let dangling = try scratch.directory("dangling")
-    try scratch.link("\(dangling)/pitboard", to: "\(scratch.root.path)/gone/pitboard")
-    let brew = try scratch.directory("brew/bin")
-    try scratch.link("\(brew)/pitboard", to: "../../Fake.app/Contents/Helpers/pitboard")
-    let cargo = try scratch.directory("cargo/bin")
-    try scratch.program(at: URL(fileURLWithPath: "\(cargo)/pitboard"))
-    let helpers = "\(scratch.root.path)/helpers"
-    try scratch.link(helpers, to: scratch.helper.deletingLastPathComponent().path)
-
-    let tool = CommandLineTool(bundle: scratch.app)
-    #expect(
-        tool.find(in: [empty, folder, plain, dangling, brew, cargo])
-            == .bundled("\(brew)/pitboard"))
-    #expect(tool.find(in: [helpers]) == .bundled("\(helpers)/pitboard"))
-    #expect(tool.find(in: [cargo, brew]) == .another("\(cargo)/pitboard"))
-    #expect(tool.find(in: [empty, folder, plain, dangling]) == .nowhere)
-    #expect(tool.find(in: []) == .nowhere)
-
-    let elsewhere = CommandLineTool(bundle: scratch.root.appendingPathComponent("Other.app"))
-    #expect(elsewhere.find(in: [brew]) == .another("\(brew)/pitboard"), "another copy's")
-    let built = CommandLineTool(bundle: scratch.root)
-    #expect(built.find(in: [brew]) == .another("\(brew)/pitboard"), "not run from an app")
-}
-
 /// A link is offered only to an app with a command line inside it that stays where it is.
 /// macOS runs an app opened where it was downloaded from a temporary copy, and a link into
 /// that stops working once the app quits. The app is a stand-in the test makes, so the answer
@@ -97,6 +62,23 @@ private struct Scratch {
     #expect(built.helper == nil)
     #expect(!built.linkable)
     #expect(!built.translocated)
+}
+
+/// A link is offered only to a command line this user may run, as the core judges a program
+/// wherever it looks for one. A directory where the command line would be is not one, though
+/// macOS lets this user search it, which `FileManager.isExecutableFile` took for running it;
+/// nor is a file this user may not run.
+@Test func aLinkIsOfferedOnlyToACommandLineThisUserMayRun() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    try FileManager.default.removeItem(at: scratch.helper)
+    try FileManager.default.createDirectory(
+        at: scratch.helper, withIntermediateDirectories: false)
+    #expect(!CommandLineTool(bundle: scratch.app).linkable, "a directory")
+
+    try FileManager.default.removeItem(at: scratch.helper)
+    try scratch.program(at: scratch.helper, runnable: false)
+    #expect(!CommandLineTool(bundle: scratch.app).linkable, "a file nobody may run")
 }
 
 /// A path reaches the shell as it is: a quote cannot end the AppleScript string or the
@@ -144,14 +126,17 @@ private struct Scratch {
                 == scratch.helper.path)
     }
     try run()
-    let tool = CommandLineTool(bundle: scratch.app)
-    #expect(tool.find(in: ["\(hostile)/bin"]) == .bundled(link))
+    // Looking only where the link is, and not where this Mac's own installs are.
+    let tool = CommandLineTool(
+        helper: CommandLineTool(bundle: scratch.app).helper, installPlaces: [], link: link,
+        execute: { _ in nil })
+    #expect(tool.find(onPath: "\(hostile)/bin") == .bundled(link))
 
     try FileManager.default.removeItem(atPath: link)
     try scratch.link(link, to: "/Applications/Moved.app/Contents/Helpers/pitboard")
-    #expect(tool.find(in: ["\(hostile)/bin"]) == .nowhere)
+    #expect(tool.find(onPath: "\(hostile)/bin") == .nowhere)
     try run()
-    #expect(tool.find(in: ["\(hostile)/bin"]) == .bundled(link))
+    #expect(tool.find(onPath: "\(hostile)/bin") == .bundled(link))
 }
 
 /// Anything where the link goes that is not a link is somebody's own, such as a Pitboard

@@ -34,7 +34,7 @@ struct WebEnvironment {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> WebEnvironment {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let directory = Settings.pitboardDirectory(environment: environment)
+        let directory = recordKey(environment: environment)
         return WebEnvironment(
             scheme: "https",
             stores: WebKitDataStores(),
@@ -45,5 +45,16 @@ struct WebEnvironment {
             openElsewhere: { NSWorkspace.shared.open($0) },
             configure: { _ in },
             pause: { try? await Task.sleep(for: $0) })
+    }
+
+    /// What the records of the Pitboard directory an app started with `environment` reads
+    /// are kept under: the core's directory, standardised as Foundation standardises a file
+    /// URL. The records were keyed that way before the core said where the directory is,
+    /// and the core gives the path as the environment does, so a `PITBOARD_HOME` holding a
+    /// `.`, a `..` or a trailing `/` would key them differently and orphan every store and
+    /// page already recorded. This is the one place that keys them.
+    nonisolated static func recordKey(environment: [String: String]) -> String {
+        let directory = URL(fileURLWithPath: pitboardDirectory(environment: environment))
+        return directory.standardizedFileURL.path
     }
 }

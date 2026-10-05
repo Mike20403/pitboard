@@ -114,6 +114,24 @@ impl ProviderId {
         }
     }
 
+    /// Pitboard's own environment variable naming the tool's program outright, in place of
+    /// the one it would find: one installed where nothing looks, or a stand-in.
+    pub fn program_variable(self) -> &'static str {
+        match self {
+            ProviderId::Claude => "PITBOARD_CLAUDE",
+            ProviderId::Codex => "PITBOARD_CODEX",
+        }
+    }
+
+    /// Where the tool's own installers put its program under `home`, for an app that has no
+    /// shell's `PATH` to find it on. Each tool says its own, read from its own build.
+    pub fn install_places(self, home: &std::path::Path) -> Vec<std::path::PathBuf> {
+        match self {
+            ProviderId::Claude => claude::paths::install_places(home),
+            ProviderId::Codex => codex::paths::install_places(home),
+        }
+    }
+
     /// The environment variable that moves where the tool keeps its login.
     pub fn home_variable(self) -> &'static str {
         match self {
@@ -673,7 +691,7 @@ mod tests {
             "nothing of Claude Code's revokes for presenting either copy, and the live              document holds the machine's other keys"
         );
         assert_eq!(
-            claude.private_signin_isolation(&Context::from_env()),
+            claude.private_signin_isolation(&Context::for_unit_test()),
             Isolation::Isolated,
             "CLAUDE_CONFIG_DIR picks the keychain item by hashing the directory, and there              is no second backend that escapes it"
         );
@@ -1002,6 +1020,10 @@ mod tests {
     /// Without a search path of its own, a context looks where this process would, which
     /// is what the command line has always done.
     #[test]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "this process's own PATH is what the context is meant to read"
+    )]
     fn the_search_path_is_this_processs_own_path_unless_given() {
         let ctx = Context::new(std::path::PathBuf::from("/nowhere"));
         assert_eq!(

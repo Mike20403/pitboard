@@ -1288,7 +1288,7 @@ mod tests {
 
     #[test]
     fn a_parked_login_past_its_access_expiry_is_not_asked() {
-        let ctx = Context::from_env();
+        let ctx = Context::for_unit_test();
         let personal = Key::new(ProviderId::Claude, "personal");
         let token = parked_document(&ctx, &personal, Some(&parked(NOW + 86_400)), NOW);
         assert_eq!(token, Err(Stale::ParkedAccessExpired));
