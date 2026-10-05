@@ -36,6 +36,10 @@ pub struct AppContext {
     /// The login shell had not answered in time. What was found stands, and asking again a
     /// while later may find more.
     pub late: bool,
+    /// Where each way of installing Pitboard puts `pitboard`, as `command_line_places` gives
+    /// them for this app's home: under it, and where the system's package managers put
+    /// programs. Looked in after the login shell's `PATH` for the one a terminal would run.
+    pub command_line_places: Vec<PathBuf>,
 }
 
 impl AppContext {
@@ -106,11 +110,13 @@ impl AppContext {
             context.search_path = Some(path.into());
         }
         context.schedule_program = app.and_then(|app| OS.app_command_line(app));
+        let command_line_places = command_line_places(&context.home);
         AppContext {
             context,
             found,
             search_path,
             late,
+            command_line_places,
         }
     }
 }
@@ -275,6 +281,11 @@ mod tests {
             Path::new("/Users/x/.volta/bin/claude")
         );
         assert_eq!(shell.found, [ProviderId::Claude, ProviderId::Codex]);
+        assert_eq!(
+            shell.command_line_places,
+            command_line_places(Path::new("/Users/x")),
+            "a terminal's installs are looked for under the app's own home"
+        );
         let looked = "/usr/bin:/Users/x/.volta/bin:/Users/x/.nvm/versions/node/v22.1.0/bin";
         assert_eq!(
             shell.search_path.as_deref(),

@@ -5,7 +5,7 @@
 //! What the command line says too is not here but there, and called from here: a limit's
 //! names, a reset, a runway, a parked login's life.
 
-use crate::Warning;
+use crate::{Level, Warning};
 use pitboard_core::host::Os;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -288,6 +288,140 @@ pub(crate) fn not_offered(os: Os, names: &[&str], programs: &[&str]) -> String {
         programs.join(" or "),
         this_machine(os)
     )
+}
+
+/// How the `pitboard` a terminal runs is kept up to date: with the app when it is the one
+/// inside it, and otherwise the way it was installed. No other way of installing it updates
+/// it by itself, and saying it "updates on its own" read as though one did.
+pub(crate) fn update_note(bundled: bool) -> &'static str {
+    if bundled {
+        "The one inside this app, so it updates with the app."
+    } else {
+        "Installed apart from this app, so update it the way you installed it."
+    }
+}
+
+/// A check's level, said in a word where a symbol shows it: a check that reads "state: fine"
+/// without saying whether it passed is the same as not running it, and if two levels ever
+/// sounded the same a broken check would pass for one that passed.
+pub(crate) fn spoken_level(level: Level) -> &'static str {
+    match level {
+        Level::Ok => "Passed",
+        Level::Warn => "Worth looking at",
+        Level::Fail => "Failed",
+    }
+}
+
+/// A change as the activity list names it, by the verb the log keeps: "Switch", "Enrol", and
+/// one it does not know yet by the verb itself made readable rather than not at all.
+pub(crate) fn change_verb(verb: &str) -> String {
+    match verb {
+        "switch" => "Switch".into(),
+        "enroll" => "Enrol".into(),
+        "forget" => "Forget".into(),
+        "rename" => "Rename".into(),
+        "renew" => "Renew".into(),
+        "abandon" => "Give up on a switch".into(),
+        "repair" => "Repair".into(),
+        "adopt" => "Adopt".into(),
+        "uninstall" => "Uninstall".into(),
+        _ => readable(verb),
+    }
+}
+
+/// How a change ended: "Done", or what stopped it, from the code the log keeps.
+pub(crate) fn change_outcome(outcome: &str) -> String {
+    if outcome == "ok" {
+        "Done".into()
+    } else {
+        readable(outcome)
+    }
+}
+
+/// Who asked for a change: this app, a terminal, a line written before that was recorded,
+/// and a caller the app does not know yet by its own name.
+pub(crate) fn change_caller(caller: &str) -> String {
+    match caller {
+        "app" => "Pitboard app".into(),
+        "cli" => "Command line".into(),
+        "unknown" => "Unknown".into(),
+        _ => capitalised(caller),
+    }
+}
+
+/// A code as words: "parked_login_expired" is "Parked login expired".
+fn readable(code: &str) -> String {
+    capitalised(&code.replace('_', " "))
+}
+
+/// What stands in for the activity list while it has nothing in it: its title, and why.
+pub(crate) const NO_ACTIVITY: (&str, &str) =
+    ("No Activity", "Pitboard lists every change it makes here.");
+
+/// What Renew Now is beside before it has been pressed: what it does.
+pub(crate) const RENEWS_WHAT_IS_DUE: &str = "Renew every parked login that is due.";
+
+/// How often the schedule runs, from how many seconds apart its runs are: "Every day", and
+/// otherwise in whole hours, as the Swift settings said it.
+pub(crate) fn runs_every(seconds: u32) -> String {
+    if seconds == 86_400 {
+        "Every day".into()
+    } else {
+        format!("Every {} hours", seconds / 3600)
+    }
+}
+
+/// Said under the switch where the machine has no scheduler Pitboard writes to: "This Mac has
+/// no scheduler Pitboard knows how to write to."
+pub(crate) fn no_scheduler(os: Os) -> String {
+    format!(
+        "{} has no scheduler Pitboard knows how to write to.",
+        capitalised(this_machine(os))
+    )
+}
+
+/// Why daily renewal cannot be turned on from this copy of the app. The schedule runs the
+/// command line inside the app long after the app has quit, so it needs one that will still
+/// be there: a copy run from a temporary place is gone by then, and without one inside the
+/// app there is only the app itself to schedule, which renews nothing.
+pub(crate) fn cannot_schedule(os: Os, temporary: bool) -> String {
+    if !temporary {
+        return "This copy of Pitboard has no command line inside it to run on a schedule.".into();
+    }
+    match os {
+        Os::MacOs => "Move Pitboard to your Applications folder first. Until then macOS runs it \
+                      from a temporary copy, which is gone once Pitboard quits."
+            .into(),
+        // No app runs on Linux, and nothing there runs one from a temporary copy.
+        Os::Linux => "First move Pitboard to a folder it will stay in. Until then it runs \
+                      from a temporary copy, which is gone once Pitboard quits."
+            .into(),
+    }
+}
+
+/// Why the command line inside a copy run from a temporary place is not offered for linking
+/// onto the `PATH`: a link to it would break once the app quits.
+pub(crate) fn cannot_link(os: Os) -> String {
+    match os {
+        Os::MacOs => "Move Pitboard to your Applications folder first. Until then macOS runs it \
+                      from a temporary copy, and a link to that would break."
+            .into(),
+        // No app runs on Linux, and nothing there runs one from a temporary copy.
+        Os::Linux => "First move Pitboard to a folder it will stay in. Until then it runs \
+                      from a temporary copy, and a link to that would break."
+            .into(),
+    }
+}
+
+/// What stands in for doctor's checks before there are any: "Checking this Mac…".
+pub(crate) fn checking(os: Os) -> String {
+    format!("Checking {}…", this_machine(os))
+}
+
+/// When the checks shown were made, at a clock time the person's clock says: "Checked at
+/// 14:05".
+pub(crate) fn checked_at(clock: &str) -> String {
+    format!("Checked at {clock}")
 }
 
 #[cfg(test)]
@@ -776,5 +910,148 @@ mod tests {
         assert_eq!(utc_clock(midday + 59, midday + 6 * DAY), "Wed 12:00 UTC");
         assert_eq!(utc_clock(0, midday), "Thu 00:00 UTC");
         assert_eq!(utc_clock(-1, midday), "Wed 23:59 UTC");
+    }
+
+    /// A `pitboard` installed apart from the app is updated the way it was installed, and none
+    /// of those ways does it by itself. Saying it "updates on its own" read as though nothing
+    /// needed doing, until the app moved on and the command line refused its newer files.
+    ///
+    /// WordingTests.swift's aCommandLineInstalledApartSaysHowToUpdateIt.
+    #[test]
+    fn a_command_line_installed_apart_says_how_to_update_it() {
+        assert_eq!(
+            update_note(true),
+            "The one inside this app, so it updates with the app."
+        );
+        assert_eq!(
+            update_note(false),
+            "Installed apart from this app, so update it the way you installed it."
+        );
+    }
+
+    /// A check is shown as a shape and a colour, and said as a word. If two levels ever came
+    /// to sound the same, a broken check would read as a passing one. Its shape and its colour
+    /// are each app's own.
+    ///
+    /// WordingTests.swift's everyLevelLooksAndSoundsLikeItself, but for the symbols.
+    #[test]
+    fn every_level_sounds_like_itself() {
+        let spoken: Vec<&str> = [Level::Ok, Level::Warn, Level::Fail]
+            .into_iter()
+            .map(spoken_level)
+            .collect();
+        assert_eq!(spoken, ["Passed", "Worth looking at", "Failed"]);
+        let mut distinct = spoken.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), spoken.len());
+        assert!(spoken.iter().all(|word| !word.is_empty()));
+    }
+
+    /// The activity list names a change by the verb the log keeps, in words, and one it does
+    /// not know yet by the verb itself made readable rather than not at all.
+    ///
+    /// PresentationTests.swift's aChangeIsNamedByItsVerbAndAnUnknownOneReadably.
+    #[test]
+    fn a_change_is_named_by_its_verb_and_an_unknown_one_readably() {
+        for (verb, name) in [
+            ("switch", "Switch"),
+            ("enroll", "Enrol"),
+            ("forget", "Forget"),
+            ("rename", "Rename"),
+            ("renew", "Renew"),
+            ("abandon", "Give up on a switch"),
+            ("repair", "Repair"),
+            ("adopt", "Adopt"),
+            ("uninstall", "Uninstall"),
+        ] {
+            assert_eq!(change_verb(verb), name, "{verb}");
+        }
+        assert_eq!(change_verb("sign_in"), "Sign in");
+        assert_eq!(change_verb(""), "");
+    }
+
+    /// A change that worked says so in a word, and one that did not says what stopped it,
+    /// from the code the log keeps.
+    ///
+    /// PresentationTests.swift's aChangeSaysHowItEnded.
+    #[test]
+    fn a_change_says_how_it_ended() {
+        assert_eq!(change_outcome("ok"), "Done");
+        assert_eq!(
+            change_outcome("parked_login_expired"),
+            "Parked login expired"
+        );
+        assert_eq!(change_outcome("refused"), "Refused");
+    }
+
+    /// Who asked for a change: this app, a terminal, or a line written before that was
+    /// recorded, and a caller the app does not know yet by its own name.
+    ///
+    /// PresentationTests.swift's aChangeSaysWhoAskedForIt.
+    #[test]
+    fn a_change_says_who_asked_for_it() {
+        assert_eq!(change_caller("app"), "Pitboard app");
+        assert_eq!(change_caller("cli"), "Command line");
+        assert_eq!(change_caller("unknown"), "Unknown");
+        assert_eq!(change_caller("schedule"), "Schedule");
+    }
+
+    /// What the settings and the machine pane say of this machine name it as each system
+    /// names itself, and say what a copy run from a temporary place is to do in that system's
+    /// words. No app runs on Linux, so its sentences name no system's own places.
+    #[test]
+    fn what_is_said_of_this_machine_names_it_as_its_system_does() {
+        assert_eq!(
+            no_scheduler(Os::MacOs),
+            "This Mac has no scheduler Pitboard knows how to write to."
+        );
+        assert_eq!(
+            no_scheduler(Os::Linux),
+            "This computer has no scheduler Pitboard knows how to write to."
+        );
+        assert_eq!(checking(Os::MacOs), "Checking this Mac…");
+        assert_eq!(checking(Os::Linux), "Checking this computer…");
+        for os in [Os::MacOs, Os::Linux] {
+            assert_eq!(
+                cannot_schedule(os, false),
+                "This copy of Pitboard has no command line inside it to run on a schedule."
+            );
+        }
+        assert_eq!(
+            cannot_schedule(Os::MacOs, true),
+            "Move Pitboard to your Applications folder first. Until then macOS runs it from a \
+             temporary copy, which is gone once Pitboard quits."
+        );
+        assert_eq!(
+            cannot_link(Os::MacOs),
+            "Move Pitboard to your Applications folder first. Until then macOS runs it from a \
+             temporary copy, and a link to that would break."
+        );
+        assert_eq!(
+            cannot_schedule(Os::Linux, true),
+            "First move Pitboard to a folder it will stay in. Until then it runs from a \
+             temporary copy, which is gone once Pitboard quits."
+        );
+        assert_eq!(
+            cannot_link(Os::Linux),
+            "First move Pitboard to a folder it will stay in. Until then it runs from a \
+             temporary copy, and a link to that would break."
+        );
+        for linux in [cannot_schedule(Os::Linux, true), cannot_link(Os::Linux)] {
+            assert!(
+                !linux.contains("macOS") && !linux.contains("Applications"),
+                "{linux}"
+            );
+        }
+    }
+
+    /// How often the schedule runs, as the settings said it: daily, and otherwise in hours;
+    /// and when the checks shown were made.
+    #[test]
+    fn the_schedule_says_how_often_it_runs() {
+        assert_eq!(runs_every(86_400), "Every day");
+        assert_eq!(runs_every(43_200), "Every 12 hours");
+        assert_eq!(checked_at("14:05"), "Checked at 14:05");
     }
 }

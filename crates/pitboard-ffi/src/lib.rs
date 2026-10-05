@@ -35,9 +35,10 @@ pub use model::{
 
 mod present;
 pub use present::{
-    AccountItem, AccountSection, AccountsShown, Choice, Footing, ItemAction, LimitRow, MenuBarText,
-    MenuEntry, MenuNotices, NoticeAction, PanelNotice, Question, SetupStep, Severity, SheetText,
-    SheetTool, SigningInText, name_to_save,
+    AccountItem, AccountSection, AccountsShown, ActivityLine, ActivityShown, CheckLine,
+    ChecksShown, Choice, CommandLineShown, EmptyList, Footing, ItemAction, LimitRow, MachineShown,
+    MenuBarText, MenuEntry, MenuNotices, NoticeAction, PanelNotice, Question, RenewalShown,
+    ScheduleShown, SetupStep, Severity, SheetText, SheetTool, SigningInText, name_to_save,
 };
 
 mod account_windows;
@@ -153,7 +154,7 @@ fn tool(tool: ProviderId) -> Tool {
 }
 
 /// The `pitboard` a terminal would run.
-#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum FoundCommandLine {
     /// The app's own, at this path or linked to from it.
     Bundled { path: String },
@@ -211,12 +212,16 @@ pub fn find_command_line(
     helper: Option<String>,
 ) -> FoundCommandLine {
     let places: Vec<PathBuf> = places.into_iter().map(PathBuf::from).collect();
-    let shown = |path: PathBuf| path.to_string_lossy().into_owned();
-    match pitboard_core::app::find_command_line(
+    found_command_line(pitboard_core::app::find_command_line(
         search_path.as_deref().map(std::ffi::OsStr::new),
         &places,
         helper.as_deref().map(Path::new),
-    ) {
+    ))
+}
+
+fn found_command_line(found: pitboard_core::app::CommandLine) -> FoundCommandLine {
+    let shown = |path: PathBuf| path.to_string_lossy().into_owned();
+    match found {
         pitboard_core::app::CommandLine::Bundled(path) => {
             FoundCommandLine::Bundled { path: shown(path) }
         }
@@ -278,7 +283,7 @@ fn warnings(found: &[service::Warning]) -> Vec<Warning> {
 }
 
 /// One change Pitboard made, as `pitboard log` shows them.
-#[derive(Debug, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Change {
     /// Local time, as the log records it.
     pub at: String,
@@ -301,7 +306,7 @@ pub struct Abandoned {
 }
 
 /// What renewing every due parked login came to.
-#[derive(Debug, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Renewed {
     /// As a person types it: bare for Claude Code, `codex/work` for Codex.
     pub label: String,
@@ -312,7 +317,7 @@ pub struct Renewed {
 }
 
 /// Whether anything keeps parked logins alive on this machine without a command being run.
-#[derive(Debug, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Schedule {
     /// The platform's own scheduler runs `pitboard renew` every `every_seconds`.
     Installed { path: String, every_seconds: u32 },
@@ -586,14 +591,14 @@ pub struct Changed {
     pub warnings: Vec<Warning>,
 }
 
-#[derive(uniffi::Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Level {
     Ok,
     Warn,
     Fail,
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Check {
     pub code: String,
     pub name: String,
@@ -603,7 +608,7 @@ pub struct Check {
     pub advice: String,
 }
 
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Diagnosis {
     pub checks: Vec<Check>,
     /// No check failed.
@@ -682,6 +687,11 @@ pub fn parked_life(parked: Option<Parked>, now: i64) -> Option<String> {
 /// "Renewed one.", "Renewed 1 of 2; the rest are tried again next time.".
 #[uniffi::export]
 pub fn renewal_note(renewals: Vec<Renewed>) -> String {
+    renewal_note_of(&renewals)
+}
+
+/// `renewal_note`, of renewals the model holds.
+pub(crate) fn renewal_note_of(renewals: &[Renewed]) -> String {
     let renewed = renewals
         .iter()
         .filter(|r| r.outcome == switch::Renewal::Renewed.code())
@@ -693,6 +703,11 @@ pub fn renewal_note(renewals: Vec<Renewed>) -> String {
 /// and not to switch accounts while one fails.
 #[uniffi::export]
 pub fn doctor_summary(checks: Vec<Check>) -> String {
+    doctor_summary_of(&checks)
+}
+
+/// `doctor_summary`, of checks the model holds.
+pub(crate) fn doctor_summary_of(checks: &[Check]) -> String {
     words::doctor_summary(checks.iter().map(|c| match c.level {
         Level::Ok => doctor::Level::Ok,
         Level::Warn => doctor::Level::Warn,
@@ -852,9 +867,15 @@ struct Made {
     found: Vec<ProviderId>,
     /// The login shell's `PATH` as far as it was looked in, which `search_path` answers.
     search_path: Option<String>,
-    /// Whether the app named a command line for the schedule to run. The core schedules
+    /// The command line the app comes with, which the schedule runs, as the app named it:
+    /// for an app, the one `app_command_line` finds inside it, as discovery reads it. `None`
+    /// for an app with none, such as a build run from a build directory. The core schedules
     /// the program asking where none is named, and that is the app, which renews nothing.
-    schedules_a_command_line: bool,
+    helper: Option<PathBuf>,
+    /// Where each way of installing Pitboard puts `pitboard`, as `command_line_places` gives
+    /// them for the app's home: under it, and where the system's package managers put
+    /// programs. Looked in after the login shell's `PATH` for the one a terminal would run.
+    command_line_places: Vec<PathBuf>,
 }
 
 impl Made {
@@ -870,18 +891,40 @@ impl Made {
                 })
                 .collect(),
             search_path: settings.search_path.clone(),
-            schedules_a_command_line: settings.schedule_program.is_some(),
+            helper: settings.schedule_program.as_ref().map(PathBuf::from),
+            command_line_places: pitboard_core::app::command_line_places(Path::new(&settings.home)),
             core: service::Pitboard::new(settings.context()),
         }
     }
 
     fn from_app(found: AppContext) -> Made {
         Made {
-            schedules_a_command_line: found.context.schedule_program().is_some(),
+            helper: found.context.schedule_program().map(Path::to_path_buf),
+            command_line_places: found.command_line_places,
             found: found.found,
             search_path: found.search_path,
             core: service::Pitboard::new(found.context),
         }
+    }
+}
+
+/// What the command line inside this copy of the app is, which decides whether daily renewal
+/// can run it long after the app has quit and whether a link to it would keep working.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct OwnCommandLine {
+    /// The copy has one inside it. A build run from a build directory has none.
+    pub(crate) inside: bool,
+    /// The copy runs from the temporary place macOS makes for an app opened where it was
+    /// downloaded, which is gone once it quits, by the rule `schedule.rs` refuses it by.
+    pub(crate) temporary: bool,
+    /// The one inside is a program this user may run, as the core judges every program.
+    pub(crate) runs: bool,
+}
+
+impl OwnCommandLine {
+    /// Whether a schedule or a link would keep reaching it: there, lasting, and runnable.
+    pub(crate) fn lasting(self) -> bool {
+        self.inside && !self.temporary && self.runs
     }
 }
 
@@ -1007,6 +1050,33 @@ impl Pitboard {
         body: &str,
     ) -> Result<(), PitboardError> {
         Ok(self.core().core.keep_app_file(file, body)?)
+    }
+
+    /// What the command line inside this copy of the app is. Asks the file system about that
+    /// one path, as `can_run` does.
+    pub(crate) fn own_command_line(&self) -> OwnCommandLine {
+        let made = self.core();
+        match made.helper.as_deref() {
+            None => OwnCommandLine::default(),
+            Some(helper) => OwnCommandLine {
+                inside: true,
+                temporary: pitboard_core::schedule::in_a_temporary_copy(helper),
+                runs: pitboard_core::app::can_run(helper),
+            },
+        }
+    }
+
+    /// The first `pitboard` a terminal would run, as `find_command_line` finds it: on the
+    /// login shell's `PATH`, asked as `search_path` asks it, then where each way of
+    /// installing Pitboard puts it, and whether it is the one inside this copy of the app.
+    /// Looks along a search path, and may ask the login shell again.
+    pub(crate) fn command_line(&self) -> FoundCommandLine {
+        let made = self.made.value_asking_again();
+        found_command_line(pitboard_core::app::find_command_line(
+            made.search_path.as_deref().map(std::ffi::OsStr::new),
+            &made.command_line_places,
+            made.helper.as_deref(),
+        ))
     }
 }
 
@@ -1262,7 +1332,7 @@ impl Pitboard {
     /// named no command line to run.
     pub fn schedule_install(&self) -> Result<String, PitboardError> {
         let made = self.core();
-        if !made.schedules_a_command_line {
+        if made.helper.is_none() {
             return Err(pitboard_core::error::Error::ScheduleProgramUnnamed.into());
         }
         Ok(made.core.schedule_install()?.to_string_lossy().into_owned())

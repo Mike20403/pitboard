@@ -1,17 +1,19 @@
-//! What the menu bar, the menu and the window show, worked out from what the model knows.
+//! What the menu bar, the menu, the window and the settings show, worked out from what the
+//! model knows.
 //!
 //! [`present`] takes the model's state and the moment it is shown at and makes the whole
-//! [`Snapshot`]: the accounts as the model holds them, and every sentence and row an app shows
-//! of them, so the macOS app and the Windows app say the same thing in the same words and a
-//! view has nothing left to decide. It is pure but for one thing: a clock time is the
-//! person's to read, in their locale and with their 12 or 24 hours, so it asks the app's
-//! [`LocalTime`] for each, which formats and reads nothing else. Text that depends on the time
-//! is made again on the model's minute tick, and a countdown is the app's native one, from
-//! [`PanelNotice::until`].
+//! [`Snapshot`]: the accounts as the model holds them, what is known of the machine, and every
+//! sentence and row an app shows of them, so the macOS app and the Windows app say the same
+//! thing in the same words and a view has nothing left to decide. It is pure but for one
+//! thing: a clock time, and a change's date and time, are the person's to read, in their
+//! locale and with their 12 or 24 hours, so it asks the app's [`LocalTime`] for each, which
+//! formats and reads nothing else. Text that depends on the time is made again on the model's
+//! minute tick, and a countdown is the app's native one, from [`PanelNotice::until`].
 //!
 //! The words both apps say and the command line does not are in `words.rs`, each a function
-//! of typed values. What the command line says too, a limit's names, a reset, a runway and a
-//! parked login's life, is `pitboard_core::words`', called from here.
+//! of typed values. What the command line says too, a limit's names, a reset, a runway, a
+//! parked login's life, a renewal's note and doctor's summary, is `pitboard_core::words`',
+//! called from here.
 //!
 //! A button the snapshot offers comes with its words and what it sends, a `Choice`, an
 //! `ItemAction` or a `NoticeAction`, so a view never words an intent itself and both apps
@@ -22,6 +24,7 @@
 //! Login Items. So "Add Account…" is said in both places.
 
 mod accounts;
+mod machine;
 mod notices;
 mod setup;
 mod sheets;
@@ -30,6 +33,10 @@ pub(crate) mod words;
 #[cfg(test)]
 pub(crate) mod testing;
 
+pub use machine::{
+    ActivityLine, ActivityShown, CheckLine, ChecksShown, CommandLineShown, EmptyList, MachineShown,
+    RenewalShown, ScheduleShown,
+};
 pub use sheets::name_to_save;
 
 pub(crate) use accounts::in_order;
@@ -439,6 +446,15 @@ impl<'a> Seen<'a> {
             .unwrap_or_else(|_| words::utc_clock(at, self.now))
     }
 
+    /// A time the log keeps, with its offset, as the person's own calendar and clock say it.
+    /// The log's own text where it does not read as a time, or where the app's own code
+    /// cannot say it, as `pitboard log` prints it, rather than nothing.
+    pub(crate) fn date_and_time(&self, logged: &str) -> String {
+        pitboard_core::time::parse(logged)
+            .and_then(|at| self.local.date_and_time(at).ok())
+            .unwrap_or_else(|| logged.to_owned())
+    }
+
     /// The tools a new account can be added for: each whose program was found or that
     /// already has an account here, and Claude Code, the tool a bare label means, when that
     /// is none of them.
@@ -560,6 +576,7 @@ pub(crate) fn present_on(os: Os, state: &State, now: i64, local: &dyn LocalTime)
         signing_in_text: sheets::signing_in_text(&seen),
         quit_confirmation: state.asking().map(sheets::quit_confirmation),
         failure_alert: state.presented.as_ref().map(sheets::failure_alert),
+        machine: machine::machine(&seen),
     }
 }
 
@@ -617,5 +634,35 @@ mod tests {
         let seen = Seen::new(&state, MIDDAY, &Unreadable, OS);
         assert_eq!(seen.clock(MIDDAY + 2 * 3600), "14:00 UTC");
         assert_eq!(seen.clock(MIDDAY + 3 * 86_400), "Sat 12:00 UTC");
+    }
+
+    /// The log keeps local time with its offset. The same moment written in three time zones
+    /// is one moment, said as the person's own calendar and clock say it, and text that is
+    /// not a time is said as the log keeps it, as is a time the app's own code cannot say.
+    ///
+    /// PresentationTests.swift's aChangesTimeIsReadWithItsOffset.
+    #[test]
+    fn a_changes_time_is_read_with_its_offset() {
+        let state = State::new(Cadence::APP);
+        let seen = Seen::new(&state, MIDDAY, &Utc, OS);
+        let moment = Utc
+            .date_and_time(1_790_492_709)
+            .expect("the test's own clock");
+        for logged in [
+            "2026-09-27T14:05:09+07:00",
+            "2026-09-27T07:05:09+00:00",
+            "2026-09-27T02:05:09-05:00",
+        ] {
+            assert_eq!(seen.date_and_time(logged), moment, "{logged}");
+        }
+        assert_eq!(moment, "Sun 07:05");
+        assert_eq!(seen.date_and_time("yesterday"), "yesterday");
+        assert_eq!(seen.date_and_time(""), "");
+
+        let unreadable = Seen::new(&state, MIDDAY, &Unreadable, OS);
+        assert_eq!(
+            unreadable.date_and_time("2026-09-27T14:05:09+07:00"),
+            "2026-09-27T14:05:09+07:00"
+        );
     }
 }

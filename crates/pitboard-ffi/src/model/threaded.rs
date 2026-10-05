@@ -1258,3 +1258,116 @@ fn the_apps_preferences_follow_its_pitboard_directory() {
     elsewhere.until("the nudge, in another directory", nudged);
     again.shutdown();
 }
+
+/// The last snapshot told, once `done` holds of it.
+fn last_where(told: &Told, what: &str, done: impl Fn(&Snapshot) -> bool) -> Snapshot {
+    told.until(what, |told| told.last().is_some_and(&done))
+        .pop()
+        .expect("a snapshot")
+}
+
+/// The machine over the real core, as the settings and the window's other panes ask for it:
+/// daily renewal turned on and off through the core's pretend scheduler, which writes its job
+/// into the scratch home and asks no service manager; a renewal and the read after it;
+/// doctor's checks; every change Pitboard made, the schedule's among them; and the
+/// `pitboard` a terminal would run, looked for in the scratch home alone.
+#[test]
+#[cfg(unix)]
+fn the_machine_is_kept_over_the_real_core() {
+    use super::Pane;
+    use crate::{FoundCommandLine, Schedule};
+    let mut world = World::new("machine");
+    world.enrolled("work", "here", 42.0);
+    world.app_with_a_command_line();
+    let core = world.core();
+    let told = Arc::new(Told::default());
+    let model = model(&core, &told);
+    model.send(Intent::Start);
+    told.until("the account read", shows("work"));
+
+    model.send(Intent::ReadSchedule);
+    let read = last_where(&told, "the schedule read", |last| {
+        last.machine.schedule.schedule == Some(Schedule::Absent)
+    });
+    let schedule = &read.machine.schedule;
+    assert!(schedule.enabled && !schedule.on, "{schedule:?}");
+    assert_eq!(schedule.note, None, "this copy can schedule it");
+
+    model.send(Intent::SetSchedule { on: true });
+    let on = last_where(&told, "daily renewal on", |last| {
+        let schedule = &last.machine.schedule;
+        schedule.on && !schedule.changing && schedule.scheduled_in.is_some()
+    });
+    let job = on.machine.schedule.scheduled_in.clone().expect("where");
+    assert!(
+        job.starts_with(&*world.dir("").to_string_lossy()),
+        "written in the scratch home: {job}"
+    );
+    assert!(std::path::Path::new(&job).is_file());
+    assert_eq!(on.machine.schedule.runs.as_deref(), Some("Every day"));
+
+    model.send(Intent::RenewNow);
+    told.until("renewing", |told| {
+        told.iter()
+            .any(|snapshot| snapshot.machine.renewal.renewing)
+    });
+    let renewed = last_where(&told, "the renewal and the read after it", |last| {
+        !last.machine.renewal.renewing && !last.reading
+    });
+    assert_eq!(renewed.machine.renewal.note, "No parked login was due.");
+
+    model.send(Intent::PaneShown {
+        pane: Pane::Activity,
+    });
+    let logged = last_where(&told, "the log", |last| {
+        !last.machine.activity.lines.is_empty()
+    });
+    let lines: Vec<(&str, &str, &str, &str)> = logged
+        .machine
+        .activity
+        .lines
+        .iter()
+        .map(|line| {
+            (
+                line.change.as_str(),
+                line.account.as_str(),
+                line.result.as_str(),
+                line.asked_by.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        lines.first(),
+        Some(&("Schedule", "install", "Done", "Pitboard app")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&("Enrol", "work", "Done", "Command line")),
+        "{lines:?}"
+    );
+
+    model.send(Intent::PaneShown {
+        pane: Pane::Machine,
+    });
+    let checked = last_where(&told, "the checks", |last| {
+        !last.machine.checks.lines.is_empty() && !last.machine.checks.checking
+    });
+    assert!(checked.machine.checks.summary.is_some());
+    assert!(checked.machine.checks.checked.is_some());
+
+    model.send(Intent::SetSchedule { on: false });
+    last_where(&told, "daily renewal off", |last| {
+        last.machine.schedule.schedule == Some(Schedule::Absent) && !last.machine.schedule.changing
+    });
+    assert!(!std::path::Path::new(&job).exists(), "taken away");
+
+    model.send(Intent::LookForCommandLine);
+    let found = last_where(&told, "the command line looked for", |last| {
+        last.machine.command_line.found.is_some()
+    });
+    let command_line = &found.machine.command_line;
+    assert_eq!(command_line.found, Some(FoundCommandLine::Nowhere));
+    assert_eq!(command_line.in_terminal.as_deref(), Some("Not installed"));
+    assert!(command_line.offers_link);
+    model.shutdown();
+}

@@ -18,6 +18,7 @@
 //! the actor has gone, that lane stops every sign-in still under way, so each thread ends.
 
 use super::advice::Told;
+use super::machine::Scheduled;
 use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, QuitOutcome, split};
 use super::{AppControl, EarlierPreferences, ModelListener, Notifications, QuitQuestion, Snapshot};
@@ -51,14 +52,27 @@ impl Job {
     /// The lane `self` runs on, as the Swift service put each call on its queue.
     pub(crate) fn lane(&self) -> Lane {
         match self {
-            Job::Read { .. } | Job::ReadOffline { .. } | Job::Look => Lane::Reads,
+            // The schedule, doctor and the log are read where the Swift service read them, on
+            // its queue of reads, and changes to the schedule and renewals are made on its
+            // queue of changes, one at a time with every other.
+            Job::Read { .. }
+            | Job::ReadOffline { .. }
+            | Job::Look
+            | Job::ReadSchedule { .. }
+            | Job::Check
+            | Job::ReadLog { .. } => Lane::Reads,
             Job::Switch { .. }
             | Job::Abandon
             | Job::Enrol { .. }
             | Job::Rename { .. }
-            | Job::Forget { .. } => Lane::Changes,
+            | Job::Forget { .. }
+            | Job::RepairSchedule
+            | Job::SetSchedule { .. }
+            | Job::Renew => Lane::Changes,
             Job::Holding { .. } | Job::Quit { .. } | Job::Open { .. } => Lane::Processes,
-            Job::AskInstalled => Lane::Discovery,
+            // Where the login shell's `PATH` is asked, as the Swift service asked it for
+            // `searchPath`, apart from every queue of its own.
+            Job::AskInstalled | Job::FindCommandLine => Lane::Discovery,
             Job::SignIn { .. } | Job::SignInOver { .. } => Lane::SignIn,
             Job::PasteCode { .. } | Job::StopSignIn { .. } => Lane::SignInCalls,
             Job::LoadKept | Job::KeepTold { .. } | Job::KeepPreferences { .. } => Lane::Kept,
@@ -508,6 +522,41 @@ impl Worker {
                 let _ = self.notifications.post(notice);
                 Answer::Posted
             }
+            Job::RepairSchedule => Answer::Repaired {
+                repaired: core.schedule_repair(),
+                own: core.own_command_line(),
+            },
+            Job::ReadSchedule { after_change } => Answer::ScheduleRead {
+                schedule: core.schedule(),
+                own: core.own_command_line(),
+                after_change,
+            },
+            Job::SetSchedule { on } => {
+                let own = core.own_command_line();
+                Answer::ScheduleSet {
+                    outcome: set_schedule(on, own, |on| {
+                        if on {
+                            core.schedule_install().map(drop)
+                        } else {
+                            core.schedule_uninstall().map(drop)
+                        }
+                    }),
+                    own,
+                }
+            }
+            Job::Renew => Answer::Renewed {
+                renewals: core.renew(),
+            },
+            Job::Check => Answer::Checked {
+                checks: core.doctor().checks,
+            },
+            Job::ReadLog { limit } => Answer::Logged {
+                changes: core.log(limit),
+            },
+            Job::FindCommandLine => Answer::CommandLineFound {
+                found: core.command_line(),
+                own: core.own_command_line(),
+            },
             // Typed back as the Swift model typed it, whatever comes of it: the tool says
             // itself whether it took the code.
             Job::PasteCode { id, code } => {
@@ -525,6 +574,25 @@ impl Worker {
             // A sign-in runs on a thread of its own, and never here.
             Job::SignIn { .. } | Job::SignInOver { .. } => Answer::Lost(job),
         }
+    }
+}
+
+/// Turns daily renewal on or off through `change`, which asks the scheduler, as
+/// MachineModel.swift's `setSchedule` did. Turning it on is refused before the scheduler is
+/// asked where the command line inside this copy, `own`, is not one a schedule would keep
+/// reaching, so nothing writes a schedule that fails every day without telling anyone.
+/// Turning it off never is: that is how such a schedule is taken away.
+pub(crate) fn set_schedule(
+    on: bool,
+    own: crate::OwnCommandLine,
+    change: impl FnOnce(bool) -> Result<(), crate::PitboardError>,
+) -> Scheduled {
+    if on && !own.lasting() {
+        return Scheduled::CannotSchedule;
+    }
+    match change(on) {
+        Ok(()) => Scheduled::Done,
+        Err(error) => Scheduled::Refused(error),
     }
 }
 
@@ -1057,6 +1125,253 @@ mod tests {
         assert!(matches!(
             worker.work(Job::StopSignIn { id: 1 }),
             Answer::Stopped
+        ));
+    }
+
+    /// What is about the machine runs where the Swift service ran it: the schedule, doctor and
+    /// the log on the lane of reads, so they answer while a switch waits; the repair, a
+    /// change to the schedule and a renewal on the lane of changes, one at a time with every
+    /// other change; and the command line where the login shell's `PATH` is asked, apart from
+    /// both.
+    #[test]
+    fn what_is_about_the_machine_runs_where_the_swift_service_ran_it() {
+        for job in [
+            Job::ReadSchedule {
+                after_change: false,
+            },
+            Job::Check,
+            Job::ReadLog { limit: 500 },
+        ] {
+            assert_eq!(job.lane(), Lane::Reads, "{job:?}");
+        }
+        for job in [
+            Job::RepairSchedule,
+            Job::SetSchedule { on: true },
+            Job::Renew,
+        ] {
+            assert_eq!(job.lane(), Lane::Changes, "{job:?}");
+        }
+        assert_eq!(Job::FindCommandLine.lane(), Lane::Discovery);
+    }
+
+    /// The `pitboard` a terminal runs: the first on the login shell's `PATH`, then where each
+    /// way of installing Pitboard puts one, and whether it is this app's own once every link
+    /// on the way to it is followed. Looked for over real files in the scratch home, and in
+    /// none of this machine's places.
+    ///
+    /// MachineModelTests.swift's theCommandLineIsLookedForWhereATerminalWouldFindIt.
+    #[test]
+    #[cfg(unix)]
+    fn the_command_line_is_looked_for_where_a_terminal_would_find_it() {
+        use crate::FoundCommandLine;
+        let mut world = World::new("command-line");
+        let helper = world.app_with_a_command_line();
+        let (bin, cargo) = (world.dir("bin"), world.dir("cargo/bin"));
+        std::fs::create_dir_all(&bin).expect("a bin");
+        world.looks_for_pitboard_in(
+            vec![bin.clone()],
+            Some(format!("/nowhere/bin:{}", cargo.display())),
+        );
+        let worker = worker(world.core(), StandInApps::new(&[], true));
+        let found = |worker: &Worker| match worker.work(Job::FindCommandLine) {
+            Answer::CommandLineFound { found, own } => {
+                assert!(own.lasting(), "{own:?}");
+                found
+            }
+            other => panic!("not the command line: {other:?}"),
+        };
+        assert_eq!(found(&worker), FoundCommandLine::Nowhere);
+
+        std::os::unix::fs::symlink(&helper, bin.join("pitboard")).expect("a link");
+        assert_eq!(
+            found(&worker),
+            FoundCommandLine::Bundled {
+                path: bin.join("pitboard").to_string_lossy().into_owned()
+            }
+        );
+
+        crate::model::testing::a_program_at(&cargo.join("pitboard"), 0o755);
+        assert_eq!(
+            found(&worker),
+            FoundCommandLine::Another {
+                path: cargo.join("pitboard").to_string_lossy().into_owned()
+            },
+            "the login shell's PATH first"
+        );
+    }
+
+    /// The `pitboard` a terminal runs is looked for in a core made as each app makes its own:
+    /// `Pitboard::new` from what it is told, and `Pitboard::for_app` from the environment the
+    /// app was started with. It is looked for on the login shell's `PATH` ahead of what cargo
+    /// installed, and then where each way of installing Pitboard puts it under the app's
+    /// home, which is all there is where the shell could not be asked. Only a copy of the app
+    /// has a command line inside it for a link to lead back to: a core not run from an app
+    /// has none, and nor does a build directory. Each look finds a copy in the scratch home
+    /// before any place of this machine's, each tool's program is named outright, and the
+    /// login shell named cannot be run, so nothing of this machine is looked in.
+    ///
+    /// AppModelTests.swift's theSettingsLookForTheCommandLineWhereTheLoginShellSays, but for
+    /// linking nothing, since linking is the app's own.
+    #[test]
+    #[cfg(unix)]
+    fn the_settings_look_for_the_command_line_where_the_login_shell_says() {
+        use crate::{FoundCommandLine, OwnCommandLine, Settings};
+        use pitboard_core::host::{OS, Os};
+        use std::path::Path;
+        let world = World::new("installs");
+        let app = world.dir("Pitboard.app");
+        let helper = app.join("Contents/Helpers/pitboard");
+        let (bin, home) = (world.dir("bin"), world.dir("home"));
+        let cargo = home.join(".cargo/bin/pitboard");
+        crate::model::testing::a_program_at(&helper, 0o755);
+        crate::model::testing::a_program_at(&cargo, 0o755);
+        std::fs::create_dir_all(&bin).expect("a bin");
+        let linked = bin.join("pitboard");
+        std::os::unix::fs::symlink(&helper, &linked).expect("a link");
+        let text = |path: &Path| path.to_string_lossy().into_owned();
+        let bundled = |path: &Path| FoundCommandLine::Bundled { path: text(path) };
+        let another = |path: &Path| FoundCommandLine::Another { path: text(path) };
+        let found = |core: Arc<Pitboard>| match worker(core, StandInApps::new(&[], true))
+            .work(Job::FindCommandLine)
+        {
+            Answer::CommandLineFound { found, own } => (found, own),
+            other => panic!("not the command line: {other:?}"),
+        };
+
+        let told = |search_path: Option<String>, helper: Option<&Path>| {
+            Pitboard::new(Settings {
+                home: text(&home),
+                pitboard_home: Some(text(&home.join(".pitboard"))),
+                claude_config_dir: Some(text(&home.join(".claude"))),
+                secure_storage_dir: None,
+                user: Some("tester".into()),
+                claude_program: Some("/nowhere/claude".into()),
+                codex_home: Some(text(&home.join(".codex"))),
+                codex_program: Some("/nowhere/codex".into()),
+                search_path,
+                schedule_program: helper.map(text),
+                no_argv: false,
+            })
+        };
+        let login = Some(format!("/nowhere/bin:{}", bin.display()));
+        assert_eq!(
+            found(told(login.clone(), Some(&helper))).0,
+            bundled(&linked),
+            "ahead of the one cargo installed"
+        );
+        assert_eq!(
+            found(told(login, None)).0,
+            another(&linked),
+            "not run from an app"
+        );
+        assert_eq!(
+            found(told(None, Some(&helper))).0,
+            another(&cargo),
+            "the login shell could not be asked"
+        );
+
+        let environment: HashMap<String, String> = [
+            ("HOME", text(&home)),
+            ("SHELL", "/nowhere/at/all/sh".into()),
+            ("PITBOARD_HOME", text(&home.join(".pitboard"))),
+            ("CLAUDE_CONFIG_DIR", text(&home.join(".claude"))),
+            ("CODEX_HOME", text(&home.join(".codex"))),
+            ("PITBOARD_CLAUDE", "/nowhere/claude".into()),
+            ("PITBOARD_CODEX", "/nowhere/codex".into()),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect();
+        let started_at = |at: &Path| Pitboard::for_app(environment.clone(), Some(text(at)));
+        let (from_the_app, own) = found(started_at(&app));
+        assert_eq!(
+            from_the_app,
+            another(&cargo),
+            "the login shell could not be run"
+        );
+        // No app runs on Linux, so nothing there has a command line inside it.
+        let inside = match OS {
+            Os::MacOs => true,
+            Os::Linux => false,
+        };
+        assert_eq!(own.lasting(), inside, "{own:?}");
+        let (from_a_build, own) = found(started_at(&world.dir(".build/debug")));
+        assert_eq!(from_a_build, another(&cargo));
+        assert_eq!(
+            own,
+            OwnCommandLine::default(),
+            "a build directory has no command line inside it"
+        );
+
+        std::fs::remove_file(&cargo).expect("cargo's copy taken away");
+        std::os::unix::fs::symlink(&helper, &cargo).expect("a link where cargo installs");
+        assert_eq!(
+            found(started_at(&app)).0,
+            if inside {
+                bundled(&cargo)
+            } else {
+                another(&cargo)
+            },
+            "the app's own, linked to where cargo installs"
+        );
+    }
+
+    /// Whether this copy has a command line a schedule or a link would keep reaching is read
+    /// from the file inside it each time: none at all, one nobody may run, and one that runs.
+    /// A copy with none, or one that cannot run, is refused before the scheduler is asked.
+    ///
+    /// MachineModelTests.swift's anAppWithoutACommandLineItCanRunCannotLinkOrSchedule, over a
+    /// real file.
+    #[test]
+    #[cfg(unix)]
+    fn the_command_line_inside_is_read_from_the_file_each_time() {
+        use std::os::unix::fs::PermissionsExt;
+        let read = |worker: &Worker| match worker.work(Job::ReadSchedule {
+            after_change: false,
+        }) {
+            Answer::ScheduleRead { own, .. } => own,
+            other => panic!("not the schedule: {other:?}"),
+        };
+        let none = World::new("no-command-line");
+        let without = worker(none.core(), StandInApps::new(&[], true));
+        assert_eq!(read(&without), crate::OwnCommandLine::default());
+        assert!(matches!(
+            without.work(Job::SetSchedule { on: true }),
+            Answer::ScheduleSet {
+                outcome: Scheduled::CannotSchedule,
+                ..
+            }
+        ));
+
+        let mut world = World::new("unrunnable");
+        let helper = world.app_with_a_command_line();
+        let worker = worker(world.core(), StandInApps::new(&[], true));
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644))
+            .expect("a mode nobody runs");
+        let own = read(&worker);
+        assert!(own.inside && !own.temporary && !own.runs, "{own:?}");
+        assert!(matches!(
+            worker.work(Job::SetSchedule { on: true }),
+            Answer::ScheduleSet {
+                outcome: Scheduled::CannotSchedule,
+                ..
+            }
+        ));
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))
+            .expect("a mode that runs");
+        assert!(read(&worker).lasting());
+
+        let mut temporary = World::new("translocated");
+        temporary.app_with_a_command_line_in("AppTranslocation/0A1B2C/d");
+        let gone_on_quit = self::worker(temporary.core(), StandInApps::new(&[], true));
+        let own = read(&gone_on_quit);
+        assert!(own.inside && own.temporary && own.runs, "{own:?}");
+        assert!(matches!(
+            gone_on_quit.work(Job::SetSchedule { on: true }),
+            Answer::ScheduleSet {
+                outcome: Scheduled::CannotSchedule,
+                ..
+            }
         ));
     }
 

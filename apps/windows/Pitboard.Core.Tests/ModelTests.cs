@@ -101,8 +101,22 @@ public sealed class ModelTests
             Footing: new Footing.OnlyOne(Provider: "claude", Label: "work"), Setup: null,
             AccountsShown: new AccountsShown.List(), MenuAccountsNote: null,
             UpdatedMenu: "Updated 08:00", UpdatedWindow: "Updated 08:00", SheetText: null,
-            SigningInText: null, QuitConfirmation: null, FailureAlert: null);
+            SigningInText: null, QuitConfirmation: null, FailureAlert: null, Machine: Unread());
     }
+
+    /// <summary>
+    /// What a model shows of the machine before anything about it has been read.
+    /// </summary>
+    private static MachineShown Unread() => new(
+        Schedule: new ScheduleShown(
+            Schedule: null, On: false, Changing: false, Enabled: true, Runs: null, ScheduledIn: null, Note: null,
+            Failed: null),
+        Renewal: new RenewalShown(Renewing: false, Note: "Renew every parked login that is due."),
+        Checks: new ChecksShown(Lines: [], Summary: null, Checking: false, Checked: null, Waiting: "Checking this Mac…"),
+        Activity: new ActivityShown(
+            Lines: [], Empty: new EmptyList(Title: "No Activity", Detail: "Pitboard lists every change it makes here.")),
+        CommandLine: new CommandLineShown(
+            Found: null, InTerminal: null, UpdateNote: null, OffersLink: false, CannotLink: null));
 
     /// <summary>
     /// What an app's AppControl does: says what runs, asks an app to quit, opens one again,
@@ -173,6 +187,13 @@ public sealed class ModelTests
             Assert.AreEqual(new AccountsShown.Reading("Reading accounts…"), first.AccountsShown);
             Assert.AreEqual("Pitboard", first.MenuBar.Spoken);
             Assert.AreEqual("Not read yet", first.UpdatedMenu);
+            Assert.IsNull(first.Machine.Schedule.Schedule);
+            Assert.IsFalse(first.Machine.Schedule.On);
+            Assert.AreEqual("Renew every parked login that is due.", first.Machine.Renewal.Note);
+            Assert.IsEmpty(first.Machine.Checks.Lines);
+            Assert.StartsWith("Checking ", first.Machine.Checks.Waiting!);
+            Assert.AreEqual("No Activity", first.Machine.Activity.Empty?.Title);
+            Assert.IsNull(first.Machine.CommandLine.Found);
             Assert.AreEqual(0UL, model.Snapshot().Revision);
             Assert.IsEmpty(keeping.Told);
             Assert.IsEmpty(apps.Asked);
@@ -517,6 +538,86 @@ public sealed class ModelTests
         Assert.IsInstanceOfType<Intent.PresentSheet>(snapshot.Setup?.Actions[0].Intent);
         Assert.AreEqual("Try Again", ((AccountsShown.ReadFailed)snapshot.AccountsShown).Retry.Title);
         Assert.AreEqual("work 42%", snapshot.MenuBar.NameAndUsage);
+    }
+
+    /// <summary>
+    /// What is about the machine is asked for by intents: a pane shown, the schedule read and
+    /// turned on or off, a renewal now, and the command line looked for, each carrying what it
+    /// is about, and two of the same equal.
+    /// </summary>
+    [TestMethod]
+    public void AnIntentAboutTheMachineCarriesWhatItIsAbout()
+    {
+        Intent[] intents =
+        [
+            new Intent.PaneShown(Pane: Pane.Machine), new Intent.PaneShown(Pane: Pane.Activity),
+            new Intent.ReadSchedule(), new Intent.SetSchedule(On: true), new Intent.RenewNow(),
+            new Intent.LookForCommandLine(),
+        ];
+
+        Assert.AreEqual<Intent>(new Intent.PaneShown(Pane.Machine), intents[0]);
+        Assert.AreNotEqual<Intent>(new Intent.PaneShown(Pane.Machine), intents[1]);
+        Assert.AreNotEqual<Intent>(new Intent.ShowWindow(Pane.Machine), intents[0]);
+        Assert.IsTrue(intents.OfType<Intent.SetSchedule>().Single().On);
+        Assert.AreNotEqual<Intent>(new Intent.SetSchedule(false), intents[3]);
+        Assert.AreEqual(1, intents.OfType<Intent.ReadSchedule>().Count());
+        Assert.AreEqual(1, intents.OfType<Intent.RenewNow>().Count());
+        Assert.AreEqual(1, intents.OfType<Intent.LookForCommandLine>().Count());
+    }
+
+    /// <summary>
+    /// A snapshot says what is known of the machine as records of its own: daily renewal with
+    /// the core's schedule, Renew Now's note, doctor's checks with each level and its spoken
+    /// word, each change in the activity log with its place in the list and what stands in
+    /// for the list when empty, and the command line a terminal runs, the core's own record
+    /// of which it found. Two records made with `[]` for each list compare equal, since every
+    /// `[]` of one type is the same empty array: comparing those says nothing of lists.
+    /// </summary>
+    [TestMethod]
+    public void ASnapshotSaysWhatIsKnownOfTheMachine()
+    {
+        var plist = "/Users/x/Library/LaunchAgents/com.usepitboard.renew.plist";
+        var keychain = new CheckLine(
+            Code: "keychain", Name: "Keychain", Level: Level.Fail, SpokenLevel: "Failed", Detail: "locked",
+            Advice: "Unlock the login keychain.");
+        var switched = new ActivityLine(
+            Id: 0, Date: "Oct 5, 2026 at 2:05 PM", Change: "Switch", Account: "codex/spare",
+            Result: "Nothing parked", Done: false, AskedBy: "Pitboard app");
+        var machine = Unread() with
+        {
+            Schedule = new ScheduleShown(
+                Schedule: new Schedule.Installed(Path: plist, EverySeconds: 86_400), On: true, Changing: false,
+                Enabled: true, Runs: "Every day", ScheduledIn: plist, Note: null, Failed: null),
+            Renewal = new RenewalShown(Renewing: false, Note: "Renewed one."),
+            Checks = new ChecksShown(
+                Lines: [keychain], Summary: "1 broken: do not switch accounts until fixed.", Checking: false,
+                Checked: "Checked at 14:05", Waiting: null),
+            Activity = new ActivityShown(Lines: [switched], Empty: null),
+            CommandLine = new CommandLineShown(
+                Found: new FoundCommandLine.Bundled(Path: "/usr/local/bin/pitboard"),
+                InTerminal: "/usr/local/bin/pitboard",
+                UpdateNote: "The one inside this app, so it updates with the app.", OffersLink: false,
+                CannotLink: null),
+        };
+        var snapshot = Read(7) with { Machine = machine };
+
+        Assert.AreEqual(plist, ((Schedule.Installed)snapshot.Machine.Schedule.Schedule!).Path);
+        Assert.AreEqual(86_400U, ((Schedule.Installed)snapshot.Machine.Schedule.Schedule!).EverySeconds);
+        Assert.AreEqual("Renewed one.", snapshot.Machine.Renewal.Note);
+        Assert.AreEqual(Level.Fail, snapshot.Machine.Checks.Lines[0].Level);
+        Assert.AreEqual("Failed", snapshot.Machine.Checks.Lines[0].SpokenLevel);
+        Assert.AreEqual(keychain, snapshot.Machine.Checks.Lines[0]);
+        Assert.AreEqual(0UL, snapshot.Machine.Activity.Lines[0].Id);
+        Assert.IsFalse(snapshot.Machine.Activity.Lines[0].Done);
+        Assert.IsNull(snapshot.Machine.Activity.Empty);
+        Assert.AreEqual<FoundCommandLine?>(
+            new FoundCommandLine.Bundled("/usr/local/bin/pitboard"), snapshot.Machine.CommandLine.Found);
+        Assert.IsFalse(snapshot.Machine.CommandLine.OffersLink);
+        Assert.AreNotEqual(
+            machine, machine with { Checks = machine.Checks with { Lines = [keychain] } },
+            "its lists are arrays, compared by reference");
+        Assert.AreEqual(Unread(), Unread(), "every list made with [], so the same array");
+        Assert.AreSame(Unread().Checks.Lines, Unread().Checks.Lines);
     }
 
     /// <summary>

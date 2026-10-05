@@ -31,12 +31,14 @@
 //! the Swift model's tests reached with gates are reached here without a thread.
 
 use super::advice::{Advice, Told, rename_told};
+use super::machine::{LOG_LIMIT, MachineState, Scheduled};
 use super::preferences::Preferences;
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
 use super::{RunOutNotice, RunningSignIn, Sheet, WindowRequest};
 use crate::{
-    Abandoned, Account, Adoption, Enrolled, EnrolledAs, PitboardError, Status, Switch, Switched,
-    Tool, Usage, Warning,
+    Abandoned, Account, Adoption, Change, Check, Enrolled, EnrolledAs, FoundCommandLine,
+    OwnCommandLine, PitboardError, Renewed, Schedule, Status, Switch, Switched, Tool, Usage,
+    Warning,
 };
 use pitboard_core::label::SEPARATOR;
 use pitboard_core::provider::{self, ProviderId};
@@ -185,6 +187,24 @@ pub(crate) enum Job {
     KeepPreferences { preferences: Preferences },
     /// Post a notification through the app's own system.
     Post { notice: RunOutNotice },
+    /// Point a renewal schedule an app up to 0.3.0 wrote, which runs that app and renews
+    /// nothing, at the command line inside this one: once a launch.
+    RepairSchedule,
+    /// Read the renewal schedule. `after_change` is the read after a change to it, which
+    /// ends that change once it lands.
+    ReadSchedule { after_change: bool },
+    /// Hand renewing parked logins to this machine's scheduler, or take it back. Turning it
+    /// on is not asked of the scheduler where this copy of the app has no command line a
+    /// schedule would keep reaching.
+    SetSchedule { on: bool },
+    /// Renew every parked login that is due.
+    Renew,
+    /// Make every check `pitboard doctor` makes.
+    Check,
+    /// Read the newest `limit` changes Pitboard made.
+    ReadLog { limit: u32 },
+    /// Look for the `pitboard` a terminal would run.
+    FindCommandLine,
 }
 
 /// A read under way, as things stood when it started.
@@ -201,6 +221,8 @@ pub(crate) struct Ticket {
     after_switch: bool,
     /// The sign-in it is the read after, whose warnings are said once it has landed.
     after_sign_in: Option<u64>,
+    /// Whether it is the read after a renewal, whose landing ends the renewal.
+    after_renewal: bool,
 }
 
 /// Why what is already known is read.
@@ -324,6 +346,41 @@ pub(crate) enum Answer {
     /// A notification was posted, or could not be, which is the app's system's to say: the
     /// window says the same either way.
     Posted,
+    /// A schedule an older app wrote was repaired, or nothing needed it, or it could not be,
+    /// with what the command line inside this copy is.
+    Repaired {
+        repaired: Result<bool, PitboardError>,
+        own: OwnCommandLine,
+    },
+    /// The renewal schedule as the core reads it, with what the command line inside this copy
+    /// is.
+    ScheduleRead {
+        schedule: Schedule,
+        own: OwnCommandLine,
+        after_change: bool,
+    },
+    /// What a change to the schedule came to, with what the command line inside this copy is.
+    ScheduleSet {
+        own: OwnCommandLine,
+        outcome: Scheduled,
+    },
+    /// What renewing every parked login that was due came to.
+    Renewed {
+        renewals: Vec<Renewed>,
+    },
+    /// Doctor's checks.
+    Checked {
+        checks: Vec<Check>,
+    },
+    /// The newest changes Pitboard made, oldest first, as the core keeps them.
+    Logged {
+        changes: Vec<Change>,
+    },
+    /// The `pitboard` a terminal would run, with what the command line inside this copy is.
+    CommandLineFound {
+        found: FoundCommandLine,
+        own: OwnCommandLine,
+    },
     /// A code was typed back, or could not be, which the tool says itself if it matters.
     Pasted,
     /// A sign-in's tool was stopped, or had stopped already.
@@ -359,6 +416,8 @@ struct Asked {
     after_switch: bool,
     /// The sign-in that asked, whose warnings are said once this read lands.
     after_sign_in: Option<u64>,
+    /// Whether a renewal asked, which is over once this read is.
+    after_renewal: bool,
 }
 
 /// What a person asked for that did not happen, before it is numbered.
@@ -643,6 +702,8 @@ pub(crate) struct State {
     /// shown, the last numbers measured, which nothing has advised on: as AppModel.swift's
     /// fallback, it is not advised on once what is kept is in either.
     standing_in: bool,
+    /// What the model knows of this machine rather than its accounts.
+    pub(crate) machine: MachineState,
 }
 
 impl State {
@@ -688,6 +749,7 @@ impl State {
             preferences_read: false,
             loading_kept: false,
             standing_in: false,
+            machine: MachineState::default(),
         }
     }
 
@@ -846,6 +908,46 @@ impl State {
                 }
             }
             Intent::Forget { qualified } => jobs.push(Job::Forget { qualified }),
+            Intent::PaneShown { pane } => self.pane_shown(pane, now, jobs),
+            Intent::ReadSchedule => jobs.push(Job::ReadSchedule {
+                after_change: false,
+            }),
+            Intent::SetSchedule { on } => {
+                if self.machine.schedule(on) {
+                    jobs.push(Job::SetSchedule { on });
+                }
+            }
+            // Its button holds back while one runs, as the Swift settings' did.
+            Intent::RenewNow => {
+                if !self.machine.renewing {
+                    self.machine.renewing = true;
+                    jobs.push(Job::Renew);
+                }
+            }
+            Intent::LookForCommandLine => jobs.push(Job::FindCommandLine),
+        }
+    }
+
+    /// A pane of the main window is shown, or its button asks for what it shows again: what
+    /// it shows is read, every time, as each Swift pane's `.task` read it on every visit. A
+    /// menu bar app runs for days, and a check fixed in a terminal since would otherwise still
+    /// read as failing. What was shown stays meanwhile.
+    fn pane_shown(&mut self, pane: Pane, now: Now, jobs: &mut Vec<Job>) {
+        match pane {
+            // As AccountsPane.swift's `.task` read them: where the numbers are a minute old.
+            Pane::Accounts => self.refresh(
+                Asked {
+                    older_than: self.cadence.stale_after,
+                    ..Asked::default()
+                },
+                now,
+                jobs,
+            ),
+            Pane::Activity => jobs.push(Job::ReadLog { limit: LOG_LIMIT }),
+            Pane::Machine => {
+                self.machine.checking += 1;
+                jobs.push(Job::Check);
+            }
         }
     }
 
@@ -975,6 +1077,9 @@ impl State {
         self.started = true;
         self.loading_kept = true;
         jobs.push(Job::LoadKept);
+        // Once a launch, as the Swift model's init did: after that the schedule runs a command
+        // line, or was never the app's to repair.
+        jobs.push(Job::RepairSchedule);
         self.timed_read = Timer::Due(now.running);
         self.look = Timer::Due(now.running);
         self.tick = Timer::Due(now.running + self.cadence.tick_every);
@@ -1106,6 +1211,7 @@ impl State {
             timed: asked.timed,
             after_switch: asked.after_switch,
             after_sign_in: asked.after_sign_in,
+            after_renewal: asked.after_renewal,
         };
         if let Some(at) = self.updated_ms
             && now.epoch_ms.saturating_sub(at) < older_than
@@ -1139,6 +1245,9 @@ impl State {
     fn over(&mut self, ticket: Ticket, now: Now) {
         if ticket.after_switch {
             self.switching = None;
+        }
+        if ticket.after_renewal {
+            self.machine.renewing = false;
         }
         if let Some(id) = ticket.after_sign_in
             && let Some(at) = self.said_after_read.iter().position(|(of, _)| *of == id)
@@ -1229,6 +1338,38 @@ impl State {
             Answer::SignInFinished { id, done } => {
                 self.sign_in_finished(id, done.map_err(Some), now, jobs);
             }
+            Answer::Repaired { repaired, own } => {
+                self.machine.own = Some(own);
+                // Shown again only where it was repaired. Nothing repaired, or a repair that
+                // failed, says nothing: the schedule is as it was, and doctor reports it.
+                if matches!(repaired, Ok(true)) {
+                    jobs.push(Job::ReadSchedule {
+                        after_change: false,
+                    });
+                }
+            }
+            Answer::ScheduleRead {
+                schedule,
+                own,
+                after_change,
+            } => self
+                .machine
+                .schedule_read(Some(schedule), Some(own), after_change),
+            Answer::ScheduleSet { own, outcome } => {
+                if self.machine.scheduled(own, outcome) {
+                    jobs.push(Job::ReadSchedule { after_change: true });
+                }
+            }
+            Answer::Renewed { renewals } => {
+                self.machine.renewals = Some(renewals);
+                self.read_after_renewal(now, jobs);
+            }
+            Answer::Checked { checks } => self.machine.checked(Some(checks), now.epoch()),
+            Answer::Logged { changes } => self.machine.logged(changes),
+            Answer::CommandLineFound { found, own } => {
+                self.machine.command_line = Some(found);
+                self.machine.own = Some(own);
+            }
             Answer::Lost(job) => match job {
                 Job::Read { ticket, .. } => self.landed(ticket, now),
                 Job::ReadOffline { why } => self.known(why, None, now, jobs),
@@ -1273,8 +1414,34 @@ impl State {
                 // Nothing kept could be read: nothing was told before, as far as anyone knows.
                 Job::LoadKept => self.kept(Told::new(), None, jobs),
                 Job::KeepTold { .. } | Job::KeepPreferences { .. } | Job::Post { .. } => {}
+                // The schedule is as it was, as a repair that failed leaves it.
+                Job::RepairSchedule => {}
+                Job::ReadSchedule { after_change } => {
+                    self.machine.schedule_read(None, None, after_change);
+                }
+                // What it did is not known: the schedule is read back to show where it is.
+                Job::SetSchedule { .. } => jobs.push(Job::ReadSchedule { after_change: true }),
+                // What it renewed is not known, and is not said; the accounts are read all
+                // the same, to show where things stand.
+                Job::Renew => self.read_after_renewal(now, jobs),
+                Job::Check => self.machine.checked(None, now.epoch()),
+                Job::ReadLog { .. } | Job::FindCommandLine => {}
             },
         }
+    }
+
+    /// The read after a renewal, asking every service, as MachineModel.swift's `renewed` had
+    /// the accounts read as somebody asking: the renewal is over once it is.
+    fn read_after_renewal(&mut self, now: Now, jobs: &mut Vec<Job>) {
+        self.refresh(
+            Asked {
+                fresh: true,
+                after_renewal: true,
+                ..Asked::default()
+            },
+            now,
+            jobs,
+        );
     }
 
     /// The tool of the sign-in `id` has started, or could not be. `Err(None)` is a start

@@ -21,13 +21,17 @@
 //! login when asked to, keeps what each tool's last switch said, runs sign-ins, enrols,
 //! renames and forgets, keeps the sheet over the main window, and says which account to
 //! switch to once the one in use has run out, notifying it through the app's
-//! `Notifications` once for each reset, across launches. What each snapshot says of
-//! all that, every sentence and row the menu bar, the menu and the window show, is made by
-//! `present`, in `crate::present`, which asks the app's `LocalTime` for each clock time. A
-//! minute tick makes it again for what depends on the time alone.
+//! `Notifications` once for each reset, across launches. It also keeps what is about this
+//! machine rather than its accounts: the daily renewal schedule, repaired once a launch,
+//! renewing now, doctor's checks, the activity log and the `pitboard` a terminal would run.
+//! What each snapshot says of all that, every sentence and row the menu bar, the menu, the
+//! window and the settings show, is made by `present`, in `crate::present`, which asks the
+//! app's `LocalTime` for each clock time and date. A minute tick makes it again for what
+//! depends on the time alone.
 
 pub(crate) mod advice;
 mod lanes;
+pub(crate) mod machine;
 mod preferences;
 pub(crate) mod state;
 
@@ -39,6 +43,8 @@ mod cadence;
 mod changing;
 #[cfg(test)]
 mod keeping;
+#[cfg(test)]
+mod maintaining;
 #[cfg(test)]
 mod presenting;
 #[cfg(test)]
@@ -54,8 +60,8 @@ mod threaded;
 
 use crate::account_windows::AlertText;
 use crate::present::{
-    AccountSection, AccountsShown, Footing, MenuBarText, MenuNotices, PanelNotice, Question,
-    SetupStep, SheetText, SigningInText, present,
+    AccountSection, AccountsShown, Footing, MachineShown, MenuBarText, MenuNotices, PanelNotice,
+    Question, SetupStep, SheetText, SigningInText, present,
 };
 use crate::{Abandoned, Pitboard, Status, Tool, Warning};
 use lanes::Lanes;
@@ -106,8 +112,13 @@ pub enum Intent {
     /// Start what runs by itself: a read now and every five minutes, a look every two seconds
     /// for a change made somewhere else, which reads what is already known, and the minute
     /// tick; and read what the model keeps in Pitboard's directory, the record of what was
-    /// told. Until an app sends this, nothing runs by itself. Sent again, it starts nothing
-    /// more.
+    /// told. It also repairs, once a launch, a daily renewal schedule an app up to 0.3.0
+    /// wrote, which runs that app and renews nothing: where this home's schedule is such a
+    /// one, the core writes it again in the machine's own scheduler, as `pitboard schedule
+    /// install` would, to run the command line inside this copy, and logs the repair. That
+    /// changes the machine, so only the app sends this, over the home it serves, and a test
+    /// only over a scratch home. Until an app sends this, nothing runs by itself. Sent again,
+    /// it starts nothing more.
     Start,
     /// The machine woke from sleep: numbers read before it slept say nothing about now. An
     /// app sends it every time: on macOS the model's timers count only the time the machine
@@ -204,6 +215,31 @@ pub enum Intent {
     /// Drop the account `qualified` names, and the login parked for it, once somebody has
     /// answered the question its row asks first. What goes wrong is said in the window.
     Forget { qualified: String },
+    /// `pane` of the main window is shown, or its own button asks for what it shows to be
+    /// read again, as Check Again and the activity's Refresh do: what it shows is read every
+    /// time, as the Swift panes read it on every visit, since an app runs for days and a check
+    /// fixed in a terminal since would otherwise still read as failing. For `Pane::Machine`,
+    /// every check `pitboard doctor` makes; for `Pane::Activity`, what Pitboard has changed;
+    /// for `Pane::Accounts`, the accounts where the numbers shown are a minute old, as for
+    /// `Glanced`. What was shown stays meanwhile.
+    PaneShown { pane: Pane },
+    /// Read the daily renewal schedule again, as the settings do when they show it: a
+    /// terminal can change it while the app runs.
+    ReadSchedule,
+    /// Hand renewing parked logins to this machine's own scheduler, or take it back: the
+    /// settings' switch. One change at a time: the switch shows what was asked for until the
+    /// scheduler has answered and the schedule has been read back, and pressed again meanwhile
+    /// it does nothing. Turning it on is refused, with why, where this copy of the app has no
+    /// command line that a schedule would keep reaching, and nothing is asked of the
+    /// scheduler; turning it off never is, since that is how such a schedule is taken away.
+    SetSchedule { on: bool },
+    /// Renew every parked login that is due, now, then read the accounts again once, asking
+    /// every service, to show what it renewed. Never switches, and asks for no usage beyond
+    /// that read. Asked for while a renewal is under way, it does nothing.
+    RenewNow,
+    /// Look for the `pitboard` a terminal would run, as the settings do when they show it, and
+    /// as an app does once it has linked its own onto the `PATH`.
+    LookForCommandLine,
 }
 
 /// A sheet over the main window, as the Swift model's `AccountSheet` has them. Not called
@@ -430,6 +466,10 @@ pub struct Snapshot {
     pub quit_confirmation: Option<Question>,
     /// The alert for `failure`, while there is one to say.
     pub failure_alert: Option<AlertText>,
+    /// What the settings and the window's other panes show of this machine rather than its
+    /// accounts: daily renewal, Renew Now, doctor's checks, the activity log and the command
+    /// line a terminal runs.
+    pub machine: MachineShown,
 }
 
 /// What a platform's own code could not do. Every method of a trait an app implements
@@ -491,7 +531,8 @@ pub trait LocalTime: Send + Sync {
     /// their time zone: whether a clock time needs its weekday, which only the system knows.
     fn same_day(&self, first: i64, second: i64) -> Result<bool, PlatformError>;
     /// The date and time of `epoch`, in epoch seconds, as a list of what happened when says
-    /// it.
+    /// it, a date abbreviated and a time short. Where it throws, a change's own time is said
+    /// instead, as the log keeps it and `pitboard log` prints it.
     fn date_and_time(&self, epoch: i64) -> Result<String, PlatformError>;
 }
 

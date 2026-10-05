@@ -91,10 +91,7 @@ fn program(ctx: &Context) -> Result<PathBuf> {
 /// A path inside the copy macOS makes of an app opened where it was downloaded leads
 /// somewhere while that app runs and nowhere once it quits, so it is refused as well.
 fn lasting(program: &Path) -> Result<&Path> {
-    if program
-        .components()
-        .any(|part| part.as_os_str() == "AppTranslocation")
-    {
+    if in_a_temporary_copy(program) {
         return Err(Error::ScheduleProgramTemporary {
             path: program.to_path_buf(),
         });
@@ -105,6 +102,16 @@ fn lasting(program: &Path) -> Result<&Path> {
         });
     }
     Ok(program)
+}
+
+/// Whether `program` is inside the copy macOS makes of an app opened where it was
+/// downloaded, which is there while the app runs and gone once it quits: a path through a
+/// directory named `AppTranslocation`. Neither a schedule nor a link can rely on one, so an
+/// app asks this of the command line inside it, by the rule a schedule is refused by.
+pub fn in_a_temporary_copy(program: &Path) -> bool {
+    program
+        .components()
+        .any(|part| part.as_os_str() == "AppTranslocation")
 }
 
 /// The Pitboard the installed schedule runs, read back from what `install` wrote. `None`
@@ -358,6 +365,34 @@ mod tests {
         );
 
         assert_eq!(status(&ctx), Installed::No, "nothing was written");
+    }
+
+    /// A copy macOS runs from a temporary place is told by a directory of the path, as the
+    /// Swift app told it by "/AppTranslocation/" in its command line's path, and by nothing
+    /// that only looks like one.
+    #[test]
+    fn a_temporary_copy_is_told_by_its_path() {
+        for (path, temporary) in [
+            (
+                "/private/var/folders/xy/abc/T/AppTranslocation/0A1B2C/d/Pitboard.app/Contents/\
+                 Helpers/pitboard",
+                true,
+            ),
+            (
+                "/Applications/Pitboard.app/Contents/Helpers/pitboard",
+                false,
+            ),
+            (
+                "/Users/x/MyAppTranslocation/Pitboard.app/Contents/Helpers/pitboard",
+                false,
+            ),
+            (
+                "/Users/x/AppTranslocations/Pitboard.app/Contents/Helpers/pitboard",
+                false,
+            ),
+        ] {
+            assert_eq!(in_a_temporary_copy(Path::new(path)), temporary, "{path}");
+        }
     }
 
     /// What `pitboard doctor` reads back is what was written, including a path the
