@@ -74,6 +74,7 @@ pub mod testing {
     pub use crate::provider::claude::slot::{LIVE_SERVICE, dir_hash, service_for_dir};
     pub use crate::store::memory::{Fault, MemoryStore};
     pub use crate::store::{vault_delete, vault_read, vault_write};
+    pub use crate::switch::{ScriptedSignIn, SignInScript};
     pub use crate::time::{Clock, FixedClock};
 
     /// Every variable Pitboard reads from its environment, by name, which a test withholds

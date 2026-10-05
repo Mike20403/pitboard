@@ -30,7 +30,10 @@ pub use crate::pending::Reclaimed;
 pub use adopt::{Adopted, adopt};
 #[cfg(feature = "test-support")]
 pub(crate) use enroll::planted;
+pub(crate) use enroll::sign_in_watched_as;
 pub use enroll::{Enrolled, Said, SignIn, WatchedSignIn, enroll, sign_in, sign_in_watched};
+#[cfg(any(test, feature = "test-support"))]
+pub use enroll::{ScriptedSignIn, SignInScript};
 pub use forget::forget;
 pub(crate) use journal::interrupted_tool;
 pub use journal::{Abandoned, Recovered, pending as interrupted};

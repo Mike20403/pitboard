@@ -26,7 +26,26 @@ rest=${version#*.}
 build=$((${version%%.*} * 10000 + ${rest%%.*} * 100 + ${rest#*.}))
 
 # This clears apps/macos/build and makes it again, so nothing from a previous build survives.
+# Never with --fixture: a fixture is a world for a debug build and the UI tests to launch
+# into, and nothing that ships may hold one.
 ./apps/macos/scripts/build-xcframework.sh
+
+# A fixture world's text, which only a core built with the `fixture` feature holds: a word
+# of its stand-in pages and an account of its worlds. Looked for in the core's library here,
+# and in the app once it is built, which would also hold the Swift fixture a debug build
+# compiles.
+holds_a_fixture() {
+    LC_ALL=C grep -a -q -e 'A Pitboard fixture page' -e 'dana@work.example' "$1"
+}
+core_library=apps/macos/build/PitboardFFI/libpitboard_ffi.a
+[ -s "$core_library" ] || {
+    echo "there is no $core_library to look in" >&2
+    exit 1
+}
+if holds_a_fixture "$core_library"; then
+    echo "$core_library holds a fixture: it was built with --fixture" >&2
+    exit 1
+fi
 
 # The project is generated, never edited, so the one built is the one project.yml says.
 command -v xcodegen >/dev/null || {
@@ -172,6 +191,10 @@ links "$app_binary" uniffi_pitboard_ffi_ || {
 }
 if links "$app_binary" uniffi_pitboard_share_ffi_; then
     echo "the app links the share extension's library" >&2
+    exit 1
+fi
+if holds_a_fixture "$app_binary"; then
+    echo "the app holds a fixture" >&2
     exit 1
 fi
 # shellcheck disable=SC2086

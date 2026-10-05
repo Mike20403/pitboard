@@ -355,8 +355,8 @@ impl Pitboard {
     /// no lock but its own, so a person taking their time in a browser never holds up a
     /// switch.
     pub fn sign_in(&self, typed: &str) -> std::result::Result<SignIn, Failed> {
-        let tool = self.signing_in(typed)?;
-        switch::sign_in(&self.ctx, tool).map_err(|error| self.not_started(typed, error))
+        let key = self.signing_in(typed)?;
+        switch::sign_in(&self.ctx, key.provider).map_err(|error| self.not_started(typed, error))
     }
 
     /// The same sign-in with its output piped, for a front end that has no terminal to
@@ -365,20 +365,20 @@ impl Pitboard {
         &self,
         typed: &str,
     ) -> std::result::Result<switch::WatchedSignIn, Failed> {
-        let tool = self.signing_in(typed)?;
-        switch::sign_in_watched(&self.ctx, tool).map_err(|error| self.not_started(typed, error))
+        let key = self.signing_in(typed)?;
+        switch::sign_in_watched_as(&self.ctx, &key).map_err(|error| self.not_started(typed, error))
     }
 
-    /// Which tool a sign-in is for, once everything that could refuse it has been asked.
+    /// Which account a sign-in is for, once everything that could refuse it has been asked.
     ///
     /// A name no account could have is refused the way every change refuses one, settling
     /// an interrupted switch on the way; anything else refused here is recorded and nothing
     /// more, since nothing was about to change.
-    fn signing_in(&self, typed: &str) -> std::result::Result<crate::provider::ProviderId, Failed> {
-        let tool = self.chosen("enroll", typed)?.provider;
-        self.ready_to_sign_in(tool)
+    fn signing_in(&self, typed: &str) -> std::result::Result<Key, Failed> {
+        let key = self.chosen("enroll", typed)?;
+        self.ready_to_sign_in(key.provider)
             .map_err(|error| self.not_started(typed, error))?;
-        Ok(tool)
+        Ok(key)
     }
 
     /// A sign-in that did not start, or did not finish, for a reason other than its name.

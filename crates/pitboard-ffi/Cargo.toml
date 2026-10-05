@@ -12,6 +12,13 @@ publish = false
 # A static library for the macOS app, a dynamic one for the Windows app to load.
 crate-type = ["lib", "staticlib", "cdylib"]
 
+[features]
+# The fixtures: worlds an app's debug build and its UI tests launch into, the real core over
+# a machine in memory and services that answer from a script, through pitboard-core's
+# test-support. Never in a library an app ships: build-app.sh never passes it, and checks
+# that what it built holds no world's text.
+fixture = ["pitboard-core/test-support"]
+
 [dependencies]
 pitboard-core.workspace = true
 pitboard-sites.workspace = true

@@ -187,6 +187,11 @@ pub struct Context {
     pub(crate) api: Arc<dyn Api>,
     /// Who answers for OpenAI. The network in every real context.
     pub(crate) openai: Arc<dyn OpenAi>,
+    /// Who plays each tool's own sign-in in place of its program, where a test or a fixture
+    /// says. `None` in every real context, and in any build without `test-support` there is
+    /// nothing here at all.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) sign_in_script: Option<Arc<dyn crate::switch::SignInScript>>,
 }
 
 impl Context {
@@ -245,6 +250,8 @@ impl Context {
             host: crate::host::current(),
             api: Arc::new(Anthropic),
             openai: Arc::new(OpenAiNetwork),
+            #[cfg(any(test, feature = "test-support"))]
+            sign_in_script: None,
         }
     }
 
@@ -454,6 +461,8 @@ impl Context {
             host: crate::host::current(),
             api: Arc::new(Anthropic),
             openai: Arc::new(OpenAiNetwork),
+            #[cfg(any(test, feature = "test-support"))]
+            sign_in_script: None,
         }
     }
 
@@ -485,6 +494,40 @@ impl Context {
         self.clock = clock;
         self
     }
+
+    /// Play each tool's own sign-in with `script` rather than start its program: what the
+    /// tool says, what it reads typed back, and the login it stores where the tool would. A
+    /// test or a fixture that may start no program does this, and nothing else does, which is
+    /// why it is not part of the builder a front end uses.
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
+    pub fn with_sign_in_script(mut self, script: Arc<dyn crate::switch::SignInScript>) -> Context {
+        self.sign_in_script = Some(script);
+        self
+    }
+
+    /// Who plays each tool's own sign-in, where somebody said.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn sign_in_script(&self) -> Option<&Arc<dyn crate::switch::SignInScript>> {
+        self.sign_in_script.as_ref()
+    }
+
+    /// Whether this context reaches no machine but `memory` and no service but `api`. A
+    /// fixture asks it of the context it made before it puts a login anywhere, so that an
+    /// edit leaving either out of the builder fails there, rather than writing Claude Code's
+    /// login to this machine's keychain under the real one's service name, or asking
+    /// Anthropic.
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
+    pub fn reaches_only(
+        &self,
+        memory: &Arc<crate::host::memory::MemoryHost>,
+        api: &Arc<crate::api::scripted::ScriptedApi>,
+    ) -> bool {
+        std::ptr::addr_eq(Arc::as_ptr(&self.host), Arc::as_ptr(memory))
+            && std::ptr::addr_eq(Arc::as_ptr(&self.api), Arc::as_ptr(api))
+            && std::ptr::addr_eq(Arc::as_ptr(&self.openai), Arc::as_ptr(api))
+    }
 }
 
 #[cfg(test)]
@@ -505,6 +548,41 @@ mod tests {
             "empty is set, and pins the default slot"
         );
         assert_eq!(ctx.claude_program, PathBuf::from("claude"));
+    }
+
+    /// What a fixture asks of the context it made: whether it reaches nothing but the machine
+    /// in memory and the scripted services it was given, which leaving out either, or giving
+    /// another, makes false.
+    #[test]
+    fn a_context_says_whether_it_reaches_only_the_machine_and_services_it_was_given() {
+        use crate::api::scripted::ScriptedApi;
+        use crate::host::memory::MemoryHost;
+        let (memory, api) = (MemoryHost::new(), ScriptedApi::new());
+        let home = PathBuf::from("/home/x");
+        let both = Context::new(home.clone())
+            .with_memory_stores(Arc::clone(&memory))
+            .with_scripted_api(Arc::clone(&api));
+        assert!(both.reaches_only(&memory, &api));
+        assert!(
+            !Context::new(home.clone())
+                .with_scripted_api(Arc::clone(&api))
+                .reaches_only(&memory, &api),
+            "this machine"
+        );
+        assert!(
+            !Context::new(home)
+                .with_memory_stores(Arc::clone(&memory))
+                .reaches_only(&memory, &api),
+            "the network"
+        );
+        assert!(
+            !both.reaches_only(&MemoryHost::new(), &api),
+            "another machine"
+        );
+        assert!(
+            !both.reaches_only(&memory, &ScriptedApi::new()),
+            "other services"
+        );
     }
 
     #[test]

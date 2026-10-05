@@ -162,9 +162,49 @@ fn signed_in_document(ctx: &Context, which: ProviderId, dir: &std::path::Path) -
 /// it reads what the tool prints and can type a fallback code back where the tool asks for
 /// one.
 pub struct WatchedSignIn {
-    child: std::process::Child,
+    tool: Running,
     said: Said,
     pending: SignIn,
+}
+
+/// The tool a watched sign-in runs: its program, or, where a test or a fixture says, a script
+/// playing it.
+enum Running {
+    Program(std::process::Child),
+    #[cfg(any(test, feature = "test-support"))]
+    Scripted(Box<dyn ScriptedSignIn>),
+}
+
+/// A tool's own sign-in, played rather than run, for a test or a fixture that may start no
+/// program: everything up to the tool's program is the real core's, which reserves the
+/// private directory, reads back the login the script stores there as it reads the tool's,
+/// and enrols it. Only a context made with `Context::with_sign_in_script` has one, and only a
+/// build with `test-support` has the seam.
+#[cfg(any(test, feature = "test-support"))]
+pub trait SignInScript: Send + Sync + std::fmt::Debug {
+    /// Starts `which`'s sign-in into the private directory `dir`, as `label` names the
+    /// account somebody means to sign in to, where the caller said which: the person at the
+    /// browser, whom a program never knows of. What the tool says goes to `say`, and dropping
+    /// it is the tool having stopped saying anything.
+    fn start(
+        &self,
+        which: ProviderId,
+        label: Option<&str>,
+        dir: &std::path::Path,
+        say: std::sync::mpsc::Sender<String>,
+    ) -> Box<dyn ScriptedSignIn>;
+}
+
+/// One sign-in a `SignInScript` started, as its program would be driven.
+#[cfg(any(test, feature = "test-support"))]
+pub trait ScriptedSignIn: Send {
+    /// A line typed back. False where nothing reads it any more, as a closed stdin is.
+    fn typed(&mut self, line: &str) -> bool;
+    /// Waits for it to end, and says whether it ended signed in, with the login stored in its
+    /// directory where the tool stores one.
+    fn wait(&mut self) -> bool;
+    /// Stops it, as a kill stops the program.
+    fn stop(&mut self);
 }
 
 /// What a watched sign-in's tool says, read apart from the sign-in itself.
@@ -199,19 +239,31 @@ impl WatchedSignIn {
     /// Types a line back, for a code the tool reads from stdin while it waits on the
     /// browser.
     pub fn paste(&mut self, line: &str) -> Result<()> {
-        use std::io::Write;
-        let stdin = self.child.stdin.as_mut().ok_or(Error::SignInIncomplete)?;
-        writeln!(stdin, "{line}").map_err(|_| Error::SignInIncomplete)?;
-        stdin.flush().map_err(|_| Error::SignInIncomplete)
+        match &mut self.tool {
+            Running::Program(child) => {
+                use std::io::Write;
+                let stdin = child.stdin.as_mut().ok_or(Error::SignInIncomplete)?;
+                writeln!(stdin, "{line}").map_err(|_| Error::SignInIncomplete)?;
+                stdin.flush().map_err(|_| Error::SignInIncomplete)
+            }
+            #[cfg(any(test, feature = "test-support"))]
+            Running::Scripted(run) => {
+                if run.typed(line) {
+                    Ok(())
+                } else {
+                    Err(Error::SignInIncomplete)
+                }
+            }
+        }
     }
 
     /// Waits for it to finish and hands back the login it stored.
     pub fn finish(mut self) -> Result<SignIn> {
-        let finished = self
-            .child
-            .wait()
-            .map_err(|_| Error::SignInIncomplete)?
-            .success();
+        let finished = match &mut self.tool {
+            Running::Program(child) => child.wait().map_err(|_| Error::SignInIncomplete)?.success(),
+            #[cfg(any(test, feature = "test-support"))]
+            Running::Scripted(run) => run.wait(),
+        };
         if !finished {
             return Err(Error::SignInIncomplete);
         }
@@ -223,14 +275,44 @@ impl WatchedSignIn {
 
     /// Stops it. What it may have written is discarded by `SignIn`'s own cleanup.
     pub fn cancel(mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        match &mut self.tool {
+            Running::Program(child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            #[cfg(any(test, feature = "test-support"))]
+            Running::Scripted(run) => {
+                run.stop();
+                let _ = run.wait();
+            }
+        }
     }
 }
 
 /// Starts the sign-in with its output piped, for a caller that will show it.
 pub fn sign_in_watched(ctx: &Context, which: ProviderId) -> Result<WatchedSignIn> {
+    start_watched(ctx, which, None)
+}
+
+/// The same, for the account `key` names, which a script playing the tool is told of: the
+/// person at the browser knows which account they mean, where the tool never does.
+pub(crate) fn sign_in_watched_as(ctx: &Context, key: &Key) -> Result<WatchedSignIn> {
+    start_watched(ctx, key.provider, Some(&key.label))
+}
+
+fn start_watched(ctx: &Context, which: ProviderId, label: Option<&str>) -> Result<WatchedSignIn> {
     let pending = reserve_signin(ctx, which)?;
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(script) = ctx.sign_in_script() {
+        let (say, said) = std::sync::mpsc::channel();
+        return Ok(WatchedSignIn {
+            tool: Running::Scripted(script.start(which, label, &pending.dir, say)),
+            said: Said(std::sync::Arc::new(std::sync::Mutex::new(said))),
+            pending,
+        });
+    }
+    // Only a script playing the tool is told whom the sign-in is for.
+    let _ = label;
     let command = provider::of(which).sign_in(ctx, &pending.dir);
     watch(command, pending).map_err(|e| started(which, e))
 }
@@ -273,7 +355,7 @@ fn watch(mut command: std::process::Command, pending: SignIn) -> std::io::Result
         });
     }
     Ok(WatchedSignIn {
-        child,
+        tool: Running::Program(child),
         said: Said(std::sync::Arc::new(std::sync::Mutex::new(said))),
         pending,
     })
@@ -1124,6 +1206,188 @@ mod tests {
                     .all(|w| w.code() != "sessions_still_running"),
                 "{tool}: nobody switched away from anything: {warnings:?}"
             );
+        }
+    }
+
+    /// A sign-in a script plays, as a fixture's is, standing in for whichever tool it is
+    /// told of and for the person at the browser.
+    #[derive(Debug, Default)]
+    struct Played {
+        /// Each sign-in started: its tool, whom it is for, and its private directory.
+        started: std::sync::Mutex<Vec<(ProviderId, Option<String>, PathBuf)>>,
+        /// The login each one stores once a line is typed back, as its tool writes it.
+        login: std::sync::Mutex<Option<(Arc<crate::host::memory::MemoryHost>, String)>>,
+        /// Every line typed back to any of them.
+        typed: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    /// What a played sign-in is told.
+    enum Told {
+        Typed,
+        Stopped,
+    }
+
+    struct Playing {
+        told: std::sync::mpsc::Sender<Told>,
+        typed: Arc<std::sync::Mutex<Vec<String>>>,
+        ended: Option<std::thread::JoinHandle<bool>>,
+    }
+
+    impl SignInScript for Played {
+        fn start(
+            &self,
+            which: ProviderId,
+            label: Option<&str>,
+            dir: &std::path::Path,
+            say: std::sync::mpsc::Sender<String>,
+        ) -> Box<dyn ScriptedSignIn> {
+            self.started.lock().expect("a test's own lock").push((
+                which,
+                label.map(str::to_owned),
+                dir.to_path_buf(),
+            ));
+            let login = self.login.lock().expect("a test's own lock").clone();
+            let dir = dir.to_path_buf();
+            let (told, hears) = std::sync::mpsc::channel();
+            let ended = std::thread::spawn(move || {
+                let _ = say.send("Opening browser to sign in\u{2026}\n".into());
+                match hears.recv() {
+                    Ok(Told::Typed) => {}
+                    Ok(Told::Stopped) | Err(_) => return false,
+                }
+                let Some((host, document)) = login else {
+                    return false;
+                };
+                // Where each tool stores the login of a sign-in into `dir`.
+                match which {
+                    ProviderId::Claude => host.live().plant(
+                        &crate::provider::claude::slot::service_for_dir(&dir.to_string_lossy()),
+                        &document,
+                    ),
+                    ProviderId::Codex => host
+                        .file_at(dir.join("auth.json"))
+                        .plant("auth.json", &document),
+                }
+                let _ = say.send("Login successful.\n".into());
+                true
+            });
+            Box::new(Playing {
+                told,
+                typed: Arc::clone(&self.typed),
+                ended: Some(ended),
+            })
+        }
+    }
+
+    impl ScriptedSignIn for Playing {
+        fn typed(&mut self, line: &str) -> bool {
+            self.typed
+                .lock()
+                .expect("a test's own lock")
+                .push(line.into());
+            self.told.send(Told::Typed).is_ok()
+        }
+
+        fn wait(&mut self) -> bool {
+            self.ended
+                .take()
+                .is_some_and(|ended| ended.join().unwrap_or(false))
+        }
+
+        fn stop(&mut self) {
+            let _ = self.told.send(Told::Stopped);
+        }
+    }
+
+    /// `ctx` with each tool's program named where there is none.
+    fn nowhere(ctx: &Context) -> Context {
+        let missing = std::env::temp_dir().join("pitboard-no-such-directory");
+        ctx.clone()
+            .with_claude_program(missing.join("claude"))
+            .with_codex_program(missing.join("codex"))
+    }
+
+    /// A test or a fixture that may start no program plays the tool's sign-in with a script,
+    /// and everything else is the core's own: the private directory it reserves, the login
+    /// read back from where the tool stores it there, and the enrolment. The script is told
+    /// whom the sign-in is for, as the person at the browser knows, and hears what is typed
+    /// back. Each tool's program is named where there is none, so a seam that let the tool's
+    /// program start would fail to start one, never start this machine's own.
+    #[test]
+    fn a_scripted_sign_in_enrols_what_it_stored_without_starting_the_tool() {
+        for (tool, make) in MACHINES {
+            let m = make("scripted");
+            let played = Arc::new(Played::default());
+            *played.login.lock().expect("a test's own lock") = Some((
+                Arc::clone(&m.mem),
+                login_of(&m, "newcomer", "newcomer-refresh").to_string(),
+            ));
+            let ctx = nowhere(&m.ctx).with_sign_in_script(Arc::clone(&played) as _);
+
+            let mut watched = sign_in_watched_as(&ctx, &m.key("newcomer"))
+                .unwrap_or_else(|e| panic!("{tool}: {e}"));
+            let said = watched.said();
+            assert_eq!(
+                said.next().as_deref(),
+                Some("Opening browser to sign in\u{2026}\n"),
+                "{tool}"
+            );
+            watched.paste("code#state").expect("typed back");
+            let login = watched.finish().unwrap_or_else(|e| panic!("{tool}: {e}"));
+            assert_eq!(
+                said.next().as_deref(),
+                Some("Login successful.\n"),
+                "{tool}"
+            );
+            assert_eq!(
+                said.next(),
+                None,
+                "{tool}: the tool has stopped saying anything"
+            );
+
+            assert_eq!(
+                *played.typed.lock().expect("a test's own lock"),
+                ["code#state"],
+                "{tool}"
+            );
+            let started = played.started.lock().expect("a test's own lock").clone();
+            assert_eq!(started.len(), 1, "{tool}");
+            assert_eq!(
+                (started[0].0, started[0].1.as_deref()),
+                (m.which, Some("newcomer")),
+                "{tool}"
+            );
+            assert!(
+                started[0].2.starts_with(home::dir(&m.ctx)),
+                "{tool}: the core's own private directory"
+            );
+            let (enrolled, _) =
+                enrolled_as(&m, "newcomer", login).unwrap_or_else(|e| panic!("{tool}: {e}"));
+            assert!(
+                matches!(enrolled, Enrolled::SignedIn { ref email } if email == "newcomer@example.com"),
+                "{tool}: {enrolled:?}"
+            );
+            assert!(park_of(&m, "newcomer").is_some(), "{tool}: parked");
+        }
+    }
+
+    /// A played sign-in that is stopped ends what it says and enrols nothing, as a killed
+    /// tool does, and the next one can start.
+    #[test]
+    fn a_stopped_scripted_sign_in_enrols_nothing() {
+        for (tool, make) in MACHINES {
+            let m = make("scripted-stop");
+            let played = Arc::new(Played::default());
+            let ctx = nowhere(&m.ctx).with_sign_in_script(Arc::clone(&played) as _);
+            let watched = sign_in_watched(&ctx, m.which).unwrap_or_else(|e| panic!("{tool}: {e}"));
+            let said = watched.said();
+            assert!(said.next().is_some(), "{tool}");
+            watched.cancel();
+            assert_eq!(said.next(), None, "{tool}");
+            let started = played.started.lock().expect("a test's own lock").clone();
+            assert_eq!(started[0].1, None, "{tool}: nobody said whom it was for");
+            assert!(park_of(&m, "newcomer").is_none(), "{tool}");
+            reserve_signin(&ctx, m.which).expect("a stopped sign-in lets the next one start");
         }
     }
 

@@ -34,6 +34,8 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo clippy --all-targets --locked
+      # The fixtures, which only a build with the feature compiles.
+      - run: cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
 
   test:
     strategy:
@@ -47,6 +49,8 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked -- --skip writing_preserves_attributes
+      # The fixtures, each a world on the real core, which only a build with the feature has.
+      - run: cargo test --locked -p pitboard-ffi --features fixture
       # Asserts a read-latency threshold that concurrent `security` calls can breach, so it
       # runs alone. It exists only on macOS.
       - if: runner.os == 'macOS'
@@ -138,6 +142,30 @@ jobs:
             --config crates/pitboard-ffi/uniffi.toml --no-format
           test -s apps/windows/Pitboard.Core/Generated/pitboard_ffi.cs
       # global.json, which pins the SDK and the test platform, is read from where dotnet runs.
+      # The test of a fixture's model is skipped here, against a library with no fixtures.
+      - working-directory: apps/windows
+        run: >
+          dotnet test --solution Pitboard.slnx
+          -p:PitboardNativeLibrary="$GITHUB_WORKSPACE/target/release/libpitboard_ffi.so"
+      # The same library with its fixtures, which a debug build of either app launches into.
+      # Its bindings must be the very ones generated without them, which is what lets one
+      # set serve both, and the library without them must hold none of a fixture's text.
+      - run: |
+          if LC_ALL=C grep -a -q -e 'A Pitboard fixture page' -e 'dana@work.example' \
+            target/release/libpitboard_ffi.so; then
+            echo "a library built without the fixture feature holds a fixture" >&2
+            exit 1
+          fi
+          cargo build --locked --release -p pitboard-ffi --features fixture
+          mkdir -p "$RUNNER_TEMP/fixture-bindings"
+          cargo run --locked --release -p uniffi-bindgen-csharp -- \
+            --library target/release/libpitboard_ffi.a \
+            --out-dir "$RUNNER_TEMP/fixture-bindings" \
+            --config crates/pitboard-ffi/uniffi.toml --no-format
+          cmp apps/windows/Pitboard.Core/Generated/pitboard_ffi.cs \
+            "$RUNNER_TEMP/fixture-bindings/pitboard_ffi.cs"
+      # Here the fixture's model is started, and tells a listener written in C# of its
+      # accounts from a thread of its own.
       - working-directory: apps/windows
         run: >
           dotnet test --solution Pitboard.slnx
@@ -155,6 +183,8 @@ jobs:
           echo "FLOOR=$floor" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo "+$FLOOR" check --workspace --all-targets --locked
+      # The fixtures, which only a build with the feature compiles.
+      - run: cargo "+$FLOOR" check -p pitboard-ffi --all-targets --locked --features fixture
 
   semver:
     # What a published version promises, checked against the published version. It reports

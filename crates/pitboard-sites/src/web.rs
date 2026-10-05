@@ -14,6 +14,7 @@ pub struct WebAddress {
     host: Option<String>,
     port: Option<String>,
     user: bool,
+    path: String,
 }
 
 impl WebAddress {
@@ -29,7 +30,12 @@ impl WebAddress {
         let scheme = address::scheme(text)
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let authority = address::parse(text).and_then(|parts| parts.authority);
+        let parts = address::parse(text);
+        let path = parts
+            .as_ref()
+            .map(address::Address::url_path)
+            .unwrap_or_default();
+        let authority = parts.and_then(|parts| parts.authority);
         WebAddress {
             scheme,
             host: authority
@@ -38,6 +44,7 @@ impl WebAddress {
                 .filter(|host| !host.is_empty()),
             port: authority.as_ref().and_then(|a| a.port.clone()),
             user: authority.is_some_and(|authority| authority.user_info),
+            path,
         }
     }
 
@@ -63,6 +70,14 @@ impl WebAddress {
     /// Whether it names a user, even an empty one, as `https://@claude.ai/` does.
     pub fn names_user(&self) -> bool {
         self.user
+    }
+
+    /// The path as `URL.path` gives it: percent-decoded, with neither query nor fragment,
+    /// empty where it does not decode as UTF-8, and without the slashes it ends in, but for
+    /// the one a path of nothing else keeps: `/c/shared/` is `/c/shared`, `//` is `/`, and
+    /// no path at all is empty.
+    pub fn path(&self) -> &str {
+        &self.path
     }
 }
 
@@ -106,6 +121,31 @@ mod tests {
             host("pitboard-fixture://claude.ai/").as_deref(),
             Some("claude.ai")
         );
+    }
+
+    /// Each path as `URL(string:)!.path` read it, measured with Swift 6.4 on macOS 27.0 on
+    /// 6 October 2026: decoded before the slashes it ends in are taken off, so an encoded
+    /// slash at the end goes too, and empty for one that does not decode.
+    #[test]
+    fn a_path_is_read_as_foundations_url_reads_it() {
+        for (text, path) in [
+            ("pitboard-fixture://chatgpt.com/", "/"),
+            ("pitboard-fixture://chatgpt.com", ""),
+            ("pitboard-fixture://chatgpt.com/c/shared", "/c/shared"),
+            ("pitboard-fixture://chatgpt.com/c/shared/", "/c/shared"),
+            (
+                "pitboard-fixture://claude.ai/chat/fixture?x=1#y",
+                "/chat/fixture",
+            ),
+            ("pitboard-fixture://claude.ai/a%20b/%2F", "/a b"),
+            ("pitboard-fixture://claude.ai/%FF", ""),
+            ("pitboard-fixture://CLAUDE.AI/x", "/x"),
+            ("pitboard-fixture:", ""),
+            ("pitboard-fixture://claude.ai//", "/"),
+            ("pitboard-fixture://claude.ai/a//", "/a"),
+        ] {
+            assert_eq!(WebAddress::parse(text).path(), path, "{text}");
+        }
     }
 
     /// `URL(string:)` found no scheme and no host in any of these, measured the same day; the

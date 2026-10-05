@@ -88,19 +88,30 @@ push, run:
 cargo-zigbuild clippy --target x86_64-unknown-linux-gnu --all-targets
 ```
 
+The fixtures, the worlds the apps' debug builds launch into, compile only with
+`pitboard-ffi`'s `fixture` feature, so their tests and their lints are run with it:
+
+```sh
+cargo test --locked -p pitboard-ffi --features fixture
+cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
+```
+
 The snapshots in `crates/pitboard/tests/snapshots` pin the `--json` contract. A snapshot
 changes only when the contract changes on purpose. Review the difference with
 `cargo insta review`, and say in the pull request why the contract moved.
 
 CI also runs:
 
-- clippy and the tests on both macOS and Linux
-- `cargo check --workspace --all-targets --locked` on Rust 1.91
+- clippy and the tests on both macOS and Linux, and both again for `pitboard-ffi` with its
+  fixtures
+- `cargo check --workspace --all-targets --locked` on Rust 1.91, and again for `pitboard-ffi`
+  with its fixtures
 - the app job: `swift format lint --strict`, `./apps/macos/scripts/build-app.sh`, a check that
   the command line inside the app runs and holds both architectures, `swift test` and the
   UI tests
 - the C# job: the core's C# bindings generated, compiled and called against the core on
-  Linux, as the Windows app will call them
+  Linux, as the Windows app will call them, then against the core built with its fixtures,
+  whose bindings must be the same and whose model a test starts
 - `cargo semver-checks --package pitboard-core`, which reports and does not block
 - a guard that fails when `.github/workflows/rotation.yml` names a repository secret
 
@@ -149,6 +160,24 @@ preferences, a login item or notification permission with a copy you have instal
 from Xcode, it reads this Mac's accounts, as that copy does. To run it in a fixture instead,
 add `PITBOARD_FIXTURE=twoTools` to the scheme's environment variables. The fixtures are the
 cases of `Fixture` in `apps/macos/Sources/PitboardApp/Fixture/Fixture.swift`.
+
+The fixtures are moving to Rust, as one set of worlds either app can launch into: until the
+macOS app runs on the core's model, it still launches into the Swift ones above. The Rust
+worlds are in `crates/pitboard-ffi/src/fixture`, with the same ten names. Each is the real
+core over a machine of its own: a home in the folder `pitboard-fixture` in the temporary
+directory, the keychain, the process list and the scheduler in memory, and Anthropic and
+OpenAI answering from a script. Its accounts were put there by the core, signed in,
+enrolled, parked and switched, so a world shows what the core makes of it. Only a library
+built with the `fixture` feature has them, which `build-xcframework.sh --fixture` builds;
+the bindings are the same either way. `build-app.sh` never passes it, and fails a build
+whose library or app holds a fixture:
+
+```sh
+./apps/macos/scripts/build-xcframework.sh --fixture
+```
+
+The tests that launch into that folder, in Rust, C# and Swift alike, empty it and remove it,
+so a debug build launched into a fixture while they run loses what it keeps there.
 
 In a fixture, an account's window loads a stand-in page for its site, such as
 `pitboard-fixture://claude.ai`, and each sign-in host has a stand-in on the same scheme. Its
@@ -208,6 +237,11 @@ The bindings are read from the static library, which keeps what the generator re
 every system; a release build strips it from the shared library on Linux. The shared
 library the tests load is `libpitboard_ffi.so` on Linux and `pitboard_ffi.dll` on Windows. A record
 field may not share its record's name, because C# makes each field a member of the record.
+
+One test starts a fixture's model and waits for it to tell a listener written in C# of its
+accounts. Against a library built without the `fixture` feature it is skipped, and says so.
+To run it, build the library with `cargo build --locked -p pitboard-ffi --features fixture`
+before `dotnet test`; the bindings need not be generated again.
 
 ## Tool registers
 
