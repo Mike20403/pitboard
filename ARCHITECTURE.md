@@ -100,12 +100,14 @@ pages load, as a browser would.
     other apps. `state.rs` holds what the model knows and decides what follows each
     message; `lanes.rs` runs what it decides, on a lane of reads, a lane of changes, one
     at a time, a lane that lists processes and asks the app's `AppControl` about other
-    apps, and a lane that asks what is installed, and tells the listener on a thread of
+    apps, a lane that asks what is installed, a thread of its own for each sign-in and a
+    lane that types a code back to one or stops it, and tells the listener on a thread of
     its own; `mod.rs` holds the exported types and the actor thread that owns the state. So
     far the model reads the accounts, looks every two seconds for a change made elsewhere,
     asks which tools are installed, switches, quits the app holding a tool's login when
-    the person lets it, gives up on a stuck switch, and keeps what each tool's last switch
-    said. Its tests are files of their own there: `reading.rs`, `switching.rs` and
+    the person lets it, gives up on a stuck switch, keeps what each tool's last switch
+    said, runs each tool's own sign-in and keeps the sheet over the main window. Its tests
+    are files of their own there: `reading.rs`, `switching.rs`, `signing.rs` and
     `cadence.rs` drive the state by hand, `lanes.rs` has the lanes' own, and `threaded.rs`
     drives the model through its threads over the real core.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
@@ -216,8 +218,8 @@ pages load, as a browser would.
   `Pitboard` blocks on none of them, since it reads its environment on first use.
   `PitboardModel` blocks on none of them anywhere: making one starts its threads, `send`
   only posts an intent, `snapshot` only copies the last snapshot, `shutdown` waits only for
-  the actor to take what is already in its mailbox, and the core and the app's
-  `AppControl` are called on the model's own threads. The free
+  the actor to take what is already in its mailbox, and the core, a tool's sign-in and the
+  app's `AppControl` are called on the model's own threads. The free
   functions block on nothing, and the app makes them where it likes: `tools`,
   `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
   sentences and column words of `words.rs` the apps show, which read only what they are
@@ -256,7 +258,24 @@ pages load, as a browser would.
 - What a tool's last switch said is kept apart from the read's warnings, one per tool, until
   that tool no longer has the account it switched to signed in or the person puts it away:
   a Codex switch's warning that open sessions still use the account it parked, and must not
-  sign out, outlives every read and every write that leaves that account signed in.
+  sign out, outlives every read and every write that leaves that account signed in. A
+  sign-in that puts a new login in use for the account in use is kept there too, beside
+  what that tool's last switch said, since sessions already running keep the old login.
+- One sign-in runs at a time, told apart by an id, on a thread of its own that starts the
+  tool's own sign-in, hands on what the tool says and, once the tool has stopped saying
+  anything, enrols what it signed in to only if it is still the sign-in under way. So a
+  cancel comes before the tool has started, and stops it as it starts; while it waits on a
+  browser, and stops it then; or once it is being enrolled, too late to stop, and the
+  accounts are read. A code is typed back, and a tool stopped, on a lane of their own, never
+  on the sign-in's own thread, which waits on the browser, and only while the tool has
+  started and is still saying something. A code is typed only where the tool asks for one,
+  once, and again once Claude Code has refused it: it reads another in the same sign-in, as
+  its register's `sign_in_takes_another_code` holds. Once the model has gone, every sign-in
+  still under way is stopped, so no thread waits on a browser for ever.
+- A sign-in under way keeps the sheet it was started from: putting up another while it runs
+  would leave the tool running with nothing on screen to finish or stop it. What goes wrong
+  is said in that sheet, or in the window where the sheet has gone, and the sheet closes once
+  the sign-in has finished.
 - `AppControl` names an app by one string, the id the core's holder detection gives it,
   which on macOS is its bundle id, in `provider/codex/holders.rs`. What names an app on
   Windows, and so what the core's holder detection gives there, is a question still open
@@ -268,10 +287,15 @@ pages load, as a browser would.
   ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor alone.
 - No test makes the app model over the machine's own environment. Its Rust tests run the
   real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in
-  a scratch directory, and the Swift and C# tests make no model. So no record or intent of
-  the model crosses the bindings in a test yet, and no test has the library call a listener
-  or an `AppControl` written in Swift or C#. Every `AppControl` a test hands the model is a
-  stand-in that records what it was asked, never one that reaches a real app.
+  a scratch directory. The Swift tests make no model, and the C# tests make one only as
+  `ModelTests.cs` does: every home a fresh folder, and never started or sent an intent, so
+  it reads nothing. So the launch, a listener, an `AppControl` and a first snapshot cross
+  the bindings in a test, but no intent does yet, and no test has the library call a
+  listener or an `AppControl` written in Swift or C#. Every `AppControl` a test hands the
+  model is a stand-in that records what it was asked, never one that reaches a real app. A
+  test that signs in runs a stand-in for `claude`, a shell script of its own in its scratch
+  home, and plants the login it would have stored in `MemoryHost`'s keychain: never a real
+  `claude` or `codex`.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core. The account windows key their records by Pitboard's directory standardised as
@@ -569,6 +593,20 @@ a scratch item.
 - Reads after a `dump-keychain` take the usual 0.016 seconds, so listing has none of the
   access-list cost of an in-process read. Each service name is on a line of the form
   `"svce"<blob>="<name>"`.
+- Measured on macOS 27.0 on 5 October 2026, with Rust 1.98.1: a lock taken with
+  `File::try_lock`, which is `flock`, can stay held after its `File` is dropped, though std
+  opens every file so that a program started after does not keep it. A process another
+  thread is starting holds a copy of the descriptor until it runs its program, or ends.
+  Dropped and taken again at once, in 3000 rounds each, the lock was still held 437 to 1042
+  times, for up to 5.5 ms, while another thread started processes the way std forks and
+  execs, which it does for a program named bare with `PATH` set, as the core runs a tool's
+  program it found nowhere; 8 to 15 times, for up to 77 µs, where std uses `posix_spawn`;
+  and never with no process started. Through the core's own sign-in, one started right
+  after a cancel in the same home was refused as one already waiting 64 times in 100 while
+  another thread started a program it could not find, and never in 100 while one started
+  `/usr/bin/true` or none started anything. So the core's one sign-in at a time can outlive
+  a cancel by that long. No person starts a sign-in that fast, and a test that signs in
+  again right after a cancel does so in a home of its own.
 
 ### Claude Code
 
@@ -650,6 +688,16 @@ treated, and only the macOS build shows it. The run reads both builds since.
   address again as its text. The sign-in runs with the app's whole environment, so
   `provider/printed.rs` reads what it printed as a terminal does, and the address offered
   is where the hyperlink goes.
+- Read from 2.1.289 on 5 October 2026, in the Windows arm64 build's sources and the macOS
+  and Linux builds, where the conformance run finds each literal, and finds none in 2.1.110:
+  `claude auth login` reads every line typed back while it waits. One that is not
+  `<code>#<state>` with both halves, once trimmed and split at `#`, it refuses with `Invalid
+  code. Please make sure the full code was copied.` on stderr, and goes on reading in the
+  same process, with no new prompt. The first with both halves it takes, whatever its state
+  half says. After that it still refuses a line without both halves, and ignores one with
+  them; a code the token exchange refuses ends the sign-in with `Login failed: ` and exit
+  status 1. So the model offers the code field again once Claude Code has refused one, to
+  the same sign-in, and starts nothing again.
 - Read on 5 October 2026 from the macOS builds of 2.1.283 and 2.1.289 and the Linux build of
   2.1.289: the native installer puts its launcher at `~/.local/bin/claude`, and says so
   when that directory is not on `PATH`. A global npm install puts `claude` in npm's global

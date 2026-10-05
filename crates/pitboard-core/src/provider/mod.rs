@@ -467,6 +467,12 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// [`sign_in_view`] adds it.
     fn read_sign_in(&self, said: &str) -> SignInView;
 
+    /// Whether what the tool's own sign-in said after a code was typed back, `since`,
+    /// refuses that code and reads another in the same sign-in, so a person may type one
+    /// again. Everything said since, for the same reason as [`Provider::read_sign_in`]. A
+    /// tool that reads no code refuses none.
+    fn refused_code(&self, since: &str) -> bool;
+
     /// Names of whatever on this machine makes the tool sign in with something other than
     /// the login Pitboard moves: an environment variable or a setting holding a key of its
     /// own. Read from files as well as this process's environment, so the app, which has no
@@ -526,6 +532,12 @@ pub fn sign_in_view(provider: ProviderId, said: &str, pasted: bool) -> SignInVie
         wants_code: read.wants_code && !pasted,
         ..read
     }
+}
+
+/// Whether `provider`'s sign-in refused the code typed back last, by what it said after it,
+/// `since`, and reads another in its place.
+pub fn refused_code(provider: ProviderId, since: &str) -> bool {
+    of(provider).refused_code(since)
 }
 
 /// The first `https` address in what a tool printed, read as a terminal reads it: where a

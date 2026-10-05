@@ -5,8 +5,10 @@
 //! model ends every thread it started, a drop waiting on none of them.
 
 use super::state::Cadence;
+#[cfg(unix)]
+use super::testing::StandIn;
 use super::testing::{CHATGPT, CHATGPT_CODEX, StandInApps, World};
-use super::{AppControl, Intent, ModelListener, PitboardModel, PlatformError, Snapshot};
+use super::{AppControl, Intent, ModelListener, PitboardModel, PlatformError, Sheet, Snapshot};
 use crate::Pitboard;
 use pitboard_core::testing::Asked;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -664,5 +666,242 @@ fn a_read_answers_while_the_core_switches() {
             .collect::<Vec<_>>(),
         [("claude", "spare")]
     );
+    model.shutdown();
+}
+
+// Signing in, on the real core with a stand-in for `claude`, which is a shell script: so
+// these run where one does.
+
+/// What a test of signing in starts from: Claude Code with `work` in use, a stand-in in
+/// place of `claude`, and a model over the core read once.
+#[cfg(unix)]
+struct SigningInWorld {
+    world: World,
+    claude: StandIn,
+    core: Arc<Pitboard>,
+    told: Arc<Told>,
+    model: Arc<PitboardModel>,
+}
+
+#[cfg(unix)]
+fn signing_in_world(name: &str) -> SigningInWorld {
+    let mut world = World::new(name);
+    world.enrolled("work", "here", 10.0);
+    let claude = world.claude_stand_in();
+    let core = world.core();
+    let told = Arc::new(Told::default());
+    let model = model(&core, &told);
+    model.send(Intent::Start);
+    told.until("the account read", shows("work"));
+    SigningInWorld {
+        world,
+        claude,
+        core,
+        told,
+        model,
+    }
+}
+
+/// The last snapshot told has a sign-in under way that is `wanted`.
+#[cfg(unix)]
+fn signing(wanted: impl Fn(&super::RunningSignIn) -> bool) -> impl Fn(&[Snapshot]) -> bool {
+    move |told| {
+        told.last()
+            .and_then(|last| last.signing_in.as_ref())
+            .is_some_and(&wanted)
+    }
+}
+
+/// The last snapshot told has no sign-in under way, and a read that has landed and is over
+/// with `label` among the accounts and `then` true of it.
+#[cfg(unix)]
+fn signed_in_as<'a>(
+    label: &'a str,
+    then: impl Fn(&Snapshot) -> bool + 'a,
+) -> impl Fn(&[Snapshot]) -> bool + 'a {
+    move |told| {
+        told.last().is_some_and(|last| {
+            last.signing_in.is_none()
+                && !last.reading
+                && labels(last).iter().any(|shown| shown == label)
+                && then(last)
+        })
+    }
+}
+
+fn sign_in(name: &str) -> Intent {
+    Intent::SignIn {
+        provider: "claude".into(),
+        name: name.into(),
+    }
+}
+
+#[cfg(unix)]
+fn paste(code: &str) -> Intent {
+    Intent::PasteCode { code: code.into() }
+}
+
+/// The owner's decision, on the real core with a stand-in for `claude` that reads lines as
+/// 2.1.289 reads them: after Claude Code refuses a code typed back, the field is offered
+/// again, and the next code goes to the same sign-in, whose tool takes it and signs in. What
+/// it signed in to is parked beside the account in use, and the sheet it was started from
+/// closes.
+#[test]
+#[cfg(unix)]
+fn a_code_claude_code_refused_is_typed_again_into_the_same_sign_in() {
+    let at = signing_in_world("paste-again");
+    at.model.send(Intent::PresentSheet {
+        sheet: Sheet::Add { provider: None },
+    });
+    at.model.send(sign_in("travel"));
+    at.told.until("a code asked for", signing(|s| s.wants_code));
+    at.world.signed_in_privately("away", "access-away", 20.0);
+
+    at.model.send(paste("half-a-code"));
+    let told = at
+        .told
+        .until("the code refused", signing(|s| s.code_refused));
+    let refused = told
+        .last()
+        .and_then(|last| last.signing_in.clone())
+        .expect("the sign-in");
+    assert!(refused.wants_code, "asked for again");
+    assert!(refused.said.contains("Invalid code."), "{:?}", refused.said);
+
+    at.model.send(paste("the-code#the-state"));
+    let told = at
+        .told
+        .until("travel enrolled", signed_in_as("travel", |_| true));
+    let last = told.last().expect("a snapshot");
+    assert_eq!(at.claude.typed(), ["half-a-code", "the-code#the-state"]);
+    assert_eq!(last.sheet, None, "the sheet it was started from closed");
+    assert_eq!((&last.failure, &last.sheet_failure), (&None, &None));
+    let travel = last
+        .status
+        .iter()
+        .flat_map(|status| &status.accounts)
+        .find(|account| account.label.as_deref() == Some("travel"))
+        .expect("travel");
+    assert!(!travel.signed_in && travel.switchable, "{travel:?}");
+    assert_eq!(
+        signed_in(last, "claude"),
+        Some("work"),
+        "beside the one in use"
+    );
+    at.model.shutdown();
+}
+
+/// RoutingTests.swift's signingInAgainToTheAccountInUseSaysItHasANewLogin, on the real core
+/// with a stand-in for `claude`: signing in again to the account in use puts its new login in
+/// use, keeps it the account in use, and says so beside what Claude Code's last switch said.
+#[test]
+#[cfg(unix)]
+fn signing_in_again_to_the_account_in_use_puts_its_new_login_in_use() {
+    let at = signing_in_world("sign-in-again");
+    at.model.send(Intent::PresentSheet {
+        sheet: Sheet::SignInAgain {
+            provider: "claude".into(),
+            label: "work".into(),
+        },
+    });
+    at.model.send(sign_in("work"));
+    at.told.until("a code asked for", signing(|s| s.wants_code));
+    at.world
+        .signed_in_privately("here", "access-here-again", 10.0);
+    at.model.send(paste("the-code#the-state"));
+
+    let told = at.told.until(
+        "what the sign-in said",
+        signed_in_as("work", |last| !last.last_switches.is_empty()),
+    );
+    let last = told.last().expect("a snapshot");
+    let [said] = &last.last_switches[..] else {
+        panic!("one tool's: {:#?}", last.last_switches);
+    };
+    assert_eq!(
+        (said.provider.as_str(), said.to.as_str()),
+        ("claude", "work")
+    );
+    assert_eq!(
+        said.said.as_deref(),
+        Some("Signed in to work again. Its new login is the one in use now.")
+    );
+    assert_eq!(signed_in(last, "claude"), Some("work"));
+    assert_eq!(last.sheet, None);
+    assert!(
+        at.world.claude_code_uses("access-here-again"),
+        "the new login is the one in use"
+    );
+    at.model.shutdown();
+}
+
+/// AppModelTests.swift's aCancelledSignInStopsTheToolAndReportsNothing, on the real core with
+/// a stand-in for `claude` waiting for a code: cancelling stops the tool, whose process is
+/// gone, nothing is typed to it or enrolled, and the sign-in's thread ends.
+#[test]
+#[cfg(unix)]
+fn cancelling_a_sign_in_stops_its_tool() {
+    let at = signing_in_world("cancel");
+    at.model.send(sign_in("travel"));
+    at.told.until("a code asked for", signing(|s| s.wants_code));
+    assert!(at.claude.is_running());
+
+    at.model.send(Intent::CancelSignIn);
+    at.told.until("the sign-in over", |told| {
+        told.last().is_some_and(|last| last.signing_in.is_none())
+    });
+    eventually("the tool stopped", || !at.claude.is_running());
+    let last = at.model.snapshot();
+    assert_eq!(labels(&last), ["work"], "nothing enrolled");
+    assert_eq!((last.failure, last.sheet_failure), (None, None));
+    assert!(at.claude.typed().is_empty());
+
+    at.model.shutdown();
+    eventually("every thread let go of the core", || {
+        Arc::strong_count(&at.core) == 1
+    });
+}
+
+/// Shutting the model down stops a sign-in under way: nothing is left to say it is over, so
+/// its tool is stopped and its thread ends, letting go of the core. Without it the thread
+/// waited on the tool, and the tool on a browser, for ever.
+#[test]
+#[cfg(unix)]
+fn shutting_down_stops_a_sign_in_under_way() {
+    let at = signing_in_world("shutdown-signing-in");
+    at.model.send(sign_in("travel"));
+    at.told.until("a code asked for", signing(|s| s.wants_code));
+    at.model.shutdown();
+    eventually("the tool stopped", || !at.claude.is_running());
+    eventually("every thread let go of the core", || {
+        Arc::strong_count(&at.core) == 1
+    });
+}
+
+/// AppModelTests.swift's aSignInThatCannotStartIsReported on the real core, where Claude
+/// Code's program is nowhere it looks: the sheet it was started from says the core's own
+/// sentence, under its code, and nothing is half-shown.
+#[test]
+fn a_sign_in_the_core_cannot_start_says_so_in_its_sheet() {
+    let world = World::new("no-claude");
+    world.enrolled("work", "here", 10.0);
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    told.until("the account read", shows("work"));
+    model.send(Intent::PresentSheet {
+        sheet: Sheet::Add { provider: None },
+    });
+    model.send(sign_in("travel"));
+    let told = told.until("the failure", |told| {
+        told.last().is_some_and(|last| last.sheet_failure.is_some())
+    });
+    let last = told.last().expect("a snapshot");
+    let failure = last.sheet_failure.as_ref().expect("said in the sheet");
+    assert_eq!(failure.title, "Couldn’t sign in to travel");
+    assert_eq!(failure.code.as_deref(), Some("claude_program_missing"));
+    assert_eq!(last.signing_in, None);
+    assert_eq!(last.sheet, Some(Sheet::Add { provider: None }));
+    assert_eq!(last.failure, None);
     model.shutdown();
 }

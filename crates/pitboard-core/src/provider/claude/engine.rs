@@ -31,6 +31,11 @@ const ADOPTION_SECONDS: u32 = switch::ADOPTION_CEILING_SECONDS;
 /// whole.
 const ASKS_FOR_A_CODE: &str = "Paste code";
 
+/// What `claude auth login` writes when it refuses a code typed back: the start of `Invalid
+/// code. Please make sure the full code was copied.`, which the register's
+/// `sign_in_takes_another_code` holds whole.
+const REFUSES_A_CODE: &str = "Invalid code";
+
 impl Provider for Claude {
     fn id(&self) -> ProviderId {
         ProviderId::Claude
@@ -186,6 +191,14 @@ impl Provider for Claude {
         }
     }
 
+    /// Read from 2.1.289, as the register's `sign_in_takes_another_code` holds: a line typed
+    /// back that is not `<code>#<state>` with both halves is refused, with `Invalid code.`
+    /// on stderr, and `claude auth login` goes on reading in the same process. It prints no
+    /// prompt again, so the field is offered again on the refusal alone.
+    fn refused_code(&self, since: &str) -> bool {
+        since.contains(REFUSES_A_CODE)
+    }
+
     fn overridden_by(&self, ctx: &Context) -> Vec<String> {
         crate::settings::overrides(ctx)
             .iter()
@@ -323,6 +336,35 @@ mod tests {
 
         let opening = &said[..said.find('\n').expect("a first line")];
         assert_eq!(Claude.read_sign_in(opening), SignInView::default());
+    }
+
+    /// A code typed back is refused by what the tool says after it: 2.1.289 writes its
+    /// refusal to stderr and goes on reading. What it said before, its prompt among it, says
+    /// nothing of the code, and a refusal is read once all of it has come, in whatever
+    /// pieces.
+    #[test]
+    fn a_code_is_refused_by_what_is_said_after_it() {
+        let refused = "Invalid code. Please make sure the full code was copied.\n";
+        assert!(Claude.refused_code(refused));
+        assert!(!Claude.refused_code(""));
+        assert!(!Claude.refused_code(&said(ADDRESS)));
+        assert!(!Claude.refused_code("Inval"));
+        assert!(Claude.refused_code(&["Inval", "id code. Please"].concat()));
+    }
+
+    /// What the register says 2.1.289 writes on refusing a code is read as a refusal, so a
+    /// build that words it otherwise is one the conformance run reports.
+    #[test]
+    fn the_refusal_the_register_holds_is_read_as_one() {
+        let fact = crate::assumptions::named("sign_in_takes_another_code").expect("listed");
+        let written = fact
+            .probe
+            .iter()
+            .find(|probe| probe.contains("make sure the full code"))
+            .expect("the refusal is probed for");
+        let refusal = &written[written.find(REFUSES_A_CODE).expect("the refusal")..];
+        assert!(Claude.refused_code(refusal));
+        assert!(refusal.starts_with("Invalid code. Please make sure the full code was copied."));
     }
 
     /// 2.1.289's hyperlink helper, which the address is printed through, writes it as an

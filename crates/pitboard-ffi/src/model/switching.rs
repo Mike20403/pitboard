@@ -359,6 +359,7 @@ fn a_switch_to_the_account_in_use_says_what_it_warned_beside_the_last() {
             to: "home".into(),
             follows_at: None,
             restart: None,
+            said: None,
             warnings: vec![overridden],
         }
     );
@@ -472,7 +473,7 @@ fn two_tools_work_accounts_are_switched_by_their_own_name() {
 /// showed the accounts as they had been and put away what the change had said, a Codex
 /// switch's warning that sessions keep the account it left among it. It is dropped: the read
 /// the change starts itself says what is true now.
-fn a_read_that_started_before(change: impl FnOnce(&mut Hand, &mut Machine)) {
+pub(super) fn a_read_that_started_before(change: impl FnOnce(&mut Hand, &mut Machine)) {
     let before = vec![
         codex_account("personal", true),
         codex_account("work", false),

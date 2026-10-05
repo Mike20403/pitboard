@@ -19,16 +19,25 @@
 //! landed, as the Swift model's `switching` stayed set until its read returned. Meanwhile the
 //! change poll leaves the account index alone: the change is the switch's own.
 //!
+//! A sign-in is told apart by its id, where the Swift model compared objects with `===`. Its
+//! thread hands on what the tool says as it says it, and once the tool has stopped saying
+//! anything it waits to be told whether to enrol what it signed in to: only the sign-in still
+//! under way is enrolled, which is the Swift's check of `signingIn === shown` after its loop.
+//! So a cancel lands on one side of each answer or the other, at the three moments the Swift
+//! handles: before the tool has started, while it waits on a browser, and while what it signed
+//! in to is enrolled.
+//!
 //! A test hands `apply` answers in whatever order it likes, which is how the interleavings
 //! the Swift model's tests reached with gates are reached here without a thread.
 
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
-use super::{Snapshot, WindowRequest};
+use super::{RunningSignIn, Sheet, Snapshot, WindowRequest};
 use crate::{
-    Abandoned, Account, Adoption, PitboardError, Status, Switch, Switched, Tool, Usage, Warning,
+    Abandoned, Account, Adoption, Enrolled, EnrolledAs, PitboardError, Status, Switch, Switched,
+    Tool, Usage, Warning,
 };
 use pitboard_core::label::SEPARATOR;
-use pitboard_core::provider::ProviderId;
+use pitboard_core::provider::{self, ProviderId};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -130,6 +139,18 @@ pub(crate) enum Job {
     Open { location: String },
     /// Give up on an interrupted switch, keeping every login it names.
     Abandon,
+    /// A sign-in, on a thread of its own: start the tool's own sign-in for the account
+    /// `qualified` names, its name with its tool, hand on everything the tool says until it
+    /// stops, then wait for `SignInOver`.
+    SignIn { id: u64, qualified: String },
+    /// Type `code` back to the tool of the sign-in `id`.
+    PasteCode { id: u64, code: String },
+    /// Stop the tool of the sign-in `id`. Once the tool has stopped saying anything this
+    /// stops nothing, since what it signed in to may be being enrolled.
+    StopSignIn { id: u64 },
+    /// The tool of the sign-in `id` has stopped saying anything: enrol what it signed in to,
+    /// or let it go.
+    SignInOver { id: u64, enrol: bool },
 }
 
 /// A read under way, as things stood when it started.
@@ -144,6 +165,8 @@ pub(crate) struct Ticket {
     timed: bool,
     /// Whether it is the read after a switch, whose landing ends the switch.
     after_switch: bool,
+    /// The sign-in it is the read after, whose warnings are said once it has landed.
+    after_sign_in: Option<u64>,
 }
 
 /// Why what is already known is read.
@@ -213,8 +236,33 @@ pub(crate) enum Answer {
     /// The app was opened again, or could not be, which nothing here can mend.
     Opened,
     Abandoned(Result<Option<Abandoned>, PitboardError>),
-    /// The job stopped with a panic and came to nothing. The lane goes on, and the model
-    /// goes on as though the job had answered with nothing new.
+    /// The tool of the sign-in `id` has started, or could not be.
+    SignInStarted {
+        id: u64,
+        started: Result<(), PitboardError>,
+    },
+    /// Something more the tool of the sign-in `id` said, as it came.
+    SignInSaid {
+        id: u64,
+        text: String,
+    },
+    /// The tool of the sign-in `id` has stopped saying anything: it has ended, or been
+    /// stopped. Its thread waits for `Job::SignInOver`.
+    SignInQuiet {
+        id: u64,
+    },
+    /// What enrolling what the sign-in `id` signed in to came to.
+    SignInFinished {
+        id: u64,
+        done: Result<Enrolled, PitboardError>,
+    },
+    /// A code was typed back, or could not be, which the tool says itself if it matters.
+    Pasted,
+    /// A sign-in's tool was stopped, or had stopped already.
+    Stopped,
+    /// The job stopped with a panic, or a sign-in's thread could not be started, and it came
+    /// to nothing. The lane goes on, and the model goes on as though the job had answered
+    /// with nothing new.
     Lost(Job),
 }
 
@@ -241,6 +289,8 @@ struct Asked {
     timed: bool,
     /// Whether a switch asked, which is over once this read lands.
     after_switch: bool,
+    /// The sign-in that asked, whose warnings are said once this read lands.
+    after_sign_in: Option<u64>,
 }
 
 /// What a person asked for that did not happen, before it is numbered.
@@ -288,6 +338,37 @@ fn could_not_switch(qualified: &str) -> String {
 
 const COULD_NOT_GIVE_UP: &str = "Couldn’t give up on the interrupted switch";
 
+/// "Couldn’t sign in to work", for a sign-in of the account to be called `name`.
+fn could_not_sign_in(name: &str) -> String {
+    format!("Couldn’t sign in to {name}")
+}
+
+/// What a sign-in that put the new login of the account `name` in use says it did: signed in
+/// to `again` where the account was enrolled already, and enrolled by it where it was not.
+fn signed_in_now(name: &str, again: bool) -> String {
+    if again {
+        format!("Signed in to {name} again. Its new login is the one in use now.")
+    } else {
+        format!("Enrolled {name}, the account signed in now. Its new login is the one in use.")
+    }
+}
+
+/// `typed` without the white space around it, as the Swift sheets took it away with
+/// Foundation's `whitespacesAndNewlines`, by the rule a link from outside is trimmed by.
+fn trimmed(typed: &str) -> &str {
+    pitboard_sites::trimmed(typed)
+}
+
+/// The account `name` of `provider`'s tool as the core types it: bare for Claude Code, and
+/// with its tool for any other.
+fn typed_as_core(provider: &str, name: &str) -> String {
+    if provider == ProviderId::Claude.code() {
+        name.to_owned()
+    } else {
+        format!("{provider}{SEPARATOR}{name}")
+    }
+}
+
 /// A label as the core types it, taken apart: `codex/work` is Codex's `work`, and a bare
 /// `work` is Claude Code's, which is what a bare label has always meant.
 pub(crate) fn split(typed: &str) -> (&str, &str) {
@@ -315,6 +396,55 @@ struct Quitting {
     question: QuitQuestion,
     /// Whether it is still asked, and so shown and holding every other switch back.
     asked: bool,
+}
+
+/// A sign-in under way, as the Swift model's `SigningIn` held it.
+///
+/// The Swift kept the sheet it was started from, to close only that one once it finished and
+/// say a failure only in that one. Here a sign-in under way keeps its sheet, so the sheet up
+/// while it runs is always that one, or none once that one has been closed.
+#[derive(Debug)]
+struct SigningIn {
+    id: u64,
+    /// The tool, as a `Tool`'s code.
+    provider: String,
+    /// The name to enrol it under, bare.
+    name: String,
+    /// Everything the tool has said so far.
+    said: String,
+    /// How much of `said` the tool had said when a code was last typed back, if one was.
+    /// What it says after that is what says whether it took the code.
+    pasted_at: Option<usize>,
+    /// Whether the tool has started, so that a cancel has a tool to stop. One cancelled
+    /// before is stopped as it starts.
+    started: bool,
+}
+
+impl SigningIn {
+    /// What it is shown as, read by its tool's own module. A code the tool refused since it
+    /// was typed back is no longer one typed back: the tool reads another, so the field is
+    /// offered again.
+    fn shown(&self) -> RunningSignIn {
+        let (view, code_refused) = match ProviderId::parse(&self.provider) {
+            Some(tool) => {
+                let refused = self.pasted_at.is_some_and(|at| {
+                    provider::refused_code(tool, self.said.get(at..).unwrap_or_default())
+                });
+                let pasted = self.pasted_at.is_some() && !refused;
+                (provider::sign_in_view(tool, &self.said, pasted), refused)
+            }
+            None => (provider::SignInView::default(), false),
+        };
+        RunningSignIn {
+            id: self.id,
+            provider: self.provider.clone(),
+            name: self.name.clone(),
+            said: self.said.clone(),
+            url: view.url,
+            wants_code: view.wants_code,
+            code_refused,
+        }
+    }
 }
 
 /// Everything the model knows. The actor thread owns it, and nothing else touches it.
@@ -379,6 +509,18 @@ pub(crate) struct State {
     failures: u64,
     /// The requests for the main window.
     window: WindowRequest,
+    /// The sign-in under way, from the moment it is asked for until it has finished, failed
+    /// or been cancelled.
+    signing_in: Option<SigningIn>,
+    /// How many sign-ins have been asked for, which numbers the next.
+    sign_ins: u64,
+    /// What a finished sign-in warned about, said beside the read after it once that read has
+    /// landed, which would otherwise put it away: by the sign-in's id.
+    said_after_read: Vec<(u64, Vec<Warning>)>,
+    /// The sheet over the main window.
+    sheet: Option<Sheet>,
+    /// What went wrong in the sheet that is up.
+    sheet_failure: Option<Failure>,
 }
 
 impl State {
@@ -410,6 +552,11 @@ impl State {
                 serial: 0,
                 pane: None,
             },
+            signing_in: None,
+            sign_ins: 0,
+            said_after_read: Vec::new(),
+            sheet: None,
+            sheet_failure: None,
         }
     }
 
@@ -456,6 +603,9 @@ impl State {
             abandoned: self.abandoned.clone(),
             failure: self.presented.clone(),
             window_request: self.window,
+            signing_in: self.signing_in.as_ref().map(SigningIn::shown),
+            sheet: self.sheet.clone(),
+            sheet_failure: self.sheet_failure.clone(),
         }
     }
 
@@ -511,6 +661,93 @@ impl State {
             }
             Intent::AbandonStuckSwitch => jobs.push(Job::Abandon),
             Intent::DismissAbandoned => self.abandoned = None,
+            Intent::SignIn { provider, name } => self.sign_in(provider, &name, jobs),
+            Intent::PasteCode { code } => self.paste(&code, jobs),
+            Intent::CancelSignIn => {
+                // Before its tool has started there is nothing to stop yet: it is stopped as
+                // it starts.
+                if let Some(signing) = self.signing_in.take()
+                    && signing.started
+                {
+                    jobs.push(Job::StopSignIn { id: signing.id });
+                }
+            }
+            Intent::PresentSheet { sheet } => self.present_sheet(sheet, jobs),
+            Intent::CloseSheet => {
+                self.sheet = None;
+                self.sheet_failure = None;
+            }
+        }
+    }
+
+    /// A sign-in of `provider`'s tool, for the account to be called `name`, as the Swift
+    /// model's `signIn` started one. One at a time: a second would take the place of the one
+    /// on screen and leave the first tool waiting on a browser with nothing to stop it.
+    fn sign_in(&mut self, provider: String, name: &str, jobs: &mut Vec<Job>) {
+        let name = trimmed(name);
+        if self.signing_in.is_some() || name.is_empty() {
+            return;
+        }
+        self.sign_ins += 1;
+        let id = self.sign_ins;
+        // Started from the sheet that is up, which says nothing more of what went wrong the
+        // last time.
+        self.sheet_failure = None;
+        jobs.push(Job::SignIn {
+            id,
+            qualified: format!("{provider}{SEPARATOR}{name}"),
+        });
+        self.signing_in = Some(SigningIn {
+            id,
+            provider,
+            name: name.to_owned(),
+            said: String::new(),
+            pasted_at: None,
+            started: false,
+        });
+    }
+
+    /// Types `code` back to the sign-in under way, where its tool asks for one: which it does
+    /// only once it has started and said so, and once for each code it reads.
+    fn paste(&mut self, code: &str, jobs: &mut Vec<Job>) {
+        let code = trimmed(code);
+        let Some(signing) = self.signing_in.as_mut() else {
+            return;
+        };
+        if code.is_empty() || !signing.shown().wants_code {
+            return;
+        }
+        signing.pasted_at = Some(signing.said.len());
+        jobs.push(Job::PasteCode {
+            id: signing.id,
+            code: code.to_owned(),
+        });
+    }
+
+    /// Puts `sheet` over the main window, opening it on the accounts the sheet is about.
+    fn present_sheet(&mut self, sheet: Sheet, jobs: &mut Vec<Job>) {
+        // A sign-in under way keeps its sheet: replacing it would leave the tool's sign-in
+        // running with nothing on screen to finish or stop it.
+        if self.signing_in.is_none() {
+            // The first answer to what is installed may have come while the person's login
+            // shell was too slow to say, and the core asks it once more when that was so.
+            if self.sheet.is_none() && matches!(sheet, Sheet::Add { .. }) {
+                self.ask_installed(jobs);
+            }
+            if self.sheet.as_ref() != Some(&sheet) {
+                self.sheet_failure = None;
+            }
+            self.sheet = Some(sheet);
+        }
+        self.show_window(Some(Pane::Accounts));
+    }
+
+    /// Asks which tools are installed, unless that is being asked already, whose answer
+    /// does as well.
+    fn ask_installed(&mut self, jobs: &mut Vec<Job>) {
+        if !self.asking_installed {
+            self.asking_installed = true;
+            jobs.push(Job::AskInstalled);
         }
     }
 
@@ -548,10 +785,7 @@ impl State {
     fn refresh(&mut self, asked: Asked, now: Now, jobs: &mut Vec<Job>) {
         if self.installed.as_ref().is_none_or(Vec::is_empty) {
             self.waiting.push(asked);
-            if !self.asking_installed {
-                self.asking_installed = true;
-                jobs.push(Job::AskInstalled);
-            }
+            self.ask_installed(jobs);
             return;
         }
         self.read(asked, now, jobs);
@@ -559,22 +793,21 @@ impl State {
 
     fn read(&mut self, asked: Asked, now: Now, jobs: &mut Vec<Job>) {
         let older_than = i64::try_from(asked.older_than.as_millis()).unwrap_or(i64::MAX);
+        let ticket = Ticket {
+            changes_seen: self.changes_seen,
+            timed: asked.timed,
+            after_switch: asked.after_switch,
+            after_sign_in: asked.after_sign_in,
+        };
         if let Some(at) = self.updated_ms
             && now.epoch_ms.saturating_sub(at) < older_than
         {
-            self.read_over(asked.timed, now);
-            if asked.after_switch {
-                self.switching = None;
-            }
+            self.over(ticket, now);
             return;
         }
         self.reads += 1;
         jobs.push(Job::Read {
-            ticket: Ticket {
-                changes_seen: self.changes_seen,
-                timed: asked.timed,
-                after_switch: asked.after_switch,
-            },
+            ticket,
             fresh: asked.fresh,
         });
     }
@@ -586,12 +819,28 @@ impl State {
         }
     }
 
-    /// A read that was under way has ended, one way or another. The read after a switch
-    /// ending ends the switch.
+    /// A read that was under way has ended, one way or another.
     fn landed(&mut self, ticket: Ticket, now: Now) {
         self.reads = self.reads.saturating_sub(1);
+        self.over(ticket, now);
+    }
+
+    /// A read is over, or was not needed. The read after a switch ending ends the switch,
+    /// and what a sign-in warned about is said once the read after it is over, whatever it
+    /// came to, as the Swift model said it once its `refresh` had returned.
+    fn over(&mut self, ticket: Ticket, now: Now) {
         if ticket.after_switch {
             self.switching = None;
+        }
+        if let Some(id) = ticket.after_sign_in
+            && let Some(at) = self.said_after_read.iter().position(|(of, _)| *of == id)
+        {
+            let (_, said) = self.said_after_read.remove(at);
+            let new: Vec<Warning> = said
+                .into_iter()
+                .filter(|warning| !self.warnings.contains(warning))
+                .collect();
+            self.warnings.extend(new);
         }
         self.read_over(ticket.timed, now);
     }
@@ -626,8 +875,25 @@ impl State {
                 reopen,
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
-            Answer::Opened => {}
+            Answer::Opened | Answer::Pasted | Answer::Stopped => {}
             Answer::Abandoned(done) => self.abandon_over(done.map_err(Some), now, jobs),
+            Answer::SignInStarted { id, started } => {
+                self.sign_in_started(id, started.map_err(Some), jobs);
+            }
+            Answer::SignInSaid { id, text } => {
+                if let Some(signing) = self.signing_in.as_mut().filter(|s| s.id == id) {
+                    signing.said.push_str(&text);
+                }
+            }
+            // Only the sign-in still under way is enrolled. One cancelled since was stopped,
+            // and what its stopped tool left is not something that went wrong.
+            Answer::SignInQuiet { id } => jobs.push(Job::SignInOver {
+                id,
+                enrol: self.signing_in.as_ref().is_some_and(|s| s.id == id),
+            }),
+            Answer::SignInFinished { id, done } => {
+                self.sign_in_finished(id, done.map_err(Some), now, jobs);
+            }
             Answer::Lost(job) => match job {
                 Job::Read { ticket, .. } => self.landed(ticket, now),
                 Job::ReadOffline { why } => self.known(why, None, now),
@@ -642,8 +908,144 @@ impl State {
                 }
                 Job::Open { .. } => {}
                 Job::Abandon => self.abandon_over(Err(None), now, jobs),
+                // Its tool may or may not have started, and nothing can be said of what it
+                // did: the sign-in is over, said as a failure of its own.
+                Job::SignIn { id, .. } => self.sign_in_started(id, Err(None), jobs),
+                Job::SignInOver { id, enrol: true } => {
+                    self.sign_in_finished(id, Err(None), now, jobs);
+                }
+                Job::SignInOver { enrol: false, .. }
+                | Job::PasteCode { .. }
+                | Job::StopSignIn { .. } => {}
             },
         }
+    }
+
+    /// The tool of the sign-in `id` has started, or could not be. `Err(None)` is a start
+    /// that came to nothing.
+    fn sign_in_started(
+        &mut self,
+        id: u64,
+        started: Result<(), Option<PitboardError>>,
+        jobs: &mut Vec<Job>,
+    ) {
+        let current = self.signing_in.as_ref().is_some_and(|s| s.id == id);
+        match started {
+            Ok(()) => match self.signing_in.as_mut().filter(|_| current) {
+                Some(signing) => signing.started = true,
+                // Cancelled while it was starting: what started is stopped rather than
+                // watched.
+                None => jobs.push(Job::StopSignIn { id }),
+            },
+            Err(error) => {
+                // Cancelled, and it never started: nothing to say.
+                if let Some(signing) = self.signing_in.take_if(|_| current) {
+                    self.sign_in_failed(&signing, error);
+                }
+            }
+        }
+    }
+
+    /// What enrolling what the sign-in `id` signed in to came to. `Err(None)` is a finish
+    /// that came to nothing.
+    ///
+    /// Cancelled while it was being finished, too late to stop the tool, what it signed in
+    /// to is enrolled all the same, so it is read, and nothing else is touched: a sheet or a
+    /// sign-in started since is somebody else's. Failed once cancelled, the cancel reached the
+    /// tool first, which was somebody's answer, and says nothing.
+    fn sign_in_finished(
+        &mut self,
+        id: u64,
+        done: Result<Enrolled, Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        let signing = self.signing_in.take_if(|s| s.id == id);
+        match (done, signing) {
+            (Ok(done), signing) => {
+                self.changes_seen += 1;
+                self.updated_ms = None;
+                let mut asked = Asked::default();
+                if let Some(signing) = signing {
+                    // The sheet it was started from, if it is still up.
+                    self.sheet = None;
+                    self.sheet_failure = None;
+                    let said = self.enrolled(&signing, done);
+                    if !said.is_empty() {
+                        self.said_after_read.push((id, said));
+                    }
+                    asked.after_sign_in = Some(id);
+                }
+                self.refresh(asked, now, jobs);
+            }
+            (Err(error), Some(signing)) => self.sign_in_failed(&signing, error),
+            (Err(_), None) => {}
+        }
+    }
+
+    /// A sign-in that could not start or finish, said in the sheet it was started from,
+    /// which stays up to say it with the name still in it, and its warnings beside the
+    /// accounts, since what it found is about the machine and outlives the sheet. Where that
+    /// sheet has gone, or none was up, it is said in the window: something asked for that did
+    /// not happen is said somewhere.
+    fn sign_in_failed(&mut self, signing: &SigningIn, error: Option<PitboardError>) {
+        let title = could_not_sign_in(&signing.name);
+        let refused = match error {
+            Some(error) => Refused::of(title, error),
+            None => Refused::lost(title),
+        };
+        self.keep(&refused.warnings);
+        if self.sheet.is_some() {
+            let failure = self.number(refused);
+            self.sheet_failure = Some(failure);
+        } else {
+            self.present(refused);
+        }
+    }
+
+    /// What a finished sign-in says beyond the row it adds, and what it warned about that is
+    /// to be said beside the read that follows, as AppModel.swift's `enrolled` said it.
+    ///
+    /// Signing in to the account in use puts its new login in use at once, and what that
+    /// means for sessions already running is kept the way a switch's is. The tool did not
+    /// switch, so what its last switch said stays true and stays with it; a count of the
+    /// same sessions naming this account's old login, beside one naming the account the
+    /// switch left, would contradict it.
+    fn enrolled(&mut self, signing: &SigningIn, done: Enrolled) -> Vec<Warning> {
+        let EnrolledAs::InUse { again } = done.outcome else {
+            return done.warnings;
+        };
+        let provider = signing.provider.as_str();
+        let to = typed_as_core(provider, &signing.name);
+        let mut said = self
+            .last_switches
+            .iter()
+            .find(|last| last.provider == provider && last.to == to)
+            .cloned()
+            .unwrap_or_else(|| LastSwitch {
+                provider: provider.to_owned(),
+                to,
+                follows_at: None,
+                restart: None,
+                said: None,
+                warnings: Vec::new(),
+            });
+        said.said = Some(signed_in_now(&signing.name, again));
+        let counted = said
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "sessions_still_running");
+        let new: Vec<Warning> = done
+            .warnings
+            .into_iter()
+            .filter(|warning| {
+                !said.warnings.contains(warning)
+                    && !(counted && warning.code == "sessions_keep_old_login")
+            })
+            .collect();
+        said.warnings.extend(new);
+        self.remember(said);
+        Vec::new()
     }
 
     /// The question of what is installed is answered, or came to nothing: the reads that
@@ -917,16 +1319,8 @@ impl State {
                     Some(error) => Refused::of(title, error),
                     None => Refused::lost(title),
                 };
-                // Said beside the warnings already shown, first, with nothing the last read
-                // found dropped to make room for them. Nothing moved, so what the last switch
-                // said stands too.
-                let mut warnings = refused.warnings.clone();
-                warnings.extend(
-                    self.warnings
-                        .drain(..)
-                        .filter(|warning| !refused.warnings.contains(warning)),
-                );
-                self.warnings = warnings;
+                // Nothing moved, so what the last switch said stands too.
+                self.keep(&refused.warnings);
                 self.present(refused);
             }
         }
@@ -959,6 +1353,7 @@ impl State {
                     to,
                     follows_at,
                     restart,
+                    said: None,
                     warnings: done.warnings,
                 });
             }
@@ -979,6 +1374,7 @@ impl State {
                         to: label,
                         follows_at: None,
                         restart: None,
+                        said: None,
                         warnings: Vec::new(),
                     });
                 for warning in done.warnings {
@@ -1045,17 +1441,34 @@ impl State {
         }
     }
 
-    /// Says a failure in the window, numbered one higher than the last.
+    /// Says a failure in the window.
     fn present(&mut self, refused: Refused) {
+        self.presented = Some(self.number(refused));
+        self.show_window(None);
+    }
+
+    /// A failure, numbered one higher than the last, wherever it is said.
+    fn number(&mut self, refused: Refused) -> Failure {
         self.failures += 1;
-        self.presented = Some(Failure {
+        Failure {
             id: self.failures,
             title: refused.title,
             message: refused.message,
             code: refused.code,
             warnings: refused.warnings,
-        });
-        self.show_window(None);
+        }
+    }
+
+    /// A failure's warnings said beside the ones already shown, first, with nothing the last
+    /// read found dropped to make room for them, as AppModel.swift's `keep` said them.
+    fn keep(&mut self, warned: &[Warning]) {
+        let mut warnings = warned.to_vec();
+        warnings.extend(
+            self.warnings
+                .drain(..)
+                .filter(|warning| !warned.contains(warning)),
+        );
+        self.warnings = warnings;
     }
 
     /// Asks for the main window, on `pane` when it matters which.

@@ -11,13 +11,16 @@
 //! each message in turn, has `State::apply` say what follows, which does no I/O at all, and
 //! runs the jobs that returns on the lanes in `lanes.rs`, whose answers come back to it as
 //! messages, so a read still answers while a switch waits on the core or an app is given its
-//! time to quit. Between messages it waits until the next timer is due. After
-//! each message it makes the snapshot, and where that differs from the last one it numbers
-//! it one higher and hands it to the one notifier thread, which tells the listener in order.
+//! time to quit. Each sign-in runs on a thread of its own, which reads what the tool says
+//! until it stops, as the Swift model's SignInCalls read it. Between messages it waits until
+//! the next timer is due. After each message it makes the snapshot, and where that differs
+//! from the last one it numbers it one higher and hands it to the one notifier thread, which
+//! tells the listener in order.
 //!
 //! This part reads accounts, notices changes made elsewhere, switches, quits an app that
-//! holds a login when asked to, and keeps what each tool's last switch said. Signing in and
-//! what the window says are still the Swift model's, and come here after it.
+//! holds a login when asked to, keeps what each tool's last switch said, runs sign-ins and
+//! keeps the sheet over the main window. What the window says is still the Swift model's, and
+//! comes here after it.
 
 mod lanes;
 mod state;
@@ -26,6 +29,8 @@ mod state;
 mod cadence;
 #[cfg(test)]
 mod reading;
+#[cfg(test)]
+mod signing;
 #[cfg(test)]
 mod switching;
 #[cfg(test)]
@@ -101,6 +106,75 @@ pub enum Intent {
     AbandonStuckSwitch,
     /// Somebody has read what giving up on an interrupted switch kept, and put it away.
     DismissAbandoned,
+    /// Sign in to `provider`'s tool, a `Tool`'s code, through the tool's own sign-in in a
+    /// browser, as the account to be called `name`: a new account, or one enrolled already
+    /// whose parked login can no longer be used, signed in to again, as the Swift model signs
+    /// in to both. The name is taken without the white space around it, and one with nothing
+    /// else in it starts nothing. One sign-in at a time: asked for while one is under way, it
+    /// does nothing. What goes wrong is said in the sheet it was started from, or in the
+    /// window where that sheet has gone, and the sheet closes once the sign-in has finished.
+    /// Signing in again to the account in use is kept as what its tool's last switch said.
+    SignIn { provider: String, name: String },
+    /// Type back the code the browser showed, to the sign-in under way, once its tool asks
+    /// for one: `RunningSignIn::wants_code`. Taken without the white space around it, and one
+    /// with nothing else in it is not typed. A code is asked for once, and again once Claude
+    /// Code has refused the one typed back, since it reads another in the same sign-in.
+    PasteCode { code: String },
+    /// Stop the sign-in under way, at whichever of three moments it comes. Before the tool
+    /// has started, the tool is stopped once it has, rather than watched. While the tool waits
+    /// on the browser, it is stopped now, and nothing is enrolled. Once the tool has finished
+    /// and what it signed in to is being enrolled, it comes too late to stop that, so the
+    /// accounts are read once it is, and nothing else is touched. Nothing is said of it, since
+    /// somebody asked for it to stop, and its sheet stays until the app closes it.
+    CancelSignIn,
+    /// Put `sheet` over the main window, and open the window on the accounts it is about. A
+    /// sign-in under way keeps its own sheet: replacing it would leave the tool's sign-in
+    /// running with nothing on screen to finish or stop it. The sheet for a new account, put
+    /// up where none was, asks again which tools are installed: the first answer may have come
+    /// while the person's login shell was too slow to say.
+    PresentSheet { sheet: Sheet },
+    /// The sheet over the main window has gone, however it went, and what went wrong in it
+    /// goes with it. A sign-in it started goes on until it ends or is cancelled.
+    CloseSheet,
+}
+
+/// A sheet over the main window, as the Swift model's `AccountSheet` has them. Not called
+/// `AccountSheet`, which the macOS app already has a type of.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum Sheet {
+    /// A new account, which means the tool's own sign-in in a browser. The tool it starts on,
+    /// as a `Tool`'s code, when something already said which.
+    Add { provider: Option<String> },
+    /// An enrolled account whose parked login can no longer be used, signed in to again
+    /// through the same sign-in as a new one.
+    SignInAgain { provider: String, label: String },
+    /// The login signed in now to this tool, to be recorded under a name: no browser.
+    Name { provider: String, email: String },
+    /// A new name for an enrolled account.
+    Rename { provider: String, label: String },
+}
+
+/// A sign-in under way, and what its tool has said so far.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RunningSignIn {
+    /// Tells this sign-in from any other, where the Swift model compared objects: one higher
+    /// for each sign-in asked for.
+    pub id: u64,
+    /// The tool, as a `Tool`'s code.
+    pub provider: String,
+    /// The name the account is to be enrolled under, bare, as it was asked for.
+    pub name: String,
+    /// Everything the tool has said so far, as it said it.
+    pub said: String,
+    /// The address the tool printed for a person to open when the browser did not open by
+    /// itself, as printed, to make a link of. Read by the tool's own module.
+    pub url: Option<String>,
+    /// Whether to offer a field for the code the browser shows, which the tool is waiting to
+    /// have typed back. Read by the tool's own module.
+    pub wants_code: bool,
+    /// Whether the tool refused the last code typed back, and reads another in its place:
+    /// the field is offered again, and the sheet can say why.
+    pub code_refused: bool,
 }
 
 /// A switch waiting for the person to let Pitboard quit an app first: the app keeps the
@@ -142,6 +216,11 @@ pub struct LastSwitch {
     pub follows_at: Option<i64>,
     /// For a tool whose running sessions never pick a switch up.
     pub restart: Option<RestartNeeded>,
+    /// What a sign-in that put a new login in use in place of the account's old one said it
+    /// did, where that is what this is: sessions already running are left on the old login
+    /// exactly as a switch leaves them on the old account. Kept beside what the tool's last
+    /// switch said, which it leaves as it was, since the tool did not switch.
+    pub said: Option<String>,
     /// What the switch warned about, every warning of it.
     pub warnings: Vec<Warning>,
 }
@@ -242,6 +321,15 @@ pub struct Snapshot {
     pub failure: Option<Failure>,
     /// What the model wants of the main window.
     pub window_request: WindowRequest,
+    /// The sign-in under way, from the moment it is asked for until it has finished, failed
+    /// or been cancelled. Nothing else is signed in to meanwhile, so the rows hold back.
+    pub signing_in: Option<RunningSignIn>,
+    /// The sheet over the main window, while one is asked for.
+    pub sheet: Option<Sheet>,
+    /// What went wrong in the sheet that is up, said inside it, where what was typed is still
+    /// there to correct: a sign-in started from it that could not start or finish. Numbered
+    /// with `failure`, and gone with the sheet.
+    pub sheet_failure: Option<Failure>,
 }
 
 /// What a platform's own code could not do. Every method of a trait an app implements
