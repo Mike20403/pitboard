@@ -30,14 +30,17 @@
 //! A test hands `apply` answers in whatever order it likes, which is how the interleavings
 //! the Swift model's tests reached with gates are reached here without a thread.
 
+use super::advice::{Advice, Told, rename_told};
+use super::preferences::Preferences;
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
-use super::{RunningSignIn, Sheet, Snapshot, WindowRequest};
+use super::{RunOutNotice, RunningSignIn, Sheet, WindowRequest};
 use crate::{
     Abandoned, Account, Adoption, Enrolled, EnrolledAs, PitboardError, Status, Switch, Switched,
     Tool, Usage, Warning,
 };
 use pitboard_core::label::SEPARATOR;
 use pitboard_core::provider::{self, ProviderId};
+use pitboard_core::usage::same_reset;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -60,6 +63,11 @@ pub(crate) struct Cadence {
     pub(crate) quit_within: Duration,
     /// How often, meanwhile, it is asked whether the app is still running.
     pub(crate) quit_checked_every: Duration,
+    /// How often what is shown is made again for the time alone, once started: a reset's
+    /// "resets in 2h 05m", a limit used up until a clock time, a parked login's days. A
+    /// minute, which is as often as any of them changes, as the Swift app's
+    /// `TimelineView(.everyMinute)` drew its bars.
+    pub(crate) tick_every: Duration,
 }
 
 impl Cadence {
@@ -70,6 +78,7 @@ impl Cadence {
         stale_after: Duration::from_secs(60),
         quit_within: Duration::from_secs(30),
         quit_checked_every: Duration::from_millis(200),
+        tick_every: Duration::from_secs(60),
     };
 }
 
@@ -151,6 +160,31 @@ pub(crate) enum Job {
     /// The tool of the sign-in `id` has stopped saying anything: enrol what it signed in to,
     /// or let it go.
     SignInOver { id: u64, enrol: bool },
+    /// Enrol the login signed in now to `provider`'s tool as `name`, with no browser. `from`
+    /// is the sheet that was up when it was asked for, where what goes wrong is said.
+    Enrol {
+        provider: String,
+        name: String,
+        from: Option<Sheet>,
+    },
+    /// Give the account `label` of `provider`'s tool the name `to`, inside its own tool.
+    Rename {
+        provider: String,
+        label: String,
+        to: String,
+        from: Option<Sheet>,
+    },
+    /// Drop the account `qualified` names, and the login parked for it.
+    Forget { qualified: String },
+    /// Read what the model keeps of its own in Pitboard's directory: the record of what was
+    /// told, and the app's preferences.
+    LoadKept,
+    /// Keep the record of what was told, the whole of it.
+    KeepTold { told: Told },
+    /// Keep the app's preferences, the whole of them.
+    KeepPreferences { preferences: Preferences },
+    /// Post a notification through the app's own system.
+    Post { notice: RunOutNotice },
 }
 
 /// A read under way, as things stood when it started.
@@ -256,6 +290,40 @@ pub(crate) enum Answer {
         id: u64,
         done: Result<Enrolled, PitboardError>,
     },
+    /// What enrolling the login signed in now came to.
+    Enrolled {
+        provider: String,
+        from: Option<Sheet>,
+        done: Result<Enrolled, PitboardError>,
+    },
+    /// What renaming the account `label` of `provider`'s tool to `to` came to.
+    Renamed {
+        provider: String,
+        label: String,
+        to: String,
+        from: Option<Sheet>,
+        done: Result<(), PitboardError>,
+    },
+    /// What forgetting the account `qualified` names came to.
+    Forgot {
+        qualified: String,
+        done: Result<(), PitboardError>,
+    },
+    /// What the model keeps of its own, as it was read: nothing told where nothing was kept
+    /// or it could not be read, and the app's preferences, with whether they came from their
+    /// file, as `Preferences::kept` reads them: from the file where it was there, and
+    /// otherwise as the app's earlier store held them. `None` where the file is there and
+    /// could not be read, which is not the same as no file.
+    Kept {
+        told: Told,
+        preferences: Option<(Preferences, bool)>,
+    },
+    /// What was kept was written, or could not be, which nothing here can mend: told again,
+    /// a run-out is told once more after a relaunch, and nothing worse.
+    Saved,
+    /// A notification was posted, or could not be, which is the app's system's to say: the
+    /// window says the same either way.
+    Posted,
     /// A code was typed back, or could not be, which the tool says itself if it matters.
     Pasted,
     /// A sign-in's tool was stopped, or had stopped already.
@@ -343,6 +411,18 @@ fn could_not_sign_in(name: &str) -> String {
     format!("Couldn’t sign in to {name}")
 }
 
+/// "Couldn’t forget work", for the account `qualified` names.
+fn could_not_forget(qualified: &str) -> String {
+    format!("Couldn’t forget {}", split(qualified).1)
+}
+
+/// "Couldn’t rename work", for the account `label`.
+fn could_not_rename(label: &str) -> String {
+    format!("Couldn’t rename {label}")
+}
+
+const COULD_NOT_NAME: &str = "Couldn’t name this account";
+
 /// What a sign-in that put the new login of the account `name` in use says it did: signed in
 /// to `again` where the account was enrolled already, and enrolled by it where it was not.
 fn signed_in_now(name: &str, again: bool) -> String {
@@ -355,7 +435,7 @@ fn signed_in_now(name: &str, again: bool) -> String {
 
 /// `typed` without the white space around it, as the Swift sheets took it away with
 /// Foundation's `whitespacesAndNewlines`, by the rule a link from outside is trimmed by.
-fn trimmed(typed: &str) -> &str {
+pub(crate) fn trimmed(typed: &str) -> &str {
     pitboard_sites::trimmed(typed)
 }
 
@@ -385,6 +465,16 @@ fn typed(account: &Account) -> Option<&str> {
     } else {
         account.qualified.as_deref()
     }
+}
+
+/// A rename, as its answer is taken in.
+#[derive(Clone, Copy)]
+struct Renaming<'a> {
+    provider: &'a str,
+    label: &'a str,
+    to: &'a str,
+    /// The sheet it was asked from, where what goes wrong is said.
+    from: Option<&'a Sheet>,
 }
 
 /// The quit question last asked. A question closed unanswered is kept, unasked, because an
@@ -456,20 +546,20 @@ pub(crate) struct State {
     started: bool,
     /// What the last read gave, or the last numbers known, or nothing before anything has
     /// been read.
-    status: Option<Status>,
+    pub(crate) status: Option<Status>,
     /// Everything that went wrong on the way, not only the first of them.
-    warnings: Vec<Warning>,
+    pub(crate) warnings: Vec<Warning>,
     /// What went wrong with the last read, when it did not answer. The numbers shown are
     /// then the last ones measured.
-    failure: Option<ReadFailure>,
+    pub(crate) failure: Option<ReadFailure>,
     /// An interrupted switch nothing can finish, which the app offers a way out of.
-    stuck: bool,
+    pub(crate) stuck: bool,
     /// When the accounts were last read, in epoch milliseconds by the wall clock.
-    updated_ms: Option<i64>,
+    pub(crate) updated_ms: Option<i64>,
     /// Reads under way. Reads overlap, a timer's with one somebody asked for, so they are
     /// counted rather than flagged: the first to end would otherwise say none is running
     /// while the other still is.
-    reads: u32,
+    pub(crate) reads: u32,
     /// Counts the changes this app has made and the ones the poll noticed made elsewhere. A
     /// read that started before one lands after it with who was signed in before, and would
     /// put away what the change said, so it is dropped: the read the change starts itself
@@ -478,7 +568,7 @@ pub(crate) struct State {
     /// The tools whose program was found, once an answer has come. Asked by the first read,
     /// and by each read while none has been found: the core asks a login shell that was too
     /// slow to answer once more, and finding none is what says to install a tool.
-    installed: Option<Vec<Tool>>,
+    pub(crate) installed: Option<Vec<Tool>>,
     /// Whether that is being asked now. A read asked for meanwhile waits for the same answer
     /// rather than asking again.
     asking_installed: bool,
@@ -500,15 +590,15 @@ pub(crate) struct State {
     /// asked for.
     quitting: Option<Quitting>,
     /// What each tool's last switch said that is still true, one per tool at most.
-    last_switches: Vec<LastSwitch>,
+    pub(crate) last_switches: Vec<LastSwitch>,
     /// What giving up on an interrupted switch kept, until somebody has read it.
-    abandoned: Option<Abandoned>,
+    pub(crate) abandoned: Option<Abandoned>,
     /// The last thing asked for that did not happen.
-    presented: Option<Failure>,
+    pub(crate) presented: Option<Failure>,
     /// How many failures have been said, which numbers the next.
     failures: u64,
     /// The requests for the main window.
-    window: WindowRequest,
+    pub(crate) window: WindowRequest,
     /// The sign-in under way, from the moment it is asked for until it has finished, failed
     /// or been cancelled.
     signing_in: Option<SigningIn>,
@@ -518,9 +608,41 @@ pub(crate) struct State {
     /// landed, which would otherwise put it away: by the sign-in's id.
     said_after_read: Vec<(u64, Vec<Warning>)>,
     /// The sheet over the main window.
-    sheet: Option<Sheet>,
+    pub(crate) sheet: Option<Sheet>,
     /// What went wrong in the sheet that is up.
-    sheet_failure: Option<Failure>,
+    pub(crate) sheet_failure: Option<Failure>,
+    /// The sheets a name typed in is being saved from: an enrolment or a rename asked for from
+    /// the sheet, until it has answered. A save from a sheet cannot be withdrawn, so the sheet
+    /// holds back while it runs, as NameSheets.swift held back while `saving`.
+    pub(crate) saving: Vec<Sheet>,
+    /// The minute tick, which makes again what is shown for the time alone.
+    tick: Timer,
+    /// Accounts that have run out while another of the same tool has room, one per tool at
+    /// most, the newer first. Said in the window whether or not notifications are allowed,
+    /// so the advice does not depend on a permission.
+    pub(crate) advice: Vec<Advice>,
+    /// What has been told about since the model started, which decides what advice is new,
+    /// as Notifier.swift's `told` decided it: the window offers what was told, after a
+    /// relaunch too, for as long as the numbers bear it out.
+    pub(crate) told_this_launch: Told,
+    /// What has been told about in a notification, once per reset of a limit, in this
+    /// launch or an earlier one: kept in Pitboard's directory, so a run-out notified before
+    /// a relaunch is not notified again after it.
+    pub(crate) told: Told,
+    /// The app's own preferences, kept in Pitboard's directory.
+    pub(crate) preferences: Preferences,
+    /// Whether the preferences have been read. Until they are, and for good where they
+    /// could not be, nothing is written over what may be in their file.
+    preferences_read: bool,
+    /// Whether what the model keeps is being read, from the moment it is started until it
+    /// is in. Nothing is advised on meanwhile, and what is shown is advised on once it is in,
+    /// so a run-out notified before a relaunch is never notified again because the read
+    /// after it landed first.
+    loading_kept: bool,
+    /// Whether what is shown is what stands in for a read that failed before anything was
+    /// shown, the last numbers measured, which nothing has advised on: as AppModel.swift's
+    /// fallback, it is not advised on once what is kept is in either.
+    standing_in: bool,
 }
 
 impl State {
@@ -557,6 +679,15 @@ impl State {
             said_after_read: Vec::new(),
             sheet: None,
             sheet_failure: None,
+            saving: Vec::new(),
+            tick: Timer::Off,
+            advice: Vec::new(),
+            told_this_launch: Told::new(),
+            told: Told::new(),
+            preferences: Preferences::default(),
+            preferences_read: false,
+            loading_kept: false,
+            standing_in: false,
         }
     }
 
@@ -575,7 +706,7 @@ impl State {
 
     /// When the next timer is due, since the model started, if any is set.
     pub(crate) fn next_due(&self) -> Option<Duration> {
-        [self.look, self.timed_read]
+        [self.look, self.timed_read, self.tick]
             .into_iter()
             .filter_map(|timer| match timer {
                 Timer::Due(at) => Some(at),
@@ -584,40 +715,31 @@ impl State {
             .min()
     }
 
-    /// What an app is shown: what is known now, under `revision`, made at `now` in epoch
-    /// seconds.
-    pub(crate) fn snapshot(&self, revision: u64, now: i64) -> Snapshot {
-        Snapshot {
-            revision,
-            now,
-            reading: self.reads > 0,
-            updated_at: self.updated_ms.map(|ms| ms.div_euclid(1000)),
-            status: self.status.clone(),
-            warnings: self.warnings.clone(),
-            read_failure: self.failure.clone(),
-            stuck: self.stuck,
-            installed: self.installed.clone(),
-            switch_under_way: self.switch_under_way().map(str::to_owned),
-            quit_question: self.asking().cloned(),
-            last_switches: self.last_switches.clone(),
-            abandoned: self.abandoned.clone(),
-            failure: self.presented.clone(),
-            window_request: self.window,
-            signing_in: self.signing_in.as_ref().map(SigningIn::shown),
-            sheet: self.sheet.clone(),
-            sheet_failure: self.sheet_failure.clone(),
-        }
+    /// Whether a sign-in is under way.
+    pub(crate) fn sign_in_under_way(&self) -> bool {
+        self.signing_in.is_some()
+    }
+
+    /// The sign-in under way as an app is shown it, read by its tool's own module.
+    pub(crate) fn shown_sign_in(&self) -> Option<RunningSignIn> {
+        self.signing_in.as_ref().map(SigningIn::shown)
     }
 
     /// The account a switch is running for, or waiting on the quit question for.
-    fn switch_under_way(&self) -> Option<&str> {
+    pub(crate) fn switch_under_way(&self) -> Option<&str> {
         self.switching
             .as_deref()
             .or(self.asking().map(|question| question.qualified.as_str()))
     }
 
+    /// Whether the app's preferences are still being read, which nothing that depends on
+    /// them should guess at meanwhile.
+    pub(crate) fn reading_preferences(&self) -> bool {
+        self.loading_kept
+    }
+
     /// The quit question, while it is asked.
-    fn asking(&self) -> Option<&QuitQuestion> {
+    pub(crate) fn asking(&self) -> Option<&QuitQuestion> {
         self.quitting
             .as_ref()
             .filter(|quitting| quitting.asked)
@@ -626,7 +748,7 @@ impl State {
 
     fn intent(&mut self, intent: Intent, now: Now, jobs: &mut Vec<Job>) {
         match intent {
-            Intent::Start => self.start(now),
+            Intent::Start => self.start(now, jobs),
             // Numbers read before the machine slept say nothing about now.
             Intent::Woke => self.refresh(Asked::default(), now, jobs),
             // A menu opening is somebody looking at what it says, which is the glance the
@@ -659,6 +781,17 @@ impl State {
             Intent::DismissSwitch { provider } => {
                 self.last_switches.retain(|last| last.provider != provider);
             }
+            Intent::DeclineSecondAccount { provider } => {
+                // Kept once the preferences are read, with whatever they hold, and never over
+                // a file that could not be read: said meanwhile, it holds until the app quits.
+                if self.preferences.second_account_declined.insert(provider)
+                    && self.preferences_read
+                {
+                    jobs.push(Job::KeepPreferences {
+                        preferences: self.preferences.clone(),
+                    });
+                }
+            }
             Intent::AbandonStuckSwitch => jobs.push(Job::Abandon),
             Intent::DismissAbandoned => self.abandoned = None,
             Intent::SignIn { provider, name } => self.sign_in(provider, &name, jobs),
@@ -677,6 +810,87 @@ impl State {
                 self.sheet = None;
                 self.sheet_failure = None;
             }
+            Intent::ShowWindow { pane } => self.show_window(pane),
+            Intent::DismissFailure => self.presented = None,
+            Intent::Enrol { provider, name } => {
+                let kind = Sheet::Name {
+                    provider: provider.clone(),
+                    email: String::new(),
+                };
+                if let Some(name) = self.saved_from(kind, &name) {
+                    let from = self.saving_from();
+                    jobs.push(Job::Enrol {
+                        provider,
+                        name,
+                        from,
+                    });
+                }
+            }
+            Intent::Rename {
+                provider,
+                label,
+                to,
+            } => {
+                let kind = Sheet::Rename {
+                    provider: provider.clone(),
+                    label: label.clone(),
+                };
+                if let Some(to) = self.saved_from(kind, &to) {
+                    let from = self.saving_from();
+                    jobs.push(Job::Rename {
+                        provider,
+                        label,
+                        to,
+                        from,
+                    });
+                }
+            }
+            Intent::Forget { qualified } => jobs.push(Job::Forget { qualified }),
+        }
+    }
+
+    /// The name `typed` saves as, by the rule a sheet of `kind`'s offers Save by, unless the
+    /// sheet up is already saving one: a save cannot be withdrawn, and the Swift sheets held
+    /// their Save back until it had answered.
+    fn saved_from(&self, kind: Sheet, typed: &str) -> Option<String> {
+        if self
+            .sheet
+            .as_ref()
+            .is_some_and(|sheet| self.saving.contains(sheet))
+        {
+            return None;
+        }
+        crate::present::name_to_save(kind, typed.to_owned())
+    }
+
+    /// The sheet up, as the one a save is asked from, which holds back until it answers.
+    fn saving_from(&mut self) -> Option<Sheet> {
+        let from = self.sheet.clone();
+        if let Some(sheet) = &from {
+            self.saving.push(sheet.clone());
+        }
+        from
+    }
+
+    /// A save from `from` has answered.
+    fn saved(&mut self, from: Option<&Sheet>) {
+        if let Some(from) = from
+            && let Some(at) = self.saving.iter().position(|sheet| sheet == from)
+        {
+            self.saving.remove(at);
+        }
+    }
+
+    /// What went wrong with a save, said in the sheet it was asked from while that is still
+    /// up, where the name typed is there to correct, and in the window otherwise: something
+    /// asked for that did not happen is said somewhere. Its warnings are said with it, and
+    /// not beside the accounts, as the Swift's enrol and rename handed them back.
+    fn save_failed(&mut self, from: Option<&Sheet>, refused: Refused) {
+        if from.is_some() && self.sheet.as_ref() == from {
+            let failure = self.number(refused);
+            self.sheet_failure = Some(failure);
+        } else {
+            self.present(refused);
         }
     }
 
@@ -751,18 +965,26 @@ impl State {
         }
     }
 
-    /// Starts what runs by itself: a read now and every few minutes, and a look for changes
-    /// made somewhere else now and every few seconds. Once: a second start starts nothing.
-    fn start(&mut self, now: Now) {
+    /// Starts what runs by itself: what the model keeps read, a read now and every few
+    /// minutes, and a look for changes made somewhere else now and every few seconds. Once: a
+    /// second start starts nothing.
+    fn start(&mut self, now: Now, jobs: &mut Vec<Job>) {
         if self.started {
             return;
         }
         self.started = true;
+        self.loading_kept = true;
+        jobs.push(Job::LoadKept);
         self.timed_read = Timer::Due(now.running);
         self.look = Timer::Due(now.running);
+        self.tick = Timer::Due(now.running + self.cadence.tick_every);
     }
 
     fn go_off(&mut self, now: Now, jobs: &mut Vec<Job>) {
+        // Nothing to do but be shown again, at the time it is now.
+        if matches!(self.tick, Timer::Due(at) if at <= now.running) {
+            self.tick = Timer::Due(now.running + self.cadence.tick_every);
+        }
         if matches!(self.look, Timer::Due(at) if at <= now.running) {
             self.look = Timer::Running;
             jobs.push(Job::Look);
@@ -789,6 +1011,92 @@ impl State {
             return;
         }
         self.read(asked, now, jobs);
+    }
+
+    /// What the model keeps is in, or came to nothing. What it had told before is not
+    /// notified again, and what is shown, read while it was read, is advised on now, unless
+    /// it only stands in for a read that failed.
+    ///
+    /// The preferences read are the app's from now on, with any "Not Now" said meanwhile, and
+    /// kept at once where they did not come from their file, so the earlier store is taken
+    /// once. The first time the app has ever been opened, the window opens, once. Where they
+    /// could not be read, `None`, nothing is kept in place of what may be there, then or
+    /// later, and the window does not open as though for the first time.
+    fn kept(&mut self, told: Told, preferences: Option<(Preferences, bool)>, jobs: &mut Vec<Job>) {
+        for (key, at) in told {
+            self.told.entry(key).or_insert(at);
+        }
+        if let Some((read, from_file)) = preferences {
+            let mut preferences = read.clone();
+            preferences
+                .second_account_declined
+                .extend(self.preferences.second_account_declined.iter().cloned());
+            if !preferences.has_been_seen {
+                preferences.has_been_seen = true;
+                self.show_window(None);
+            }
+            if preferences != read || !from_file {
+                jobs.push(Job::KeepPreferences {
+                    preferences: preferences.clone(),
+                });
+            }
+            self.preferences = preferences;
+            self.preferences_read = true;
+        }
+        self.loading_kept = false;
+        if let Some(status) = self.status.clone()
+            && !self.standing_in
+        {
+            self.advise(&status, jobs);
+        }
+    }
+
+    /// Advice about a read, the app's own or numbers taken from what is recorded. What is new
+    /// is told, and what was said before stays for as long as the numbers bear it out. Advice
+    /// worked out afresh would leave out what has been told, and put it away at the next
+    /// read, seconds after it was said, with the account still out. One per tool, the newer
+    /// first. Nothing while what was told is still being read.
+    ///
+    /// What is new this launch is notified only where no launch has notified it at the same
+    /// reset, by the core's rule for one reset, and the record of that is kept.
+    fn advise(&mut self, read: &Status, jobs: &mut Vec<Job>) {
+        if self.loading_kept {
+            return;
+        }
+        let tools = crate::tools();
+        let new = Advice::about(read, &tools, &self.told_this_launch);
+        let mut kept = false;
+        for advice in &new {
+            let (key, at) = (advice.key_of(), advice.window.resets_at.unwrap_or(0));
+            self.told_this_launch.insert(key.clone(), at);
+            if self
+                .told
+                .get(&key)
+                .is_some_and(|&told| same_reset(told, at))
+            {
+                continue;
+            }
+            self.told.insert(key, at);
+            kept = true;
+            jobs.push(Job::Post {
+                notice: crate::present::run_out_notice(advice),
+            });
+        }
+        if kept {
+            jobs.push(Job::KeepTold {
+                told: self.told.clone(),
+            });
+        }
+        let standing: Vec<Advice> = new
+            .into_iter()
+            .chain(self.advice.iter().filter_map(|advice| advice.renewed(read)))
+            .collect();
+        let codes: Vec<&str> = standing.iter().map(|a| a.provider.as_str()).collect();
+        self.advice = crate::present::in_order(&codes, &tools)
+            .iter()
+            .filter_map(|provider| standing.iter().find(|a| &a.provider == provider))
+            .cloned()
+            .collect();
     }
 
     fn read(&mut self, asked: Asked, now: Now, jobs: &mut Vec<Job>) {
@@ -859,7 +1167,7 @@ impl State {
                 changed_before,
                 read,
             } => self.read_landed(ticket, readings_before, changed_before, read, now, jobs),
-            Answer::ReadOffline { why, read } => self.known(why, read.ok(), now),
+            Answer::ReadOffline { why, read } => self.known(why, read.ok(), now, jobs),
             Answer::Looked { changed, measured } => self.looked(changed, measured, now, jobs),
             Answer::Installed { tools } => {
                 self.installed = Some(tools);
@@ -875,7 +1183,34 @@ impl State {
                 reopen,
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
-            Answer::Opened | Answer::Pasted | Answer::Stopped => {}
+            Answer::Opened | Answer::Pasted | Answer::Stopped | Answer::Saved | Answer::Posted => {}
+            Answer::Kept { told, preferences } => self.kept(told, preferences, jobs),
+            Answer::Enrolled {
+                provider,
+                from,
+                done,
+            } => {
+                let done = done.map(drop).map_err(Some);
+                self.enrolled_now(&provider, from.as_ref(), done, now, jobs);
+            }
+            Answer::Renamed {
+                provider,
+                label,
+                to,
+                from,
+                done,
+            } => {
+                let renaming = Renaming {
+                    provider: &provider,
+                    label: &label,
+                    to: &to,
+                    from: from.as_ref(),
+                };
+                self.renamed(&renaming, done.map_err(Some), now, jobs);
+            }
+            Answer::Forgot { qualified, done } => {
+                self.forgot(&qualified, done.map_err(Some), now, jobs);
+            }
             Answer::Abandoned(done) => self.abandon_over(done.map_err(Some), now, jobs),
             Answer::SignInStarted { id, started } => {
                 self.sign_in_started(id, started.map_err(Some), jobs);
@@ -896,7 +1231,7 @@ impl State {
             }
             Answer::Lost(job) => match job {
                 Job::Read { ticket, .. } => self.landed(ticket, now),
-                Job::ReadOffline { why } => self.known(why, None, now),
+                Job::ReadOffline { why } => self.known(why, None, now, jobs),
                 Job::Look => self.look_over(now),
                 Job::AskInstalled => self.installed_over(now, jobs),
                 // As the Swift model took a holding it could not read: nothing holds it.
@@ -917,6 +1252,27 @@ impl State {
                 Job::SignInOver { enrol: false, .. }
                 | Job::PasteCode { .. }
                 | Job::StopSignIn { .. } => {}
+                Job::Enrol { provider, from, .. } => {
+                    self.enrolled_now(&provider, from.as_ref(), Err(None), now, jobs);
+                }
+                Job::Rename {
+                    provider,
+                    label,
+                    to,
+                    from,
+                } => {
+                    let renaming = Renaming {
+                        provider: &provider,
+                        label: &label,
+                        to: &to,
+                        from: from.as_ref(),
+                    };
+                    self.renamed(&renaming, Err(None), now, jobs);
+                }
+                Job::Forget { qualified } => self.forgot(&qualified, Err(None), now, jobs),
+                // Nothing kept could be read: nothing was told before, as far as anyone knows.
+                Job::LoadKept => self.kept(Told::new(), None, jobs),
+                Job::KeepTold { .. } | Job::KeepPreferences { .. } | Job::Post { .. } => {}
             },
         }
     }
@@ -1079,7 +1435,9 @@ impl State {
                     .any(|w| w.code == "recovery_undetermined");
                 self.forget_switches_undone(&read);
                 self.warnings = read.warnings.clone();
+                self.advise(&read, jobs);
                 self.status = Some(read);
+                self.standing_in = false;
                 self.failure = None;
                 self.updated_ms = Some(now.epoch_ms);
                 // As they stood before the read, because a session can record newer
@@ -1119,12 +1477,13 @@ impl State {
     }
 
     /// What is already known came in, or could not be read.
-    fn known(&mut self, why: Why, read: Option<Status>, now: Now) {
+    fn known(&mut self, why: Why, read: Option<Status>, now: Now, jobs: &mut Vec<Job>) {
         match why {
             Why::InPlaceOf(ticket) => {
                 // Only where there is still nothing to show: a read that has landed since
                 // knows better.
                 if self.status.is_none() {
+                    self.standing_in = read.is_some();
                     self.status = read;
                 }
                 self.landed(ticket, now);
@@ -1132,7 +1491,9 @@ impl State {
             Why::Changed { measured } => {
                 if let Some(read) = read {
                     self.forget_switches_undone(&read);
+                    self.advise(&read, jobs);
                     self.status = Some(read);
+                    self.standing_in = false;
                     self.readings_at = Some(measured);
                 }
                 self.look_over(now);
@@ -1142,7 +1503,10 @@ impl State {
                 // while they were read. The Swift put them onto what was shown when the
                 // look found them, and so put back what that read had replaced.
                 if let (Some(read), Some(shown)) = (read, self.status.as_ref()) {
-                    self.status = Some(numbers(&read, shown));
+                    let overlaid = numbers(&read, shown);
+                    self.advise(&overlaid, jobs);
+                    self.status = Some(overlaid);
+                    self.standing_in = false;
                     self.readings_at = Some(measured);
                 }
                 self.look_over(now);
@@ -1302,6 +1666,10 @@ impl State {
             Ok(done) => {
                 self.changes_seen += 1;
                 self.said(qualified, done, now);
+                // Advice about this tool is about the account it has just left. Another
+                // tool's stays: it is as true as it was, and it is never told again.
+                let provider = split(qualified).0;
+                self.advice.retain(|advice| advice.provider != provider);
                 self.updated_ms = None;
                 self.refresh(
                     Asked {
@@ -1412,6 +1780,143 @@ impl State {
                     && typed(account) == Some(last.to.as_str())
             })
         });
+    }
+
+    /// The login signed in now to `provider`'s tool has been enrolled, or could not be. Once it
+    /// is, any sheet naming a login of that tool closes, as AppModel.swift's `enrol` closed
+    /// one: a sheet for another tool, or another sheet put up meanwhile, is somebody else's,
+    /// and closing it threw away whatever was in it. `Err(None)` is a save that came to
+    /// nothing.
+    fn enrolled_now(
+        &mut self,
+        provider: &str,
+        from: Option<&Sheet>,
+        done: Result<(), Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        self.saved(from);
+        match done {
+            Ok(()) => {
+                self.changes_seen += 1;
+                if matches!(&self.sheet, Some(Sheet::Name { provider: of, .. }) if of == provider) {
+                    self.sheet = None;
+                    self.sheet_failure = None;
+                }
+                self.updated_ms = None;
+                self.refresh(Asked::default(), now, jobs);
+            }
+            Err(error) => {
+                let refused = match error {
+                    Some(error) => Refused::of(COULD_NOT_NAME.into(), error),
+                    None => Refused::lost(COULD_NOT_NAME.into()),
+                };
+                self.save_failed(from, refused);
+            }
+        }
+    }
+
+    /// An account has been renamed, or could not be. Only its own sheet closes, as
+    /// AppModel.swift's `rename` closed it.
+    ///
+    /// Everything said about the account is said about it under its new name: what its tool's
+    /// last switch said. Keyed by the old name, the read after the rename would take the
+    /// switch for undone, and put away what it said.
+    fn renamed(
+        &mut self,
+        renaming: &Renaming,
+        done: Result<(), Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        let Renaming {
+            provider,
+            label,
+            to,
+            from,
+        } = *renaming;
+        self.saved(from);
+        match done {
+            Ok(()) => {
+                self.changes_seen += 1;
+                self.carry(provider, label, to, jobs);
+                let own = Sheet::Rename {
+                    provider: provider.to_owned(),
+                    label: label.to_owned(),
+                };
+                if self.sheet.as_ref() == Some(&own) {
+                    self.sheet = None;
+                    self.sheet_failure = None;
+                }
+                self.updated_ms = None;
+                self.refresh(Asked::default(), now, jobs);
+            }
+            Err(error) => {
+                let title = could_not_rename(label);
+                let refused = match error {
+                    Some(error) => Refused::of(title, error),
+                    None => Refused::lost(title),
+                };
+                self.save_failed(from, refused);
+            }
+        }
+    }
+
+    /// What was said about the account `label` of `provider`'s tool, said about it as `to`:
+    /// what its tool's last switch said, advice about it, and what was told about it.
+    fn carry(&mut self, provider: &str, label: &str, to: &str, jobs: &mut Vec<Job>) {
+        for advice in &mut self.advice {
+            if advice.provider == provider {
+                *advice = advice.renaming(label, to);
+            }
+        }
+        rename_told(&mut self.told_this_launch, provider, label, to);
+        let before = self.told.clone();
+        rename_told(&mut self.told, provider, label, to);
+        if self.told != before {
+            jobs.push(Job::KeepTold {
+                told: self.told.clone(),
+            });
+        }
+        let (old, new) = (typed_as_core(provider, label), typed_as_core(provider, to));
+        for last in &mut self.last_switches {
+            if last.provider != provider {
+                continue;
+            }
+            if last.to == old {
+                last.to.clone_from(&new);
+            }
+            if let Some(restart) = &mut last.restart
+                && restart.from == label
+            {
+                restart.from = to.to_owned();
+            }
+        }
+    }
+
+    /// The account `qualified` names has been forgotten, and the login parked for it, or it
+    /// could not be, which is said in the window it was asked from.
+    fn forgot(
+        &mut self,
+        qualified: &str,
+        done: Result<(), Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        match done {
+            Ok(()) => {
+                self.changes_seen += 1;
+                self.updated_ms = None;
+                self.refresh(Asked::default(), now, jobs);
+            }
+            Err(error) => {
+                let title = could_not_forget(qualified);
+                self.present(match error {
+                    Some(error) => Refused::of(title, error),
+                    None => Refused::lost(title),
+                });
+            }
+        }
     }
 
     /// Giving up on an interrupted switch is over: what it kept is said and the accounts are

@@ -7,10 +7,15 @@
 use super::state::Cadence;
 #[cfg(unix)]
 use super::testing::StandIn;
-use super::testing::{CHATGPT, CHATGPT_CODEX, StandInApps, World};
-use super::{AppControl, Intent, ModelListener, PitboardModel, PlatformError, Sheet, Snapshot};
+use super::testing::{CHATGPT, CHATGPT_CODEX, Posted, StandInApps, World};
+use super::{
+    AppControl, Intent, LocalTime, ModelListener, PitboardModel, Platform, PlatformError, Sheet,
+    Snapshot,
+};
 use crate::Pitboard;
+use crate::present::testing::Utc;
 use pitboard_core::testing::Asked;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -26,6 +31,7 @@ const QUICK: Cadence = Cadence {
     stale_after: Duration::from_secs(60),
     quit_within: Duration::from_millis(200),
     quit_checked_every: Duration::from_millis(5),
+    tick_every: Duration::from_secs(3_600),
 };
 
 /// What a listener does with the model from inside `changed`.
@@ -133,6 +139,16 @@ fn in_order(told: &[Snapshot]) -> bool {
         .all(|pair| pair[0].revision < pair[1].revision)
 }
 
+/// The system as a test's model has it: `apps`, and a clock read in UTC.
+fn platform(apps: Arc<dyn AppControl>) -> Platform {
+    Platform {
+        apps,
+        notifications: Arc::new(Posted::default()),
+        local_time: Arc::new(Utc),
+        earlier: None,
+    }
+}
+
 /// A model over `core` telling `told`, which may call it back, with no other app running.
 fn model(core: &Arc<Pitboard>, told: &Arc<Told>) -> Arc<PitboardModel> {
     model_with(core, told, &StandInApps::new(&[], true))
@@ -147,7 +163,7 @@ fn model_with(
     let model = PitboardModel::over(
         Arc::clone(core),
         Arc::clone(told) as Arc<dyn ModelListener>,
-        Arc::clone(apps) as Arc<dyn AppControl>,
+        platform(Arc::clone(apps) as Arc<dyn AppControl>),
         QUICK,
     );
     let _ = told.model.set(Arc::downgrade(&model));
@@ -374,7 +390,7 @@ fn dropping_the_model_waits_for_nothing() {
     let model = PitboardModel::over(
         Arc::clone(&core),
         Arc::clone(&told) as Arc<dyn ModelListener>,
-        StandInApps::new(&[], true) as Arc<dyn AppControl>,
+        platform(StandInApps::new(&[], true) as Arc<dyn AppControl>),
         QUICK,
     );
     model.send(Intent::Start);
@@ -904,4 +920,341 @@ fn a_sign_in_the_core_cannot_start_says_so_in_its_sheet() {
     assert_eq!(last.sheet, Some(Sheet::Add { provider: None }));
     assert_eq!(last.failure, None);
     model.shutdown();
+}
+
+/// A person's clock that says something new each time it is asked, and asks the model for its
+/// snapshot as it answers, where it has been given the model.
+#[derive(Default)]
+struct Counting {
+    asked: AtomicUsize,
+    /// How many times it asked the model back from inside a call.
+    inside: AtomicUsize,
+    model: OnceLock<Weak<PitboardModel>>,
+}
+
+impl LocalTime for Counting {
+    fn clock(&self, _epoch: i64, _with_weekday: bool) -> Result<String, PlatformError> {
+        if let Some(model) = self.model.get().and_then(Weak::upgrade) {
+            let _ = model.snapshot();
+            self.inside.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(format!(
+            "{:02}:00",
+            self.asked.fetch_add(1, Ordering::SeqCst) % 24
+        ))
+    }
+
+    fn same_day(&self, _first: i64, _second: i64) -> Result<bool, PlatformError> {
+        Ok(true)
+    }
+
+    fn date_and_time(&self, epoch: i64) -> Result<String, PlatformError> {
+        self.clock(epoch, true)
+    }
+}
+
+/// A model over `core` telling `told`, its clock times said by `clock`, doing what it does by
+/// itself every `cadence`.
+fn model_telling_time(
+    core: &Arc<Pitboard>,
+    told: &Arc<Told>,
+    clock: &Arc<Counting>,
+    cadence: Cadence,
+) -> Arc<PitboardModel> {
+    let model = PitboardModel::over(
+        Arc::clone(core),
+        Arc::clone(told) as Arc<dyn ModelListener>,
+        Platform {
+            apps: StandInApps::new(&[], true),
+            notifications: Arc::new(Posted::default()),
+            local_time: Arc::clone(clock) as Arc<dyn LocalTime>,
+            earlier: None,
+        },
+        cadence,
+    );
+    let _ = told.model.set(Arc::downgrade(&model));
+    model
+}
+
+/// A read that has landed and been said, with when it was.
+fn read_and_said(told: &[Snapshot]) -> bool {
+    told.last().is_some_and(|last| {
+        !last.reading && last.status.is_some() && last.updated_menu.starts_with("Updated")
+    })
+}
+
+/// The person's clock is asked as a snapshot is made, with no lock held: a clock that asks
+/// the model for its snapshot as it answers, which an app's code may, is answered, and the
+/// snapshot it is part of is told. Asked under the lock `snapshot` takes, it would have
+/// waited on itself, and nothing more been told.
+#[test]
+fn the_persons_clock_is_asked_with_no_lock_held() {
+    let world = World::new("clock-inside");
+    world.enrolled("work", "here", 10.0);
+    let told = Arc::new(Told::default());
+    let clock = Arc::new(Counting::default());
+    let model = model_telling_time(&world.core(), &told, &clock, QUICK);
+    let _ = clock.model.set(Arc::downgrade(&model));
+    model.send(Intent::Start);
+    told.until("the read said with its time", read_and_said);
+    assert!(clock.inside.load(Ordering::SeqCst) > 0);
+    model.shutdown();
+}
+
+/// Once started, what is shown is made again every so often for the time alone, and told
+/// where it says something new, with nothing sent and nothing else due: the minute tick, run
+/// here every few milliseconds.
+#[test]
+fn the_minute_tick_makes_what_is_shown_again() {
+    let world = World::new("tick");
+    world.enrolled("work", "here", 10.0);
+    let told = Arc::new(Told::default());
+    let clock = Arc::new(Counting::default());
+    let ticking = Cadence {
+        look_every: Duration::from_secs(3_600),
+        read_every: Duration::from_secs(3_600),
+        tick_every: Duration::from_millis(20),
+        ..QUICK
+    };
+    let model = model_telling_time(&world.core(), &told, &clock, ticking);
+    model.send(Intent::Start);
+    let after_read = told
+        .until("the read said with its time", read_and_said)
+        .len();
+    let snapshots = told.until("the time said again with nothing sent", |snapshots| {
+        snapshots.len() >= after_read + 3
+    });
+    assert!(in_order(&snapshots), "{snapshots:#?}");
+    model.shutdown();
+}
+
+/// Renaming and forgetting from the app reach the core, and the accounts are read after
+/// each: the rename names the account anew, and forgetting takes it away.
+#[test]
+fn renaming_and_forgetting_reach_the_core() {
+    let world = World::new("rename-forget");
+    world.enrolled("work", "here", 10.0);
+    world.parked("spare", "there", 20.0);
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    let has = |want: &'static [&'static str]| {
+        move |told: &[Snapshot]| {
+            told.last()
+                .is_some_and(|last| !last.reading && labels(last) == want)
+        }
+    };
+    told.until("both accounts read", has(&["work", "spare"]));
+
+    model.send(Intent::Rename {
+        provider: "claude".into(),
+        label: "spare".into(),
+        to: "home".into(),
+    });
+    told.until("the rename", has(&["work", "home"]));
+    model.send(Intent::Forget {
+        qualified: "claude/home".into(),
+    });
+    told.until("the account forgotten", has(&["work"]));
+    let last = model.snapshot();
+    assert_eq!((last.failure, last.sheet_failure), (None, None));
+    model.shutdown();
+}
+
+/// Naming the login signed in now from its sheet enrols it with the core, and the sheet
+/// closes once it has.
+#[test]
+fn naming_the_login_signed_in_now_enrols_it() {
+    let world = World::new("name");
+    world.signed_in("here", 10.0);
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    told.until("the login read", |told| {
+        told.last().is_some_and(|last| {
+            !last.reading && matches!(last.footing, crate::Footing::Unnamed { .. })
+        })
+    });
+    model.send(Intent::PresentSheet {
+        sheet: Sheet::Name {
+            provider: "claude".into(),
+            email: "here@example.com".into(),
+        },
+    });
+    model.send(Intent::Enrol {
+        provider: "claude".into(),
+        name: " work ".into(),
+    });
+    // The poll can read the enrolment from what is known before the enrolment answers,
+    // which is what closes the sheet.
+    let told = told.until("the login enrolled", |told| {
+        told.last()
+            .is_some_and(|last| labels(last) == ["work"] && last.sheet.is_none())
+    });
+    let last = told.last().expect("a snapshot");
+    assert_eq!(last.sheet_failure, None);
+    assert_eq!(last.failure, None);
+    model.shutdown();
+}
+
+/// A model over `core` telling `told`, posting through `posted`, with no other app running.
+fn model_posting(
+    core: &Arc<Pitboard>,
+    told: &Arc<Told>,
+    posted: &Arc<Posted>,
+) -> Arc<PitboardModel> {
+    let model = PitboardModel::over(
+        Arc::clone(core),
+        Arc::clone(told) as Arc<dyn ModelListener>,
+        Platform {
+            apps: StandInApps::new(&[], true),
+            notifications: Arc::clone(posted) as Arc<dyn super::Notifications>,
+            local_time: Arc::new(Utc),
+            earlier: None,
+        },
+        QUICK,
+    );
+    let _ = told.model.set(Arc::downgrade(&model));
+    model
+}
+
+/// Advice about `work` running out is shown.
+fn advised(told: &[Snapshot]) -> bool {
+    told.last().is_some_and(|last| {
+        last.notices
+            .iter()
+            .any(|notice| notice.id == "advice/claude/work/session/")
+    })
+}
+
+/// On the real core, an account in use that has run out, with another of its tool to switch
+/// to, is notified through the app's system once, and the record of it is kept in Pitboard's
+/// directory, so the app opened again over the same machine notifies nothing more, though its
+/// window still says it: the owner's decision. The Swift kept the record in memory and told
+/// it again after every relaunch.
+#[test]
+fn a_run_out_is_notified_once_across_a_relaunch() {
+    let world = World::new("run-out");
+    world.enrolled("work", "here", 100.0);
+    world.parked("spare", "there", 10.0);
+    let core = world.core();
+
+    let told = Arc::new(Told::default());
+    let posted = Arc::new(Posted::default());
+    let model = model_posting(&core, &told, &posted);
+    model.send(Intent::Start);
+    told.until("the advice", advised);
+    eventually("the notification posted", || posted.posted().len() == 1);
+    let notice = posted.posted().remove(0);
+    assert_eq!(notice.title, "work has no 5-hour limit left");
+    assert_eq!(notice.body, "spare has 90% of its own left.");
+    assert_eq!(notice.switch_to, "claude/spare");
+    assert_eq!(notice.subtitle, None);
+    let kept = world.pitboard_dir().join("told.json");
+    eventually("the record of it kept", || {
+        std::fs::read_to_string(&kept).is_ok_and(|text| text.contains("claude/work/session/"))
+    });
+    model.shutdown();
+
+    let again = Arc::new(Told::default());
+    let unposted = Arc::new(Posted::default());
+    let reopened = model_posting(&core, &again, &unposted);
+    reopened.send(Intent::Start);
+    again.until("the advice, said again in the window", advised);
+    reopened.send(Intent::Refresh { asked: true });
+    again.until("another read", |told| {
+        told.iter().filter(|snapshot| snapshot.reading).count() >= 2
+            && told.last().is_some_and(|last| !last.reading)
+    });
+    assert!(unposted.posted().is_empty(), "notified before the relaunch");
+    reopened.shutdown();
+}
+
+/// An `app.json` that is there and cannot be read, here a directory where the file goes, is
+/// left as it is on the real core, and is not taken for a first launch: the window is not
+/// asked for. Taken as no file, as it was while any failure to read it read as none, the
+/// model opened the window and kept the defaults in its place.
+#[test]
+fn preferences_that_cannot_be_read_are_not_a_first_launch() {
+    let world = World::new("prefs-unreadable");
+    world.enrolled("work", "here", 100.0);
+    world.parked("spare", "there", 10.0);
+    let file = world.pitboard_dir().join("app.json");
+    std::fs::create_dir_all(&file).expect("a directory where the file goes");
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    // Advice waits for what the model keeps, so once it is shown the preferences are in.
+    let shown = told.until("the advice", advised);
+    assert_eq!(
+        shown.last().expect("a snapshot").window_request.serial,
+        0,
+        "not opened as though for the first time"
+    );
+    model.shutdown();
+    assert!(file.is_dir(), "left as it was");
+}
+
+/// The app's preferences are kept in Pitboard's directory on the real core, as the core keeps
+/// its own files, and so they follow it: a "Not Now" said over one machine's directory says
+/// nothing in another's, which takes what the app's earlier store held, once. The Swift kept
+/// them in UserDefaults, one store for every Pitboard directory: the owner's decision moved
+/// them.
+#[test]
+fn the_apps_preferences_follow_its_pitboard_directory() {
+    let one = World::new("prefs-one");
+    one.enrolled("work", "here", 10.0);
+    let told = Arc::new(Told::default());
+    let first_model = model(&one.core(), &told);
+    first_model.send(Intent::Start);
+    let nudged = |told: &[Snapshot]| {
+        told.last()
+            .is_some_and(|last| !last.reading && last.setup.is_some())
+    };
+    let first = told.until("the nudge", nudged);
+    let last = first.last().expect("a snapshot");
+    assert_eq!(
+        last.window_request.serial, 1,
+        "the first launch opens the window"
+    );
+    first_model.send(Intent::DeclineSecondAccount {
+        provider: "claude".into(),
+    });
+    told.until("the nudge declined", |told| {
+        told.last().is_some_and(|last| last.setup.is_none())
+    });
+    let kept = one.pitboard_dir().join("app.json");
+    eventually("the preferences kept", || {
+        std::fs::read_to_string(&kept).is_ok_and(|text| {
+            text == r#"{"second_account_declined":["claude"],"has_been_seen":true}"#
+        })
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&kept).expect("kept").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "private, as the core's own files are");
+    }
+    first_model.shutdown();
+
+    // Opened again over the same directory, it reads them back: no nudge, and no window.
+    let reopened = Arc::new(Told::default());
+    let again = model(&one.core(), &reopened);
+    again.send(Intent::Start);
+    let told = reopened.until("the account read again", |told| {
+        told.last()
+            .is_some_and(|last| !last.reading && last.status.is_some())
+    });
+    let last = told.last().expect("a snapshot");
+    assert_eq!(last.setup, None, "declined, as kept");
+    assert_eq!(last.window_request.serial, 0, "seen, as kept");
+    again.shutdown();
+
+    let other = World::new("prefs-other");
+    other.enrolled("work", "here", 10.0);
+    let elsewhere = Arc::new(Told::default());
+    let again = model(&other.core(), &elsewhere);
+    again.send(Intent::Start);
+    elsewhere.until("the nudge, in another directory", nudged);
+    again.shutdown();
 }

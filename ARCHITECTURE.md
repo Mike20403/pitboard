@@ -65,7 +65,9 @@ pages load, as a browser would.
     find the program daily renewal runs.
   - `app.rs`: what an app finds for itself that a command typed at a prompt is given: each
     tool's program, on the login shell's `PATH` and then where the tool's installers put
-    it, and the `pitboard` a terminal would run.
+    it, and the `pitboard` a terminal would run. And the files an app keeps of its own in
+    Pitboard's directory, `told.json` and `app.json`, written as the core writes its own and
+    read by nothing of the core.
   - `api.rs`: the requests to Anthropic. The requests to OpenAI are in
     `provider/codex/api.rs`.
   - `status.rs`, `doctor.rs`, `statusline.rs` and `schedule.rs` serve the commands of the
@@ -93,23 +95,42 @@ pages load, as a browser would.
     differs by system there, such as how a copy of a file is numbered, which names are one
     file, or an alert's "on this Mac", is a `match` on `host::OS`, as what a window cannot
     sign in with is in `sites.rs`.
-  - `model/` is the app model both apps are to show, which neither uses yet: the Swift
-    model in `PitboardApp` still decides what the macOS app shows. An app makes a
-    `PitboardModel`, sends it an `Intent` for each thing asked of it, and its
-    `ModelListener` is told of each numbered `Snapshot`; its `AppControl` quits and opens
-    other apps. `state.rs` holds what the model knows and decides what follows each
-    message; `lanes.rs` runs what it decides, on a lane of reads, a lane of changes, one
-    at a time, a lane that lists processes and asks the app's `AppControl` about other
-    apps, a lane that asks what is installed, a thread of its own for each sign-in and a
-    lane that types a code back to one or stops it, and tells the listener on a thread of
-    its own; `mod.rs` holds the exported types and the actor thread that owns the state. So
-    far the model reads the accounts, looks every two seconds for a change made elsewhere,
-    asks which tools are installed, switches, quits the app holding a tool's login when
-    the person lets it, gives up on a stuck switch, keeps what each tool's last switch
-    said, runs each tool's own sign-in and keeps the sheet over the main window. Its tests
-    are files of their own there: `reading.rs`, `switching.rs`, `signing.rs` and
+  - `model/` is the app model both apps are to show, which neither uses yet: the Swift model
+    in `PitboardApp` still decides what the macOS app shows. An app makes a `PitboardModel`,
+    sends it an `Intent` for each thing asked of it, and its `ModelListener` is told of each
+    numbered `Snapshot`; its `AppControl` quits and opens other apps, and its
+    `Notifications` posts what has run out. `state.rs` holds what the model knows and
+    decides what follows each message, `advice.rs` which account to offer once the one in
+    use has run out, and `preferences.rs` what the app's own preferences are; `lanes.rs`
+    runs what it decides, on a lane of reads, a lane of changes, one at a time, a lane that
+    lists processes and asks the app's `AppControl` about other apps, a lane that asks what
+    is installed, a thread of its own for each sign-in, a lane that types a code back to one
+    or stops it, a lane that reads and writes what the model keeps in Pitboard's directory
+    and one that posts through the app's `Notifications`, and tells the listener on a thread
+    of its own; `mod.rs` holds the exported types and the actor thread that owns the state.
+    So far the model reads the accounts, looks every two seconds for a change made
+    elsewhere, asks which tools are installed, switches, quits the app holding a tool's
+    login when the person lets it, gives up on a stuck switch, keeps what each tool's last
+    switch said, runs each tool's own sign-in, enrols the login signed in now, renames and
+    forgets, keeps the sheet over the main window, says which account to switch to once the
+    one in use has run out, notified once for each reset, and keeps the app's own
+    preferences. Its tests are files of their own there: `reading.rs`, `switching.rs`,
+    `signing.rs`, `changing.rs`, `advising.rs`, `keeping.rs`, `presenting.rs` and
     `cadence.rs` drive the state by hand, `lanes.rs` has the lanes' own, and `threaded.rs`
     drives the model through its threads over the real core.
+  - `present/` makes each `Snapshot` from the model's state: `present` takes the state and
+    the moment, and builds every sentence and row the menu bar, the menu and the window
+    show, so a view decides nothing. `accounts.rs` is the menu bar's words and the
+    accounts' sections and rows with their limits, `notices.rs` the notices, their order
+    and what the menu says of them, `setup.rs` the footing, the step it asks for and what
+    stands in for an empty list, `sheets.rs` the sheets, the quit question and a failure's
+    alert, with `name_to_save`, the rule a sheet's Save and the model both save by, and
+    `words.rs` the sentences both apps say and the command line does not, each a function
+    of typed values. What the command line says too is `pitboard_core::words`', called from
+    there. A clock time is the person's to read, so it is asked of the app's `LocalTime`.
+    A button the snapshot offers comes with its words beside the intent it sends, so a view
+    never words an intent; a control each app always has, such as its toolbar's "Add
+    Account…" or "Quit Pitboard", and what is about the app's own system stay the app's.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
   IDNA alone.
@@ -211,19 +232,21 @@ pages load, as a browser would.
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
 - `pitboard-ffi` exports records, enums, three error types, free functions, three objects,
-  `SignIn`, `Pitboard` and `PitboardModel`, and two traits an app implements,
-  `ModelListener` and `AppControl`. Nothing it exports is async. A call to `SignIn` or
-  `Pitboard` is synchronous and may block on the keychain, a lock, the network or the
-  person's login shell, and `PitboardKit` makes each off the main thread; making a
+  `SignIn`, `Pitboard` and `PitboardModel`, and four traits an app implements,
+  `ModelListener`, `AppControl`, `Notifications` and `LocalTime`. Nothing it exports is
+  async. A call to
+  `SignIn` or `Pitboard` is synchronous and may block on the keychain, a lock, the network
+  or the person's login shell, and `PitboardKit` makes each off the main thread; making a
   `Pitboard` blocks on none of them, since it reads its environment on first use.
   `PitboardModel` blocks on none of them anywhere: making one starts its threads, `send`
   only posts an intent, `snapshot` only copies the last snapshot, `shutdown` waits only for
   the actor to take what is already in its mailbox, and the core, a tool's sign-in and the
-  app's `AppControl` are called on the model's own threads. The free
+  app's `AppControl`, `Notifications` and `LocalTime` are called on the model's own threads.
+  The free
   functions block on nothing, and the app makes them where it likes: `tools`,
-  `sign_in_view`, the rule `same_reset` from `usage.rs`, and `usage_level` and the
-  sentences and column words of `words.rs` the apps show, which read only what they are
-  given; `sites`, `sites_for`, `site_names`, `site_link`, `read_pitboard_link`,
+  `sign_in_view`, `name_to_save`, the rule `same_reset` from `usage.rs`, and `usage_level`
+  and the sentences and column words of `words.rs` the apps show, which read only what they
+  are given; `sites`, `sites_for`, `site_names`, `site_link`, `read_pitboard_link`,
   `pitboard_link` and `link_refusal_reason`, which are `pitboard-sites`' and read only what
   they are given too; the account windows' rules, such as `store_id`, `window_accounts`,
   `decide_navigation` and `window_note`, which read only what they are given as well, so a
@@ -233,6 +256,37 @@ pages load, as a browser would.
   `home_directory` and `pitboard_directory`, which read the environment they are given and,
   without `HOME`, this account's passwd entry. `find_command_line` looks along a search
   path, so the app makes it off the main thread.
+- What a snapshot says is made by `present`, which reads the state and the moment and asks
+  nothing of anyone but the app's `LocalTime`, for each clock time and whether a moment is
+  on another day than now. Where that cannot say, the time is said in UTC and named so,
+  from the moments alone, so the machine's own time zone is read by the app's `LocalTime`
+  and nothing else. The actor makes it before it takes the lock `snapshot` takes,
+  so a `LocalTime` may call the model back. Text that depends on the time alone is made
+  again on the minute tick, once started, and a countdown is the app's own, from
+  `PanelNotice::until`.
+- A run-out is notified once for each reset of its limit, by the core's rule for one reset,
+  across launches: what was notified is kept in `told.json` in Pitboard's directory, read
+  as the model starts. Nothing is advised on until it is in, and what was read meanwhile is
+  advised on then, so a read that lands first never notifies again what an earlier launch
+  did; what stands in for a read that failed, the last numbers measured, is not, as the
+  Swift model's fallback was not. A record that is there and cannot be read is nothing
+  told, and is written whole over it the next time something is told, so at worst a run-out
+  is notified once more. The window's advice is worked out as the Swift model worked it
+  out, from what this launch has told, so it still says a run-out notified before a
+  relaunch.
+- The app's own preferences, the tools somebody said "Not Now" to a second account for and
+  whether the app has ever shown anybody anything, are the model's, kept in `app.json` in
+  Pitboard's directory, so they follow `PITBOARD_HOME`. Where that file is there it wins;
+  where it is not, the model takes what the app's earlier store held, handed over in
+  `AppLaunch::earlier_preferences`, and keeps it at once, so that store is read once. The
+  model writes them only once they are read, from the file or, where there is none, from
+  that store, and never in their place: a file that is there and cannot be read, because it
+  is not this user's, a disk failed, another program holds it or it is not text, is left as
+  it is for as long as the app is open, a "Not Now" said meanwhile holding until it quits,
+  and is not taken for a first launch. Text that does not read as preferences is taken as
+  no file, and what that store held is written over it. Until they are read no tool is
+  nudged toward a second account, so a read that lands first never shows the step to
+  somebody who declined it. No foreign trait reaches the app's own store for them.
 - The app model's state belongs to its actor thread alone, and `State::apply` does no I/O:
   it calls neither the core nor the app, reads no clock and waits on nothing. It says what
   to run as jobs, which run on the model's lanes and answer as messages. A call the Swift
@@ -286,16 +340,17 @@ pages load, as a browser would.
   waits on no thread, since .NET can free it from its finalizer thread
   ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor alone.
 - No test makes the app model over the machine's own environment. Its Rust tests run the
-  real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in
-  a scratch directory. The Swift tests make no model, and the C# tests make one only as
+  real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in a
+  scratch directory. The Swift tests make no model, and the C# tests make one only as
   `ModelTests.cs` does: every home a fresh folder, and never started or sent an intent, so
-  it reads nothing. So the launch, a listener, an `AppControl` and a first snapshot cross
-  the bindings in a test, but no intent does yet, and no test has the library call a
-  listener or an `AppControl` written in Swift or C#. Every `AppControl` a test hands the
-  model is a stand-in that records what it was asked, never one that reaches a real app. A
-  test that signs in runs a stand-in for `claude`, a shell script of its own in its scratch
-  home, and plants the login it would have stored in `MemoryHost`'s keychain: never a real
-  `claude` or `codex`.
+  it reads nothing. So the launch, a listener, an `AppControl`, `Notifications`, a
+  `LocalTime` and a first snapshot cross the bindings in a test, but no intent does yet, and
+  no test has the library call one written in Swift or C#. Every `AppControl` a test hands
+  the model is a stand-in that records what it was asked, never one that reaches a real app,
+  and its `Notifications` keeps what it is given and posts nothing. A test that signs in
+  runs a stand-in for `claude`, a shell script of its own in its scratch home, and plants
+  the login it would have stored in `MemoryHost`'s keychain: never a real `claude` or
+  `codex`.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core. The account windows key their records by Pitboard's directory standardised as
@@ -885,6 +940,26 @@ one, measure it again.
   the real home. The core reads `HOME` and `PITBOARD_HOME`, so the record of stores is kept
   per Pitboard directory.
 
+### What the Swift app said
+
+Measured on macOS 27.0 with Swift 6.4 on 5 October 2026, so that `pitboard-ffi`'s
+`present` says what the Swift app said.
+
+- VoiceOver heard a limit's reset as a span Foundation's `Duration.UnitsFormatStyle` said:
+  days, hours and minutes, wide, at most two units, in `en_US_POSIX`, of at least a minute.
+  Asked for 100 spans, it rounds the span to whole minutes, a half to the even one, to see
+  which units it has, and says the two largest that are not nought, so 1 day and 1 minute
+  is "1 day, 1 minute". The last unit it says is the rest of the span in that unit, rounded
+  the same way, and a rest that rounds up to a whole one of the unit before it is carried:
+  1 day 23 hours 30 minutes is "2 days, 0 hours". It writes no thousands separator: 11,574
+  days is "11574 days, 2 hours". `words::spoken_span` is tested against every one.
+- The menu bar cut a label past 12 `Character`s to 11 and an ellipsis, and Swift counts
+  extended grapheme clusters. Over 22 labels, accents written as combining marks, flags,
+  emoji joined by zero-width joiners, keycaps, tag sequences, Hangul written in jamo, Thai,
+  Arabic's prepended number sign, a carriage return before a line feed and Devanagari
+  conjuncts, joined and not, `unicode-segmentation` 1.13.3's extended graphemes counted and
+  cut each as Swift did.
+
 ### Foundation's URLs
 
 Measured on macOS 27.0 on 5 October 2026, by giving the Swift `SiteLink` and `Handoff` of
@@ -995,9 +1070,10 @@ Nothing here ran on Windows.
   checksum of every export, the model's constructor and methods and
   `ModelListener.changed` among them, and hand the library each foreign trait's table of
   calls.
-- A trait an app implements is an interface of the trait's own name, `ModelListener` and
-  `AppControl`. Its error is an exception named for it, `PlatformException`, whose variant
-  the app throws. An `Option<String>` it gives back is a `string?`.
+- A trait an app implements is an interface of the trait's own name, `ModelListener`,
+  `AppControl`, `Notifications` and `LocalTime`. Its error is an exception named for it,
+  `PlatformException`, whose variant the app throws. An `Option<String>` it gives back is a
+  `string?`.
 - A record holds a list as an array, and a C# record compares arrays by reference, so two
   snapshots read alike are not equal. `ModelTests.ASnapshotCarriesWhatWasRead` measures it.
 - A call's checksum is taken over what UniFFI records of it: its module, object and name,

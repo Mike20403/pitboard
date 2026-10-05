@@ -19,6 +19,7 @@ mod pages;
 mod policy;
 mod stores;
 
+pub(crate) use accounts::forget_message_on;
 pub use accounts::{
     SiteMenu, WindowAccount, forget_message, site_menus, window_accounts, window_of_store,
     windows_of,
@@ -46,7 +47,7 @@ pub struct AlertText {
 }
 
 /// How a sentence names the machine Pitboard runs on, which keeps what a window keeps.
-fn this_machine(os: Os) -> &'static str {
+pub(crate) fn this_machine(os: Os) -> &'static str {
     match os {
         Os::MacOs => "this Mac",
         // No app runs on Linux.

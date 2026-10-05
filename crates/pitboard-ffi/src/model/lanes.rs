@@ -17,9 +17,12 @@
 //! thread reading, which they would otherwise wait behind until the browser came back. Once
 //! the actor has gone, that lane stops every sign-in still under way, so each thread ends.
 
+use super::advice::Told;
+use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, QuitOutcome, split};
-use super::{AppControl, ModelListener, QuitQuestion, Snapshot};
+use super::{AppControl, EarlierPreferences, ModelListener, Notifications, QuitQuestion, Snapshot};
 use crate::{Holding, Pitboard, Remedy, SignIn};
+use pitboard_core::app::AppFile;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +41,10 @@ pub(crate) enum Lane {
     SignIn,
     /// Typing a code back to a sign-in and stopping one.
     SignInCalls,
+    /// What the model keeps of its own in Pitboard's directory, read and written.
+    Kept,
+    /// Posting through the app's system's notifications.
+    Notify,
 }
 
 impl Job {
@@ -45,11 +52,17 @@ impl Job {
     pub(crate) fn lane(&self) -> Lane {
         match self {
             Job::Read { .. } | Job::ReadOffline { .. } | Job::Look => Lane::Reads,
-            Job::Switch { .. } | Job::Abandon => Lane::Changes,
+            Job::Switch { .. }
+            | Job::Abandon
+            | Job::Enrol { .. }
+            | Job::Rename { .. }
+            | Job::Forget { .. } => Lane::Changes,
             Job::Holding { .. } | Job::Quit { .. } | Job::Open { .. } => Lane::Processes,
             Job::AskInstalled => Lane::Discovery,
             Job::SignIn { .. } | Job::SignInOver { .. } => Lane::SignIn,
             Job::PasteCode { .. } | Job::StopSignIn { .. } => Lane::SignInCalls,
+            Job::LoadKept | Job::KeepTold { .. } | Job::KeepPreferences { .. } => Lane::Kept,
+            Job::Post { .. } => Lane::Notify,
         }
     }
 }
@@ -61,23 +74,29 @@ pub(crate) struct Lanes {
     processes: Sender<Job>,
     discovery: Sender<Job>,
     sign_in_calls: Sender<Job>,
+    kept: Sender<Job>,
+    notify: Sender<Job>,
     /// What a sign-in's own thread works with and answers to.
     worker: Arc<Worker>,
     answers: Sender<Msg>,
 }
 
 impl Lanes {
-    /// Starts the lanes over `core` and `apps`, answering to `answers`, giving an app as
-    /// long to quit as `cadence` says.
+    /// Starts the lanes over `core`, `apps` and `notifications`, answering to `answers`,
+    /// giving an app as long to quit as `cadence` says.
     pub(crate) fn open(
         core: Arc<Pitboard>,
         apps: Arc<dyn AppControl>,
+        notifications: Arc<dyn Notifications>,
+        earlier: Option<EarlierPreferences>,
         cadence: Cadence,
         answers: &Sender<Msg>,
     ) -> Lanes {
         let worker = Arc::new(Worker {
             core,
             apps,
+            notifications,
+            earlier,
             quit_within: cadence.quit_within,
             quit_checked_every: cadence.quit_checked_every,
             sign_ins: SignIns::default(),
@@ -92,6 +111,8 @@ impl Lanes {
             sign_in_calls: lane("pitboard-sign-in-calls", &worker, answers, |worker| {
                 worker.sign_ins.close();
             }),
+            kept: lane("pitboard-kept", &worker, answers, |_| {}),
+            notify: lane("pitboard-notify", &worker, answers, |_| {}),
             worker,
             answers: answers.clone(),
         }
@@ -105,6 +126,8 @@ impl Lanes {
             Lane::Processes => &self.processes,
             Lane::Discovery => &self.discovery,
             Lane::SignInCalls => &self.sign_in_calls,
+            Lane::Kept => &self.kept,
+            Lane::Notify => &self.notify,
             Lane::SignIn => return self.sign_in(job),
         };
         // A lane that has gone has nothing left to answer to.
@@ -356,6 +379,8 @@ impl SignIns {
 pub(crate) struct Worker {
     pub(crate) core: Arc<Pitboard>,
     pub(crate) apps: Arc<dyn AppControl>,
+    pub(crate) notifications: Arc<dyn Notifications>,
+    pub(crate) earlier: Option<EarlierPreferences>,
     pub(crate) quit_within: Duration,
     pub(crate) quit_checked_every: Duration,
     pub(crate) sign_ins: SignIns,
@@ -421,6 +446,68 @@ impl Worker {
                 Answer::Opened
             }
             Job::Abandon => Answer::Abandoned(core.abandon_recovery()),
+            // Named with their tool, as AppModel.swift's `qualified(_:for:)` named them, so a
+            // Codex login is enrolled as Codex's and not as a Claude Code account.
+            Job::Enrol {
+                provider,
+                name,
+                from,
+            } => Answer::Enrolled {
+                done: core.enroll_current(format!("{provider}/{name}")),
+                provider,
+                from,
+            },
+            Job::Rename {
+                provider,
+                label,
+                to,
+                from,
+            } => Answer::Renamed {
+                done: core
+                    .rename(format!("{provider}/{label}"), to.clone())
+                    .map(drop),
+                provider,
+                label,
+                to,
+                from,
+            },
+            Job::Forget { qualified } => Answer::Forgot {
+                done: core.forget(qualified.clone()).map(drop),
+                qualified,
+            },
+            // Nothing kept, a record that is there and cannot be read, and one that does not
+            // read as a record of what was told, are each nothing told. The record is written
+            // whole the next time something is told, over one that could not be read too: at
+            // worst a run-out is notified once more. Preferences that are there and cannot be
+            // read are not none: they are left as they are, and never written over unread.
+            Job::LoadKept => Answer::Kept {
+                told: core
+                    .app_file(AppFile::Told)
+                    .ok()
+                    .flatten()
+                    .and_then(|text| serde_json::from_str::<Told>(&text).ok())
+                    .unwrap_or_default(),
+                preferences: core
+                    .app_file(AppFile::Preferences)
+                    .ok()
+                    .map(|text| Preferences::kept(text.as_deref(), self.earlier.as_ref())),
+            },
+            Job::KeepPreferences { preferences } => {
+                if let Some(body) = preferences.text() {
+                    let _ = core.keep_app_file(AppFile::Preferences, &body);
+                }
+                Answer::Saved
+            }
+            Job::KeepTold { told } => {
+                if let Ok(body) = serde_json::to_string(&told) {
+                    let _ = core.keep_app_file(AppFile::Told, &body);
+                }
+                Answer::Saved
+            }
+            Job::Post { notice } => {
+                let _ = self.notifications.post(notice);
+                Answer::Posted
+            }
             // Typed back as the Swift model typed it, whatever comes of it: the tool says
             // itself whether it took the code.
             Job::PasteCode { id, code } => {
@@ -531,7 +618,7 @@ mod tests {
     use super::*;
     use crate::model::Intent;
     use crate::model::state::{Cadence, Now, State};
-    use crate::model::testing::{CHATGPT_CODEX, StandInApps, World, chatgpt_holding};
+    use crate::model::testing::{CHATGPT_CODEX, Posted, StandInApps, World, chatgpt_holding};
 
     const CHATGPT: &str = crate::model::testing::CHATGPT;
 
@@ -539,6 +626,8 @@ mod tests {
         Worker {
             core,
             apps,
+            notifications: Arc::new(Posted::default()),
+            earlier: None,
             quit_within: Duration::from_millis(50),
             quit_checked_every: Duration::from_millis(5),
             sign_ins: SignIns::default(),
@@ -603,6 +692,24 @@ mod tests {
         };
         assert_eq!(switch.lane(), Lane::Changes);
         assert_eq!(Job::Abandon.lane(), Lane::Changes);
+        for change in [
+            Job::Enrol {
+                provider: "codex".into(),
+                name: "job".into(),
+                from: None,
+            },
+            Job::Rename {
+                provider: "claude".into(),
+                label: "work".into(),
+                to: "office".into(),
+                from: None,
+            },
+            Job::Forget {
+                qualified: "claude/spare".into(),
+            },
+        ] {
+            assert_eq!(change.lane(), Lane::Changes, "{change:?}");
+        }
         for job in [
             Job::Holding {
                 qualified: "codex/work".into(),
@@ -853,6 +960,8 @@ mod tests {
         let lanes = Lanes::open(
             world.core(),
             StandInApps::new(&[], true),
+            Arc::new(Posted::default()),
+            None,
             Cadence::APP,
             &answers,
         );

@@ -1,10 +1,13 @@
+using System.Globalization;
+
 namespace Pitboard.Core.Tests;
 
 /// <summary>
 /// The app model's types, as the Windows app will hold them. One test makes a model and takes
 /// its first snapshot without starting it: a model reads nothing until it is sent an intent,
 /// and this one is given a fresh folder for every home it could read all the same. So the
-/// launch, the listener, AppControl and the snapshot cross the library there. The library
+/// launch, the listener, AppControl, Notifications, LocalTime and the snapshot cross the
+/// library there. The library
 /// calling a listener or an AppControl written in C# waits for a fixture's model, which can
 /// be started with no machine to read. What the model does is the Rust tests' to prove.
 ///
@@ -37,6 +40,44 @@ public sealed class ModelTests
         }
     }
 
+    /// <summary>
+    /// What an app's LocalTime does: says a moment as the person's clock does, here in UTC
+    /// and 24 hours, and whether two moments fall on one of their days.
+    /// </summary>
+    private sealed class InUtc : LocalTime
+    {
+        private static DateTimeOffset At(long epoch) => DateTimeOffset.FromUnixTimeSeconds(epoch);
+
+        public string Clock(long epoch, bool withWeekday) =>
+            At(epoch).ToString(withWeekday ? "ddd HH:mm" : "HH:mm", CultureInfo.InvariantCulture);
+
+        public bool SameDay(long first, long second) => At(first).Date == At(second).Date;
+
+        public string DateAndTime(long epoch) =>
+            At(epoch).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// What an app's Notifications does: posts what it is given, and throws what its system
+    /// refuses as the one exception the model takes from it.
+    /// </summary>
+    private sealed class Posting : Notifications
+    {
+        public List<RunOutNotice> Posted { get; } = [];
+
+        public bool Allowed { get; set; } = true;
+
+        public void Post(RunOutNotice notice)
+        {
+            if (!Allowed)
+            {
+                throw new PlatformException.Failed("notifications are not allowed");
+            }
+
+            Posted.Add(notice);
+        }
+    }
+
     private static Snapshot Read(ulong revision)
     {
         var work = new Account(
@@ -53,7 +94,14 @@ public sealed class ModelTests
             Installed: [PitboardFfiMethods.Tools()[0]], SwitchUnderWay: null, QuitQuestion: null,
             LastSwitches: [], Abandoned: null, Failure: null,
             WindowRequest: new WindowRequest(Serial: 0, Pane: null),
-            SigningIn: null, Sheet: null, SheetFailure: null);
+            SigningIn: null, Sheet: null, SheetFailure: null,
+            MenuBar: new MenuBarText(NameAndUsage: "work 42%", Usage: "42%", Spoken: "Pitboard, work 42%"),
+            Sections: [], ShowsTools: false, Notices: [],
+            MenuNotices: new MenuNotices(Install: null, Switches: [], Others: null),
+            Footing: new Footing.OnlyOne(Provider: "claude", Label: "work"), Setup: null,
+            AccountsShown: new AccountsShown.List(), MenuAccountsNote: null,
+            UpdatedMenu: "Updated 08:00", UpdatedWindow: "Updated 08:00", SheetText: null,
+            SigningInText: null, QuitConfirmation: null, FailureAlert: null);
     }
 
     /// <summary>
@@ -111,7 +159,8 @@ public sealed class ModelTests
             };
             var keeping = new Keeping();
             var apps = new StandInApps();
-            using var model = new PitboardModel(new AppLaunch(environment, null), keeping, apps);
+            var posting = new Posting();
+            using var model = new PitboardModel(new AppLaunch(environment, null), keeping, apps, posting, new InUtc());
 
             var first = model.Snapshot();
             model.Shutdown();
@@ -120,9 +169,14 @@ public sealed class ModelTests
             Assert.IsFalse(first.Reading);
             Assert.IsNull(first.Status);
             Assert.IsNull(first.Installed);
+            Assert.AreEqual(new Footing.Ready(), first.Footing);
+            Assert.AreEqual(new AccountsShown.Reading("Reading accounts…"), first.AccountsShown);
+            Assert.AreEqual("Pitboard", first.MenuBar.Spoken);
+            Assert.AreEqual("Not read yet", first.UpdatedMenu);
             Assert.AreEqual(0UL, model.Snapshot().Revision);
             Assert.IsEmpty(keeping.Told);
             Assert.IsEmpty(apps.Asked);
+            Assert.IsEmpty(posting.Posted);
             Assert.IsEmpty(Directory.EnumerateFileSystemEntries(home));
         }
         finally
@@ -350,16 +404,171 @@ public sealed class ModelTests
     }
 
     /// <summary>
-    /// What the app was started with goes in as it was given: the environment, and the folder
-    /// the app is in.
+    /// What the app was started with goes in as it was given: the environment, the folder the
+    /// app is in, and its preferences as an earlier store held them, which an app with none
+    /// leaves out.
     /// </summary>
     [TestMethod]
     public void TheAppsLaunchIsItsEnvironmentAndWhereItIs()
     {
         var launch = new AppLaunch(
             new Dictionary<string, string> { ["USERPROFILE"] = @"C:\Users\x" }, @"C:\Program Files\Pitboard");
+        var moved = launch with
+        {
+            EarlierPreferences = new EarlierPreferences(
+                SecondAccountDeclined: ["codex"], HasBeenSeen: true, SecondAccountNudgeHidden: false),
+        };
 
         Assert.AreEqual(@"C:\Users\x", launch.Environment["USERPROFILE"]);
         Assert.AreEqual(@"C:\Program Files\Pitboard", launch.AppLocation);
+        Assert.IsNull(launch.EarlierPreferences);
+        Assert.AreEqual("codex", moved.EarlierPreferences?.SecondAccountDeclined.Single());
+        Assert.IsTrue(moved.EarlierPreferences?.HasBeenSeen);
+    }
+
+    /// <summary>
+    /// The window is asked for by an intent, on a pane or none, and a failure it said is put
+    /// away by one; naming, renaming, forgetting and declining a second account carry what
+    /// they are about.
+    /// </summary>
+    [TestMethod]
+    public void AnIntentForTheWindowOrAnAccountCarriesWhatItIsAbout()
+    {
+        Intent[] intents =
+        [
+            new Intent.ShowWindow(Pane: Pane.Machine), new Intent.ShowWindow(Pane: null), new Intent.DismissFailure(),
+            new Intent.Enrol(Provider: "codex", Name: "job"),
+            new Intent.Rename(Provider: "claude", Label: "work", To: "office"),
+            new Intent.Forget(Qualified: "claude/spare"), new Intent.DeclineSecondAccount(Provider: "codex"),
+        ];
+
+        Assert.AreEqual<Intent>(new Intent.ShowWindow(Pane.Machine), intents[0]);
+        Assert.AreNotEqual<Intent>(new Intent.ShowWindow(null), intents[0]);
+        Assert.IsNull(((Intent.ShowWindow)intents[1]).Pane);
+        Assert.AreEqual("job", intents.OfType<Intent.Enrol>().Single().Name);
+        Assert.AreEqual("office", intents.OfType<Intent.Rename>().Single().To);
+        Assert.AreEqual("claude/spare", intents.OfType<Intent.Forget>().Single().Qualified);
+        Assert.AreEqual(1, intents.OfType<Intent.DismissFailure>().Count());
+        Assert.AreEqual("codex", intents.OfType<Intent.DeclineSecondAccount>().Single().Provider);
+    }
+
+    /// <summary>
+    /// A snapshot says what the menu bar, the menu and the window show as records of their
+    /// own: an account's row with its limits and what pressing it sends, a notice with what
+    /// can be done about it and the question asked first, what the menu says of the notices,
+    /// the footing and the step it asks for, and what the pane shows in place of a list. What
+    /// pressing something sends is an Intent, which the app sends as it is.
+    /// </summary>
+    [TestMethod]
+    public void ASnapshotSaysWhatTheMenuAndTheWindowShow()
+    {
+        var limit = new LimitRow(
+            Name: "5-hour", Short: "5h", Percent: 72.4, Figure: "72%", Level: UsageLevel.Low,
+            Resets: "resets in 1h 05m", Spoken: "5-hour limit, 72 percent used, resets in 1 hour, 5 minutes");
+        var use = new ItemAction(
+            Title: "Use", Spoken: "Use spare (Codex)", MenuTitle: "Use spare",
+            Intent: new Intent.SwitchTo("codex/spare"));
+        var spare = new AccountItem(
+            Id: "codex:spare", Provider: "codex", Qualified: "codex/spare", Title: "spare",
+            Email: "spare@example.com", SpokenName: "spare (Codex)", Spoken: "spare (Codex)", InUse: false,
+            NeedsSignIn: false, Unplaced: false, Switching: false, Busy: false, Action: use,
+            Summary: "5-hour 72%", Problem: null, StaleNote: null, Pace: null,
+            ParkedNote: "Parked login good for 3 more days", Help: null, Limits: [limit], Renamable: true,
+            CanForget: true,
+            ForgetQuestion: new Question(
+                Title: "Forget “spare (Codex)”?", Message: "Pitboard deletes the login it parked for this account.",
+                Confirm: "Forget"));
+        var giveUp = new NoticeAction(
+            Title: "Give Up…", Intent: new Intent.AbandonStuckSwitch(), Dismisses: false, Switches: false,
+            Enabled: true,
+            Confirm: new Question(
+                Title: "Give up on the interrupted switch?", Message: "Every login is kept, and nothing is deleted.",
+                Confirm: "Give Up"));
+        var stuck = new PanelNotice(
+            Id: "stuck", Severity: Severity.Error, SpokenSeverity: "Problem", Title: "An interrupted switch is waiting",
+            Lines: ["An interrupted switch can’t be finished until OpenAI answers."], Until: null, UntilLabel: null,
+            Actions: [giveUp]);
+        var others = new MenuEntry(
+            Title: stuck.Title, Subtitle: "Show in Pitboard", Help: stuck.Lines[0], Severity: Severity.Error,
+            Intent: new Intent.ShowWindow(Pane.Accounts), Link: null, Enabled: true);
+        var snapshot = Read(6) with
+        {
+            Sections = [new AccountSection(Id: "codex", Heading: "Codex", Accounts: [spare])],
+            ShowsTools = true,
+            Notices = [stuck],
+            MenuNotices = new MenuNotices(Install: null, Switches: [], Others: others),
+            Setup = new SetupStep(
+                Title: "Add a second Codex account", Detail: "job is the only Codex account Pitboard knows.",
+                Actions: [new Choice("Add Account…", new Intent.PresentSheet(new Sheet.Add("codex")))]),
+            AccountsShown = new AccountsShown.ReadFailed(
+                Title: "Couldn’t Read Accounts", Detail: "OpenAI could not be reached",
+                Retry: new Choice("Try Again", new Intent.Refresh(true))),
+        };
+
+        var row = snapshot.Sections[0].Accounts[0];
+        Assert.AreEqual<Intent>(new Intent.SwitchTo("codex/spare"), row.Action?.Intent);
+        Assert.AreEqual(UsageLevel.Low, row.Limits[0].Level);
+        Assert.AreEqual("Forget", row.ForgetQuestion?.Confirm);
+        Assert.IsTrue(snapshot.Notices[0].Severity > Severity.Warning);
+        Assert.AreEqual<Intent>(new Intent.AbandonStuckSwitch(), snapshot.Notices[0].Actions[0].Intent);
+        Assert.AreEqual("Give Up", snapshot.Notices[0].Actions[0].Confirm?.Confirm);
+        Assert.AreEqual<Intent?>(new Intent.ShowWindow(Pane.Accounts), snapshot.MenuNotices.Others?.Intent);
+        Assert.AreEqual(new Footing.OnlyOne("claude", "work"), snapshot.Footing);
+        Assert.IsInstanceOfType<Intent.PresentSheet>(snapshot.Setup?.Actions[0].Intent);
+        Assert.AreEqual("Try Again", ((AccountsShown.ReadFailed)snapshot.AccountsShown).Retry.Title);
+        Assert.AreEqual("work 42%", snapshot.MenuBar.NameAndUsage);
+    }
+
+    /// <summary>
+    /// LocalTime is an interface the app implements over its system's own clock, which the
+    /// model asks for each clock time it says.
+    /// </summary>
+    [TestMethod]
+    public void LocalTimeIsAnInterfaceTheAppImplements()
+    {
+        LocalTime clock = new InUtc();
+
+        Assert.AreEqual("08:00", clock.Clock(At, false));
+        Assert.AreEqual("Fri 08:00", clock.Clock(At, true));
+        Assert.IsTrue(clock.SameDay(At, At + 3_600));
+        Assert.IsFalse(clock.SameDay(At, At + 86_400));
+        Assert.AreEqual("2027-01-15 08:00", clock.DateAndTime(At));
+    }
+
+    /// <summary>
+    /// A sheet's Save is offered by the library's own rule, which the model saves by: a name
+    /// without the white space around it, and in a rename one the account does not have.
+    /// </summary>
+    [TestMethod]
+    public void ANameIsSavedAsTheSheetOffersIt()
+    {
+        Assert.AreEqual("home", PitboardFfiMethods.NameToSave(new Sheet.Name("claude", "a@example.com"), "  home "));
+        Assert.IsNull(PitboardFfiMethods.NameToSave(new Sheet.Name("claude", "a@example.com"), " \n"));
+        Assert.IsNull(PitboardFfiMethods.NameToSave(new Sheet.Rename("claude", "work"), " work "));
+        Assert.AreEqual("work", PitboardFfiMethods.NameToSave(new Sheet.SignInAgain("codex", "work"), ""));
+    }
+
+    /// <summary>
+    /// Notifications is an interface the app implements over its system's own, which the
+    /// model posts each run-out through once, with the account its Switch button switches
+    /// to, and a refusal is the one exception the model takes from it.
+    /// </summary>
+    [TestMethod]
+    public void NotificationsIsAnInterfaceTheAppImplements()
+    {
+        var posting = new Posting();
+        Notifications notifications = posting;
+        var ranOut = new RunOutNotice(
+            Id: "claude/work/session/-7200", Title: "work has no 5-hour limit left", Subtitle: null,
+            Body: "spare has 80% of its own left.", SwitchTo: "claude/spare");
+
+        notifications.Post(ranOut);
+        posting.Allowed = false;
+        var refused = Assert.ThrowsExactly<PlatformException.Failed>(() => notifications.Post(ranOut));
+
+        Assert.AreEqual(ranOut, posting.Posted.Single());
+        Assert.AreEqual<Intent>(new Intent.SwitchTo("claude/spare"), new Intent.SwitchTo(posting.Posted[0].SwitchTo));
+        Assert.IsNull(posting.Posted[0].Subtitle);
+        Assert.AreEqual("notifications are not allowed", refused.reason);
     }
 }

@@ -42,6 +42,9 @@ sha1 = { version = "0.11", default-features = false }
 sha2 = "0.11"
 thiserror = "2"
 unicode-normalization = "0.1"
+# Characters as a person counts them, as Swift counts a String's, for the menu bar's cut of a
+# long label.
+unicode-segmentation = "1.13"
 # Columns are counted in what a terminal shows, not in characters: a CJK label is two
 # columns wide per character and would push everything after it out of line.
 unicode-width = "0.2"

@@ -8,11 +8,15 @@
 //! the tool's own installers put it, and hands the shell's `PATH` to every sign-in. The rest
 //! of its environment is read as the command line reads its own, by the same code.
 //!
-//! An app also says which `pitboard` a terminal would run, and whether it is the app's own.
+//! An app also says which `pitboard` a terminal would run, and whether it is the app's own,
+//! and keeps files of its own in Pitboard's directory, beside the core's, written as the core
+//! writes its own.
 
 use crate::context::{Context, Environment};
+use crate::error::{Error, Result};
 use crate::host::{self, LoginPath, OS};
 use crate::provider::ProviderId;
+use crate::{atomic, home};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -179,6 +183,54 @@ pub fn find_command_line(
         }
         _ => CommandLine::Another(found),
     }
+}
+
+/// A file an app keeps of its own in Pitboard's directory: what it remembers between launches
+/// that is the app's and no command's. The core reads none of them for itself, and nothing in
+/// one is secret, but each is written private to its owner, as everything there is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AppFile {
+    /// The app's own preferences, such as which tools somebody keeps one account of.
+    Preferences,
+    /// What the app has told a person about, once for each reset of a limit, so a run-out
+    /// told before the app was quit is not told again after it is opened.
+    Told,
+}
+
+impl AppFile {
+    /// Its name in Pitboard's directory.
+    pub fn name(self) -> &'static str {
+        match self {
+            AppFile::Preferences => "app.json",
+            AppFile::Told => "told.json",
+        }
+    }
+}
+
+/// What the app keeps in `file`, or `None` where it keeps nothing there. A file that is there
+/// and cannot be read, because it is not this user's to read, a disk failed, another program
+/// holds it or it is not text, is an error and not nothing: an app that took it as nothing
+/// would write what it has over what it never read.
+pub fn read_app_file(ctx: &Context, file: AppFile) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(home::dir(ctx).join(file.name())) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Keeps `body` in `file`, as the core writes its own: Pitboard's directory made private
+/// first where it is not there yet, and the file written whole or not at all, private to its
+/// owner.
+pub fn write_app_file(ctx: &Context, file: AppFile, body: &str) -> Result<()> {
+    let path = home::dir(ctx).join(file.name());
+    let unwritable = |source| Error::HomeUnwritable {
+        path: path.clone(),
+        source,
+    };
+    home::ensure(ctx).map_err(unwritable)?;
+    atomic::write(&path, body.as_bytes(), atomic::Perms::Secret).map_err(unwritable)
 }
 
 #[cfg(test)]
@@ -597,5 +649,61 @@ mod tests {
         let after: Vec<&Path> = places[2..].iter().map(PathBuf::as_path).collect();
         let expected: Vec<&Path> = OS.package_bins().iter().map(Path::new).collect();
         assert_eq!(after, expected);
+    }
+
+    /// An app's file is kept in Pitboard's directory, which is made private where it is not
+    /// there yet, and the file private to its owner, whole: read back as it was written, and
+    /// in its place what was written last. Nothing kept reads as nothing.
+    #[test]
+    fn an_apps_file_is_kept_private_in_pitboards_directory() {
+        let root = std::env::temp_dir().join(format!("pitboard-app-file-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let ctx = Context::new(root.clone()).with_pitboard_home(root.join(".pitboard"));
+        let read = |file| read_app_file(&ctx, file).expect("read");
+        assert_eq!(read(AppFile::Told), None);
+
+        write_app_file(&ctx, AppFile::Told, r#"{"claude/work/session/":7200}"#).expect("kept");
+        write_app_file(&ctx, AppFile::Preferences, "{}").expect("kept");
+        assert_eq!(
+            read(AppFile::Told).as_deref(),
+            Some(r#"{"claude/work/session/":7200}"#)
+        );
+        write_app_file(&ctx, AppFile::Told, "{}").expect("kept again");
+        assert_eq!(read(AppFile::Told).as_deref(), Some("{}"));
+        assert_eq!(read(AppFile::Preferences).as_deref(), Some("{}"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode =
+                |path: &Path| std::fs::metadata(path).expect("there").permissions().mode() & 0o777;
+            assert_eq!(mode(&root.join(".pitboard")), 0o700);
+            assert_eq!(mode(&root.join(".pitboard").join("told.json")), 0o600);
+            assert_eq!(mode(&root.join(".pitboard").join("app.json")), 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file that is there and cannot be read is an error, not nothing kept: here a
+    /// directory where the file goes, which no user can read as a file, and a file that is
+    /// not text. An app that took either as nothing would write over what it never read.
+    #[test]
+    fn an_apps_file_that_cannot_be_read_is_not_nothing() {
+        let root =
+            std::env::temp_dir().join(format!("pitboard-app-unreadable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join(".pitboard");
+        let ctx = Context::new(root.clone()).with_pitboard_home(dir.clone());
+        std::fs::create_dir_all(dir.join(AppFile::Preferences.name())).expect("a directory");
+        std::fs::write(dir.join(AppFile::Told.name()), [0xff, 0xfe, 0x00]).expect("a file");
+        assert!(read_app_file(&ctx, AppFile::Preferences).is_err());
+        assert!(read_app_file(&ctx, AppFile::Told).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Each file has a name of its own, apart from the core's.
+    #[test]
+    fn each_apps_file_has_a_name_of_its_own() {
+        assert_eq!(AppFile::Preferences.name(), "app.json");
+        assert_eq!(AppFile::Told.name(), "told.json");
     }
 }

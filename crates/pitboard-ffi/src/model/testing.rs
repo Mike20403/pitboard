@@ -2,9 +2,12 @@
 //! other apps as a test says they are, and, for the threaded tests, a machine of the test's
 //! own that the real core runs on.
 
+use super::EarlierPreferences;
+use super::advice::Told;
 use super::lanes;
+use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, Now, State};
-use super::{AppControl, Intent, PlatformError, Snapshot};
+use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
 use crate::{
     Abandoned, Account, Adoption, Enrolled, EnrolledAs, Holding, Limit, Made, Pitboard,
     PitboardError, Remedy, Source, Status, Switch, Switched, Tool, Usage, Warning,
@@ -335,6 +338,26 @@ impl AppControl for StandInApps {
     }
 }
 
+/// The system's notifications, as a test has them: every notification posted is kept, and
+/// none reaches the machine running the tests.
+#[derive(Default)]
+pub(super) struct Posted {
+    posted: Mutex<Vec<RunOutNotice>>,
+}
+
+impl Posted {
+    pub(super) fn posted(&self) -> Vec<RunOutNotice> {
+        self.posted.lock().expect("a test's own lock").clone()
+    }
+}
+
+impl Notifications for Posted {
+    fn post(&self, notice: RunOutNotice) -> Result<(), PlatformError> {
+        self.posted.lock().expect("a test's own lock").push(notice);
+        Ok(())
+    }
+}
+
 /// A failure as the core reports one.
 #[derive(Debug, Clone)]
 pub(super) struct Refusal {
@@ -410,6 +433,32 @@ pub(super) struct Machine {
     pub stopped: Vec<u64>,
     /// Every sign-in told whether to enrol, with what it was told.
     pub over: Vec<(u64, bool)>,
+    /// What enrolling the login signed in now gives.
+    pub enrolling_current: Result<Enrolled, Refusal>,
+    /// What a rename gives.
+    pub renaming: Result<(), Refusal>,
+    /// What forgetting gives.
+    pub forgetting: Result<(), Refusal>,
+    /// Every login enrolled as it is signed in now, as the model named it.
+    pub enrolled: Vec<String>,
+    /// Every rename, from and to, as the model named them.
+    pub renamed: Vec<(String, String)>,
+    /// Every account forgotten, as the model named it.
+    pub forgot: Vec<String>,
+    /// What was told about before the model started, as kept in Pitboard's directory.
+    pub told_before: Told,
+    /// Every record of what was told the model kept, in order.
+    pub kept: Vec<Told>,
+    /// Every notification posted, in order.
+    pub posted: Vec<RunOutNotice>,
+    /// What `app.json` held before the model started, where it was there.
+    pub preferences_file: Option<String>,
+    /// `app.json` is there and cannot be read, whatever it holds.
+    pub preferences_unreadable: bool,
+    /// What the app's earlier store held of its preferences.
+    pub earlier: Option<EarlierPreferences>,
+    /// Every set of preferences the model kept, in order.
+    pub kept_preferences: Vec<Preferences>,
 }
 
 impl Machine {
@@ -431,6 +480,19 @@ impl Machine {
             pasted: Vec::new(),
             stopped: Vec::new(),
             over: Vec::new(),
+            enrolling_current: enrolled_as(EnrolledAs::Current, Vec::new()),
+            renaming: Ok(()),
+            forgetting: Ok(()),
+            enrolled: Vec::new(),
+            renamed: Vec::new(),
+            forgot: Vec::new(),
+            told_before: Told::new(),
+            kept: Vec::new(),
+            posted: Vec::new(),
+            preferences_file: None,
+            preferences_unreadable: false,
+            earlier: None,
+            kept_preferences: Vec::new(),
         }
     }
 
@@ -509,6 +571,63 @@ impl Machine {
             Job::StopSignIn { id } => {
                 self.stopped.push(id);
                 Answer::Stopped
+            }
+            Job::Enrol {
+                provider,
+                name,
+                from,
+            } => {
+                self.enrolled.push(format!("{provider}/{name}"));
+                Answer::Enrolled {
+                    provider,
+                    from,
+                    done: self
+                        .enrolling_current
+                        .clone()
+                        .map_err(|refused| refused.error()),
+                }
+            }
+            Job::Rename {
+                provider,
+                label,
+                to,
+                from,
+            } => {
+                self.renamed
+                    .push((format!("{provider}/{label}"), to.clone()));
+                Answer::Renamed {
+                    provider,
+                    label,
+                    to,
+                    from,
+                    done: self.renaming.clone().map_err(|refused| refused.error()),
+                }
+            }
+            Job::Forget { qualified } => {
+                self.forgot.push(qualified.clone());
+                Answer::Forgot {
+                    qualified,
+                    done: self.forgetting.clone().map_err(|refused| refused.error()),
+                }
+            }
+            Job::LoadKept => Answer::Kept {
+                told: self.told_before.clone(),
+                preferences: (!self.preferences_unreadable).then(|| {
+                    Preferences::kept(self.preferences_file.as_deref(), self.earlier.as_ref())
+                }),
+            },
+            Job::KeepPreferences { preferences } => {
+                self.preferences_file = preferences.text();
+                self.kept_preferences.push(preferences);
+                Answer::Saved
+            }
+            Job::KeepTold { told } => {
+                self.kept.push(told);
+                Answer::Saved
+            }
+            Job::Post { notice } => {
+                self.posted.push(notice);
+                Answer::Posted
             }
             Job::SignInOver { id, enrol } => {
                 self.over.push((id, enrol));
@@ -638,8 +757,9 @@ impl Hand {
         self.run(machine);
     }
 
+    /// What an app is shown now, its clock times read in UTC.
     pub(super) fn shown(&self) -> Snapshot {
-        self.state.snapshot(0, self.now.epoch())
+        crate::present::present(&self.state, self.now.epoch(), &crate::present::testing::Utc)
     }
 
     /// How many of the jobs asked for so far are `which`.
@@ -739,6 +859,15 @@ impl World {
     /// Claude Code signed in as `who` and enrolled as `label`, with its five-hour window
     /// `percent` used, as Anthropic answers.
     pub(super) fn enrolled(&self, label: &str, who: &str, percent: f64) {
+        self.signed_in(who, percent);
+        self.elsewhere()
+            .enroll_current(label)
+            .expect("the account signed in, enrolled");
+    }
+
+    /// Claude Code signed in as `who`, with its five-hour window `percent` used, and not
+    /// enrolled.
+    pub(super) fn signed_in(&self, who: &str, percent: f64) {
         let login = self.claude_login(who, percent);
         self.host.live().plant(&live_service(&self.ctx), &login);
         std::fs::write(
@@ -748,9 +877,6 @@ impl World {
             ),
         )
         .expect("Claude Code's config");
-        self.elsewhere()
-            .enroll_current(label)
-            .expect("the account signed in, enrolled");
     }
 
     /// `who` signed in to Claude Code privately and enrolled as `label`, with its five-hour
@@ -943,6 +1069,11 @@ impl World {
         format!(
             r#"{{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{{"id_token":"{id_token}","access_token":"{access}","refresh_token":"refresh-{who}","account_id":"{who}"}},"last_refresh":"2026-10-01T08:00:00Z"}}"#
         )
+    }
+
+    /// Pitboard's directory on this machine.
+    pub(super) fn pitboard_dir(&self) -> PathBuf {
+        self.root.join(".pitboard")
     }
 
     /// Says the account index was written `seconds` later than it was. The index's time is
