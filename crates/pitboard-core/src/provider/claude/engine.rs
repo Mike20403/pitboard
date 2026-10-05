@@ -176,7 +176,9 @@ impl Provider for Claude {
     /// address, then its prompt with no newline after it, and from then on it reads a
     /// pasted code. So the field is offered with the address. The address it prints is the
     /// manual one, `https`, whose page shows the code to paste; the browser it opens itself
-    /// goes to another, which comes back to the loopback callback.
+    /// goes to another, which comes back to the loopback callback. It is printed bare, or as
+    /// a terminal hyperlink to itself where the environment says the terminal takes them,
+    /// and either way the address read is the one it goes to.
     fn read_sign_in(&self, said: &str) -> SignInView {
         SignInView {
             url: crate::provider::https_address(said),
@@ -291,37 +293,52 @@ fn from_api(error: ApiError) -> ProviderError {
 mod tests {
     use super::*;
 
-    /// What `claude auth login` 2.1.289 writes before it opens the browser, piped, with the
-    /// address's values made up: the address bare at the end of a line, and the prompt with
-    /// no newline after it.
-    const SAID: &str = "Opening browser to sign in\u{2026}\n\
-        If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true\
+    /// The manual address 2.1.289 prints, with its values made up.
+    const ADDRESS: &str = "https://claude.com/cai/oauth/authorize?code=true\
         &client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code\
         &redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback\
         &scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=c&code_challenge_method=S256\
-        &state=s\n\
-        Paste code here if prompted > ";
+        &state=s";
+
+    /// What `claude auth login` 2.1.289 writes before it opens the browser, piped, with the
+    /// address as its hyperlink helper wrote it: at the end of a line, and the prompt with no
+    /// newline after it.
+    fn said(address: &str) -> String {
+        format!(
+            "Opening browser to sign in\u{2026}\n\
+             If the browser didn't open, visit: {address}\n\
+             Paste code here if prompted > "
+        )
+    }
 
     /// The address and the code field come together, because the tool prints both before
     /// it opens the browser: the field is for the page the printed address leads to, which
     /// shows a code.
     #[test]
     fn a_sign_in_offers_its_address_and_a_field_for_the_code_together() {
-        let read = Claude.read_sign_in(SAID);
-        assert_eq!(
-            read.url.as_deref(),
-            Some(
-                "https://claude.com/cai/oauth/authorize?code=true\
-                 &client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code\
-                 &redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback\
-                 &scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=c\
-                 &code_challenge_method=S256&state=s"
-            )
-        );
+        let said = said(ADDRESS);
+        let read = Claude.read_sign_in(&said);
+        assert_eq!(read.url.as_deref(), Some(ADDRESS));
         assert!(read.wants_code);
 
-        let opening = &SAID[..SAID.find('\n').expect("a first line")];
+        let opening = &said[..said.find('\n').expect("a first line")];
         assert_eq!(Claude.read_sign_in(opening), SignInView::default());
+    }
+
+    /// 2.1.289's hyperlink helper, which the address is printed through, writes it as an
+    /// OSC 8 hyperlink when its check says the terminal takes them, which it can say piped.
+    /// That is `ESC ] 8 ; ;`, the address and BEL, then the address again as the link's
+    /// text, then `ESC ] 8 ; ;` and BEL to end the link. The text is bright blue where colour
+    /// is on, as `FORCE_COLOR` turns it on piped. The address to open is the one the link
+    /// goes to, with nothing of the sequence or the text in it.
+    #[test]
+    fn an_address_printed_as_a_terminal_hyperlink_is_the_one_it_links_to() {
+        for text in [ADDRESS.to_owned(), format!("\u{1b}[94m{ADDRESS}\u{1b}[39m")] {
+            let printed = format!("\u{1b}]8;;{ADDRESS}\u{7}{text}\u{1b}]8;;\u{7}");
+            let read = Claude.read_sign_in(&said(&printed));
+            assert_eq!(read.url.as_deref(), Some(ADDRESS), "{printed:?}");
+            assert!(read.wants_code);
+        }
     }
 
     /// The prompt looked for is one the conformance run reads out of every build, so a

@@ -37,7 +37,8 @@ pages load, as a browser would.
     whose it is, how to renew it, what it has left and what its sign-in prints, which
     `provider::sign_in_view` reads for both apps. Each module's `assumptions.rs` is
     that tool's register of facts. `provider/codex/holders.rs` names where a running
-    `codex` can be, and what makes each take a switch.
+    `codex` can be, and what makes each take a switch. `provider/printed.rs` reads what a
+    tool printed as a terminal does: the text it shows, and where each hyperlink goes.
   - `holder.rs`: what keeps a tool's login in memory while it runs, told apart by where
     its program runs from. A switch's warning, `doctor` and the app's offer to quit an app
     all read it, so they cannot disagree.
@@ -476,9 +477,12 @@ treated, and only the macOS build shows it. The run reads both builds since.
   writes an `https` address and `Paste code here if prompted > ` to stdout, and from then
   on reads a pasted code. So the app offers the code field with the address. The address
   is the manual one, whose page shows the code; the browser it opens goes to another,
-  which comes back to the loopback. Piped, the address is bare. It is printed as a terminal
-  hyperlink, ended by BEL, where the environment names a terminal that takes them, and the
-  app's reading then takes the BEL and what follows into the address.
+  which comes back to the loopback. Piped, the address is bare unless `FORCE_HYPERLINK` is
+  set or the environment names a terminal that takes hyperlinks, such as `TERM_PROGRAM` set
+  to iTerm.app or `WT_SESSION` set. Then it is an OSC 8 hyperlink ended by BEL, with the
+  address again as its text. The sign-in runs with the app's whole environment, so
+  `provider/printed.rs` reads what it printed as a terminal does, and the address offered
+  is where the hyperlink goes.
 
 ### Codex
 

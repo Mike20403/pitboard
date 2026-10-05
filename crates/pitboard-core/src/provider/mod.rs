@@ -46,6 +46,7 @@
 pub(crate) mod claude;
 pub(crate) mod codex;
 pub(crate) mod jwt;
+mod printed;
 
 use crate::context::Context;
 use crate::usage;
@@ -509,26 +510,40 @@ pub fn sign_in_view(provider: ProviderId, said: &str, pasted: bool) -> SignInVie
     }
 }
 
-/// The first `https` address in what a tool printed, up to where an address printed bare
-/// cannot go on: white space, a quote, an angle bracket, or the escape that starts a
-/// terminal's colour.
+/// The first `https` address in what a tool printed, read as a terminal reads it: where a
+/// hyperlink goes, or an address printed as text, up to where an address printed bare
+/// cannot go on: white space, a quote or an angle bracket. No byte of an escape sequence is
+/// ever part of one, and a hyperlink's text is read only after where it goes.
 ///
 /// Only `https`: the address each tool prints for a person to open is one, and a loopback
 /// address it prints, where the browser comes back to, is `http`. The registers record
 /// both.
 pub(crate) fn https_address(said: &str) -> Option<String> {
-    const SCHEME: &str = "https://";
-    said.match_indices(SCHEME).find_map(|(at, _)| {
-        let rest = &said[at + SCHEME.len()..];
+    printed::read(said).find_map(|piece| match piece {
+        printed::Printed::Text(text) => bare_https_address(text),
+        printed::Printed::Link(target) => target
+            .strip_prefix(HTTPS)
+            .is_some_and(|rest| !rest.is_empty() && !rest.contains(ends_an_address))
+            .then(|| target.to_owned()),
+    })
+}
+
+const HTTPS: &str = "https://";
+
+/// The first `https` address in `text`, which has no escape sequence in it.
+fn bare_https_address(text: &str) -> Option<String> {
+    text.match_indices(HTTPS).find_map(|(at, _)| {
+        let rest = &text[at + HTTPS.len()..];
         let length = rest.find(ends_an_address).unwrap_or(rest.len());
-        (length > 0).then(|| said[at..at + SCHEME.len() + length].to_owned())
+        (length > 0).then(|| text[at..at + HTTPS.len() + length].to_owned())
     })
 }
 
 /// White space is Unicode's, as `char::is_whitespace` has it, which is what the app's own
-/// pattern ended an address at before this moved here.
+/// pattern ended an address at before this moved here. The pattern also ended one at ESC,
+/// which never reaches here: `printed` takes every escape sequence out first.
 fn ends_an_address(c: char) -> bool {
-    c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '\u{1b}')
+    c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>')
 }
 
 /// Where `tool`'s own program is, looked for the way the context says to look.
@@ -928,6 +943,60 @@ mod tests {
         );
         assert_eq!(https_address("http://localhost:1455/auth/callback"), None);
         assert_eq!(https_address("HTTPS://x.y"), None);
+    }
+
+    /// A hyperlink's address is where it goes, whatever its text says, and the escape
+    /// sequences around it are no part of it. A hyperlink that goes somewhere other than an
+    /// `https` address offers its text, as a terminal shows it.
+    #[test]
+    fn a_hyperlinks_address_is_where_it_goes() {
+        let cases = [
+            (
+                "\u{1b}]8;;https://a.b/c\u{7}sign in\u{1b}]8;;\u{7}",
+                "https://a.b/c",
+            ),
+            (
+                "\u{1b}]8;id=1;https://a.b/c\u{1b}\\https://x.y\u{1b}]8;;\u{1b}\\",
+                "https://a.b/c",
+            ),
+            (
+                "\u{1b}]8;;http://localhost:1455\u{7}\u{1b}[94mhttps://x.y\u{1b}[39m\u{1b}]8;;\u{7}",
+                "https://x.y",
+            ),
+            (
+                "\u{1b}]8;;https://a.b/c d\u{7}https://x.y\u{1b}]8;;\u{7}",
+                "https://x.y",
+            ),
+        ];
+        for (said, address) in cases {
+            assert_eq!(
+                https_address(&format!("visit: {said}\n")).as_deref(),
+                Some(address),
+                "{said:?}"
+            );
+        }
+    }
+
+    /// What a terminal does not show is not an address to open, such as a window's title.
+    #[test]
+    fn an_address_a_terminal_does_not_show_is_none_to_open() {
+        assert_eq!(https_address("\u{1b}]0;https://a.b/c\u{7}ready"), None);
+    }
+
+    /// Read part way through, as it arrives, a hyperlink offers nothing until where it goes
+    /// has arrived whole, and then offers all of it.
+    #[test]
+    fn a_hyperlink_read_part_way_through_offers_all_of_its_address_or_none() {
+        let said = "visit: \u{1b}]8;;https://a.b/c?d=e\u{7}https://a.b/c?d=e\u{1b}]8;;\u{7}\n";
+        let whole = said.find('\u{7}').expect("the end of where it goes") + 1;
+        for (at, _) in said.char_indices().chain([(said.len(), ' ')]) {
+            let offered = https_address(&said[..at]);
+            if at < whole {
+                assert_eq!(offered, None, "{:?}", &said[..at]);
+            } else {
+                assert_eq!(offered.as_deref(), Some("https://a.b/c?d=e"), "{at}");
+            }
+        }
     }
 
     /// Without a search path of its own, a context looks where this process would, which
