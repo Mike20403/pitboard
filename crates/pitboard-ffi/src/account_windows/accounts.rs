@@ -160,7 +160,7 @@ pub fn forget_message(account: Account, accounts: Vec<Account>) -> String {
     forget_message_on(OS, &account, &accounts)
 }
 
-fn forget_message_on(os: Os, account: &Account, accounts: &[Account]) -> String {
+pub(crate) fn forget_message_on(os: Os, account: &Account, accounts: &[Account]) -> String {
     let windows = windows_of_account(account, accounts);
     if windows.is_empty() {
         return "Pitboard deletes the login it parked for this account. Using it again needs a \

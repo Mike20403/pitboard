@@ -17,7 +17,7 @@ use std::time::Duration;
 
 /// Asks for a switch to `qualified` and answers everything it leads to, as the Swift
 /// model's tests awaited `use` or `switchAsked`.
-fn switch(model: &mut Hand, machine: &mut Machine, qualified: &str) {
+pub(super) fn switch(model: &mut Hand, machine: &mut Machine, qualified: &str) {
     model.send(Intent::SwitchTo {
         qualified: qualified.into(),
     });

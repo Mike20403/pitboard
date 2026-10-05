@@ -28,9 +28,16 @@ pub use sites::{
 
 mod model;
 pub use model::{
-    AppControl, AppLaunch, Failure, Intent, LastSwitch, ModelListener, Pane, PitboardModel,
-    PlatformError, QuitQuestion, ReadFailure, RestartNeeded, RunningSignIn, Sheet, Snapshot,
-    WindowRequest,
+    AppControl, AppLaunch, Failure, Intent, LastSwitch, LocalTime, ModelListener, Pane,
+    PitboardModel, PlatformError, QuitQuestion, ReadFailure, RestartNeeded, RunningSignIn, Sheet,
+    Snapshot, WindowRequest,
+};
+
+mod present;
+pub use present::{
+    AccountItem, AccountSection, AccountsShown, Choice, Footing, ItemAction, LimitRow, MenuBarText,
+    MenuEntry, MenuNotices, NoticeAction, PanelNotice, Question, SetupStep, Severity, SheetText,
+    SheetTool, SigningInText, name_to_save,
 };
 
 mod account_windows;
@@ -623,7 +630,7 @@ pub fn limit_name(limit: Limit) -> String {
 }
 
 /// How much of a limit is used, in the three steps its colour changes at.
-#[derive(Debug, PartialEq, uniffi::Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum UsageLevel {
     /// Under 70%.
     Plenty,

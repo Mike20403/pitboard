@@ -17,16 +17,22 @@
 //! from the last one it numbers it one higher and hands it to the one notifier thread, which
 //! tells the listener in order.
 //!
-//! This part reads accounts, notices changes made elsewhere, switches, quits an app that
-//! holds a login when asked to, keeps what each tool's last switch said, runs sign-ins and
-//! keeps the sheet over the main window. What the window says is still the Swift model's, and
-//! comes here after it.
+//! It reads accounts, notices changes made elsewhere, switches, quits an app that holds a
+//! login when asked to, keeps what each tool's last switch said, runs sign-ins, enrols,
+//! renames and forgets, and keeps the sheet over the main window. What each snapshot says of
+//! all that, every sentence and row the menu bar, the menu and the window show, is made by
+//! `present`, in `crate::present`, which asks the app's `LocalTime` for each clock time. A
+//! minute tick makes it again for what depends on the time alone.
 
 mod lanes;
-mod state;
+pub(crate) mod state;
 
 #[cfg(test)]
 mod cadence;
+#[cfg(test)]
+mod changing;
+#[cfg(test)]
+mod presenting;
 #[cfg(test)]
 mod reading;
 #[cfg(test)]
@@ -38,6 +44,11 @@ mod testing;
 #[cfg(test)]
 mod threaded;
 
+use crate::account_windows::AlertText;
+use crate::present::{
+    AccountSection, AccountsShown, Footing, MenuBarText, MenuNotices, PanelNotice, Question,
+    SetupStep, SheetText, SigningInText, present,
+};
 use crate::{Abandoned, Pitboard, Status, Tool, Warning};
 use lanes::Lanes;
 use state::{Cadence, Msg, Now, State};
@@ -136,6 +147,29 @@ pub enum Intent {
     /// The sheet over the main window has gone, however it went, and what went wrong in it
     /// goes with it. A sign-in it started goes on until it ends or is cancelled.
     CloseSheet,
+    /// Open the main window, on `pane` where it matters which, from the menu, a notification
+    /// or anywhere else: `Snapshot::window_request` moves. The sheet up, if any, stays.
+    ShowWindow { pane: Option<Pane> },
+    /// Somebody has read the failure the window said, and put it away.
+    DismissFailure,
+    /// Enrol the login signed in now to `provider`'s tool under `name`, with no browser: the
+    /// Name sheet's Save. The name is taken without the white space around it, as
+    /// `name_to_save` takes it, and one with nothing else in it saves nothing; nor does a
+    /// second Save from a sheet already saving. Once enrolled, the sheet naming a login of
+    /// that tool closes, and only that one, and the accounts are read; what goes wrong is
+    /// said in the sheet it was asked from, or in the window where that sheet has gone.
+    Enrol { provider: String, name: String },
+    /// Give the account `label` of `provider`'s tool the name `to`, inside its own tool: the
+    /// Rename sheet's Save, by the same rules, and a name it has already saves nothing. What
+    /// was said about the account is said about it under its new name.
+    Rename {
+        provider: String,
+        label: String,
+        to: String,
+    },
+    /// Drop the account `qualified` names, and the login parked for it, once somebody has
+    /// answered the question its row asks first. What goes wrong is said in the window.
+    Forget { qualified: String },
 }
 
 /// A sheet over the main window, as the Swift model's `AccountSheet` has them. Not called
@@ -317,7 +351,8 @@ pub struct Snapshot {
     /// What giving up on an interrupted switch kept, until somebody has read it.
     pub abandoned: Option<Abandoned>,
     /// The last thing asked for that did not happen, which an app says once: a newer one
-    /// has a higher `id`. It stays here after it is said, until another takes its place.
+    /// has a higher `id`. It stays here until somebody has read it, `Intent::DismissFailure`,
+    /// or another takes its place.
     pub failure: Option<Failure>,
     /// What the model wants of the main window.
     pub window_request: WindowRequest,
@@ -327,9 +362,40 @@ pub struct Snapshot {
     /// The sheet over the main window, while one is asked for.
     pub sheet: Option<Sheet>,
     /// What went wrong in the sheet that is up, said inside it, where what was typed is still
-    /// there to correct: a sign-in started from it that could not start or finish. Numbered
-    /// with `failure`, and gone with the sheet.
+    /// there to correct: a sign-in started from it that could not start or finish, or a name
+    /// it could not save. Numbered with `failure`, and gone with the sheet.
     pub sheet_failure: Option<Failure>,
+    /// What the menu bar item says beside its mark.
+    pub menu_bar: MenuBarText,
+    /// The accounts, a section per tool once there is more than one, each as its row.
+    pub sections: Vec<AccountSection>,
+    /// Whether accounts of more than one tool are shown, which is when anything says which
+    /// tool an account is for.
+    pub shows_tools: bool,
+    /// Everything to tell somebody that is not an account, the most pressing first.
+    pub notices: Vec<PanelNotice>,
+    /// What the menu says of the notices.
+    pub menu_notices: MenuNotices,
+    /// How far setting Pitboard up this machine is.
+    pub footing: Footing,
+    /// The one next thing to do on a machine that is not set up yet.
+    pub setup: Option<SetupStep>,
+    /// What the window's accounts pane shows: its list, or what stands in for one.
+    pub accounts_shown: AccountsShown,
+    /// What the menu says where it has no accounts to list.
+    pub menu_accounts_note: Option<String>,
+    /// When the accounts were read, as the menu's Refresh item says it: "Updated 14:05".
+    pub updated_menu: String,
+    /// The same, as the window's subtitle says it.
+    pub updated_window: String,
+    /// What the sheet over the main window says, while one is up.
+    pub sheet_text: Option<SheetText>,
+    /// What a sign-in under way says.
+    pub signing_in_text: Option<SigningInText>,
+    /// What the quit question asks, while it is asked.
+    pub quit_confirmation: Option<Question>,
+    /// The alert for `failure`, while there is one to say.
+    pub failure_alert: Option<AlertText>,
 }
 
 /// What a platform's own code could not do. Every method of a trait an app implements
@@ -347,6 +413,23 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for PlatformError {
             reason: error.reason,
         }
     }
+}
+
+/// The person's own clock, as the app's system formats it: their locale, and whether they read
+/// 12 or 24 hours. Asked as a snapshot is made, on the model's own thread, which every method
+/// answers at once without waiting on anything. Where one throws, the command line's form is
+/// said instead.
+#[uniffi::export(with_foreign)]
+pub trait LocalTime: Send + Sync {
+    /// The time of `epoch`, in epoch seconds, as a clock shows it: "14:05", "2:05 PM". With
+    /// its weekday abbreviated before it where `with_weekday` says so: "Wed 14:05".
+    fn clock(&self, epoch: i64, with_weekday: bool) -> Result<String, PlatformError>;
+    /// Whether two moments, in epoch seconds, fall on one day of the person's calendar, in
+    /// their time zone: whether a clock time needs its weekday, which only the system knows.
+    fn same_day(&self, first: i64, second: i64) -> Result<bool, PlatformError>;
+    /// The date and time of `epoch`, in epoch seconds, as a list of what happened when says
+    /// it.
+    fn date_and_time(&self, epoch: i64) -> Result<String, PlatformError>;
 }
 
 /// Told of every snapshot, by the app.
@@ -399,19 +482,20 @@ pub struct PitboardModel {
 #[uniffi::export]
 impl PitboardModel {
     /// The app's model, over the core the app's environment and location make, read the
-    /// way the command line reads its own, as `Pitboard::for_app` makes it, and over `apps`,
-    /// the other apps on this machine. Nothing runs by itself until the app sends
-    /// `Intent::Start`.
+    /// way the command line reads its own, as `Pitboard::for_app` makes it; over `apps`, the
+    /// other apps on this machine; and saying clock times as `local_time` does, the person's
+    /// own. Nothing runs by itself until the app sends `Intent::Start`.
     #[uniffi::constructor]
     pub fn new(
         launch: AppLaunch,
         listener: Arc<dyn ModelListener>,
         apps: Arc<dyn AppControl>,
+        local_time: Arc<dyn LocalTime>,
     ) -> Arc<Self> {
         PitboardModel::over(
             Pitboard::for_app(launch.environment, launch.app_location),
             listener,
-            apps,
+            Platform { apps, local_time },
             Cadence::APP,
         )
     }
@@ -445,26 +529,36 @@ impl PitboardModel {
     }
 }
 
+/// What the model asks of the app's own system.
+pub(crate) struct Platform {
+    /// Other apps on this machine.
+    pub(crate) apps: Arc<dyn AppControl>,
+    /// The person's own clock.
+    pub(crate) local_time: Arc<dyn LocalTime>,
+}
+
 impl PitboardModel {
-    /// A model over `core` and `apps`, doing what it does by itself every `cadence`.
+    /// A model over `core` and `platform`, doing what it does by itself every `cadence`.
     pub(crate) fn over(
         core: Arc<Pitboard>,
         listener: Arc<dyn ModelListener>,
-        apps: Arc<dyn AppControl>,
+        platform: Platform,
         cadence: Cadence,
     ) -> Arc<PitboardModel> {
         let clock = Clock::starting();
         let state = State::new(cadence);
-        let shown = Arc::new(Mutex::new(state.snapshot(0, clock.now().epoch())));
+        let first = present(&state, clock.now().epoch(), platform.local_time.as_ref());
+        let shown = Arc::new(Mutex::new(first));
         let stopped = Arc::new(AtomicBool::new(false));
         let (mailbox, mail) = channel();
-        let lanes = Lanes::open(core, apps, cadence, &mailbox);
+        let lanes = Lanes::open(core, platform.apps, cadence, &mailbox);
         let actor = Actor {
             state,
             lanes,
             shown: Arc::clone(&shown),
             tell: lanes::notifier(listener, Arc::clone(&stopped)),
             clock,
+            local_time: platform.local_time,
         };
         let actor = std::thread::Builder::new()
             .name("pitboard-model".into())
@@ -533,6 +627,7 @@ struct Actor {
     shown: Arc<Mutex<Snapshot>>,
     tell: Sender<Snapshot>,
     clock: Clock,
+    local_time: Arc<dyn LocalTime>,
 }
 
 impl Actor {
@@ -562,20 +657,19 @@ impl Actor {
     }
 
     /// Hands the listener a snapshot where anything in it changed. Compared with the last
-    /// one under its revision and time, so neither moving alone makes a new one.
+    /// one under its revision and time, so neither moving alone makes a new one, and made
+    /// before the lock is taken: making it asks the app's `LocalTime`, and the model never
+    /// holds a lock while it calls out.
     fn publish(&self, now: Now) {
+        let mut made = present(&self.state, now.epoch(), self.local_time.as_ref());
         let mut shown = lock(&self.shown);
-        let made = self.state.snapshot(shown.revision, shown.now);
+        (made.revision, made.now) = (shown.revision, shown.now);
         if made == *shown {
             return;
         }
-        let snapshot = Snapshot {
-            revision: shown.revision + 1,
-            now: now.epoch(),
-            ..made
-        };
-        *shown = snapshot.clone();
+        (made.revision, made.now) = (shown.revision + 1, now.epoch());
+        *shown = made.clone();
         drop(shown);
-        let _ = self.tell.send(snapshot);
+        let _ = self.tell.send(made);
     }
 }

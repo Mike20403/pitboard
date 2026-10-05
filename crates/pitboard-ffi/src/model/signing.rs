@@ -85,7 +85,13 @@ fn ends(model: &mut Hand, machine: &mut Machine, id: u64) {
 
 /// A sign-in from start to finish, its tool saying `said` on the way, as the Swift tests
 /// awaited `signIn`.
-fn signs_in(model: &mut Hand, machine: &mut Machine, provider: &str, name: &str, said: &[&str]) {
+pub(super) fn signs_in(
+    model: &mut Hand,
+    machine: &mut Machine,
+    provider: &str,
+    name: &str,
+    said: &[&str],
+) {
     let id = starts(model, machine, provider, name);
     for text in said {
         says(model, id, text);

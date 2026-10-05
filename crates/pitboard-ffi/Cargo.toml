@@ -19,6 +19,7 @@ sha1.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true
 unicode-normalization.workspace = true
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 # The core's machine in memory and its scripted services, which the model's tests run the

@@ -410,6 +410,18 @@ pub(super) struct Machine {
     pub stopped: Vec<u64>,
     /// Every sign-in told whether to enrol, with what it was told.
     pub over: Vec<(u64, bool)>,
+    /// What enrolling the login signed in now gives.
+    pub enrolling_current: Result<Enrolled, Refusal>,
+    /// What a rename gives.
+    pub renaming: Result<(), Refusal>,
+    /// What forgetting gives.
+    pub forgetting: Result<(), Refusal>,
+    /// Every login enrolled as it is signed in now, as the model named it.
+    pub enrolled: Vec<String>,
+    /// Every rename, from and to, as the model named them.
+    pub renamed: Vec<(String, String)>,
+    /// Every account forgotten, as the model named it.
+    pub forgot: Vec<String>,
 }
 
 impl Machine {
@@ -431,6 +443,12 @@ impl Machine {
             pasted: Vec::new(),
             stopped: Vec::new(),
             over: Vec::new(),
+            enrolling_current: enrolled_as(EnrolledAs::Current, Vec::new()),
+            renaming: Ok(()),
+            forgetting: Ok(()),
+            enrolled: Vec::new(),
+            renamed: Vec::new(),
+            forgot: Vec::new(),
         }
     }
 
@@ -509,6 +527,44 @@ impl Machine {
             Job::StopSignIn { id } => {
                 self.stopped.push(id);
                 Answer::Stopped
+            }
+            Job::Enrol {
+                provider,
+                name,
+                from,
+            } => {
+                self.enrolled.push(format!("{provider}/{name}"));
+                Answer::Enrolled {
+                    provider,
+                    from,
+                    done: self
+                        .enrolling_current
+                        .clone()
+                        .map_err(|refused| refused.error()),
+                }
+            }
+            Job::Rename {
+                provider,
+                label,
+                to,
+                from,
+            } => {
+                self.renamed
+                    .push((format!("{provider}/{label}"), to.clone()));
+                Answer::Renamed {
+                    provider,
+                    label,
+                    to,
+                    from,
+                    done: self.renaming.clone().map_err(|refused| refused.error()),
+                }
+            }
+            Job::Forget { qualified } => {
+                self.forgot.push(qualified.clone());
+                Answer::Forgot {
+                    qualified,
+                    done: self.forgetting.clone().map_err(|refused| refused.error()),
+                }
             }
             Job::SignInOver { id, enrol } => {
                 self.over.push((id, enrol));
@@ -638,8 +694,9 @@ impl Hand {
         self.run(machine);
     }
 
+    /// What an app is shown now, its clock times read in UTC.
     pub(super) fn shown(&self) -> Snapshot {
-        self.state.snapshot(0, self.now.epoch())
+        crate::present::present(&self.state, self.now.epoch(), &crate::present::testing::Utc)
     }
 
     /// How many of the jobs asked for so far are `which`.
@@ -739,6 +796,15 @@ impl World {
     /// Claude Code signed in as `who` and enrolled as `label`, with its five-hour window
     /// `percent` used, as Anthropic answers.
     pub(super) fn enrolled(&self, label: &str, who: &str, percent: f64) {
+        self.signed_in(who, percent);
+        self.elsewhere()
+            .enroll_current(label)
+            .expect("the account signed in, enrolled");
+    }
+
+    /// Claude Code signed in as `who`, with its five-hour window `percent` used, and not
+    /// enrolled.
+    pub(super) fn signed_in(&self, who: &str, percent: f64) {
         let login = self.claude_login(who, percent);
         self.host.live().plant(&live_service(&self.ctx), &login);
         std::fs::write(
@@ -748,9 +814,6 @@ impl World {
             ),
         )
         .expect("Claude Code's config");
-        self.elsewhere()
-            .enroll_current(label)
-            .expect("the account signed in, enrolled");
     }
 
     /// `who` signed in to Claude Code privately and enrolled as `label`, with its five-hour

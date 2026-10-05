@@ -31,7 +31,7 @@
 //! the Swift model's tests reached with gates are reached here without a thread.
 
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
-use super::{RunningSignIn, Sheet, Snapshot, WindowRequest};
+use super::{RunningSignIn, Sheet, WindowRequest};
 use crate::{
     Abandoned, Account, Adoption, Enrolled, EnrolledAs, PitboardError, Status, Switch, Switched,
     Tool, Usage, Warning,
@@ -60,6 +60,11 @@ pub(crate) struct Cadence {
     pub(crate) quit_within: Duration,
     /// How often, meanwhile, it is asked whether the app is still running.
     pub(crate) quit_checked_every: Duration,
+    /// How often what is shown is made again for the time alone, once started: a reset's
+    /// "resets in 2h 05m", a limit used up until a clock time, a parked login's days. A
+    /// minute, which is as often as any of them changes, as the Swift app's
+    /// `TimelineView(.everyMinute)` drew its bars.
+    pub(crate) tick_every: Duration,
 }
 
 impl Cadence {
@@ -70,6 +75,7 @@ impl Cadence {
         stale_after: Duration::from_secs(60),
         quit_within: Duration::from_secs(30),
         quit_checked_every: Duration::from_millis(200),
+        tick_every: Duration::from_secs(60),
     };
 }
 
@@ -151,6 +157,22 @@ pub(crate) enum Job {
     /// The tool of the sign-in `id` has stopped saying anything: enrol what it signed in to,
     /// or let it go.
     SignInOver { id: u64, enrol: bool },
+    /// Enrol the login signed in now to `provider`'s tool as `name`, with no browser. `from`
+    /// is the sheet that was up when it was asked for, where what goes wrong is said.
+    Enrol {
+        provider: String,
+        name: String,
+        from: Option<Sheet>,
+    },
+    /// Give the account `label` of `provider`'s tool the name `to`, inside its own tool.
+    Rename {
+        provider: String,
+        label: String,
+        to: String,
+        from: Option<Sheet>,
+    },
+    /// Drop the account `qualified` names, and the login parked for it.
+    Forget { qualified: String },
 }
 
 /// A read under way, as things stood when it started.
@@ -256,6 +278,25 @@ pub(crate) enum Answer {
         id: u64,
         done: Result<Enrolled, PitboardError>,
     },
+    /// What enrolling the login signed in now came to.
+    Enrolled {
+        provider: String,
+        from: Option<Sheet>,
+        done: Result<Enrolled, PitboardError>,
+    },
+    /// What renaming the account `label` of `provider`'s tool to `to` came to.
+    Renamed {
+        provider: String,
+        label: String,
+        to: String,
+        from: Option<Sheet>,
+        done: Result<(), PitboardError>,
+    },
+    /// What forgetting the account `qualified` names came to.
+    Forgot {
+        qualified: String,
+        done: Result<(), PitboardError>,
+    },
     /// A code was typed back, or could not be, which the tool says itself if it matters.
     Pasted,
     /// A sign-in's tool was stopped, or had stopped already.
@@ -343,6 +384,18 @@ fn could_not_sign_in(name: &str) -> String {
     format!("Couldn’t sign in to {name}")
 }
 
+/// "Couldn’t forget work", for the account `qualified` names.
+fn could_not_forget(qualified: &str) -> String {
+    format!("Couldn’t forget {}", split(qualified).1)
+}
+
+/// "Couldn’t rename work", for the account `label`.
+fn could_not_rename(label: &str) -> String {
+    format!("Couldn’t rename {label}")
+}
+
+const COULD_NOT_NAME: &str = "Couldn’t name this account";
+
 /// What a sign-in that put the new login of the account `name` in use says it did: signed in
 /// to `again` where the account was enrolled already, and enrolled by it where it was not.
 fn signed_in_now(name: &str, again: bool) -> String {
@@ -355,7 +408,7 @@ fn signed_in_now(name: &str, again: bool) -> String {
 
 /// `typed` without the white space around it, as the Swift sheets took it away with
 /// Foundation's `whitespacesAndNewlines`, by the rule a link from outside is trimmed by.
-fn trimmed(typed: &str) -> &str {
+pub(crate) fn trimmed(typed: &str) -> &str {
     pitboard_sites::trimmed(typed)
 }
 
@@ -385,6 +438,16 @@ fn typed(account: &Account) -> Option<&str> {
     } else {
         account.qualified.as_deref()
     }
+}
+
+/// A rename, as its answer is taken in.
+#[derive(Clone, Copy)]
+struct Renaming<'a> {
+    provider: &'a str,
+    label: &'a str,
+    to: &'a str,
+    /// The sheet it was asked from, where what goes wrong is said.
+    from: Option<&'a Sheet>,
 }
 
 /// The quit question last asked. A question closed unanswered is kept, unasked, because an
@@ -456,20 +519,20 @@ pub(crate) struct State {
     started: bool,
     /// What the last read gave, or the last numbers known, or nothing before anything has
     /// been read.
-    status: Option<Status>,
+    pub(crate) status: Option<Status>,
     /// Everything that went wrong on the way, not only the first of them.
-    warnings: Vec<Warning>,
+    pub(crate) warnings: Vec<Warning>,
     /// What went wrong with the last read, when it did not answer. The numbers shown are
     /// then the last ones measured.
-    failure: Option<ReadFailure>,
+    pub(crate) failure: Option<ReadFailure>,
     /// An interrupted switch nothing can finish, which the app offers a way out of.
-    stuck: bool,
+    pub(crate) stuck: bool,
     /// When the accounts were last read, in epoch milliseconds by the wall clock.
-    updated_ms: Option<i64>,
+    pub(crate) updated_ms: Option<i64>,
     /// Reads under way. Reads overlap, a timer's with one somebody asked for, so they are
     /// counted rather than flagged: the first to end would otherwise say none is running
     /// while the other still is.
-    reads: u32,
+    pub(crate) reads: u32,
     /// Counts the changes this app has made and the ones the poll noticed made elsewhere. A
     /// read that started before one lands after it with who was signed in before, and would
     /// put away what the change said, so it is dropped: the read the change starts itself
@@ -478,7 +541,7 @@ pub(crate) struct State {
     /// The tools whose program was found, once an answer has come. Asked by the first read,
     /// and by each read while none has been found: the core asks a login shell that was too
     /// slow to answer once more, and finding none is what says to install a tool.
-    installed: Option<Vec<Tool>>,
+    pub(crate) installed: Option<Vec<Tool>>,
     /// Whether that is being asked now. A read asked for meanwhile waits for the same answer
     /// rather than asking again.
     asking_installed: bool,
@@ -500,15 +563,15 @@ pub(crate) struct State {
     /// asked for.
     quitting: Option<Quitting>,
     /// What each tool's last switch said that is still true, one per tool at most.
-    last_switches: Vec<LastSwitch>,
+    pub(crate) last_switches: Vec<LastSwitch>,
     /// What giving up on an interrupted switch kept, until somebody has read it.
-    abandoned: Option<Abandoned>,
+    pub(crate) abandoned: Option<Abandoned>,
     /// The last thing asked for that did not happen.
-    presented: Option<Failure>,
+    pub(crate) presented: Option<Failure>,
     /// How many failures have been said, which numbers the next.
     failures: u64,
     /// The requests for the main window.
-    window: WindowRequest,
+    pub(crate) window: WindowRequest,
     /// The sign-in under way, from the moment it is asked for until it has finished, failed
     /// or been cancelled.
     signing_in: Option<SigningIn>,
@@ -518,9 +581,15 @@ pub(crate) struct State {
     /// landed, which would otherwise put it away: by the sign-in's id.
     said_after_read: Vec<(u64, Vec<Warning>)>,
     /// The sheet over the main window.
-    sheet: Option<Sheet>,
+    pub(crate) sheet: Option<Sheet>,
     /// What went wrong in the sheet that is up.
-    sheet_failure: Option<Failure>,
+    pub(crate) sheet_failure: Option<Failure>,
+    /// The sheets a name typed in is being saved from: an enrolment or a rename asked for from
+    /// the sheet, until it has answered. A save from a sheet cannot be withdrawn, so the sheet
+    /// holds back while it runs, as NameSheets.swift held back while `saving`.
+    pub(crate) saving: Vec<Sheet>,
+    /// The minute tick, which makes again what is shown for the time alone.
+    tick: Timer,
 }
 
 impl State {
@@ -557,6 +626,8 @@ impl State {
             said_after_read: Vec::new(),
             sheet: None,
             sheet_failure: None,
+            saving: Vec::new(),
+            tick: Timer::Off,
         }
     }
 
@@ -575,7 +646,7 @@ impl State {
 
     /// When the next timer is due, since the model started, if any is set.
     pub(crate) fn next_due(&self) -> Option<Duration> {
-        [self.look, self.timed_read]
+        [self.look, self.timed_read, self.tick]
             .into_iter()
             .filter_map(|timer| match timer {
                 Timer::Due(at) => Some(at),
@@ -584,40 +655,25 @@ impl State {
             .min()
     }
 
-    /// What an app is shown: what is known now, under `revision`, made at `now` in epoch
-    /// seconds.
-    pub(crate) fn snapshot(&self, revision: u64, now: i64) -> Snapshot {
-        Snapshot {
-            revision,
-            now,
-            reading: self.reads > 0,
-            updated_at: self.updated_ms.map(|ms| ms.div_euclid(1000)),
-            status: self.status.clone(),
-            warnings: self.warnings.clone(),
-            read_failure: self.failure.clone(),
-            stuck: self.stuck,
-            installed: self.installed.clone(),
-            switch_under_way: self.switch_under_way().map(str::to_owned),
-            quit_question: self.asking().cloned(),
-            last_switches: self.last_switches.clone(),
-            abandoned: self.abandoned.clone(),
-            failure: self.presented.clone(),
-            window_request: self.window,
-            signing_in: self.signing_in.as_ref().map(SigningIn::shown),
-            sheet: self.sheet.clone(),
-            sheet_failure: self.sheet_failure.clone(),
-        }
+    /// Whether a sign-in is under way.
+    pub(crate) fn sign_in_under_way(&self) -> bool {
+        self.signing_in.is_some()
+    }
+
+    /// The sign-in under way as an app is shown it, read by its tool's own module.
+    pub(crate) fn shown_sign_in(&self) -> Option<RunningSignIn> {
+        self.signing_in.as_ref().map(SigningIn::shown)
     }
 
     /// The account a switch is running for, or waiting on the quit question for.
-    fn switch_under_way(&self) -> Option<&str> {
+    pub(crate) fn switch_under_way(&self) -> Option<&str> {
         self.switching
             .as_deref()
             .or(self.asking().map(|question| question.qualified.as_str()))
     }
 
     /// The quit question, while it is asked.
-    fn asking(&self) -> Option<&QuitQuestion> {
+    pub(crate) fn asking(&self) -> Option<&QuitQuestion> {
         self.quitting
             .as_ref()
             .filter(|quitting| quitting.asked)
@@ -677,6 +733,87 @@ impl State {
                 self.sheet = None;
                 self.sheet_failure = None;
             }
+            Intent::ShowWindow { pane } => self.show_window(pane),
+            Intent::DismissFailure => self.presented = None,
+            Intent::Enrol { provider, name } => {
+                let kind = Sheet::Name {
+                    provider: provider.clone(),
+                    email: String::new(),
+                };
+                if let Some(name) = self.saved_from(kind, &name) {
+                    let from = self.saving_from();
+                    jobs.push(Job::Enrol {
+                        provider,
+                        name,
+                        from,
+                    });
+                }
+            }
+            Intent::Rename {
+                provider,
+                label,
+                to,
+            } => {
+                let kind = Sheet::Rename {
+                    provider: provider.clone(),
+                    label: label.clone(),
+                };
+                if let Some(to) = self.saved_from(kind, &to) {
+                    let from = self.saving_from();
+                    jobs.push(Job::Rename {
+                        provider,
+                        label,
+                        to,
+                        from,
+                    });
+                }
+            }
+            Intent::Forget { qualified } => jobs.push(Job::Forget { qualified }),
+        }
+    }
+
+    /// The name `typed` saves as, by the rule a sheet of `kind`'s offers Save by, unless the
+    /// sheet up is already saving one: a save cannot be withdrawn, and the Swift sheets held
+    /// their Save back until it had answered.
+    fn saved_from(&self, kind: Sheet, typed: &str) -> Option<String> {
+        if self
+            .sheet
+            .as_ref()
+            .is_some_and(|sheet| self.saving.contains(sheet))
+        {
+            return None;
+        }
+        crate::present::name_to_save(kind, typed.to_owned())
+    }
+
+    /// The sheet up, as the one a save is asked from, which holds back until it answers.
+    fn saving_from(&mut self) -> Option<Sheet> {
+        let from = self.sheet.clone();
+        if let Some(sheet) = &from {
+            self.saving.push(sheet.clone());
+        }
+        from
+    }
+
+    /// A save from `from` has answered.
+    fn saved(&mut self, from: Option<&Sheet>) {
+        if let Some(from) = from
+            && let Some(at) = self.saving.iter().position(|sheet| sheet == from)
+        {
+            self.saving.remove(at);
+        }
+    }
+
+    /// What went wrong with a save, said in the sheet it was asked from while that is still
+    /// up, where the name typed is there to correct, and in the window otherwise: something
+    /// asked for that did not happen is said somewhere. Its warnings are said with it, and
+    /// not beside the accounts, as the Swift's enrol and rename handed them back.
+    fn save_failed(&mut self, from: Option<&Sheet>, refused: Refused) {
+        if from.is_some() && self.sheet.as_ref() == from {
+            let failure = self.number(refused);
+            self.sheet_failure = Some(failure);
+        } else {
+            self.present(refused);
         }
     }
 
@@ -760,9 +897,14 @@ impl State {
         self.started = true;
         self.timed_read = Timer::Due(now.running);
         self.look = Timer::Due(now.running);
+        self.tick = Timer::Due(now.running + self.cadence.tick_every);
     }
 
     fn go_off(&mut self, now: Now, jobs: &mut Vec<Job>) {
+        // Nothing to do but be shown again, at the time it is now.
+        if matches!(self.tick, Timer::Due(at) if at <= now.running) {
+            self.tick = Timer::Due(now.running + self.cadence.tick_every);
+        }
         if matches!(self.look, Timer::Due(at) if at <= now.running) {
             self.look = Timer::Running;
             jobs.push(Job::Look);
@@ -876,6 +1018,32 @@ impl State {
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
             Answer::Opened | Answer::Pasted | Answer::Stopped => {}
+            Answer::Enrolled {
+                provider,
+                from,
+                done,
+            } => {
+                let done = done.map(drop).map_err(Some);
+                self.enrolled_now(&provider, from.as_ref(), done, now, jobs);
+            }
+            Answer::Renamed {
+                provider,
+                label,
+                to,
+                from,
+                done,
+            } => {
+                let renaming = Renaming {
+                    provider: &provider,
+                    label: &label,
+                    to: &to,
+                    from: from.as_ref(),
+                };
+                self.renamed(&renaming, done.map_err(Some), now, jobs);
+            }
+            Answer::Forgot { qualified, done } => {
+                self.forgot(&qualified, done.map_err(Some), now, jobs);
+            }
             Answer::Abandoned(done) => self.abandon_over(done.map_err(Some), now, jobs),
             Answer::SignInStarted { id, started } => {
                 self.sign_in_started(id, started.map_err(Some), jobs);
@@ -917,6 +1085,24 @@ impl State {
                 Job::SignInOver { enrol: false, .. }
                 | Job::PasteCode { .. }
                 | Job::StopSignIn { .. } => {}
+                Job::Enrol { provider, from, .. } => {
+                    self.enrolled_now(&provider, from.as_ref(), Err(None), now, jobs);
+                }
+                Job::Rename {
+                    provider,
+                    label,
+                    to,
+                    from,
+                } => {
+                    let renaming = Renaming {
+                        provider: &provider,
+                        label: &label,
+                        to: &to,
+                        from: from.as_ref(),
+                    };
+                    self.renamed(&renaming, Err(None), now, jobs);
+                }
+                Job::Forget { qualified } => self.forgot(&qualified, Err(None), now, jobs),
             },
         }
     }
@@ -1412,6 +1598,129 @@ impl State {
                     && typed(account) == Some(last.to.as_str())
             })
         });
+    }
+
+    /// The login signed in now to `provider`'s tool has been enrolled, or could not be. Once it
+    /// is, any sheet naming a login of that tool closes, as AppModel.swift's `enrol` closed
+    /// one: a sheet for another tool, or another sheet put up meanwhile, is somebody else's,
+    /// and closing it threw away whatever was in it. `Err(None)` is a save that came to
+    /// nothing.
+    fn enrolled_now(
+        &mut self,
+        provider: &str,
+        from: Option<&Sheet>,
+        done: Result<(), Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        self.saved(from);
+        match done {
+            Ok(()) => {
+                self.changes_seen += 1;
+                if matches!(&self.sheet, Some(Sheet::Name { provider: of, .. }) if of == provider) {
+                    self.sheet = None;
+                    self.sheet_failure = None;
+                }
+                self.updated_ms = None;
+                self.refresh(Asked::default(), now, jobs);
+            }
+            Err(error) => {
+                let refused = match error {
+                    Some(error) => Refused::of(COULD_NOT_NAME.into(), error),
+                    None => Refused::lost(COULD_NOT_NAME.into()),
+                };
+                self.save_failed(from, refused);
+            }
+        }
+    }
+
+    /// An account has been renamed, or could not be. Only its own sheet closes, as
+    /// AppModel.swift's `rename` closed it.
+    ///
+    /// Everything said about the account is said about it under its new name: what its tool's
+    /// last switch said. Keyed by the old name, the read after the rename would take the
+    /// switch for undone, and put away what it said.
+    fn renamed(
+        &mut self,
+        renaming: &Renaming,
+        done: Result<(), Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        let Renaming {
+            provider,
+            label,
+            to,
+            from,
+        } = *renaming;
+        self.saved(from);
+        match done {
+            Ok(()) => {
+                self.changes_seen += 1;
+                self.carry(provider, label, to);
+                let own = Sheet::Rename {
+                    provider: provider.to_owned(),
+                    label: label.to_owned(),
+                };
+                if self.sheet.as_ref() == Some(&own) {
+                    self.sheet = None;
+                    self.sheet_failure = None;
+                }
+                self.updated_ms = None;
+                self.refresh(Asked::default(), now, jobs);
+            }
+            Err(error) => {
+                let title = could_not_rename(label);
+                let refused = match error {
+                    Some(error) => Refused::of(title, error),
+                    None => Refused::lost(title),
+                };
+                self.save_failed(from, refused);
+            }
+        }
+    }
+
+    /// What was said about the account `label` of `provider`'s tool, said about it as `to`.
+    fn carry(&mut self, provider: &str, label: &str, to: &str) {
+        let (old, new) = (typed_as_core(provider, label), typed_as_core(provider, to));
+        for last in &mut self.last_switches {
+            if last.provider != provider {
+                continue;
+            }
+            if last.to == old {
+                last.to.clone_from(&new);
+            }
+            if let Some(restart) = &mut last.restart
+                && restart.from == label
+            {
+                restart.from = to.to_owned();
+            }
+        }
+    }
+
+    /// The account `qualified` names has been forgotten, and the login parked for it, or it
+    /// could not be, which is said in the window it was asked from.
+    fn forgot(
+        &mut self,
+        qualified: &str,
+        done: Result<(), Option<PitboardError>>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        match done {
+            Ok(()) => {
+                self.changes_seen += 1;
+                self.updated_ms = None;
+                self.refresh(Asked::default(), now, jobs);
+            }
+            Err(error) => {
+                let title = could_not_forget(qualified);
+                self.present(match error {
+                    Some(error) => Refused::of(title, error),
+                    None => Refused::lost(title),
+                });
+            }
+        }
     }
 
     /// Giving up on an interrupted switch is over: what it kept is said and the accounts are

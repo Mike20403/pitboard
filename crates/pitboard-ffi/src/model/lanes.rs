@@ -45,7 +45,11 @@ impl Job {
     pub(crate) fn lane(&self) -> Lane {
         match self {
             Job::Read { .. } | Job::ReadOffline { .. } | Job::Look => Lane::Reads,
-            Job::Switch { .. } | Job::Abandon => Lane::Changes,
+            Job::Switch { .. }
+            | Job::Abandon
+            | Job::Enrol { .. }
+            | Job::Rename { .. }
+            | Job::Forget { .. } => Lane::Changes,
             Job::Holding { .. } | Job::Quit { .. } | Job::Open { .. } => Lane::Processes,
             Job::AskInstalled => Lane::Discovery,
             Job::SignIn { .. } | Job::SignInOver { .. } => Lane::SignIn,
@@ -421,6 +425,35 @@ impl Worker {
                 Answer::Opened
             }
             Job::Abandon => Answer::Abandoned(core.abandon_recovery()),
+            // Named with their tool, as AppModel.swift's `qualified(_:for:)` named them, so a
+            // Codex login is enrolled as Codex's and not as a Claude Code account.
+            Job::Enrol {
+                provider,
+                name,
+                from,
+            } => Answer::Enrolled {
+                done: core.enroll_current(format!("{provider}/{name}")),
+                provider,
+                from,
+            },
+            Job::Rename {
+                provider,
+                label,
+                to,
+                from,
+            } => Answer::Renamed {
+                done: core
+                    .rename(format!("{provider}/{label}"), to.clone())
+                    .map(drop),
+                provider,
+                label,
+                to,
+                from,
+            },
+            Job::Forget { qualified } => Answer::Forgot {
+                done: core.forget(qualified.clone()).map(drop),
+                qualified,
+            },
             // Typed back as the Swift model typed it, whatever comes of it: the tool says
             // itself whether it took the code.
             Job::PasteCode { id, code } => {
@@ -603,6 +636,24 @@ mod tests {
         };
         assert_eq!(switch.lane(), Lane::Changes);
         assert_eq!(Job::Abandon.lane(), Lane::Changes);
+        for change in [
+            Job::Enrol {
+                provider: "codex".into(),
+                name: "job".into(),
+                from: None,
+            },
+            Job::Rename {
+                provider: "claude".into(),
+                label: "work".into(),
+                to: "office".into(),
+                from: None,
+            },
+            Job::Forget {
+                qualified: "claude/spare".into(),
+            },
+        ] {
+            assert_eq!(change.lane(), Lane::Changes, "{change:?}");
+        }
         for job in [
             Job::Holding {
                 qualified: "codex/work".into(),
