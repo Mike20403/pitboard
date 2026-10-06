@@ -41,6 +41,13 @@ serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = { version = "0.11", default-features = false }
 sha2 = "0.11"
 thiserror = "2"
+# Codex's configuration, read as Codex 0.160.0 reads it. The parser alone: Pitboard never
+# writes TOML, so neither the writer nor the order a table was written in is wanted.
+toml = { version = "0.9.12", default-features = false, features = ["std", "parse", "serde"] }
+# macOS's forced managed preferences, which Codex reads the same way, through the bindings
+# Codex itself uses.
+core-foundation = "0.10.1"
+core-foundation-sys = "0.8.7"
 unicode-normalization = "0.1"
 # Characters as a person counts them, as Swift counts a String's, for the menu bar's cut of a
 # long label.

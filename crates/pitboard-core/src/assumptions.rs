@@ -456,19 +456,20 @@ mod tests {
     }
 
     /// The readings still to come are listed in one place, so the last pull request of the
-    /// Windows work can require the list to be empty. Today it is the seven facts of each
-    /// tool that Windows reads differently or later.
+    /// Windows work can require the list to be empty. Today it is the facts of each tool that
+    /// Windows reads differently or later: seven of Claude Code's, and eight of Codex's, with
+    /// the layers its store is read from.
     #[test]
     fn the_readings_still_to_come_are_listed() {
         let waiting = pending();
         assert!(waiting.iter().all(|&(_, _, p)| p == Platform::Windows));
-        for provider in [ProviderId::Claude, ProviderId::Codex] {
+        for (provider, count) in [(ProviderId::Claude, 7), (ProviderId::Codex, 8)] {
             let names: Vec<&str> = waiting
                 .iter()
                 .filter(|&&(p, _, _)| p == provider)
                 .map(|&(_, name, _)| name)
                 .collect();
-            assert_eq!(names.len(), 7, "{provider:?}: {names:?}");
+            assert_eq!(names.len(), count, "{provider:?}: {names:?}");
             for name in names {
                 assert!(matches!(
                     on(provider, name, Platform::Windows),

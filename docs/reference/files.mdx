@@ -56,7 +56,8 @@ For why parked logins are kept there, see [Security and privacy](/security#where
 | `~/.claude/.storage-write.lock` | The lock Claude Code takes around each write of its login. Pitboard takes it during a switch. |
 | `~/.claude/settings.json` | Read for `apiKeyHelper`, and for an `env` block that sets `CLAUDE_CODE_CUSTOM_OAUTH_URL` or a variable that overrides Claude Code's login, listed in [Environment variables](/reference/files#environment-variables). Managed settings are read too: `managed-settings.json` and `managed-settings.d/*.json` in `/Library/Application Support/ClaudeCode` on macOS or `/etc/claude-code` on Linux. A project's settings are not read. |
 | `~/.codex/auth.json` | The Codex login in use. A switch reads and replaces it. |
-| `~/.codex/config.toml` | Read for `cli_auth_credentials_store`. For the values Pitboard refuses, see [Use Pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account). |
+| `~/.codex/config.toml` | Read for `cli_auth_credentials_store`, and for `secret_auth_storage` in `[features]`. For the values Pitboard refuses, see [Use Pitboard with Codex](/guides/codex#before-you-enrol-a-codex-account). |
+| `/etc/codex/config.toml`, `/etc/codex/managed_config.toml` and `/etc/codex/requirements.toml` | Read for the same two settings, never written. On macOS, so are the managed preferences `config_toml_base64` and `requirements_toml_base64` of `com.openai.codex`, which a configuration profile sets. For the order Codex reads them in, see [Where Codex reads the setting](/guides/codex#where-codex-reads-the-setting). A project's own `.codex/config.toml`, a profile's `<name>.config.toml` and configuration an enterprise manages are not read. |
 
 For how a switch changes these files, see [How switching works](/concepts/switching#what-a-switch-does).
 

@@ -10,14 +10,35 @@ Pitboard switches OpenAI's Codex CLI between your ChatGPT accounts. Until you en
 
 Codex must keep a ChatGPT login in a file. To check, run `pitboard doctor`. Its `Codex login store` line starts with `file`, and `Codex login` shows your email address.
 
-Pitboard works only with Codex's default store, the file `~/.codex/auth.json`, or `$CODEX_HOME/auth.json` if you set `CODEX_HOME`. `cli_auth_credentials_store` in `config.toml`, in the same folder, chooses the store. Pitboard refuses these values:
+Pitboard works only with Codex's default store, the file `~/.codex/auth.json`, or `$CODEX_HOME/auth.json` if you set `CODEX_HOME`. The setting `cli_auth_credentials_store` chooses the store. Pitboard refuses these values:
 
 - `keyring` and `auto` keep the login in Codex's own keychain items. On macOS, every read by another program would ask you for permission.
 - `ephemeral` keeps the login in memory only, so there is nothing to park.
 
-Pitboard does not read the setting from `/etc/codex/requirements.toml` or a project's own config.
+An API-key sign-in has no account login to park. If Codex uses one or is not signed in, run `codex login` and sign in with ChatGPT.
 
-To use the file store, delete the setting or set it to `file`:
+### Where Codex reads the setting
+
+Codex reads `cli_auth_credentials_store` from these places, in this order, and the last one that sets it wins:
+
+1. `/etc/codex/config.toml`, which applies to everyone on the machine.
+2. `config.toml` in Codex's folder, `~/.codex` or `CODEX_HOME`.
+3. `/etc/codex/managed_config.toml`.
+4. On macOS, the managed preference `config_toml_base64` of `com.openai.codex`, which a configuration profile sets.
+
+`/etc/codex/requirements.toml`, and on macOS the managed preference `requirements_toml_base64`, can pin the store. Then no other place changes it. Pitboard reads these places as Codex 0.160.0 does, and the `Codex login store` line of `pitboard doctor` names the one that chose the store. If one of them is there and Codex cannot read it, Codex 0.160.0 does not start, and Pitboard refuses too.
+
+A `profile = "<name>"` line in any of them chooses the profile that a `[profiles.<name>]` table defines, as an older Codex, such as 0.99.0, reads it. A profile's table does not change the store, because neither Codex 0.99.0 nor 0.160.0 reads `cli_auth_credentials_store` there. If no table defines the profile a line names, Pitboard refuses, as 0.99.0 does. Codex 0.160.0 does not start with a `profile` line at all: it chooses a profile only with `--profile`.
+
+Codex reads three more places, and Pitboard reads none of them:
+
+- A project's own `.codex/config.toml`. In a trusted project that sets the store, Codex keeps its login somewhere else while it runs there.
+- A profile's `<name>.config.toml` in Codex's folder, which Codex reads only when you run it with `--profile <name>`. `codex login` refuses `--profile`.
+- Configuration an enterprise manages, which Codex fetches with its login. It comes after `/etc/codex/config.toml` and before your own `config.toml`. `codex login` does not load it, so it does not move a login a sign-in writes. Whether it moves the login while Codex runs is not known.
+
+### Use the file store
+
+If your own `config.toml` or `/etc/codex/config.toml` chose the store, set it to `file` in your own:
 
 ```toml title="~/.codex/config.toml"
 cli_auth_credentials_store = "file"
@@ -25,7 +46,7 @@ cli_auth_credentials_store = "file"
 
 Then run `codex login` and sign in with ChatGPT, so Codex writes its login to the file.
 
-An API-key sign-in has no account login to park. If Codex uses one or is not signed in, run `codex login` and sign in with ChatGPT.
+If `managed_config.toml`, a managed preference or a requirements file chose it, only an administrator can change it. Pitboard's message names which.
 
 ## Add Codex accounts
 
@@ -46,7 +67,7 @@ An API-key sign-in has no account login to park. If Codex uses one or is not sig
     pitboard enroll codex/work --sign-in    # another Codex account
     ```
 
-    `--sign-in` runs `codex login` in a private directory, so the account in use stays signed in. Your browser opens: sign in with the ChatGPT account you are adding. Pitboard then prints:
+    `--sign-in` runs `codex -c cli_auth_credentials_store="file" login` in a private directory, so the account in use stays signed in, and Codex writes the new login to a file there. Your browser opens: sign in with the ChatGPT account you are adding. Pitboard then prints:
 
     ```text
     Enrolled codex/work (me@company.com). Switch to it with: pitboard use codex/work

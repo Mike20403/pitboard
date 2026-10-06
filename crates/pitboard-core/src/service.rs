@@ -1155,6 +1155,55 @@ mod tests {
         assert_eq!(check.detail, refused.error.to_string());
     }
 
+    /// A Codex store that `/etc/codex/requirements.toml` pins is refused before a sign-in
+    /// starts, naming that file, as it is for a switch: no line of the person's own changes
+    /// it, and the `-c` Pitboard's sign-ins give is under it, so the login would be kept where
+    /// Pitboard cannot read it back. Pitboard used to read only `$CODEX_HOME/config.toml`, and
+    /// started the sign-in.
+    #[test]
+    fn a_codex_store_a_requirement_pins_is_refused_before_a_sign_in() {
+        let m = codex_machine("codex-pinned");
+        // Named where nothing is, so a sign-in that got past the refusal would find no
+        // program to run rather than this machine's own `codex`.
+        let ctx = m.ctx.clone().with_codex_program("/nowhere/codex".into());
+        m.mem.administers(
+            "/etc/codex/requirements.toml",
+            "cli_auth_credentials_store = \"keyring\"\n",
+        );
+        let pitboard = Pitboard::new(ctx);
+        for refused in [
+            pitboard.sign_in("codex/new").err().expect("refused"),
+            pitboard
+                .sign_in_watched("codex/new")
+                .err()
+                .expect("refused"),
+        ] {
+            assert_eq!(refused.error.code(), "live_store_unsupported");
+            let said = refused.error.to_string();
+            assert!(
+                said.contains("pinned to `keyring` by /etc/codex/requirements.toml"),
+                "{said}"
+            );
+            assert!(
+                said.contains("No line in your own config.toml can change it"),
+                "{said}"
+            );
+        }
+        let switched = pitboard.switch_to("codex/there").expect_err("refused too");
+        assert_eq!(switched.error.code(), "live_store_unsupported");
+        let file = m
+            .mem
+            .file_at(crate::provider::codex::paths::auth_file(&m.ctx));
+        let kept = crate::store::RawStore::read(&file, "auth.json")
+            .expect("readable")
+            .expect("there");
+        let kept: serde_json::Value = serde_json::from_str(&kept).expect("JSON");
+        assert_eq!(
+            kept["tokens"]["refresh_token"], "here-refresh",
+            "the auth.json Codex does not use is left as it was"
+        );
+    }
+
     /// The park the interrupted switch reserved, as its record names it.
     fn reserved(m: &Machine) -> String {
         let raw = std::fs::read_to_string(crate::home::dir(&m.ctx).join("journal.json"))

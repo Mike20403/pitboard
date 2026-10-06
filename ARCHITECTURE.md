@@ -38,15 +38,21 @@ pages load, as a browser would.
     `provider::sign_in_view` reads for both apps. Each module's `assumptions.rs` is
     that tool's register of facts, with a table saying what each fact is on macOS, Linux
     and Windows. `provider/codex/holders.rs` names where a running
-    `codex` can be, and what makes each take a switch. `provider/printed.rs` reads what a
-    tool printed as a terminal does: the text it shows, and where each hyperlink goes.
+    `codex` can be, and what makes each take a switch. `provider/codex/layers.rs` reads
+    which store Codex keeps its login in from every layer of configuration Codex reads
+    outside a project, in Codex's order, for a switch and for a sign-in.
+    `provider/printed.rs` reads what a tool printed as a terminal does: the text it shows,
+    and where each hyperlink goes.
   - `holder.rs`: what keeps a tool's login in memory while it runs, told apart by where
     its program runs from. A switch's warning, `doctor` and the app's offer to quit an app
     all read it, so they cannot disagree.
   - `host/`: the machine, behind one seam. The `Host` trait is what a test replaces: the
-    system's store of secrets, files, the vault, this user's processes, the scheduler and
-    whether this process runs as the person (`elevation`), reached through `Context` and
-    faked by `host/memory.rs`, which plays every answer. `fs`, `proc` and `user` are
+    system's store of secrets, files, the vault, this user's processes, the scheduler,
+    whether this process runs as the person (`elevation`), and what an administrator set
+    for a program outside every home (`administered_file`, and `managed_preference`, which
+    `macos/preferences.rs` reads), reached through `Context` and faked by
+    `host/memory.rs`, which plays every answer. The real hosts read nothing an
+    administrator set in a build for tests (`host/administered.rs`). `fs`, `proc` and `user` are
     plain functions for what the system does whoever asks: private files and directories,
     every other change to the disk, whether a process is alive, the login name, whether
     this process runs as root, and the `PATH` the person's login shell builds, which
@@ -1245,6 +1251,39 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
 - The login is `$CODEX_HOME/auth.json`, by default `~/.codex/auth.json`, at mode 0600.
 - `file` is the packaged default store on every platform, and the only one Pitboard
   supports. `keyring`, `auto` and `ephemeral` are the others.
+- Read from 0.160.0's config loader on 7 October 2026 (`codex_store_layers` and
+  `codex_managed_preferences`): the store is what the highest layer that sets
+  `cli_auth_credentials_store` says, lowest first: the packaged default,
+  `/etc/codex/config.toml`, an enterprise's cloud config, `$CODEX_HOME/config.toml`, a
+  profile's file, a trusted project's `.codex/config.toml`, `-c`, then
+  `/etc/codex/managed_config.toml` and, on macOS, the managed preference
+  `config_toml_base64` of `com.openai.codex` that a configuration profile forces.
+  `/etc/codex/requirements.toml`, and on macOS `requirements_toml_base64`, pin it over all
+  of them. A layer that is there and that Codex cannot read stops Codex from starting, and
+  so does a `profile = "<name>"` line in any layer, which 0.160.0 calls a legacy way to
+  choose a profile. 0.99.0 has no such refusal and chooses a profile with the line. A
+  profile's table holds no store either build reads, as read at each one's tag: neither
+  one's `ConfigProfile` has `cli_auth_credentials_store`, each takes the store from the
+  merged top level alone, 0.160.0 does not apply a profile's `[features]`, and none of
+  0.99.0's features is about the store.
+  - `provider/codex/layers.rs` reads every layer but three, in that order: the cloud
+    config, which `codex login` does not load and whose requirements may not set the store,
+    though its configuration may, and which a session of the TUI loads, with what that does
+    to a running session's store not read; a profile's, which only a run given `--profile`
+    reads and `codex login` refuses; and a project's, a fact about one folder, which
+    `doctor` says it does not read.
+  - A `profile` line chooses the profile a `[profiles.<name>]` table in any layer
+    defines, as 0.99.0 reads it, by the owner's answer of 7 October 2026. Its table holds
+    no store, so the store is still the layers'. A line naming a profile no table defines
+    is a store nobody can tell, `Backend::Unknown`, which 0.99.0 refuses as not found and
+    0.160.0 refuses as it refuses every such line. The words say which Codex does what.
+  - A layer it cannot read is a store nobody can tell, `Backend::Unknown`, refused like a
+    store Pitboard does not handle. A store a requirement pins is refused naming that file,
+    since no line in the person's own config changes it.
+  - `[features] secret_auth_storage` is read from the same layers, and is off by default
+    on macOS and Linux (`cfg!(windows)` in 0.160.0). A requirement may name that table
+    `[feature_requirements]` too, as `ConfigRequirementsToml` does; a configuration
+    layer's table of that name sets nothing.
 - `keyring` and `auto` keep the login in a keychain item, `Codex Auth`, that Codex makes
   through the Security framework. With either of those, the `secret_auth_storage` feature
   keeps it in `secrets/codex_auth.age` instead, under a keychain key.
@@ -1298,7 +1337,13 @@ real `auth.json` that build wrote. The register is `provider/codex/assumptions.r
   sign-in, the one `enroll --sign-in` runs, sets it to a directory that exists, and runs
   `codex login` from inside it.
 - The sign-in starts inside that directory because Codex also reads `.codex/config.toml`
-  from a trusted project it starts in. That file could name a keychain store.
+  from a trusted project it starts in. That file could name a keychain store, and so could
+  `/etc/codex/config.toml`, which a private home does not move. So the sign-in is
+  `codex -c cli_auth_credentials_store="file" login`: read from 0.160.0
+  (`codex_login_takes_a_store_override`), a `-c` before `login` is the session-flags
+  layer, over the home's, the system's and a project's config. Only
+  `/etc/codex/managed_config.toml`, the managed preference and a requirement are over it,
+  and they choose the live store too, which a sign-in refuses first.
 - `codex login` revokes the login stored in its home before signing in. It opens the
   browser itself and reads nothing from standard input.
 - Read from 0.160.0 on 5 October 2026: `codex login` prints to stderr its loopback address,

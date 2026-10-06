@@ -8,6 +8,7 @@ mod systemd;
 
 pub(crate) use super::unix::{fs, proc, user};
 
+use super::administered::Administered;
 use super::unix::service;
 use super::{Elevation, Host, LoginPath, Os, Process, Scheduler};
 use crate::context::{Context, Environment};
@@ -60,6 +61,11 @@ impl Host for Linux {
 
     fn elevation(&self, ctx: &Context) -> Elevation {
         user::elevation(ctx.sudo())
+    }
+
+    /// Linux has no managed preferences: an administrator sets things in files.
+    fn managed_preference(&self, _domain: &str, _key: &str) -> Administered {
+        Administered::Unset
     }
 }
 

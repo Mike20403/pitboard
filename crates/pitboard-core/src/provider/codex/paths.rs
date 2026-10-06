@@ -1,8 +1,10 @@
 //! Where Codex CLI keeps things.
 //!
 //! Read from codex-cli 0.154.0: the binary on this machine, and the matching public source
-//! at tag `rust-v0.154.0`.
+//! at tag `rust-v0.154.0`. Which store it keeps its login in is read from 0.160.0, in
+//! [`super::layers`].
 
+use super::layers;
 use crate::context::Context;
 use std::path::PathBuf;
 
@@ -49,82 +51,45 @@ pub(crate) enum Backend {
     /// `[features] secret_auth_storage` with a keyring store: an encrypted file whose key
     /// is in the keychain.
     Secrets,
+    /// A layer Codex reads is there and cannot be read as Codex reads it, which stops Codex
+    /// from starting, so nobody can tell. Refused like a store Pitboard does not handle.
+    Unknown,
 }
 
-/// What `$CODEX_HOME/config.toml` says about where the login is kept.
+/// The person's own `config.toml`, in Codex's home.
+pub(crate) fn config_file(ctx: &Context) -> PathBuf {
+    home(ctx).join("config.toml")
+}
+
+/// Where this machine's Codex keeps its login, from every layer Codex 0.160.0 reads outside
+/// a project, in its order ([`layers`]): its own default, `/etc/codex`, the person's own
+/// `config.toml` and, on macOS, the managed preferences an administrator forces.
 ///
-/// Read from that one file, which is where a person sets it. A store pinned by
-/// `/etc/codex/requirements.toml`, a managed profile or a trusted project's own config is
-/// not read. Guessed wrong, the file Pitboard reads is one Codex has emptied, so a switch
-/// or an enrolment finds nobody signed in and stops, rather than writing anywhere.
-pub(crate) fn backend(ctx: &Context) -> Backend {
-    std::fs::read_to_string(home(ctx).join("config.toml"))
-        .map_or(Backend::File, |config| backend_in(&config))
+/// It read only `$CODEX_HOME/config.toml` before, so a store `/etc/codex` or a managed
+/// profile chose was taken for the file, and Pitboard read an `auth.json` Codex did not use.
+pub(crate) fn store(ctx: &Context) -> layers::Store {
+    layers::of(ctx, &config_file(ctx))
 }
 
-/// The store a `config.toml` names.
-///
-/// A whole TOML parser for two keys would be a dependency for two lines. What is read is
-/// the top-level `cli_auth_credentials_store`, whose value is one of four bare words, and
-/// `secret_auth_storage` inside `[features]`. A line inside any other table is not the
-/// setting, whatever it is called, and a trailing comment is not part of a value.
-fn backend_in(config: &str) -> Backend {
-    let mut table = String::new();
-    let mut store = Backend::File;
-    let mut secrets = false;
-    for line in config.lines() {
-        let line = line.trim();
-        if let Some(header) = line.strip_prefix('[') {
-            table = header
-                .split(']')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        let (key, value) = (key.trim(), bare(value));
-        match (table.as_str(), key) {
-            ("", "cli_auth_credentials_store") => {
-                store = match value {
-                    "keyring" => Backend::Keyring,
-                    "auto" => Backend::Either,
-                    "ephemeral" => Backend::Ephemeral,
-                    _ => Backend::File,
-                };
-            }
-            ("features", "secret_auth_storage") => secrets = value == "true",
-            _ => {}
-        }
-    }
-    match store {
-        Backend::Keyring | Backend::Either if secrets => Backend::Secrets,
-        other => other,
-    }
-}
-
-/// A TOML value with its quotes and any trailing comment taken off.
-fn bare(value: &str) -> &str {
-    let value = value.trim();
-    for quote in ['"', '\''] {
-        if let Some(rest) = value.strip_prefix(quote) {
-            return rest.split(quote).next().unwrap_or_default();
-        }
-    }
-    value.split('#').next().unwrap_or_default().trim()
+/// Where a sign-in Pitboard runs keeps the login it signs in to: its private home holds no
+/// `config.toml`, and its command line names the file store ([`layers::FILE_STORE`]), so
+/// only what an administrator set over that moves it.
+pub(crate) fn sign_in_store(ctx: &Context) -> layers::Store {
+    layers::of_a_sign_in(ctx, &config_file(ctx))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn backend(ctx: &Context) -> Backend {
+        store(ctx).backend
+    }
+
     fn at(dir: &std::path::Path, config: &str) -> Context {
         std::fs::create_dir_all(dir).expect("a scratch codex home");
         std::fs::write(dir.join("config.toml"), config).expect("a config");
-        Context::new(PathBuf::from("/nowhere")).with_codex_home(dir.to_string_lossy().into())
+        Context::for_unit_test().with_codex_home(dir.to_string_lossy().into())
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -148,6 +113,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Each store is read from the person's own `config.toml` as TOML. A value that is not a
+    /// store Codex has stops Codex from starting, so it is no longer taken for the file.
     #[test]
     fn each_store_is_recognised() {
         let dir = scratch("stores");
@@ -159,7 +126,11 @@ mod tests {
                 Backend::Ephemeral,
             ),
             ("cli_auth_credentials_store = \"file\"", Backend::File),
-            ("cli_auth_credentials_store = \"nonsense\"", Backend::File),
+            (
+                "cli_auth_credentials_store = \"nonsense\"",
+                Backend::Unknown,
+            ),
+            ("cli_auth_credentials_store = keyring", Backend::Unknown),
         ] {
             let ctx = at(&dir, written);
             assert_eq!(backend(&ctx), expected, "{written}");
@@ -171,33 +142,70 @@ mod tests {
     /// looked like the default file, and Pitboard would read a file Codex had deleted.
     #[test]
     fn a_comment_after_the_value_is_not_the_value() {
-        assert_eq!(
-            backend_in("cli_auth_credentials_store = \"keyring\"  # on this mac\n"),
-            Backend::Keyring
+        let dir = scratch("comment");
+        let ctx = at(
+            &dir,
+            "cli_auth_credentials_store = \"keyring\"  # on this mac\n",
         );
-        assert_eq!(
-            backend_in("cli_auth_credentials_store = keyring # bare\n"),
-            Backend::Keyring
-        );
+        assert_eq!(backend(&ctx), Backend::Keyring);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A key of the same name inside another table is not the setting.
     #[test]
     fn only_the_top_level_key_is_the_setting() {
-        let config = "[profiles.work]\ncli_auth_credentials_store = \"keyring\"\n";
-        assert_eq!(backend_in(config), Backend::File);
-        let config =
-            "cli_auth_credentials_store = \"keyring\"\n[features]\nsecret_auth_storage = true\n";
-        assert_eq!(
-            backend_in(config),
-            Backend::Secrets,
-            "an encrypted file whose key is in the keychain is a store of its own"
+        let dir = scratch("tables");
+        for (config, expected, why) in [
+            (
+                "[profiles.work]\ncli_auth_credentials_store = \"keyring\"\n",
+                Backend::File,
+                "a key inside another table is not the setting",
+            ),
+            (
+                "cli_auth_credentials_store = \"keyring\"\n\
+                 [features]\nsecret_auth_storage = true\n",
+                Backend::Secrets,
+                "an encrypted file whose key is in the keychain is a store of its own",
+            ),
+            (
+                "[features]\nsecret_auth_storage = true\n",
+                Backend::File,
+                "the feature only changes a keyring store",
+            ),
+        ] {
+            assert_eq!(backend(&at(&dir, config)), expected, "{why}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What `/etc/codex` says is read as well as the person's own file, where Pitboard read
+    /// only the person's.
+    #[test]
+    fn the_system_layers_are_read_as_well_as_the_persons_own() {
+        let dir = scratch("system");
+        let host = crate::host::memory::MemoryHost::new();
+        let ctx = at(&dir, "model = \"gpt-5\"\n").with_memory_stores(host.clone());
+        host.administers(
+            "/etc/codex/config.toml",
+            "cli_auth_credentials_store = \"keyring\"\n",
         );
-        let config = "[features]\nsecret_auth_storage = true\n";
-        assert_eq!(
-            backend_in(config),
-            Backend::File,
-            "the feature only changes a keyring store"
+        assert_eq!(backend(&ctx), Backend::Keyring);
+        std::fs::write(
+            dir.join("config.toml"),
+            "cli_auth_credentials_store = \"file\"\n",
+        )
+        .expect("a config");
+        assert_eq!(backend(&ctx), Backend::File);
+        host.administers(
+            "/etc/codex/requirements.toml",
+            "cli_auth_credentials_store = \"keyring\"\n",
         );
+        assert_eq!(backend(&ctx), Backend::Keyring);
+        assert_eq!(
+            sign_in_store(&ctx).backend,
+            Backend::Keyring,
+            "a requirement pins a sign-in's store too"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

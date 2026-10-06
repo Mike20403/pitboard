@@ -5,10 +5,11 @@
 //! shaped, which endpoint renews a refresh chain and which one says how much of a plan is
 //! left.
 //!
-//! Read from codex-cli 0.154.0, and dated in [`assumptions`].
+//! Read from codex-cli 0.154.0, or the build an entry names, and dated in [`assumptions`].
 
 pub mod api;
 pub mod assumptions;
 pub(crate) mod engine;
 pub(crate) mod holders;
+pub(crate) mod layers;
 pub(crate) mod paths;

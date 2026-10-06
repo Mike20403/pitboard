@@ -27,6 +27,7 @@ use crate::store::RawStore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub(crate) mod administered;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -42,6 +43,7 @@ use linux as os;
 #[cfg(target_os = "macos")]
 use macos as os;
 
+pub(crate) use administered::Administered;
 pub(crate) use os::{fs, proc, user};
 
 /// The operating systems Pitboard runs on.
@@ -247,6 +249,25 @@ pub(crate) trait Host: Send + Sync + std::fmt::Debug {
     /// the answer can be in the environment this process was started with, such as the
     /// `SUDO_UID` sudo sets.
     fn elevation(&self, ctx: &Context) -> Elevation;
+
+    /// The file at `path`, outside every home, that only an administrator writes, such as
+    /// Codex's `/etc/codex/requirements.toml`. Which file is the tool's to say.
+    ///
+    /// Unset in a build for tests, on the real hosts ([`administered::READ_BY_REAL_HOSTS`]).
+    fn administered_file(&self, path: &Path) -> Administered {
+        if administered::READ_BY_REAL_HOSTS {
+            administered::read_text(path)
+        } else {
+            Administered::Unset
+        }
+    }
+
+    /// The text an administrator's configuration profile forces `key` of the program whose
+    /// preferences are `domain` to: a managed preference, on macOS. Unset where nothing
+    /// forces it, whoever set it otherwise, and on a system with no managed preferences.
+    ///
+    /// Unset in a build for tests, on the real hosts ([`administered::READ_BY_REAL_HOSTS`]).
+    fn managed_preference(&self, domain: &str, key: &str) -> Administered;
 }
 
 /// The system's own scheduler, which starts `pitboard renew` once a day: launchd on macOS,
