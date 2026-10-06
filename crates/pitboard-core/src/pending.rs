@@ -248,9 +248,15 @@ pub fn clear(ctx: &Context) {
     let _ = std::fs::remove_file(path(ctx));
 }
 
-/// Every name still outstanding, for `doctor` to report.
-pub fn outstanding(ctx: &Context) -> Vec<String> {
+/// Every name still outstanding, for `doctor` to report: written down, and named by nothing
+/// in `state`. A change records its park in `state.json` once the login is written, and the
+/// name stays on the list until the next change's sweep drops it; until then it is
+/// accounted for, not outstanding. Where the state could not be read, every name is.
+pub fn outstanding(ctx: &Context, state: Option<&State>) -> Vec<String> {
     read(ctx)
+        .into_iter()
+        .filter(|service| !state.is_some_and(|state| state.names(service)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -314,7 +320,25 @@ mod tests {
         let mut state = State::default();
 
         assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
-        assert!(outstanding(&ctx).is_empty());
+        assert!(outstanding(&ctx, None).is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_name_the_state_records_is_not_outstanding() {
+        let (ctx, _mem, root) = machine("recorded");
+        let service = "pitboard-park-acc-1760000000000";
+        reserve(&ctx, service).expect("reserved");
+        let mut state = State::default();
+        state.accounts.push(account("work", "acc"));
+        state.park(
+            &work(),
+            park::describe(ProviderId::Claude, service, NOW, &oauth("r")),
+        );
+
+        assert!(outstanding(&ctx, Some(&state)).is_empty());
+        assert_eq!(outstanding(&ctx, None), [service]);
+        assert_eq!(outstanding(&ctx, Some(&State::default())), [service]);
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -344,7 +368,7 @@ mod tests {
             "when it was parked is in its own name"
         );
         assert!(state.foreign.is_empty(), "this Pitboard wrote it");
-        assert!(outstanding(&ctx).is_empty());
+        assert!(outstanding(&ctx, None).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -386,7 +410,7 @@ mod tests {
         assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 1);
         assert_eq!(parked(&state).as_deref(), Some(held));
         assert!(state.discarded.iter().any(|s| s == orphan));
-        assert!(outstanding(&ctx).is_empty());
+        assert!(outstanding(&ctx, None).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -438,7 +462,7 @@ mod tests {
 
         let mut state = State::default();
         assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
-        assert_eq!(outstanding(&ctx), vec![service.to_string()]);
+        assert_eq!(outstanding(&ctx, None), vec![service.to_string()]);
         assert!(state.discarded.is_empty(), "nothing is deleted on a guess");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -452,7 +476,7 @@ mod tests {
         let service = "pitboard-park-acc-1760000000000";
         mem.vault().plant(service, &oauth("r").to_string());
         assert!(
-            outstanding(&ctx).is_empty(),
+            outstanding(&ctx, None).is_empty(),
             "nothing was ever written down"
         );
 
@@ -549,7 +573,7 @@ mod tests {
         );
 
         assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
-        assert!(outstanding(&ctx).is_empty());
+        assert!(outstanding(&ctx, None).is_empty());
         assert!(state.discarded.is_empty());
         let _ = std::fs::remove_dir_all(root);
     }

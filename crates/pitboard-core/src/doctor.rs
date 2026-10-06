@@ -260,7 +260,7 @@ pub fn gather(ctx: &Context) -> Facts {
         machine_id_known: crate::state::machine_id() != "unknown",
         hover_rest_env: ctx.hover_rest,
         daemon: daemon::read(ctx),
-        pending_parks: crate::pending::outstanding(ctx),
+        pending_parks: crate::pending::outstanding(ctx, state.as_ref().ok()),
         claude_version: claude::installed_version(ctx),
         auth_overrides: crate::settings::overrides(ctx),
         asking_held: crate::budget::holds(ctx),
