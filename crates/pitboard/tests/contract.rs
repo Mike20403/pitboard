@@ -8,11 +8,22 @@ use common::{Env, two_accounts};
 use serde_json::Value;
 
 fn json(env: &Env, args: &[&str]) -> (Value, i32) {
+    let (_, value, code) = json_as_printed(env, args);
+    (value, code)
+}
+
+/// The envelope as printed, and as parsed. Every byte of it is ASCII, whatever it carries.
+fn json_as_printed(env: &Env, args: &[&str]) -> (String, Value, i32) {
     let mut with_json = args.to_vec();
     with_json.push("--json");
     let (out, err, code) = env.run(&with_json);
+    assert!(
+        out.is_ascii(),
+        "`pitboard {}` printed a byte outside ASCII: {out}",
+        with_json.join(" ")
+    );
     let value = serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}{err}"));
-    (value, code)
+    (out, value, code)
 }
 
 /// Every envelope, with the exit code it came with.
@@ -36,6 +47,74 @@ fn status() {
     let env = two_accounts("contract-status");
     let (value, code) = json(&env, &["status"]);
     contract!("status", value, code);
+}
+
+/// A label is the person's own word, in whatever script they write it, and the envelope
+/// still prints as ASCII alone: each character outside it as a `\u` escape, and one above
+/// U+FFFF as its UTF-16 surrogate pair. A program that decodes the bytes as something other
+/// than UTF-8 then parses the same values. Pitboard printed them as raw UTF-8.
+#[test]
+fn a_label_outside_ascii_is_printed_as_escapes() {
+    let mut env = Env::new("contract-ascii");
+    let (a, o, b, p) = (env.uuid('a'), env.uuid('o'), env.uuid('b'), env.uuid('p'));
+    env.sign_in(&a, "a@example.com", &o, "refresh-a");
+    let (_, err, code) = env.run(&["enroll", "Đạt"]);
+    assert_eq!(code, 0, "enroll Đạt: {err}");
+    let (_, err, code) = env.enroll_by_signing_in("🏁", &b, "b@example.com", &p, "refresh-b");
+    assert_eq!(code, 0, "enroll 🏁: {err}");
+
+    let (printed, value, code) = json_as_printed(&env, &["status"]);
+    for escaped in [
+        r#""label":"\u0110\u1ea1t""#,
+        r#""qualified":"claude/\u0110\u1ea1t""#,
+        r#""label":"\ud83c\udfc1""#,
+        r#""qualified":"claude/\ud83c\udfc1""#,
+    ] {
+        assert!(printed.contains(escaped), "{escaped} in {printed}");
+    }
+    let labels: Vec<&str> = value["data"]["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["label"].as_str())
+        .collect();
+    assert_eq!(labels, ["Đạt", "🏁"], "parsed back as enrolled");
+    contract!("status_outside_ascii", value, code);
+
+    let (printed, value, code) = json_as_printed(&env, &["doctor"]);
+    assert_eq!(code, 0, "{value}");
+    for escaped in [
+        r#""name":"account \u0110\u1ea1t""#,
+        r#""name":"account \ud83c\udfc1""#,
+    ] {
+        assert!(printed.contains(escaped), "{escaped} in {printed}");
+    }
+    let accounts: Vec<&Value> = value["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| {
+            c["name"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("account "))
+        })
+        .collect();
+    let names: Vec<&str> = accounts.iter().filter_map(|c| c["name"].as_str()).collect();
+    assert_eq!(
+        names,
+        ["account Đạt", "account 🏁"],
+        "parsed back as enrolled"
+    );
+    // Which other checks run depends on the platform, as `doctor` below says, so only the
+    // accounts' are pinned. How long a parked login is good for counts down as the test runs.
+    insta::assert_json_snapshot!("doctor_outside_ascii", serde_json::json!({ "exit": code, "accounts": accounts }), {
+        ".accounts[1].detail" => "[parked, good for]",
+    });
+
+    // An error's message is in the envelope too, and names what was typed.
+    let (printed, value, code) = json_as_printed(&env, &["use", "Đạt2"]);
+    assert!(printed.contains(r"`\u0110\u1ea1t2`"), "{printed}");
+    contract!("use_unknown_outside_ascii", value, code);
 }
 
 #[test]

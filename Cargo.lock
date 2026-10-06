@@ -1312,6 +1312,7 @@ dependencies = [
  "mockito",
  "pitboard-core",
  "roff",
+ "serde",
  "serde_json",
  "unicode-width",
 ]

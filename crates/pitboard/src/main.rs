@@ -12,6 +12,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 use ui::{BOLD, DIM, WARN, paint};
 
+mod json;
 mod manpage;
 mod render;
 mod ui;
@@ -216,7 +217,7 @@ fn emit(report: Report, as_json: bool) -> ExitCode {
             "warnings": report.warnings,
             "error": error,
         });
-        println!("{envelope}");
+        println!("{}", json::ascii(&envelope));
     } else {
         match &report.result {
             Ok(_) => print!("{}", report.human),

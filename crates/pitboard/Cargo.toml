@@ -29,6 +29,7 @@ clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
 roff.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
 
