@@ -111,8 +111,8 @@ CI also runs:
 - `cargo check --workspace --all-targets --locked` on Rust 1.91, and again for `pitboard-ffi`
   with its fixtures
 - the app job: `swift format lint --strict`, `./apps/macos/scripts/build-app.sh`, a check that
-  the command line inside the app runs and holds both architectures, `swift test` and the
-  UI tests
+  the command line inside the app runs and holds both architectures, then
+  `./apps/macos/scripts/build-xcframework.sh --fixture`, `swift test` and the UI tests
 - the C# job: the core's C# bindings generated, compiled and called against the core on
   Linux, as the Windows app will call them, then against the core built with its fixtures,
   whose bindings must be the same and whose model a test starts
@@ -136,16 +136,22 @@ committed. Change `project.yml`, never the project, and generate it again after 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 brew install xcodegen
-./apps/macos/scripts/build-xcframework.sh
+./apps/macos/scripts/build-xcframework.sh --fixture
 xcodegen generate --spec apps/macos/project.yml
 open apps/macos/Pitboard.xcodeproj
 ```
 
-Everything the app does is in the package, and its tests run without starting the app:
+The app shows what the core's model says and sends it what was asked: every rule is Rust's,
+in `crates/pitboard-ffi`, and the Swift is views and what only macOS can do. Everything the
+app does is in the package, and its tests run without starting the app:
 
 ```sh
 swift test --package-path apps/macos
 ```
+
+They never make the model over this Mac. Most hand the app's model snapshots from a
+stand-in, and one starts a fixture's model to see the bindings carry a snapshot end to end;
+against a library built without fixtures it is skipped, and says so.
 
 The UI tests start the debug build, each in a fixture. A fixture is a machine in a known
 state, where nothing reaches the keychain, the network or your accounts. Run the UI tests
@@ -162,27 +168,26 @@ which applies to your Mac.
 The debug build's bundle identifier is `com.usepitboard.Pitboard.debug`, so it never shares
 preferences, a login item or notification permission with a copy you have installed. Run
 from Xcode, it reads this Mac's accounts, as that copy does. To run it in a fixture instead,
-add `PITBOARD_FIXTURE=twoTools` to the scheme's environment variables. The fixtures are the
-cases of `Fixture` in `apps/macos/Sources/PitboardApp/Fixture/Fixture.swift`.
+add `PITBOARD_FIXTURE=twoTools` to the scheme's environment variables.
 
-The fixtures are moving to Rust, as one set of worlds either app can launch into: until the
-macOS app runs on the core's model, it still launches into the Swift ones above. The Rust
-worlds are in `crates/pitboard-ffi/src/fixture`, with the same ten names. Each is the real
-core over a machine of its own: a home in the folder `pitboard-fixture` in the temporary
-directory, the keychain, the process list and the scheduler in memory, and Anthropic and
-OpenAI answering from a script. Its accounts were put there by the core, signed in,
-enrolled, parked and switched, so a world shows what the core makes of it: `readFailure`'s
-reads fail because its account index is a file nobody may read, and `stuck`'s read says an
-interrupted switch is waiting. Each tool's sign-in is played as its register says it
-behaves, so the fixture's Claude Code, like the real one, refuses a code typed back that is
-not `<code>#<state>`: type one such as `fixture-code#state`. Only a library built with the
-`fixture` feature has them, which `build-xcframework.sh --fixture` builds; the bindings are
-the same either way. `build-app.sh` never passes it, and fails a build whose library or app
-holds a fixture:
-
-```sh
-./apps/macos/scripts/build-xcframework.sh --fixture
-```
+The fixtures are Rust's, one set of worlds either app can launch into, in
+`crates/pitboard-ffi/src/fixture`: `twoTools`, `oneTool`, `empty`, `firstLaunch`,
+`noClaudeCode`, `unnamed`, `onlyOne`, `readFailure`, `stuck` and `chatGPTOpen`, as
+`fixture_names()` gives them. Each is the real core over a machine of its own: a home in the
+folder `pitboard-fixture` in the temporary directory, `TMPDIR` where it is set, the
+keychain, the process list and the scheduler in memory, and Anthropic and OpenAI answering
+from a script. Its accounts were put there by the core, signed in, enrolled, parked and
+switched, so a world shows what the core makes of it: `readFailure`'s reads fail because
+its account index is a file nobody may read, and `stuck`'s read says an interrupted switch
+is waiting. Each tool's sign-in is played as its register says it behaves, so the fixture's
+Claude Code, like the real one, refuses a code typed back that is not `<code>#<state>`:
+type one such as `fixture-code#state`. The app adds only what is macOS's own: a login item
+that registers nothing, and a link to the command line inside the fixture's stand-in app,
+made in the folder's `bin` with no password. Only a library built with the `fixture`
+feature has the worlds, which `build-xcframework.sh --fixture` builds; the bindings are the
+same either way. A debug build linked against a library without it stops at launch, saying
+how to build one with it. `build-app.sh` never passes it, and fails a build whose library
+or app holds a fixture.
 
 The tests that launch into that folder, in Rust, C# and Swift alike, empty it and remove it,
 so a debug build launched into a fixture while they run loses what it keeps there.
