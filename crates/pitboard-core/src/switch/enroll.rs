@@ -649,13 +649,18 @@ fn install_signed_in(
     drop(guard);
 
     // A session of a tool that never reads its login again goes on with the old one, and
-    // writes it back over the new one when it refreshes.
+    // writes it back over the new one when it refreshes. Where nobody could tell what is
+    // running, that is said, since one may be.
     let still_running = match super::still_holding(ctx, which) {
+        super::StillHolding::Nothing => None,
         super::StillHolding::These(holding) => Some(Warning::SessionsKeepTheOldLogin {
             label: name.clone(),
             holding,
         }),
-        super::StillHolding::Nothing | super::StillHolding::Unknown => None,
+        super::StillHolding::Unknown => Some(Warning::SessionsUnknownAfterSignIn {
+            tool: which,
+            label: name.clone(),
+        }),
     };
     let warnings = written
         .into_iter()
@@ -1249,6 +1254,45 @@ mod tests {
                     .iter()
                     .all(|w| w.code() != "sessions_still_running"),
                 "{tool}: nobody switched away from anything: {warnings:?}"
+            );
+        }
+    }
+
+    /// Where the process list cannot be read, nobody can say whether a running `codex` has
+    /// the old login to write back, and the sign-in says so rather than nothing. Claude Code
+    /// sessions read the new login by themselves, and nothing is said.
+    #[test]
+    fn a_process_list_nobody_could_read_is_said_after_a_sign_in() {
+        for (tool, make) in MACHINES {
+            let m = make("again-listless");
+            m.mem.without_a_process_list();
+
+            let (_, warnings) = enrolled_as(&m, "here", signed_in(&m, "here", "here-refresh-2"))
+                .unwrap_or_else(|e| panic!("{tool}: {e}"));
+
+            let said = warnings.iter().find(|w| w.code() == "sessions_unknown");
+            match m.which {
+                ProviderId::Claude => assert!(said.is_none(), "{warnings:?}"),
+                ProviderId::Codex => {
+                    let text = said
+                        .unwrap_or_else(|| panic!("warned: {warnings:?}"))
+                        .to_string();
+                    assert!(
+                        text.starts_with(
+                            "Pitboard could not tell whether Codex sessions started before \
+                             this sign-in are still running"
+                        ),
+                        "{text}"
+                    );
+                    assert!(text.contains("`codex/here`'s old login"), "{text}");
+                    assert!(text.contains("put the old login back"), "{text}");
+                }
+            }
+            assert!(
+                warnings
+                    .iter()
+                    .all(|w| w.code() != "sessions_keep_old_login"),
+                "{tool}: nothing is said to be running: {warnings:?}"
             );
         }
     }

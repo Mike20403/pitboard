@@ -182,8 +182,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `backend_remedy`. This changes the crate's public API.
 - In `pitboard-core`, `holder::Remedy::ReopenApp` names its app by `app`, a
   `holder::AppId`, in place of `bundle_id`. `AppId::MacBundle` holds a Mac app's bundle id,
-  and `AppId::as_str` gives the id as its system writes it. `holder::AppId` and
-  `service::Warning::SessionsUnknown` are new. These change the crate's public API.
+  and `AppId::as_str` gives the id as its system writes it. `holder::AppId`,
+  `service::Warning::SessionsUnknown` and `service::Warning::SessionsUnknownAfterSignIn` are
+  new. These change the crate's public API.
 
 ### Fixed
 
@@ -192,6 +193,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   before it are still running, and says not to sign out in one: that revokes the login
   Pitboard has just parked. It said nothing, as when nothing runs Codex. In the app, the
   switch's notice says it.
+- Where Pitboard cannot read the list of running processes, a sign-in that puts a new login
+  of a Codex account in use warns with `sessions_unknown` too, and says to quit and start
+  again any Codex session still on the old login. Otherwise one of them can put the old
+  login back when it refreshes. It said nothing. In the app, the notice that the account
+  has a new login says it, and says it once where the last switch already could not tell.
 - On macOS and Linux, Pitboard reads which store Codex keeps its login in from every layer
   Codex 0.160.0 reads outside a project, in Codex's order: its default, the file store;
   `/etc/codex/config.toml`; `config.toml` in Codex's home; `/etc/codex/managed_config.toml`;

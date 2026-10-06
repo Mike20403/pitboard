@@ -111,6 +111,13 @@ pub enum Warning {
         tool: ProviderId,
         from: String,
     },
+    /// A sign-in that put a new login of `label` in use, of a tool that never reads its login
+    /// again, where the process list could not be read: nobody can say whether anything of
+    /// the tool is still running with the old login.
+    SessionsUnknownAfterSignIn {
+        tool: ProviderId,
+        label: String,
+    },
     /// A sign-in to the account Pitboard last recorded in use was parked rather than put in
     /// use, because nobody could say whose login the tool has in use, for `why`.
     SignInParkedNotInUse {
@@ -146,7 +153,9 @@ impl Warning {
             Warning::WrittenOnTheCommandLine { .. } => "written_on_the_command_line",
             Warning::SessionsStillRunning { .. } => "sessions_still_running",
             Warning::SessionsKeepTheOldLogin { .. } => "sessions_keep_old_login",
-            Warning::SessionsUnknown { .. } => "sessions_unknown",
+            Warning::SessionsUnknown { .. } | Warning::SessionsUnknownAfterSignIn { .. } => {
+                "sessions_unknown"
+            }
             Warning::SignInParkedNotInUse { .. } => "sign_in_parked_not_in_use",
             Warning::ReadOnly { .. } => "read_only",
         }
@@ -231,6 +240,15 @@ impl fmt::Display for Warning {
                  still running, because it could not read the list of processes. Do not sign \
                  out in one that is: signing out there revokes `{from}`'s login, which \
                  Pitboard has just parked.",
+                tool.name()
+            ),
+            Warning::SessionsUnknownAfterSignIn { tool, label } => write!(
+                f,
+                "Pitboard could not tell whether {} sessions started before this sign-in are \
+                 still running, because it could not read the list of processes. Quit any \
+                 that are still using `{label}`'s old login and start them again. Otherwise \
+                 one of them can put the old login back in place of the new one when it \
+                 refreshes its token.",
                 tool.name()
             ),
             Warning::SignInParkedNotInUse { tool, label, why } => write!(

@@ -248,6 +248,75 @@ fn a_sign_in_to_the_account_in_use_keeps_what_the_last_switch_said() {
     assert_eq!(last.warnings, [still_running(), parked]);
 }
 
+/// A sign-in to the account in use that could not tell what still runs Codex says so beside
+/// the sign-in, as a count of sessions is said. Where Codex's last switch could not tell
+/// either, the sign-in says nothing more: the switch's warning is about the same sessions,
+/// and keeps what not to do in them, so the notice says it once.
+#[test]
+fn a_sign_in_that_could_not_tell_what_runs_says_it_once() {
+    let switch_untold = warning(
+        "sessions_unknown",
+        "Pitboard could not tell whether Codex sessions started before this switch are \
+         still running.",
+    );
+    let sign_in_untold = warning(
+        "sessions_unknown",
+        "Pitboard could not tell whether Codex sessions started before this sign-in are \
+         still running.",
+    );
+
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(status(vec![codex_account("work", true)])));
+    machine.enrolling = enrolled_as(
+        EnrolledAs::InUse { again: true },
+        vec![sign_in_untold.clone()],
+    );
+    signs_in(&mut model, &mut machine, "codex", "work", &[]);
+    let [last] = &model.shown().last_switches[..] else {
+        panic!("what the sign-in said: {:#?}", model.shown().last_switches);
+    };
+    assert_eq!(last.warnings, std::slice::from_ref(&sign_in_untold));
+
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(status(vec![
+        codex_account("work", true),
+        claude("personal", false, 0.0),
+    ])));
+    machine.switched = switched(
+        "codex",
+        "codex/personal",
+        "codex/work",
+        vec![switch_untold.clone()],
+    );
+    model.send(Intent::SwitchTo {
+        qualified: "codex/work".into(),
+    });
+    model.run(&mut machine);
+    machine.enrolling = enrolled_as(EnrolledAs::InUse { again: true }, vec![sign_in_untold]);
+    signs_in(&mut model, &mut machine, "codex", "work", &[]);
+
+    let shown = model.shown();
+    let [last] = &shown.last_switches[..] else {
+        panic!("one tool's: {:#?}", shown.last_switches);
+    };
+    assert_eq!(last.warnings, std::slice::from_ref(&switch_untold));
+    let notice = shown
+        .notices
+        .iter()
+        .find(|notice| notice.id == "switch/codex")
+        .unwrap_or_else(|| panic!("the switch's notice: {:#?}", shown.notices));
+    assert_eq!(
+        notice.lines,
+        [
+            "Signed in to work again. Its new login is the one in use now.".to_owned(),
+            "Any codex session started before this switch keeps using personal until it is \
+             quit and started again."
+                .to_owned(),
+            switch_untold.message,
+        ]
+    );
+}
+
 /// AppModelTests.swift's aSignInThatWasParkedSaysWhatItWarnedAbout. A sign-in that parked its
 /// login rather than put it in use says why, after the read that follows it, which would
 /// otherwise put the warning away.
