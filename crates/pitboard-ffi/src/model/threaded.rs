@@ -580,6 +580,75 @@ fn quitting_the_app_holding_the_login_switches_and_opens_it_again() {
     model.shutdown();
 }
 
+/// The real core's Codex switch, through the lanes, on a machine whose process list cannot
+/// be read. Nobody can say whether ChatGPT's own `codex` runs, so no quit question is
+/// asked, though ChatGPT is open, and the switch is made. What Codex's last switch said
+/// carries the core's `sessions_unknown`, and the switch's notice says it, after the
+/// restart line it keeps where the core counted nothing, rather than in a notice of its own
+/// under the code's heading.
+#[test]
+fn a_switch_on_a_process_list_nobody_could_read_says_so_and_asks_nothing() {
+    let world = two_codex_accounts("codex-listless");
+    world.host.without_a_process_list();
+    let apps = StandInApps::new(&[CHATGPT], true);
+    let told = Arc::new(Told::default());
+    let model = model_with(&world.core(), &told, &apps);
+    model.send(Intent::Start);
+    told.until("the accounts read", codex_shows("personal"));
+
+    model.send(Intent::SwitchTo {
+        qualified: "codex/work".into(),
+    });
+    let snapshots = told.until("the switch and the read after it", codex_shows("work"));
+    assert!(
+        snapshots.iter().all(|s| s.quit_question.is_none()),
+        "nothing found to quit: {snapshots:#?}"
+    );
+    assert_eq!(apps.running_calls(), 0, "nor asked whether ChatGPT runs");
+    assert!(apps.asked().is_empty(), "ChatGPT neither quit nor opened");
+    let last = snapshots.last().expect("a snapshot");
+    assert_eq!(last.failure, None);
+    let [said] = &last.last_switches[..] else {
+        panic!("one tool switched: {:#?}", last.last_switches);
+    };
+    let unknown = said
+        .warnings
+        .iter()
+        .find(|w| w.code == "sessions_unknown")
+        .unwrap_or_else(|| panic!("warned: {:?}", said.warnings));
+    assert!(unknown.message.contains("`codex/personal`"), "{unknown:?}");
+    assert!(
+        said.warnings
+            .iter()
+            .all(|w| w.code != "sessions_still_running"),
+        "nothing counted: {:?}",
+        said.warnings
+    );
+    let notice = last
+        .notices
+        .iter()
+        .find(|n| n.id == "switch/codex")
+        .unwrap_or_else(|| panic!("the switch's notice: {:#?}", last.notices));
+    assert_eq!(notice.severity, crate::present::Severity::Warning);
+    assert_eq!(
+        notice.lines,
+        [
+            "Any codex session started before this switch keeps using personal until it is \
+             quit and started again."
+                .to_owned(),
+            unknown.message.clone(),
+        ]
+    );
+    assert!(
+        last.notices
+            .iter()
+            .all(|n| n.title != "Couldn’t tell which sessions are open"),
+        "said once: {:#?}",
+        last.notices
+    );
+    model.shutdown();
+}
+
 /// Reads answer while a switch waits, as the Swift service's queue of reads answered while
 /// its other queues did: here the switch waits on the app's own code saying whether ChatGPT
 /// runs, and a read somebody asks for meanwhile lands, with the switch still under way.

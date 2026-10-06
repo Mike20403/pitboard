@@ -94,8 +94,10 @@ pub(crate) enum Adoption {
 pub(crate) enum Remedy {
     /// Quit it and start it again.
     Restart,
-    /// Quit the app the way Command-Q does, and open it again. The model may do both.
-    ReopenApp { bundle_id: String, name: String },
+    /// Quit the app the way its system quits an app, and open it again. The model may do
+    /// both. `app_id` is what that system names it by, as `AppControl` takes it: on macOS
+    /// its bundle id.
+    ReopenApp { app_id: String, name: String },
     /// Run this command.
     Run { command: String },
     /// Do this, somewhere Pitboard cannot reach.
@@ -121,8 +123,8 @@ impl From<pitboard_core::holder::Holding> for Holding {
             phrase: held.phrase(),
             remedy: match held.holder.remedy {
                 Core::Restart => Remedy::Restart,
-                Core::ReopenApp { bundle_id, name } => Remedy::ReopenApp {
-                    bundle_id: bundle_id.into(),
+                Core::ReopenApp { app, name } => Remedy::ReopenApp {
+                    app_id: app.as_str().into(),
                     name: name.into(),
                 },
                 Core::Run(command) => Remedy::Run {

@@ -7,17 +7,18 @@
 //! sessions, with the facts in `assumptions`. No editor with the Codex extension was
 //! running there, so its place is the extension's packaged layout, unmeasured.
 
-use crate::holder::{Holder, Location, Noun, Remedy};
+use crate::holder::{AppId, Holder, Location, Noun, Remedy};
 
 pub(crate) const HOLDERS: &[Holder] = &[
     // `/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`,
-    // two of them, children of the app. Closing the app's windows leaves it running.
+    // two of them, children of the app. Closing the app's windows leaves it running. The
+    // app's bundle id is `com.openai.codex`.
     Holder {
         kind: "chatgpt_app",
         noun: Noun::One("the ChatGPT app"),
         location: Location::Within("ChatGPT.app"),
         remedy: Remedy::ReopenApp {
-            bundle_id: "com.openai.codex",
+            app: AppId::MacBundle("com.openai.codex"),
             name: "ChatGPT",
         },
     },

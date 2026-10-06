@@ -650,11 +650,13 @@ fn install_signed_in(
 
     // A session of a tool that never reads its login again goes on with the old one, and
     // writes it back over the new one when it refreshes.
-    let still_running =
-        super::still_holding(ctx, which).map(|holding| Warning::SessionsKeepTheOldLogin {
+    let still_running = match super::still_holding(ctx, which) {
+        super::StillHolding::These(holding) => Some(Warning::SessionsKeepTheOldLogin {
             label: name.clone(),
             holding,
-        });
+        }),
+        super::StillHolding::Nothing | super::StillHolding::Unknown => None,
+    };
     let warnings = written
         .into_iter()
         .chain(still_running)

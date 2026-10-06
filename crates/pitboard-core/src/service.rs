@@ -104,6 +104,13 @@ pub enum Warning {
         label: String,
         holding: Vec<crate::holder::Holding>,
     },
+    /// A switch of a tool that never follows one on its own, where the process list could
+    /// not be read: nobody can say whether anything of the tool started before it is still
+    /// running, and still using `from`. Not the same as nothing running, which says nothing.
+    SessionsUnknown {
+        tool: ProviderId,
+        from: String,
+    },
     /// A sign-in to the account Pitboard last recorded in use was parked rather than put in
     /// use, because nobody could say whose login the tool has in use, for `why`.
     SignInParkedNotInUse {
@@ -139,6 +146,7 @@ impl Warning {
             Warning::WrittenOnTheCommandLine { .. } => "written_on_the_command_line",
             Warning::SessionsStillRunning { .. } => "sessions_still_running",
             Warning::SessionsKeepTheOldLogin { .. } => "sessions_keep_old_login",
+            Warning::SessionsUnknown { .. } => "sessions_unknown",
             Warning::SignInParkedNotInUse { .. } => "sign_in_parked_not_in_use",
             Warning::ReadOnly { .. } => "read_only",
         }
@@ -216,6 +224,14 @@ impl fmt::Display for Warning {
                 capitalised(&holder::described(holding)),
                 if holder::plural(holding) { "are" } else { "is" },
                 holder::remedies(holding, "to use the new one"),
+            ),
+            Warning::SessionsUnknown { tool, from } => write!(
+                f,
+                "Pitboard could not tell whether {} sessions started before this switch are \
+                 still running, because it could not read the list of processes. Do not sign \
+                 out in one that is: signing out there revokes `{from}`'s login, which \
+                 Pitboard has just parked.",
+                tool.name()
             ),
             Warning::SignInParkedNotInUse { tool, label, why } => write!(
                 f,
@@ -700,7 +716,10 @@ impl Pitboard {
     /// Empty where nothing is, where the tool follows a switch by itself, or where nobody
     /// could tell. Reads the process list and nothing else.
     pub fn holding(&self, which: ProviderId) -> Vec<holder::Holding> {
-        switch::still_holding(&self.ctx, which).unwrap_or_default()
+        match switch::still_holding(&self.ctx, which) {
+            switch::StillHolding::These(holding) => holding,
+            switch::StillHolding::Nothing | switch::StillHolding::Unknown => Vec::new(),
+        }
     }
 
     /// When Pitboard's account index last changed, for a front end that wants to know

@@ -3131,7 +3131,9 @@ mod tests {
 
     /// doctor asks what runs Codex the way a switch does, through the same host, so the two
     /// never disagree about what is still on the account a switch left. They used to count
-    /// with two different scans, and only the switch's could be stood in for.
+    /// with two different scans, and only the switch's could be stood in for. Nor do they
+    /// disagree where the process list cannot be read: doctor says it could not tell, and a
+    /// switch that nobody can say.
     #[test]
     fn doctor_and_a_switch_see_the_same_codex_running() {
         use crate::host::memory::MemoryHost;
@@ -3144,13 +3146,31 @@ mod tests {
                  MacOS/codex",
             ],
         );
-        let ctx = Context::new(std::env::temp_dir()).with_memory_stores(host);
+        let ctx =
+            Context::new(std::env::temp_dir()).with_memory_stores(std::sync::Arc::clone(&host));
         let seen = running_codex(&ctx).expect("readable");
         assert_eq!(
             seen.iter().map(|h| h.holder.kind).collect::<Vec<_>>(),
             ["chatgpt_app", "session"]
         );
-        assert_eq!(Some(seen), switch::still_holding(&ctx, ProviderId::Codex));
+        assert_eq!(
+            switch::StillHolding::These(seen),
+            switch::still_holding(&ctx, ProviderId::Codex)
+        );
+
+        host.runs_at("codex", &[]);
+        assert_eq!(running_codex(&ctx), Some(Vec::new()));
+        assert_eq!(
+            switch::still_holding(&ctx, ProviderId::Codex),
+            switch::StillHolding::Nothing
+        );
+
+        host.without_a_process_list();
+        assert_eq!(running_codex(&ctx), None);
+        assert_eq!(
+            switch::still_holding(&ctx, ProviderId::Codex),
+            switch::StillHolding::Unknown
+        );
     }
 
     #[test]

@@ -180,9 +180,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   says.
 - In `pitboard-core`, `doctor::CodexFacts` has two more fields, `backend_setting` and
   `backend_remedy`. This changes the crate's public API.
+- In `pitboard-core`, `holder::Remedy::ReopenApp` names its app by `app`, a
+  `holder::AppId`, in place of `bundle_id`. `AppId::MacBundle` holds a Mac app's bundle id,
+  and `AppId::as_str` gives the id as its system writes it. `holder::AppId` and
+  `service::Warning::SessionsUnknown` are new. These change the crate's public API.
 
 ### Fixed
 
+- Where Pitboard cannot read the list of running processes, a Codex switch warns, with the
+  code `sessions_unknown`, that Pitboard could not tell whether Codex sessions started
+  before it are still running, and says not to sign out in one: that revokes the login
+  Pitboard has just parked. It said nothing, as when nothing runs Codex. In the app, the
+  switch's notice says it.
 - On macOS and Linux, Pitboard reads which store Codex keeps its login in from every layer
   Codex 0.160.0 reads outside a project, in Codex's order: its default, the file store;
   `/etc/codex/config.toml`; `config.toml` in Codex's home; `/etc/codex/managed_config.toml`;

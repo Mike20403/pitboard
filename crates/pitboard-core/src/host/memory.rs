@@ -72,6 +72,9 @@ pub struct MemoryHost {
     vault: Arc<MemoryStore>,
     files: Mutex<HashMap<PathBuf, Arc<MemoryStore>>>,
     running: Mutex<HashMap<String, Vec<Process>>>,
+    /// Whether the process list cannot be read here, which is not the same as nothing
+    /// running.
+    listless: AtomicBool,
     /// Whether every home parks in `vault`, the way every home on macOS parks in the login
     /// keychain. So by default, because that is where the rules about another Pitboard's
     /// parks are needed.
@@ -98,6 +101,7 @@ impl Default for MemoryHost {
             vault: MemoryStore::of(Backend::Keychain),
             files: Mutex::new(HashMap::new()),
             running: Mutex::new(HashMap::new()),
+            listless: AtomicBool::new(false),
             shared_vault: AtomicBool::new(true),
             scheduler: super::os::pretend_scheduler(Arc::clone(&refuse_start)),
             refuse_start,
@@ -160,6 +164,12 @@ impl MemoryHost {
             .lock()
             .expect("a poisoned test host is a failed test")
             .insert(program.to_string(), processes);
+    }
+
+    /// From now on the process list cannot be read here, as when the system refuses to say
+    /// what is running: nobody can tell whether anything runs a program, or what.
+    pub fn without_a_process_list(&self) {
+        self.listless.store(true, Ordering::SeqCst);
     }
 
     /// The next time a schedule is to be started, the system will not start it.
@@ -233,8 +243,12 @@ impl Host for MemoryHost {
         self.shared_vault.load(Ordering::SeqCst)
     }
 
-    /// What a test said is running, and nothing on the machine running the tests.
+    /// What a test said is running, and nothing on the machine running the tests. `None`
+    /// once a test has said the list cannot be read.
     fn processes(&self, program: &str) -> Option<Vec<Process>> {
+        if self.listless.load(Ordering::SeqCst) {
+            return None;
+        }
         Some(
             self.running
                 .lock()
