@@ -42,6 +42,15 @@ fn passwd_home() -> Option<PathBuf> {
     entry(|passwd| path(passwd, passwd.pw_dir))
 }
 
+/// Whether `path` is this account's own home, as the passwd database names it, for a build
+/// for tests to refuse to act on. Compared as the file system resolves both, so a link to
+/// the home is the home.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn is_the_accounts_own_home(path: &std::path::Path) -> bool {
+    let resolved = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
+    passwd_home().is_some_and(|own| resolved(&own) == resolved(path))
+}
+
 /// The one way a unit test reaches this account's real home.
 #[cfg(test)]
 pub(crate) mod testing {
@@ -243,6 +252,8 @@ mod tests {
             home()
         );
         assert_eq!(home(), passwd_home());
+        assert!(is_the_accounts_own_home(&home().expect("a home")));
+        assert!(!is_the_accounts_own_home(&std::env::temp_dir()));
     }
 
     /// A unit test that forgets to give a home of its own is stopped where it would have

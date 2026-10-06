@@ -142,8 +142,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `app::write_file`, `audit::record`, `schedule::install`, `status::gather`,
   `switch::settle` and `statusline::read`, which takes an `Option<Permit>` and writes
   nothing without one. `host::Elevation` is new. These change the crate's public API.
-- In `pitboard-core`, `service::Pitboard::check_homes` and the error
-  `Error::HomeNotAbsolute` are new, and `Context::with_claude_config_dir` keeps an empty
+- `pitboard schedule install`, and turning on **Renew parked logins daily** in the app's
+  settings, refuse while `PITBOARD_HOME` names a directory other than `~/.pitboard`, with
+  the error code `schedule_not_default_home`, and install nothing. The schedule renews the
+  parked logins in `~/.pitboard` alone, so it would leave those in that directory to run
+  out. Both installed it all the same, and it renewed `~/.pitboard`. To turn on daily
+  renewal, unset `PITBOARD_HOME`. To renew the parked logins in another directory, run
+  `pitboard renew` with `PITBOARD_HOME` set. `pitboard schedule uninstall`, and turning
+  the switch off in the app, still remove the schedule whatever `PITBOARD_HOME` says.
+  Pitboard compares the two as paths, so a `PITBOARD_HOME` that is a link to
+  `~/.pitboard` is refused too. While `PITBOARD_HOME` names another directory,
+  `pitboard schedule status` adds that the schedule renews only the parked logins in
+  `~/.pitboard`, and with nothing installed it says to unset `PITBOARD_HOME` before
+  `pitboard schedule install`. It said to run `pitboard schedule install`, which is
+  refused there.
+- In `pitboard-core`, `service::Pitboard::check_homes` and
+  `service::Pitboard::schedule_renews_this_home`, the errors `Error::HomeNotAbsolute` and
+  `Error::ScheduleNotDefaultHome`, `Context::started_by_the_schedule` and
+  `schedule::SCHEDULED_RUN` are new, and `Context::with_claude_config_dir` keeps an empty
   value, which it dropped as unset.
 
 ### Fixed
@@ -225,6 +241,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   relative one from the folder each of them runs in, so the login Pitboard read and
   switched was the one under the folder Pitboard ran in. `pitboard doctor` fails a `homes`
   check instead, and checks nothing else; the app's **This Mac** pane shows the same.
+- A run of the daily renewal schedule renews the parked logins in `~/.pitboard` whatever
+  `PITBOARD_HOME` says, empty or relative included, which other commands refuse as above.
+  The schedule renews `~/.pitboard` alone, and its job is written without
+  `PITBOARD_HOME`, but a `PITBOARD_HOME` set with `launchctl setenv` on macOS, or in
+  systemd's user environment on Linux, through `systemctl --user set-environment` or
+  `environment.d`, reached the job. The job then renewed that directory's parked logins
+  and left those in `~/.pitboard` to run out. On macOS Pitboard tells a run of the
+  schedule by the job's name, which launchd gives it in `XPC_SERVICE_NAME`. On Linux it
+  does not rely on what systemd passes a job, which systemd itself calls best effort, so
+  the timer's service runs `pitboard renew --scheduled`. A timer installed by an earlier
+  Pitboard runs `pitboard renew`, which renews the directory `PITBOARD_HOME` names as
+  before, until you run `pitboard schedule install` again, which rewrites it. If you go
+  back to an earlier Pitboard on Linux, run its `pitboard schedule install` as well: an
+  earlier Pitboard does not take `--scheduled`, so until then the timer fails every day.
 - With `CLAUDE_CONFIG_DIR` set but empty, Pitboard refuses as above, with
   `home_not_absolute`: `CLAUDE_CONFIG_DIR is empty, so the folder it names would depend on
   where each program runs.` Claude Code reads an empty one as unset for `~/.claude.json`

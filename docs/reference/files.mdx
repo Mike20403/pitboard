@@ -69,7 +69,7 @@ For how a switch changes these files, see [How switching works](/concepts/switch
 | Files | `~/Library/LaunchAgents/com.datlechin.pitboard.renew.plist` | `~/.config/systemd/user/pitboard-renew.service` and `~/.config/systemd/user/pitboard-renew.timer`, even when `XDG_CONFIG_HOME` is set |
 | Name | launchd label `com.datlechin.pitboard.renew` | unit `pitboard-renew.timer` |
 | Program | The `pitboard` that installed it, by the path it was started with, such as Homebrew's link, so an upgrade does not break it. From the app: `Pitboard.app/Contents/Helpers/pitboard` | The `pitboard` that installed it, by the path it was started with, such as Homebrew's link, so an upgrade does not break it |
-| Runs | `<program> renew` | `<program> renew` |
+| Runs | `<program> renew` | `<program> renew --scheduled`, where a timer installed by an earlier Pitboard runs `<program> renew` |
 | When | Once a day, first a day after it is written: `StartInterval` 86400, `RunAtLoad` false | Once a day: `OnUnitActiveSec=86400`, `OnStartupSec=900` |
 
 ## The app
@@ -129,7 +129,7 @@ Pitboard refuses an empty `HOME`, `PITBOARD_HOME` or `CLAUDE_CONFIG_DIR`, and a 
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `HOME` | Both | Your home directory, the `~` in every path here. |
-| `PITBOARD_HOME` | Both | Pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`. |
+| `PITBOARD_HOME` | Both | Pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`, even when its job is given this variable, and Pitboard refuses to turn it on while this names another directory. |
 | `PITBOARD_NO_ARGV` | Both | On macOS, when it is `1`, Pitboard refuses to write a large login on `security`'s argument line, and does not renew a parked login it could not write back. A renewal schedule installed while it is set keeps it. See [Large logins on macOS](/security#large-logins-on-macos). |
 | `PITBOARD_API_BASE` | Command line | For Pitboard's tests. Sends the requests meant for Anthropic and OpenAI to this URL, if it is an `http` URL whose host is a loopback IP address, such as `http://127.0.0.1:8080`. |
 | `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Set but empty, Claude Code keeps its config directory in whatever folder it runs in, so Pitboard refuses it. |

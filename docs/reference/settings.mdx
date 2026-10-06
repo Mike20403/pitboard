@@ -33,6 +33,8 @@ The setting is also on after `pitboard schedule install`, whose schedule runs th
 
 You cannot turn it on while macOS runs the app from a temporary copy. macOS does that until you move the app to your Applications folder.
 
+You cannot turn it on either while the app runs with `PITBOARD_HOME` set to a directory other than `~/.pitboard`. Daily renewal renews only the parked logins in `~/.pitboard`, so Pitboard schedules nothing and says why under the switch. To turn it on, quit the app, then open it without `PITBOARD_HOME` set. You can turn the switch off whatever `PITBOARD_HOME` names.
+
 For why parked logins need renewing, see [Keep parked logins alive](/guides/renewal).
 
 ### Renew Now

@@ -477,6 +477,66 @@ fn tree(dir: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf,
     found
 }
 
+/// The schedule's job runs `pitboard renew --scheduled` on Linux, where Pitboard does not
+/// rely on what systemd passes a job, and such a run renews the default home,
+/// `~/.pitboard`, whatever `PITBOARD_HOME` says: a folder elsewhere, empty, or relative,
+/// which every other command refuses. The job is given a `HOME` of the test's own, so its
+/// default home is a folder of the test's, and is run from the test's own folder, so a
+/// relative one followed would show. The same run without the marker renews the home
+/// `PITBOARD_HOME` names, as it did.
+#[test]
+fn a_scheduled_renewal_renews_the_default_home_whatever_pitboard_home_says() {
+    let mut env = two_accounts("renew-scheduled");
+    access_lapsed(&env, "beta");
+    let renewal = env.answers_renewal(
+        "refresh-b",
+        200,
+        serde_json::json!({
+            "access_token": "access-refresh-b2", "refresh_token": "refresh-b2",
+            "expires_in": 28_800, "refresh_token_expires_in": 2_592_000,
+            "scope": "user:inference user:profile", "token_type": "Bearer"
+        }),
+    );
+    let home = env.root.join("home");
+    std::fs::create_dir_all(&home).expect("a home of the test's own");
+    let state = env.state();
+
+    let elsewhere = env.root.join("pitboard");
+    for pitboard_home in [elsewhere.as_os_str(), "".as_ref(), "relative".as_ref()] {
+        let at = format!("PITBOARD_HOME={pitboard_home:?}");
+        let _ = std::fs::remove_dir_all(home.join(".pitboard"));
+        let out = env
+            .command(&["renew", "--scheduled", "--json"])
+            .env("HOME", &home)
+            .env("PITBOARD_HOME", pitboard_home)
+            .current_dir(&env.root)
+            .output()
+            .expect("run Pitboard");
+        let ran = envelope(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!(out.status.code(), Some(0), "{at}: {ran}");
+        assert_eq!(ran["command"], "renew", "{at}");
+        assert_eq!(ran["data"]["renewed"], 0, "{at}: {ran}");
+        assert!(
+            home.join(".pitboard").is_dir(),
+            "{at}: the run was the default home's"
+        );
+    }
+    assert!(
+        !renewal.matched(),
+        "the parked login PITBOARD_HOME holds is not asked about"
+    );
+    assert_eq!(env.state(), state, "nor changed");
+    assert!(
+        !env.root.join("relative").exists(),
+        "nor a relative one made"
+    );
+
+    let (out, err, code) = env.run(&["renew"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out, "Renewed one.\n");
+    renewal.assert();
+}
+
 /// Under sudo, `renew` renewed a parked login as root and wrote what came back as root,
 /// where the person's own runs might not replace it again. It is refused now, with the code
 /// a program branches on, having asked nobody and written nothing, the audit log included.
@@ -629,11 +689,12 @@ fn every_command_refuses_a_home_that_is_not_a_full_path() {
 
 /// A build for tests never asks the system's service manager, whose jobs are the person's
 /// own whatever home a test gives: `pitboard schedule install`, with a scratch home that is
-/// a full path and nothing else in its way, is refused with `schedule_refused` and leaves no
-/// unit behind. The `systemctl` it would start is a stand-in on `PATH` that writes down
-/// that it was asked, which it was. Linux only: launchd is asked by its full path, so no
-/// stand-in can take its place there, and running this against a build that asked it would
-/// replace the person's real schedule.
+/// a full path, `PITBOARD_HOME` the default directory under it, since the schedule is
+/// installed from there alone, and nothing else in its way, is refused with
+/// `schedule_refused` and leaves no unit behind. The `systemctl` it would start is a
+/// stand-in on `PATH` that writes down that it was asked, which it was. Linux only: launchd
+/// is asked by its full path, so no stand-in can take its place there, and running this
+/// against a build that asked it would replace the person's real schedule.
 #[cfg(target_os = "linux")]
 #[test]
 fn no_build_for_tests_asks_the_systems_service_manager() {
@@ -654,6 +715,7 @@ fn no_build_for_tests_asks_the_systems_service_manager() {
     let out = env
         .command(&["schedule", "install", "--json"])
         .env("HOME", &home)
+        .env("PITBOARD_HOME", home.join(".pitboard"))
         .output()
         .expect("run Pitboard");
 

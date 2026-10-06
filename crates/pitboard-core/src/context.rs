@@ -203,6 +203,10 @@ pub struct Context {
     /// The scheduler's job this process runs as, where a test says. `None` is whatever the
     /// scheduler said when it started this process.
     pub(crate) scheduled_job: Option<String>,
+    /// Whether this process was started with the marker the schedule's job carries where
+    /// what the system says of the job it started is not to be relied on
+    /// ([`crate::schedule::SCHEDULED_RUN`]), as the front end it was started as read it.
+    pub(crate) marked_as_scheduled: bool,
     /// Whether this process was started under sudo, which sets `SUDO_UID`. Part of what the
     /// host answers when the one gate every change passes asks whether this process runs as
     /// the person themselves.
@@ -277,6 +281,7 @@ impl Context {
             schedule_program: None,
             search_path: None,
             scheduled_job: None,
+            marked_as_scheduled: false,
             sudo: false,
             clock: Arc::new(SystemClock),
             host: crate::host::current(),
@@ -420,6 +425,21 @@ impl Context {
         self
     }
 
+    /// Say this process is a run of the daily renewal schedule, as the marker its job is
+    /// started with says where what the system says of the job it started is not to be
+    /// relied on: the command line does this for `pitboard renew --scheduled`. Such a run
+    /// renews the default home whatever `PITBOARD_HOME` says
+    /// ([`crate::schedule::SCHEDULED_RUN`]).
+    pub fn started_by_the_schedule(mut self) -> Context {
+        self.marked_as_scheduled = true;
+        self
+    }
+
+    /// Whether this process was started with the schedule's marker.
+    pub(crate) fn marked_as_scheduled(&self) -> bool {
+        self.marked_as_scheduled
+    }
+
     /// The program named for this tool, found or not.
     pub fn program_for(&self, tool: ProviderId) -> &std::path::Path {
         match tool {
@@ -506,6 +526,7 @@ impl Context {
             // Unset is nowhere, as it is to the shell: nothing is found on an empty `PATH`.
             search_path: Some(env.path("PATH").unwrap_or_default().to_os_string()),
             scheduled_job: None,
+            marked_as_scheduled: false,
             sudo: env.set("SUDO_UID"),
             clock: Arc::new(SystemClock),
             host: crate::host::current(),

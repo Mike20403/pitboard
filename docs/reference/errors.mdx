@@ -116,6 +116,7 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 | Code | Exit | Meaning | What to do |
 | --- | --- | --- | --- |
 | `schedule_unsupported` | 1 | This system is neither macOS nor Linux, and Pitboard has no scheduler to write for it. | Run `pitboard renew` yourself from time to time. |
+| `schedule_not_default_home` | 1 | `PITBOARD_HOME` names a directory other than `~/.pitboard`, and daily renewal renews only the parked logins in `~/.pitboard`. Pitboard compares the two as paths, so a link to `~/.pitboard` counts as another directory. Nothing was scheduled. | Unset `PITBOARD_HOME`, then [turn on daily renewal](/guides/renewal#turn-on-daily-renewal) again. To renew the parked logins in the other directory, run `pitboard renew` with `PITBOARD_HOME` set. |
 | `schedule_refused` | 1 | `launchctl` on macOS, or `systemctl` on Linux, refused the schedule. The message gives its answer. | Fix what it names, then [turn on daily renewal](/guides/renewal#turn-on-daily-renewal) again. |
 | `schedule_program_missing` | 1 | The app only: the command line inside the app, which the schedule would run, is not there. Nothing was scheduled. | Install the app again. |
 | `schedule_program_temporary` | 1 | The app only: it runs from a temporary copy macOS made, which is gone once the app quits. | Move Pitboard to your Applications folder, open it from there, and turn on daily renewal again. |

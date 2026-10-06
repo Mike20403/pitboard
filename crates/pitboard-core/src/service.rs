@@ -631,11 +631,15 @@ impl Pitboard {
     /// Refused where this process may change nothing, as every change is, so a run that
     /// renewed nothing for that reason says so rather than reading as one where nothing was
     /// due.
+    ///
+    /// A run the schedule started renews the default home, whatever `PITBOARD_HOME` says
+    /// ([`schedule::for_its_run`]): the schedule is that home's alone.
     pub fn renew(&self) -> Result<Vec<(Key, Renewal)>> {
-        let permit = self.permit()?;
-        let outcomes = switch::renew_due(&self.ctx, permit, switch::Due::ToStayAlive);
+        let ctx = schedule::for_its_run(&self.ctx);
+        let permit = gate(&ctx)?;
+        let outcomes = switch::renew_due(&ctx, permit, switch::Due::ToStayAlive);
         for (key, outcome) in &outcomes {
-            audit::record(&self.ctx, permit, "renew", &key.typed(), outcome.code());
+            audit::record(&ctx, permit, "renew", &key.typed(), outcome.code());
         }
         Ok(outcomes)
     }
@@ -646,7 +650,16 @@ impl Pitboard {
         schedule::status(&self.ctx)
     }
 
+    /// Whether the schedule renews this Pitboard's own parked logins: whether its home is
+    /// the default home, `~/.pitboard`, compared as a path. The schedule renews that home
+    /// alone, and `schedule_install` is refused from any other.
+    pub fn schedule_renews_this_home(&self) -> bool {
+        schedule::serves(&self.ctx)
+    }
+
     /// Ask the platform's own scheduler to run `renew` daily. Opt-in, and stays opt-in.
+    /// Refused with `schedule_not_default_home` where this is not the default home
+    /// ([`Pitboard::schedule_renews_this_home`]).
     pub fn schedule_install(&self) -> Result<std::path::PathBuf> {
         schedule::install(&self.ctx, self.permit()?)
     }

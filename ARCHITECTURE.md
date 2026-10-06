@@ -331,8 +331,9 @@ pages load, as a browser would.
   `home_not_absolute`, naming the variable, by `home::check_absolute`, which the gate every
   change passes asks, and every read of the accounts. `doctor` fails its `homes` check
   over it and checks nothing else. The command line asks it before every command but
-  `completions`, `manpage` and `doctor`, so `log`, `schedule status` and the status line
-  refuse it too. Nothing is resolved against the folder Pitboard runs in.
+  `completions`, `manpage`, `doctor` and `renew`, which the gate refuses, so `log`,
+  `schedule status` and the status line refuse it too. Nothing is resolved against the
+  folder Pitboard runs in.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
@@ -361,6 +362,19 @@ pages load, as a browser would.
   `status_offline` answers, with a `read_only` warning, the status line writes neither
   sessions nor readings, `doctor` fails its `elevated` check, and an app writes no file of
   its own, since `app::write_file` takes a permit too.
+- A run of the daily renewal schedule renews the default home, whatever `PITBOARD_HOME`
+  says, since the schedule is that home's alone: `Pitboard::renew` renews in the context
+  `schedule::for_its_run` gives it. Such a run is told apart by what the scheduler says,
+  launchd's job label in `XPC_SERVICE_NAME`, or, since what systemd passes a job is best
+  effort and not to be relied on, by the marker the unit's `ExecStart` carries,
+  `renew --scheduled` (`schedule::SCHEDULED_RUN`), which the command line passes on through
+  `Context::started_by_the_schedule`. The command line leaves `renew` to the gate, which
+  asks of the homes the run renews in, so an empty or relative `PITBOARD_HOME` stops no run
+  of the schedule. In a build for tests, such a run whose home is the account's own panics
+  before it reads anything. For the same reason `schedule::install` refuses, with
+  `schedule_not_default_home`, wherever `schedule::serves` is false, that is while
+  `PITBOARD_HOME` names another directory. `uninstall` is not refused, so a schedule can be
+  taken away from any home, and `repair` does nothing there, as before, without an error.
 - No test starts the person's own login shell. A test names a shell of its own in `SHELL`,
   one that is not there, or hands in what a shell said.
 - A test never reaches the system's own scheduler. A test context schedules through

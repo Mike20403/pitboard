@@ -200,6 +200,19 @@ pub enum Error {
     #[error("the scheduler refused: {detail}")]
     ScheduleRefused { detail: String },
 
+    /// The schedule renews the default home alone, so it is installed only where
+    /// `PITBOARD_HOME` names that home or nothing. `home` is the directory it names, and
+    /// `default` the default home, `~/.pitboard`.
+    #[error(
+        "the renewal schedule renews only the parked logins in {}, not those in {}, which \
+         PITBOARD_HOME names. Nothing was scheduled. To schedule it for {}, unset \
+         PITBOARD_HOME and install it again.",
+        default.display(),
+        home.display(),
+        default.display()
+    )]
+    ScheduleNotDefaultHome { home: PathBuf, default: PathBuf },
+
     #[error("the renewal schedule would run {path}, which is not there. Nothing was scheduled.")]
     ScheduleProgramMissing { path: PathBuf },
 
@@ -602,6 +615,7 @@ impl Error {
             StateWriteFailed { .. } => "state_write_failed",
             ScheduleUnsupported => "schedule_unsupported",
             ScheduleRefused { .. } => "schedule_refused",
+            ScheduleNotDefaultHome { .. } => "schedule_not_default_home",
             ScheduleProgramMissing { .. } => "schedule_program_missing",
             ScheduleProgramTemporary { .. } => "schedule_program_temporary",
             ScheduleProgramUnnamed => "schedule_program_unnamed",
