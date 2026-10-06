@@ -1171,12 +1171,17 @@ fn a_machine_with_nothing_on_it_says_what_to_do_first() {
                 shown.accounts_shown
             ),
         }
-        assert_eq!(
-            shown.window_request.serial > 0,
-            world == World::FirstLaunch,
-            "{}",
-            world.name()
-        );
+        // The window is asked for once the preferences say the app has never been seen, and
+        // they are read on a lane of their own, so the accounts can be read first: in 2 of
+        // 800 copies of this test run 16 at a time on Linux, firstLaunch's had not yet asked.
+        // A machine whose app has been seen never asks, which `keeping.rs` holds.
+        if world == World::FirstLaunch {
+            told.until("the window asked for", |snapshot| {
+                read_in(snapshot) && snapshot.window_request.serial > 0
+            });
+        } else {
+            assert_eq!(shown.window_request.serial, 0, "{}", world.name());
+        }
         model.shutdown();
     }
 }

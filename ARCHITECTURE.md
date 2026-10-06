@@ -471,11 +471,17 @@ pages load, as a browser would.
   Windows, and so what the core's holder detection gives there, is a question still open
   for the owner; the trait takes one string so that a Windows id fits it unchanged.
 - One thread tells a `ModelListener`, so snapshots arrive in revision order, and a snapshot
-  is told only where it differs from the last. The model never holds a lock while it calls
-  out, so a listener may call `snapshot`, `send` and `shutdown`. Dropping a `PitboardModel`
-  waits on no thread, since .NET can free it from its finalizer thread
-  ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor and the sign-ins
-  under way, neither of which waits on the listener.
+  is told only where it differs from the last, and of several waiting only the newest. So a
+  test waits for what a snapshot says once something is over, never to be told one in
+  between, such as one saying a read is under way, which can go untold. Nor is `snapshot`
+  enough to see one in between: the actor hands an intent's jobs to their lanes before it
+  publishes, so a lane can have started, even asked a service, while `snapshot` still gives
+  the one from before. A test that must tell a read's end from its start holds the read, as
+  the threaded tests hold one with the lock usage readings are written under. The model
+  never holds a lock while it calls out, so a listener may call `snapshot`, `send` and
+  `shutdown`. Dropping a `PitboardModel` waits on no thread, since .NET can free it from its
+  finalizer thread ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor and
+  the sign-ins under way, neither of which waits on the listener.
 - No test makes the app model over the machine's own environment. Its Rust tests run the
   real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in a
   scratch directory, and so does a fixture. The C# tests make one only as `ModelTests.cs`

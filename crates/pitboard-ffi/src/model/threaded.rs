@@ -1392,11 +1392,22 @@ fn a_run_out_is_notified_once_across_a_relaunch() {
     let reopened = model_posting(&core, &again, &unposted);
     reopened.send(Intent::Start);
     again.until("the advice, said again in the window", advised);
+    // Another read, held as it records a newer reading of the spare account until the model's
+    // snapshot says it is under way, and over once a snapshot after that says nothing is
+    // being read. The listener is told only the newest snapshot waiting, so one saying a read
+    // is under way can go untold: counting them, this waited for ever in 4 of 960 copies run
+    // 24 at a time on Linux. Nor does Anthropic having been asked say the snapshot is of the
+    // read: the actor hands a read to its lane before it publishes, so the snapshot can still
+    // be the one from before it, and say nothing is being read.
+    let recording = world.recording();
+    world.measures("there", 20.0);
+    let asked = world.api.calls();
     reopened.send(Intent::Refresh { asked: true });
-    again.until("another read", |told| {
-        told.iter().filter(|snapshot| snapshot.reading).count() >= 2
-            && told.last().is_some_and(|last| !last.reading)
+    eventually("another read under way", || {
+        world.api.calls() > asked && reopened.snapshot().reading
     });
+    drop(recording);
+    eventually("another read over", || !reopened.snapshot().reading);
     assert!(unposted.posted().is_empty(), "notified before the relaunch");
     reopened.shutdown();
 }
@@ -1537,13 +1548,13 @@ fn the_machine_is_kept_over_the_real_core() {
     assert!(std::path::Path::new(&job).is_file());
     assert_eq!(on.machine.schedule.runs.as_deref(), Some("Every day"));
 
+    // Waited for by what the renewal says: the listener is told only the newest snapshot
+    // waiting, so one saying it is under way can go untold.
     model.send(Intent::RenewNow);
-    told.until("renewing", |told| {
-        told.iter()
-            .any(|snapshot| snapshot.machine.renewal.renewing)
-    });
     let renewed = last_where(&told, "the renewal and the read after it", |last| {
-        !last.machine.renewal.renewing && !last.reading
+        !last.machine.renewal.renewing
+            && !last.reading
+            && last.machine.renewal.note == "No parked login was due."
     });
     assert_eq!(renewed.machine.renewal.note, "No parked login was due.");
 
