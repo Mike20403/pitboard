@@ -1192,8 +1192,8 @@ fn naming_the_login_signed_in_now_enrols_it() {
         provider: "claude".into(),
         name: " work ".into(),
     });
-    // The poll can read the enrolment from what is known before the enrolment answers,
-    // which is what closes the sheet.
+    // The sheet closes as the enrolment answers, and the read after it lists the account:
+    // the poll leaves the account index alone meanwhile, the enrolment being the app's own.
     let told = told.until("the login enrolled", |told| {
         told.last()
             .is_some_and(|last| labels(last) == ["work"] && last.sheet.is_none())
@@ -1201,6 +1201,129 @@ fn naming_the_login_signed_in_now_enrols_it() {
     let last = told.last().expect("a snapshot");
     assert_eq!(last.sheet_failure, None);
     assert_eq!(last.failure, None);
+    model.shutdown();
+}
+
+/// The last snapshot told is of a read that has landed after everything asked of the model,
+/// and is over, with `want` the accounts' names.
+fn read_after<'a>(want: &'a [&'a str]) -> impl Fn(&[Snapshot]) -> bool + 'a {
+    move |told| {
+        told.last().is_some_and(|last| {
+            !last.reading
+                && last.updated_at.is_some()
+                && last.signing_in.is_none()
+                && labels(last) == want
+        })
+    }
+}
+
+/// Makes `change` while a read that started before it is held on the lane of reads, with a
+/// look for changes waiting behind it, and lets them go once the change has answered, which
+/// leaves nothing read meanwhile. The look then finds the account index as the change wrote
+/// it, and lands after the change's answer and before the read the change asked for, which
+/// waits behind it. The read is held by the lock usage readings are written under, which it
+/// waits for with a newer reading of `who` to record.
+///
+/// Taken for a change made elsewhere, that look dropped the read after the change as one
+/// that started before a change: what the change did was shown only from what is already
+/// known, with no time it was read, until something asked for another read, the timer's
+/// minutes later where nobody opens the menu or shows the accounts pane. The fixture's
+/// sign-in of a Codex account met it 2 times in 140 runs of the whole suite, where its look
+/// read the index between the enrolment's write and its answer; held, it meets it each time.
+fn with_a_look_behind_a_read(
+    world: &World,
+    model: &PitboardModel,
+    told: &Told,
+    who: &str,
+    change: impl FnOnce(),
+) {
+    let recording = world.recording();
+    world.measures(who, 30.0);
+    let asked = world.api.calls();
+    model.send(Intent::Refresh { asked: true });
+    eventually("the read held", || world.api.calls() > asked);
+    // A look every 10 ms, so one is asked for meanwhile, and waits behind the read.
+    std::thread::sleep(Duration::from_millis(200));
+    change();
+    told.until("the change answered", |told| {
+        told.last().is_some_and(|last| last.updated_at.is_none())
+    });
+    drop(recording);
+}
+
+/// A rename the app makes on the real core is read after it, though a look for changes lands
+/// after the rename has answered, having found the account index as the rename wrote it. The
+/// index's time is set back a minute before the model starts, so that the rename's write
+/// moves it whatever second it is made in.
+#[test]
+fn a_rename_is_read_after_it_whatever_the_poll_finds_meanwhile() {
+    let world = World::new("rename-looked-at");
+    world.enrolled("work", "here", 10.0);
+    world.index_written_earlier(60);
+    let told = Arc::new(Told::default());
+    let renaming = model(&world.core(), &told);
+    renaming.send(Intent::Start);
+    told.until("the account read", read_after(&["work"]));
+    with_a_look_behind_a_read(&world, &renaming, &told, "here", || {
+        renaming.send(Intent::Rename {
+            provider: "claude".into(),
+            label: "work".into(),
+            to: "office".into(),
+        });
+    });
+    told.until("the read after the rename", read_after(&["office"]));
+    renaming.shutdown();
+}
+
+/// The same for naming the login signed in now, where no account is enrolled yet, so that
+/// there is no account index until the name writes one.
+#[test]
+fn naming_the_login_in_use_is_read_after_it_whatever_the_poll_finds_meanwhile() {
+    let world = World::new("name-looked-at");
+    world.signed_in("here", 10.0);
+    let told = Arc::new(Told::default());
+    let naming = model(&world.core(), &told);
+    naming.send(Intent::Start);
+    told.until("the login read", |told| {
+        told.last().is_some_and(|last| {
+            !last.reading
+                && last.updated_at.is_some()
+                && matches!(last.footing, crate::Footing::Unnamed { .. })
+        })
+    });
+    with_a_look_behind_a_read(&world, &naming, &told, "here", || {
+        naming.send(Intent::Enrol {
+            provider: "claude".into(),
+            name: "work".into(),
+        });
+    });
+    told.until("the read after naming it", read_after(&["work"]));
+    naming.shutdown();
+}
+
+/// The same for a sign-in, on the real core with a stand-in for `claude`: what it enrols is
+/// read after it.
+#[test]
+#[cfg(unix)]
+fn a_sign_in_is_read_after_it_enrols_whatever_the_poll_finds_meanwhile() {
+    let mut world = World::new("sign-in-looked-at");
+    world.enrolled("work", "here", 10.0);
+    let _claude = world.claude_stand_in();
+    world.index_written_earlier(60);
+    let told = Arc::new(Told::default());
+    let model = model(&world.core(), &told);
+    model.send(Intent::Start);
+    told.until("the account read", read_after(&["work"]));
+    model.send(sign_in("travel"));
+    told.until("a code asked for", signing(|s| s.wants_code));
+    world.signed_in_privately("away", "access-away", 20.0);
+    with_a_look_behind_a_read(&world, &model, &told, "here", || {
+        model.send(paste("the-code#the-state"));
+    });
+    told.until(
+        "the read after the sign-in",
+        read_after(&["work", "travel"]),
+    );
     model.shutdown();
 }
 

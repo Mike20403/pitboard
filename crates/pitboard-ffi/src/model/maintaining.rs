@@ -7,11 +7,12 @@
 //! Mac, its clock times in UTC. Opening at login and linking the command line with an
 //! administrator's password are the app's own, and so are their tests.
 
+use super::changing::a_look_landing_after;
 use super::machine::ScheduleFailure;
 use super::state::Job;
 use super::testing::{
-    Hand, Machine, PLIST, any_read, change, check, claude, fresh_read, installed_ask, refusal,
-    renewed, status,
+    Hand, Machine, PLIST, a_look_or_a_read, any_read, change, check, claude, codex_account,
+    fresh_read, installed_ask, refusal, renewed, status,
 };
 use super::{Intent, Pane};
 use crate::present::testing::Utc;
@@ -464,6 +465,25 @@ fn renewing_now_says_what_it_renewed_and_reads_the_accounts_once() {
         renewal.note,
         "Renewed 1 of 2; the rest are tried again next time."
     );
+}
+
+/// `changing.rs`'s look landing after a change, for renewing now: a renewal writes the account
+/// index with each parked login it renews, and the read after it, asking every service, was
+/// dropped as one that started before a change made elsewhere.
+#[test]
+fn a_look_landing_after_renewing_leaves_the_read_after_it() {
+    let after = vec![
+        codex_account("personal", true),
+        codex_account("spare", false),
+    ];
+    a_look_landing_after(after, |model, machine| {
+        model.send(Intent::RenewNow);
+        model.run_but(machine, a_look_or_a_read);
+        assert!(
+            shown(model).renewal.renewing,
+            "until the read after it is over"
+        );
+    });
 }
 
 /// A second Renew Now while one runs does nothing, as the Swift settings held its button

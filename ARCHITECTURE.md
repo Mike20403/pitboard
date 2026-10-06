@@ -402,6 +402,18 @@ pages load, as a browser would.
   app may close the question with `Intent::KeepAppOpen` before or after it sends the answer:
   a question closed unanswered is kept until another switch is asked for, and an answer is
   taken once.
+- Every other change this app makes to the account index holds it as a switch does, and the
+  poll leaves the index alone meanwhile: naming the login signed in now, a sign-in's
+  enrolment, a rename, forgetting, giving up on an interrupted switch and renewing parked
+  logins. Each holds the index inside `State::apply` from the
+  moment its intent is taken, a sign-in's from the moment its thread is told to enrol, until
+  the read after it is over, landed, dropped or failed, or until the change itself has
+  failed, so a change made elsewhere is noticed by the next look once none is under way. A
+  look can find the index as such a change wrote it and land after the change has answered,
+  before the read the change asked for: taken for a change made elsewhere, it dropped that
+  read as one that started before a change, and a look that landed while a rename was made
+  put away what the account's last switch said
+  ([A look and the app's own changes](#a-look-and-the-apps-own-changes)).
 - What a tool's last switch said is kept apart from the read's warnings, one per tool, until
   that tool no longer has the account it switched to signed in or the person puts it away:
   a Codex switch's warning that open sessions still use the account it parked, and must not
@@ -968,6 +980,41 @@ which is `flock`.
   let go, not within 20 s on either. Taking the stop's own word that it had stopped the
   tool, it asked in 6.8 to 9.7 ms on macOS and 1.4 to 1.9 ms on Linux, 20 runs each, with
   that output still open.
+
+### A look and the app's own changes
+
+Measured on 6 October 2026 on macOS 27.0 (arm64), with Rust 1.98.1 and `pitboard-ffi`'s
+tests, and read in the macOS app's Swift at 0.7.0 (277539b).
+
+- A look reads when the account index was last written on the lane of reads, while a change
+  the app makes writes it on the lane of changes, or a sign-in's enrolment on that sign-in's
+  own thread, and their answers reach the model in the order they are sent. A look that read
+  the index after a change wrote it, and whose answer came after the change's, was compared
+  once the change had taken the ticket of the read it asked for: it counted a change made
+  elsewhere, and that read was dropped. The fixture's
+  `accounts_are_added_through_each_tools_sign_in`, which signs a Codex account in and
+  cancels nothing, met it in 2 of 140 runs of the whole suite, with nothing said of when the
+  accounts were read.
+- With looks back to back, each asked for as the last one answered, a rename, a forget,
+  naming the login in use and a sign-in met it in none of 10 runs: the core writes its log
+  of changes after the index and before the change answers, so the first look to read the
+  change's write answered first. Held behind a read on the lane of reads instead, which
+  waits for the lock usage readings are written under while the test holds it, a look reads
+  the index after the change and answers after it every time. Against the model before it
+  held the index for every change of its own,
+  `a_rename_is_read_after_it_whatever_the_poll_finds_meanwhile`,
+  `naming_the_login_in_use_is_read_after_it_whatever_the_poll_finds_meanwhile` and
+  `a_sign_in_is_read_after_it_enrols_whatever_the_poll_finds_meanwhile` failed in 10 of 10
+  runs, each with nothing read after the change; after, in none of 50.
+- The Swift model at 0.7.0 had the same race. PitboardService.swift asked `changedAt` on its
+  queue of reads, and enrolled, renamed, forgot, renewed and gave up on an interrupted switch
+  on its queue of changes. AppModel.swift's `enrol`, `rename`, `forget`,
+  `abandonStuckSwitch` and a sign-in's `watch` counted the change in `changesSeen` and then
+  read, the read keeping the count it started with, and `noticeOtherChanges` counted any move
+  of the index's time as a change made elsewhere unless `switching` was set. So a look whose
+  `changedAt` came back after the change's write, and whose comparison ran once the read had
+  taken its count, dropped the read and left `updatedAt` nil; one whose read of what is known
+  landed before a rename's own code ran put away what the switch to that account had said.
 
 ### Claude Code
 

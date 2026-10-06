@@ -5,12 +5,13 @@
 //! whatever order the Swift tests reached with gates. Where a Swift test also checked what the
 //! window says of it, which comes with the model's wording, the rest of it is kept here.
 
+use super::changing::a_look_landing_after;
 use super::lanes::Lane;
 use super::state::{Answer, Job};
 use super::switching::a_read_that_started_before;
 use super::testing::{
-    Hand, Machine, any_read, claude, claude_code, codex, codex_account, enrolled_as, installed_ask,
-    refusal, status, still_running, switched, warning,
+    Hand, Machine, a_look_or_a_read, any_read, claude, claude_code, codex, codex_account,
+    enrolled_as, installed_ask, refusal, status, still_running, switched, warning,
 };
 use super::{Intent, Pane, RestartNeeded, RunningSignIn, Sheet, WindowRequest};
 use crate::EnrolledAs;
@@ -832,6 +833,29 @@ fn a_read_that_started_before_a_sign_in_is_dropped_when_it_lands() {
     a_read_that_started_before(|model, machine| {
         signs_in(model, machine, "codex", "travel", &[]);
         assert_eq!(machine.signed_in, ["codex/travel"]);
+    });
+}
+
+/// `changing.rs`'s look landing after a change, for what a sign-in enrols: the look finds the
+/// account index as the enrolment wrote it, and lands after the sign-in has finished and
+/// before the read after it, which it dropped. The Codex half of the fixture's
+/// `accounts_are_added_through_each_tools_sign_in` met it, cancelling nothing.
+#[test]
+fn a_look_landing_after_a_sign_in_enrols_leaves_the_read_after_it() {
+    let after = vec![
+        codex_account("personal", true),
+        codex_account("spare", false),
+        codex_account("travel", false),
+    ];
+    a_look_landing_after(after, |model, machine| {
+        model.send(sign_in("codex", "travel"));
+        model.run_but(machine, a_look_or_a_read);
+        let id = running(model).id;
+        says(model, id, CODEX_ADDRESS);
+        model.give(Answer::SignInQuiet { id });
+        model.run_but(machine, a_look_or_a_read);
+        assert_eq!(machine.over, [(id, true)]);
+        assert_eq!(model.shown().signing_in, None, "finished");
     });
 }
 

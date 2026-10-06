@@ -5,11 +5,12 @@
 //! is kept here. The interleavings the Swift tests reached with gates are answers handed to
 //! `apply` in the same order.
 
+use super::changing::a_look_landing_after;
 use super::state::{Answer, Job};
 use super::testing::{
-    CHATGPT, Hand, Machine, StandInApps, a_switch, already_active, any_read, chatgpt_holding,
-    claude, codex_account, fresh_read, holding_ask, offline_read, percent, refusal, status,
-    still_running, switched, warned, warning,
+    CHATGPT, Hand, Machine, StandInApps, a_look_or_a_read, a_switch, already_active, any_read,
+    chatgpt_holding, claude, codex_account, fresh_read, holding_ask, offline_read, percent,
+    refusal, status, still_running, switched, warned, warning,
 };
 use super::{Intent, LastSwitch, Pane, QuitQuestion, RestartNeeded, WindowRequest};
 use crate::Abandoned;
@@ -585,6 +586,20 @@ fn a_failed_read_that_started_before_a_switch_says_nothing_once_it_lands() {
     assert!(shown.warnings.is_empty());
     assert_eq!(shown.status, Some(after));
     assert_eq!(shown.last_switches[0].warnings, [still_running()]);
+}
+
+/// `changing.rs`'s look landing after a change, for giving up on an interrupted switch, which
+/// writes the account index as it keeps every login the switch named.
+#[test]
+fn a_look_landing_after_giving_up_leaves_the_read_after_it() {
+    let after = vec![
+        codex_account("personal", true),
+        codex_account("spare", false),
+    ];
+    a_look_landing_after(after, |model, machine| {
+        model.send(Intent::AbandonStuckSwitch);
+        model.run_but(machine, a_look_or_a_read);
+    });
 }
 
 /// A switch that fails can still have moved who is signed in, by finishing a switch that was
