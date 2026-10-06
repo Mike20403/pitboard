@@ -102,6 +102,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   of a `&'static [Platform]`, and `assumptions::verified_against` takes the system as well
   as the tool. `assumptions::OnSystem`, `PerSystem`, `per_system`, `on`, `verified_on` and
   `pending` are new. These change the crate's public API.
+- The JSON that `--json` prints is ASCII alone, on every system. Each character outside
+  ASCII, in a label or an email address for example, is written as a `\u` escape: the label
+  `Đạt` is written `\u0110\u1ea1t`, and a character beyond U+FFFF as its UTF-16 surrogate
+  pair. A JSON parser reads the same values as before. Pitboard wrote such characters as
+  UTF-8, which a program that decodes the output in another code page read as other
+  characters. This reaches every output that carries such a character, whatever your labels
+  are: each `pitboard doctor --json` detail joins its parts with ` · `, and
+  `pitboard statusline --json`'s `line` does too, so both now carry `\u00b7`. What Pitboard
+  prints without `--json`, and the JSON files Pitboard keeps, are unchanged.
 
 ### Fixed
 

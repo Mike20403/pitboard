@@ -89,6 +89,7 @@ pages load, as a browser would.
     C# tests do. Clock times are not in it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
+  `json.rs` is the one writer of that JSON, for every command and every error.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app. An app reaches the core through the
   model alone.
@@ -578,6 +579,9 @@ pages load, as a browser would.
   spare copy of a login, never a missing one.
 - The `--json` contract changes only on purpose. A change to a snapshot is a change to the
   contract.
+- The JSON that `--json` prints is ASCII alone, on every system. Each character outside
+  ASCII is a `\u` escape, and one beyond U+FFFF its UTF-16 surrogate pair, so a program
+  that decodes the output in a code page other than UTF-8 parses the same values.
 - The state file is read forwards only.
 
 ## Boundaries

@@ -85,6 +85,8 @@ In two cases, `data` is set although the command failed, and `error` has no `cau
 - `doctor` with a failed check: `data` holds the whole report, `error.code` is `checks_failed` and the exit status is 3.
 - `completions` or `manpage` with `--json`: `command` is `generate`, `data` is `{}`, `error.code` is `output_is_not_a_report` and the exit status is 2.
 
+Every character of the JSON is ASCII. Pitboard writes each character outside ASCII as a `\u` escape: the label `Đạt` is written `\u0110\u1ea1t`. A character beyond U+FFFF takes two escapes, its UTF-16 surrogate pair. A JSON parser reads the escapes back as the same text. A program that decodes the output in a code page other than UTF-8 still reads the same values.
+
 Times are Unix times in seconds, such as `1790474400`, except `at` in `log` entries, a local time such as `2026-09-22T01:01:00+07:00`.
 
 The JSON of `status`, `enroll`, `forget` and `rename` holds email addresses, as does the message of errors such as `label_taken`. The JSON of `status` also holds account ids, and that of `repair` holds parked login names, which contain account ids. Only `doctor --json` hides such values, with placeholders such as `<email 1a2b3c4d>`.
