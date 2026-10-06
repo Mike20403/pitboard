@@ -29,8 +29,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         model = dependencies.model
         defaults = dependencies.defaults
         windows = AccountWindows(
-            model: model, environment: dependencies.web, presence: .live(),
-            scheme: dependencies.linkScheme)
+            model: model, environment: dependencies.web, presence: .live())
         openAtLogin = OpenAtLogin(dependencies.loginItem)
         commandLineLink = CommandLineLink(dependencies.commandLineTool, model: model)
         quitting = dependencies.quitting
@@ -124,19 +123,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// Quitting stops every download still running, so it asks first, as Safari does.
+    /// Quitting stops every download still running, so it asks first, as Safari does, in the
+    /// model's words: of a download started a moment before Quit too, which no snapshot may
+    /// list yet.
     public func applicationShouldTerminate(_ sender: NSApplication)
         -> NSApplication.TerminateReply
     {
-        let running = windows.downloads.running.count
-        guard running > 0 else { return .terminateNow }
+        guard let question = windows.downloads.quitQuestion else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText =
-            running == 1
-            ? "A download is in progress. Quit anyway?"
-            : "\(running) downloads are in progress. Quit anyway?"
-        alert.informativeText = "Quitting Pitboard stops them, and they will not resume."
-        alert.addButton(withTitle: "Quit")
+        alert.messageText = question.title
+        alert.informativeText = question.message
+        alert.addButton(withTitle: question.confirm)
         alert.addButton(withTitle: "Cancel")
         // Quit is often chosen from the menu bar item's menu, which leaves the app behind
         // whatever is in front, and an alert from it would come up behind as well.

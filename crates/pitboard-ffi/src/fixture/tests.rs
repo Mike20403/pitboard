@@ -1720,6 +1720,117 @@ fn this_mac_shows_the_cores_checks() {
     model.shutdown();
 }
 
+// The account windows.
+
+/// The account windows in twoTools, as AccountWindowTests.swift and AccountPickerTests.swift
+/// in the UI tests read them: each site's menu offers its own tool's accounts; a chatgpt.com
+/// link shared with the debug build's scheme asks which Codex account opens it, and Open
+/// answers once the link has waited; choosing spare opens its window on the link's stand-in,
+/// saying how to sign in, with its store recorded in the fixture's own folder; and a link to
+/// another site is refused, saying where it is.
+#[test]
+fn the_account_windows_are_what_their_ui_tests_read() {
+    use crate::SiteMenu;
+    use crate::account_windows::WindowNoteKind;
+    use crate::present::PickerShown;
+
+    let launched = made(World::TwoTools);
+    let (model, told) = started(&launched);
+    let shown = told.until("the accounts read", read_in).account_windows;
+    let menus: Vec<(String, Vec<String>)> = shown
+        .menus
+        .iter()
+        .map(|menu| match menu {
+            SiteMenu::One { title, window } => (title.clone(), vec![window.label.clone()]),
+            SiteMenu::Several { title, windows, .. } => (
+                title.clone(),
+                windows.iter().map(|window| window.label.clone()).collect(),
+            ),
+        })
+        .collect();
+    assert_eq!(
+        menus,
+        [
+            (
+                "Open claude.ai".to_owned(),
+                vec!["work".to_owned(), "old".into(), "personal".into()]
+            ),
+            (
+                "Open chatgpt.com".to_owned(),
+                vec!["main".to_owned(), "spare".into()]
+            ),
+        ]
+    );
+
+    let shared = |link: &str| Intent::LinkArrived {
+        text: pitboard_sites::pitboard_link(
+            &pitboard_sites::SiteLink::parse(link).expect("a link"),
+            super::worlds::LINK_SCHEME,
+        ),
+    };
+    model.send(shared("https://chatgpt.com/c/shared"));
+    let picker = told
+        .until("Open answering", |last| {
+            last.account_windows
+                .picker
+                .as_ref()
+                .is_some_and(|picker| picker.armed)
+        })
+        .account_windows
+        .picker
+        .expect("the link");
+    let PickerShown::Choose {
+        title, accounts, ..
+    } = &picker.shown
+    else {
+        panic!("accounts to choose from: {picker:?}");
+    };
+    assert_eq!(title, "Open this chatgpt.com link as:");
+    let labels: Vec<&str> = accounts.iter().map(|a| a.window.label.as_str()).collect();
+    assert_eq!(labels, ["main", "spare"]);
+    let spare = accounts[1].window.store.clone();
+    model.send(Intent::OpenLink {
+        arrival: picker.arrival,
+        store: spare.clone(),
+    });
+    model.send(Intent::WindowOpened {
+        store: spare.clone(),
+    });
+    let opened = told
+        .until("spare's window", |last| {
+            last.account_windows.picker.is_none()
+                && last.account_windows.open.iter().any(|w| w.store == spare)
+        })
+        .account_windows
+        .open
+        .into_iter()
+        .find(|window| window.store == spare)
+        .expect("spare's window");
+    assert_eq!(opened.load.url, "pitboard-fixture://chatgpt.com/c/shared");
+    assert_eq!(opened.note, Some(WindowNoteKind::SignIn));
+    let records = std::fs::read_to_string(launched.machine.root().join("windows.json"))
+        .expect("kept in the fixture's own folder");
+    assert!(records.contains(&spare), "{records}");
+
+    model.send(Intent::LinkArrived {
+        text: "pitboard-debug://open?url=https%3A%2F%2Fexample.com%2Fpage".into(),
+    });
+    let refused = told.until("the refusal", |last| {
+        last.account_windows
+            .picker
+            .as_ref()
+            .is_some_and(|picker| matches!(picker.shown, PickerShown::Refused { .. }))
+    });
+    let Some(PickerShown::Refused { title, reason }) =
+        refused.account_windows.picker.map(|picker| picker.shown)
+    else {
+        unreachable!()
+    };
+    assert_eq!(title, "Can’t Open This Link");
+    assert!(reason.contains("This link is on example.com."), "{reason}");
+    model.shutdown();
+}
+
 // The stand-in pages.
 
 /// Each site's stand-in has what its window's tests press and read: its title, the path it

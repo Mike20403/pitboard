@@ -87,14 +87,16 @@ public final class AppModel {
     public private(set) var failureAlert: AlertText?
     /// What the settings and the window's other panes show of this machine.
     public private(set) var machine: MachineShown
+    /// The account windows: which accounts have one, the windows open and what each loads,
+    /// the windows to close and the stores to delete, the link waiting for an account, and
+    /// the downloads.
+    public private(set) var accountWindows: AccountWindowsShown
 
-    /// Told the accounts each time a snapshot says afresh who is enrolled: a read that
-    /// answered, or what the poll read once the account index changed, whether or not reads
-    /// fail meanwhile. The account windows put away what a forgotten account's window kept.
-    /// What stands in for a read that failed before anything was shown is not told, as the
-    /// Swift model never told it, and nor are the numbers a session recorded, taken onto what
-    /// is shown. Once the account windows follow the model's reads themselves, this goes.
-    @ObservationIgnored public var afterRead: (@MainActor (Status) -> Void)?
+    /// Told the account windows' part each time a snapshot changes it, once that snapshot is
+    /// shown, for what only the app's web code can do: delete the stores the model asks it
+    /// to. Which stores those are, and when, is the model's.
+    @ObservationIgnored public var accountWindowsChanged:
+        (@MainActor (AccountWindowsShown) -> Void)?
 
     /// The app's model over `model`, showing its last snapshot until a newer one comes.
     public init(model: any PitboardModelProtocol) {
@@ -134,6 +136,7 @@ public final class AppModel {
         quitConfirmation = first.quitConfirmation
         failureAlert = first.failureAlert
         machine = first.machine
+        accountWindows = first.accountWindows
     }
 
     /// The model `make` makes, told of its snapshots through a listener that hands each to
@@ -166,7 +169,6 @@ public final class AppModel {
     @discardableResult
     public func apply(_ snapshot: Snapshot) -> [PartialKeyPath<AppModel>] {
         guard snapshot.revision > revision else { return [] }
-        let (before, failing) = (status, readFailure != nil)
         revision = snapshot.revision
         var assigned: [PartialKeyPath<AppModel>] = [\.revision]
         func update<Value: Equatable>(
@@ -209,26 +211,10 @@ public final class AppModel {
         update(\.quitConfirmation, snapshot.quitConfirmation)
         update(\.failureAlert, snapshot.failureAlert)
         update(\.machine, snapshot.machine)
-        told(snapshot.status, before: before, answered: snapshot.readFailure == nil, failing)
+        let windowsMoved = accountWindows != snapshot.accountWindows
+        update(\.accountWindows, snapshot.accountWindows)
+        if windowsMoved { accountWindowsChanged?(accountWindows) }
         return assigned
-    }
-
-    /// Tells `afterRead` of `read` where it says who is enrolled and says it afresh: a read,
-    /// which moves what the accounts say apart from their numbers, as its time does, or a read
-    /// that answered after reads that failed. Not what stands in for a read that failed
-    /// before anything was shown, the last numbers measured, which the Swift model never told
-    /// either, nor the numbers a session recorded, which keep the time of the read they are
-    /// taken onto and change only each account's usage. So what the poll reads once the
-    /// account index changes is told while reads fail, as the Swift told it.
-    private func told(_ read: Status?, before: Status?, answered: Bool, _ failing: Bool) {
-        guard let read else { return }
-        guard let before else {
-            if answered { afterRead?(read) }
-            return
-        }
-        guard (answered && failing) || read.apartFromNumbers != before.apartFromNumbers
-        else { return }
-        afterRead?(read)
     }
 
     // MARK: - What the views ask of what is shown
@@ -244,25 +230,6 @@ public final class AppModel {
     /// The row shown for the account with `id`.
     public func item(_ id: String) -> AccountItem? {
         sections.lazy.flatMap(\.accounts).first { $0.id == id }
-    }
-}
-
-extension Status {
-    /// What it says with the numbers taken onto it left out: each account's usage.
-    fileprivate var apartFromNumbers: Status {
-        Status(now: now, accounts: accounts.map(\.apartFromNumbers), warnings: warnings)
-    }
-}
-
-extension Account {
-    /// The account with its usage left out, which is all that numbers a session recorded
-    /// change of it.
-    fileprivate var apartFromNumbers: Account {
-        Account(
-            id: id, provider: provider, label: label, qualified: qualified, unplaced: unplaced,
-            email: email, accountUuid: accountUuid, signedIn: signedIn, switchable: switchable,
-            parked: parked, usage: nil, stale: stale, staleExplanation: staleExplanation,
-            lastsSeconds: lastsSeconds, lastsBurning: lastsBurning)
     }
 }
 

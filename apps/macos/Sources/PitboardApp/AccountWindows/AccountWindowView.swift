@@ -14,23 +14,26 @@ struct AccountWindowView: View {
     @State private var session: WebSession?
     @Environment(\.dismissWindow) private var dismissWindow
 
-    private var account: WindowAccount? { store.flatMap(windows.account) }
+    /// The window as the model has it open, once it can show its page.
+    private var opened: OpenWindow? { store.flatMap(windows.opened) }
 
     var body: some View {
-        // A read found the account forgotten, or macOS restored a window for an account no
-        // longer enrolled, or for none at all.
-        let gone = store == nil || (windows.model.status != nil && account == nil)
+        // The model closes the window once a read no longer lists its account, and macOS can
+        // restore a window for none at all.
+        let gone = store.map(windows.isClosing) ?? true
         content
             .frame(minWidth: 480, minHeight: 360)
             .appWindow(windows.presence)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("account-window")
-            .task(id: account?.id) {
-                guard let account else { return }
-                session = windows.session(for: account)
+            .onAppear {
+                if let store { windows.opening(store) }
+            }
+            .onChange(of: opened, initial: true) { _, opened in
+                if let opened { session = windows.session(for: opened) }
             }
             .onChange(of: session?.page.url) { _, url in
-                if let account { windows.remember(url, of: account) }
+                if let account = session?.account { windows.remember(url, of: account) }
             }
             .onChange(of: gone, initial: true) { _, gone in
                 if gone { dismissWindow() }
@@ -41,21 +44,27 @@ struct AccountWindowView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let session, let account {
-            SessionView(windows: windows, session: session, account: account)
-        } else if windows.model.status == nil, let problem = windows.model.problem {
-            ContentUnavailableView {
-                Label("Couldn’t Read Accounts", systemImage: Symbol.warning)
-            } description: {
-                Text(problem)
-            } actions: {
-                Button("Try Again") { windows.model.send(.refresh(asked: true)) }
-            }
-            .navigationTitle("Account")
+        if let session {
+            SessionView(windows: windows, session: session, account: session.account)
         } else {
-            ProgressView("Reading accounts…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .navigationTitle("Account")
+            // Until the model lists the window as open, what it waits for, in its words.
+            let waiting = windows.model.accountWindows.waiting
+            Group {
+                switch waiting.shown {
+                case .reading(let title):
+                    ProgressView(title)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .readFailed(let title, let detail, let retry):
+                    ContentUnavailableView {
+                        Label(title, systemImage: Symbol.warning)
+                    } description: {
+                        Text(detail)
+                    } actions: {
+                        Button(retry.title) { windows.model.send(retry.intent) }
+                    }
+                }
+            }
+            .navigationTitle(waiting.windowTitle)
         }
     }
 }
@@ -90,13 +99,15 @@ private struct SessionView: View {
                     .disabled(!page.canGoForward)
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                if !windows.downloads.transfers(for: account.id).isEmpty {
+                if windows.model.accountWindows.downloads.contains(where: {
+                    $0.store == account.store
+                }) {
                     Button("Downloads", systemImage: Symbol.downloads) {
                         showingDownloads.toggle()
                     }
                     .help("Show this window’s downloads")
                     .popover(isPresented: $showingDownloads, arrowEdge: .bottom) {
-                        DownloadsList(downloads: windows.downloads, store: account.id)
+                        DownloadsList(windows: windows, store: account.store)
                     }
                 }
                 if page.isLoading {
@@ -166,15 +177,22 @@ private struct NoteBar: View {
 /// An account window's downloads, newest first, each with its progress and what can be done
 /// with it.
 private struct DownloadsList: View {
-    let downloads: DownloadCenter
-    let store: UUID
+    let windows: AccountWindows
+    /// The window's store, as the model writes it.
+    let store: String
 
     var body: some View {
-        let transfers = downloads.transfers(for: store)
+        let downloads = windows.downloads
+        let shown = windows.model.accountWindows
+        let transfers = shown.downloads.filter { $0.store == store }
+        let clear = shown.open.first { $0.store == store }?.clearDownloads
         let rows = VStack(alignment: .leading, spacing: 0) {
             ForEach(transfers) { transfer in
-                TransferRow(transfer: transfer) { downloads.cancel(transfer) }
-                    .padding(.horizontal, 12)
+                TransferRow(
+                    transfer: transfer, progress: downloads.progress(of: transfer.id),
+                    reveal: downloads.reveal
+                ) { downloads.cancel(transfer.id) }
+                .padding(.horizontal, 12)
                 Divider()
             }
         }
@@ -186,44 +204,53 @@ private struct DownloadsList: View {
             }
             .frame(width: 340)
             .frame(maxHeight: 300)
-            HStack {
-                Spacer()
-                Button("Clear") { downloads.clearEnded(for: store) }
-                    .disabled(transfers.allSatisfy(\.isRunning))
+            if let clear {
+                HStack {
+                    Spacer()
+                    Button(clear.title) { windows.model.send(clear.intent) }
+                        .disabled(transfers.allSatisfy(\.running))
+                }
+                .padding(8)
             }
-            .padding(8)
         }
     }
 }
 
 private struct TransferRow: View {
-    let transfer: Transfer
+    let transfer: DownloadShown
+    /// WebKit's progress, with the bytes written so far, while it runs.
+    let progress: Progress?
+    let reveal: (String) -> Void
     let cancel: () -> Void
 
     var body: some View {
         HStack(spacing: Design.iconSpacing) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(transfer.name).lineLimit(1).truncationMode(.middle)
-                switch transfer.state {
-                case .starting, .running:
-                    ProgressView(transfer.progress).labelsHidden()
-                case .finished:
-                    Text("Downloaded").font(.caption).foregroundStyle(.secondary)
-                case .failed(let reason):
-                    Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                case .cancelled:
-                    Text("Cancelled").font(.caption).foregroundStyle(.secondary)
+                if transfer.running {
+                    if let progress {
+                        ProgressView(progress).labelsHidden()
+                    } else {
+                        ProgressView().progressViewStyle(.linear).labelsHidden()
+                    }
+                } else if let said = transfer.said {
+                    let failed: Bool = {
+                        if case .failed = transfer.state { return true }
+                        return false
+                    }()
+                    Text(said).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(failed ? 2 : nil)
                 }
             }
             Spacer(minLength: 0)
-            if transfer.isRunning {
+            if transfer.running {
                 Button("Cancel", systemImage: "xmark.circle.fill", action: cancel)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .help("Stop this download")
-            } else if case .finished = transfer.state {
+            } else if case .finished(let file) = transfer.state {
                 Button("Show in Finder", systemImage: "magnifyingglass.circle.fill") {
-                    transfer.reveal()
+                    reveal(file)
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)

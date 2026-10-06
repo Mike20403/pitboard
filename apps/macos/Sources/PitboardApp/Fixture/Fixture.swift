@@ -10,7 +10,9 @@
     ///
     /// What is here is the native half a fixture needs: a login item that registers nothing,
     /// a command line linked in the fixture's own folder without a password, and the account
-    /// windows' stand-ins in `FixtureWeb.swift`.
+    /// windows' stand-ins in `FixtureWeb.swift`. The model keeps the windows' records in the
+    /// fixture's folder, and answers the debug build's Pitboard links, whichever build this
+    /// is, so a UI test's link never reaches a copy installed.
     enum Fixture {
         /// The environment variable a debug build reads the fixture's name from.
         static let variable = "PITBOARD_FIXTURE"
@@ -19,10 +21,6 @@
         /// so each test starts from the same place and nothing reaches the real app's. The
         /// model's own preferences are in the fixture's Pitboard directory.
         static let suite = "com.usepitboard.Pitboard.fixture"
-
-        /// The Pitboard link scheme a fixture answers: the debug build's, whichever build this
-        /// is, so a UI test's link never reaches a copy installed.
-        static let linkScheme = "pitboard-debug"
 
         /// The fixture's folder, `pitboard-fixture` in the temporary directory as Rust's
         /// `std::env::temp_dir` finds it: `TMPDIR` where it is set, which Foundation's
@@ -68,8 +66,7 @@
                 defaults: defaults,
                 loginItem: FixtureLoginItem(),
                 commandLineTool: commandLineTool(in: folder),
-                web: .fixture(defaults: defaults, folder: folder),
-                linkScheme: linkScheme,
+                web: .fixture(folder: folder),
                 quitting: {})
         }
 

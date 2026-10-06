@@ -23,7 +23,7 @@ Each [account's window](/guides/account-windows) keeps what its site stores in a
 
 The `<id>` is derived from the tool and the account's identifier, so a rename keeps the window signed in. A sign-in window that a page opens shares its account's store.
 
-Pitboard's preferences list the stores each Pitboard directory made, under `webStores`. Pitboard keeps the address of each account window's last page on its site under `windowPages`, so the window opens there again. macOS keeps the open windows in `~/Library/Saved Application State/com.usepitboard.Pitboard.savedState`.
+Pitboard lists the stores each Pitboard directory made in `~/Library/Application Support/com.usepitboard.Pitboard/windows.json`, a file only you can read. It keeps the address of each account window's last page on its site there too, so the window opens there again. macOS keeps the open windows in `~/Library/Saved Application State/com.usepitboard.Pitboard.savedState`.
 
 Pitboard never reads, copies or changes a window's cookies or anything a site stores in it. It adds no script or message handler to a page, and the window sends WebKit's own user agent. Pitboard never makes a web sign-in from a Claude Code or Codex login.
 
@@ -31,7 +31,7 @@ Pitboard does three things to a store:
 
 - It makes the store the first time the account's window opens.
 - It wipes the store when you choose **File** > **Remove Website Data**, which signs that window out. The site is not told, so the account stays signed in on your other devices and browsers. Signing out on the site itself is different: it tells the site.
-- It deletes the store when you forget the account, in the app or with `pitboard forget`. The app does this after its next successful read of the accounts. A store WebKit still holds is tried again a few times, then at the following read.
+- It deletes the store when you forget the account, in the app or with `pitboard forget`. The app does this after its next successful read of the accounts. A store WebKit still holds is tried again a few times, then at the following read. If the app cannot read records in `windows.json`, it deletes no store.
 
 The app deletes only the stores it recorded making for the Pitboard directory it reads. A copy run with another `HOME` or `PITBOARD_HOME` leaves the other windows signed in. A store another Pitboard directory also recorded is kept while that directory exists, and the app removes only its own record of it.
 

@@ -1,21 +1,23 @@
 import Foundation
+import PitboardKit
 import WebKit
 
-/// Looks after the account windows' stores: makes each one on a window's first need,
-/// records it first, wipes one in place, and deletes the ones no enrolled account has any
-/// more.
+/// The account windows' stores as WebKit has them: makes each one a window needs, wipes one
+/// in place, and deletes the ones the model asks it to, trying a store WebKit still holds
+/// again a few times.
 ///
-/// A store is deleted only when this Pitboard recorded making it and a read of the accounts
-/// that succeeded no longer derives it, which is what forgetting an account leaves behind, in
-/// the app or on the command line. Nothing is deleted before the first read that succeeds, or
-/// after one that failed.
+/// Which stores go, and when, is the model's: one this Pitboard directory recorded making,
+/// that a read which succeeded no longer derives from any enrolled account and that no other
+/// Pitboard directory still there recorded too, which it asks for in
+/// `AccountWindowsShown.deleting`. The model records a store before it says a window opens,
+/// so every store made here is one it can ask for.
 @MainActor
 final class StoreJanitor {
     private let stores: any WebsiteDataStores
-    private let record: StoreRecord
     private let pause: @MainActor (Duration) async -> Void
-    /// Stores being deleted, so two sweeps never delete one store at once.
-    private var deleting: Set<UUID> = []
+    /// The asks taken, while the model still lists them: each is deleted once, however many
+    /// snapshots list it before the model has heard how it went.
+    private var taken: Set<StoreDeletion> = []
 
     /// How long to wait between attempts to delete a store WebKit still holds. Measured on
     /// macOS 27: a store whose last web view and object are released stays in use for 20 to
@@ -24,26 +26,15 @@ final class StoreJanitor {
         .milliseconds($0)
     }
 
-    init(
-        stores: any WebsiteDataStores, record: StoreRecord,
-        pause: @escaping @MainActor (Duration) async -> Void
-    ) {
+    init(stores: any WebsiteDataStores, pause: @escaping @MainActor (Duration) async -> Void) {
         self.stores = stores
-        self.record = record
         self.pause = pause
     }
 
-    /// The store for the account window `id` names, recorded as this Pitboard's before it is
-    /// made: a store WebKit has made and nobody recorded would never be deleted.
+    /// The store for the account window `id` names, which the model recorded before it said
+    /// the window opens.
     func store(for id: UUID) -> WKWebsiteDataStore {
-        record.add(id)
-        return stores.store(for: id)
-    }
-
-    /// Whether this Pitboard has made the store `id` names: a window that has never opened
-    /// has nothing in it yet, so its page says how to sign in.
-    func hasMade(_ id: UUID) -> Bool {
-        record.ids.contains(id)
+        stores.store(for: id)
     }
 
     /// Removes everything `store` keeps, while its windows go on using it: cookies, storage,
@@ -54,35 +45,34 @@ final class StoreJanitor {
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
     }
 
-    /// Deletes every store this Pitboard recorded that is not in `keeping`, the stores of the
-    /// enrolled accounts a read that succeeded found. A store still in use is tried again a
-    /// few times, then left recorded for the next sweep.
-    func sweep(keeping: Set<UUID>) async {
-        let orphans = record.ids.subtracting(keeping).subtracting(deleting)
-        // Claimed before any deletion starts, so a sweep that starts meanwhile leaves them.
-        deleting.formUnion(orphans)
-        await withTaskGroup(of: Void.self) { group in
-            for id in orphans {
-                group.addTask { await self.delete(id) }
+    /// Deletes each store `asked` names that is not being deleted already, telling `told` of
+    /// each whether it went. One still in use is tried again a few times, then told as held,
+    /// for the model to ask for again after its next read.
+    func delete(
+        _ asked: [StoreDeletion], told: @escaping @MainActor (UUID, Bool) -> Void
+    ) {
+        taken.formIntersection(asked)
+        for ask in asked where !taken.contains(ask) {
+            taken.insert(ask)
+            // The model drops a recorded store id that is not a UUID as it reads the records,
+            // so it never asks for one.
+            guard let id = UUID(uuidString: ask.store) else { continue }
+            Task {
+                told(id, await delete(id))
             }
         }
     }
 
-    private func delete(_ id: UUID) async {
-        defer { deleting.remove(id) }
-        // Another Pitboard directory's account derives it as well: it is that one's to keep.
-        if record.isShared(id) {
-            record.remove(id)
-            return
-        }
+    /// Deletes the store `id` names, trying again after each pause while WebKit still holds
+    /// it. Whether it went.
+    private func delete(_ id: UUID) async -> Bool {
         var waits = Self.retries[...]
         while true {
             do {
                 try await stores.remove(id)
-                record.remove(id)
-                return
+                return true
             } catch {
-                guard let wait = waits.popFirst() else { return }
+                guard let wait = waits.popFirst() else { return false }
                 await pause(wait)
             }
         }

@@ -60,7 +60,7 @@ public struct PitboardScenes: Scene {
         // else is open, and only here: no other scene makes a window for one.
         Window("Open Link", id: AccountPicker.id) {
             AccountPicker(windows: windows)
-                .onOpenURL { windows.inbox.receive($0) }
+                .onOpenURL { windows.receive($0) }
                 .defaultAppStorage(defaults)
         }
         .handlesExternalEvents(matching: ["*"])

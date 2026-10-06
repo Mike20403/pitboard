@@ -3,118 +3,84 @@ import Foundation
 import PitboardKit
 import WebKit
 
-/// One file an account window is downloading, or has downloaded, into the downloads folder.
-@MainActor
-@Observable
-final class Transfer: Identifiable {
-    enum State: Equatable {
-        /// Waiting for a destination, or for the person to say it may go ahead.
-        case starting
-        case running
-        case finished(URL)
-        case failed(String)
-        case cancelled
-    }
-
-    let id = UUID()
-    /// The account window's store, whose window lists it.
-    let store: UUID
-    private(set) var name: String
-    private(set) var state = State.starting
-    /// Where the file goes, once it is decided.
-    private(set) var destination: URL?
-    /// WebKit's progress for the download, with the bytes written so far.
-    @ObservationIgnored let progress: Progress
-    @ObservationIgnored fileprivate let download: WKDownload
-
-    init(download: WKDownload, store: UUID, name: String) {
-        self.download = download
-        self.store = store
-        self.name = name
-        progress = download.progress
-    }
-
-    var isRunning: Bool { state == .starting || state == .running }
-
-    /// Shows the downloaded file in Finder.
-    func reveal() {
-        guard case .finished(let file) = state else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([file])
-    }
-
-    fileprivate func started(at destination: URL) {
-        guard state == .starting else { return }
-        self.destination = destination
-        name = destination.lastPathComponent
-        state = .running
-    }
-
-    fileprivate func end(_ state: State) {
-        guard isRunning else { return }
-        self.state = state
-    }
-}
-
-/// Every download the account windows start, from deciding where each goes to its end.
+/// Every download the account windows start, as WebKit has it: each one's `WKDownload`,
+/// where it is saving to and its progress, from deciding where it goes to its end.
 ///
+/// What each window lists, and where each download is, is the model's, in
+/// `AccountWindowsShown.downloads`: this tells it as each starts, is given its file and ends.
 /// Downloads carry on after their window closes: the person asked for the file, not for the
 /// window to stay open. WebKit quarantines each file itself, as a browser's are, and makes a
 /// suggested name safe; what is left is never overwriting a file, whose name the core's
 /// `downloadDestination` gives, and asking before a frame or a page off the site saves one.
 @MainActor
-@Observable
 final class DownloadCenter: NSObject, WKDownloadDelegate {
-    private(set) var transfers: [Transfer] = []
-    @ObservationIgnored private let folder: URL
-    /// Destinations given to downloads still running, which no other may be given.
-    @ObservationIgnored private var reserved: Set<URL> = []
-    @ObservationIgnored private var asking: [ObjectIdentifier: (Transfer, Bool)] = [:]
-
-    init(folder: URL) {
-        self.folder = folder
+    /// A download still under way here.
+    private struct Live {
+        let download: WKDownload
+        /// Whether to ask the person first, until WebKit asks where it goes.
+        var asking: Bool?
+        /// Where it saves, once that is decided.
+        var destination: URL?
     }
 
-    /// The downloads still running, which quitting would stop.
-    var running: [Transfer] { transfers.filter(\.isRunning) }
+    private let folder: URL
+    private let model: AppModel
+    /// The downloads still under way, by the id the model knows each by.
+    private var live: [String: Live] = [:]
+    /// Destinations given to downloads still running, which no other may be given.
+    private var reserved: Set<URL> = []
 
-    /// The downloads of the account window on `store`, newest first.
-    func transfers(for store: UUID) -> [Transfer] {
-        transfers.filter { $0.store == store }.reversed()
+    init(folder: URL, model: AppModel) {
+        self.folder = folder
+        self.model = model
     }
 
     /// Takes over `download`, which a page of `account`'s window started, asking the person
     /// first when `asking` says to.
     func start(_ download: WKDownload, for account: WindowAccount, asking: Bool) {
-        let transfer = Transfer(
-            download: download, store: account.id,
-            name: download.originalRequest?.url?.lastPathComponent ?? "Download")
-        transfers.append(transfer)
-        self.asking[ObjectIdentifier(download)] = (transfer, asking)
+        let id = UUID().uuidString
+        live[id] = Live(download: download, asking: asking)
         download.delegate = self
+        model.send(
+            .downloadStarted(
+                id: id, store: account.store,
+                name: download.originalRequest?.url?.lastPathComponent))
     }
 
-    /// Takes away the downloads that have ended.
-    func clearEnded(for store: UUID) {
-        transfers.removeAll { $0.store == store && !$0.isRunning }
+    /// WebKit's progress for the download `id`, with the bytes written so far, while it runs.
+    func progress(of id: String) -> Progress? {
+        live[id]?.download.progress
+    }
+
+    /// What to ask before quitting, which stops every download under way here, in the
+    /// model's words, or nil while none is. Counted here rather than from the snapshot: a
+    /// download started a moment before Quit is under way before the snapshot that lists it.
+    var quitQuestion: Question? {
+        downloadsQuitQuestion(running: UInt32(clamping: live.count))
+    }
+
+    /// Shows the file `file` a download saved in Finder.
+    func reveal(_ file: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file)])
     }
 
     /// Stops every download running and deletes what each had written, as Pitboard quits.
     func stopAll() {
-        for transfer in running {
-            transfer.download.cancel()
-            if let file = transfer.destination { try? FileManager.default.removeItem(at: file) }
-            transfer.end(.cancelled)
+        for (id, running) in live {
+            running.download.cancel()
+            if let file = running.destination { try? FileManager.default.removeItem(at: file) }
+            model.send(.downloadEnded(id: id, end: .cancelled))
         }
+        live = [:]
     }
 
-    /// Stops `transfer`, frees its name, and deletes what it had written. WebKit says nothing
-    /// more about a download the app cancels.
-    func cancel(_ transfer: Transfer) {
-        guard transfer.isRunning else { return }
-        asking[ObjectIdentifier(transfer.download)] = nil
-        let file = transfer.destination
-        transfer.end(.cancelled)
-        transfer.download.cancel { [weak self] _ in
+    /// Stops the download `id`, frees its name, and deletes what it had written. WebKit says
+    /// nothing more about a download the app cancels.
+    func cancel(_ id: String) {
+        guard let running = live.removeValue(forKey: id) else { return }
+        model.send(.downloadEnded(id: id, end: .cancelled))
+        let file = running.destination
+        running.download.cancel { [weak self] _ in
             // WebKit does not say which thread this is called on.
             Task { @MainActor [weak self] in
                 guard let file else { return }
@@ -130,52 +96,58 @@ final class DownloadCenter: NSObject, WKDownloadDelegate {
         _ download: WKDownload, decideDestinationUsing response: URLResponse,
         suggestedFilename: String
     ) async -> URL? {
-        guard let (transfer, ask) = asking.removeValue(forKey: ObjectIdentifier(download))
-        else {
-            return nil
-        }
+        guard let id = id(of: download), let ask = live[id]?.asking else { return nil }
+        live[id]?.asking = nil
         if ask {
             let host = Self.host(of: download)
             let allowed = await PageDialogs.allowDownload(
                 suggestedFilename, from: host, in: download.webView?.window)
             guard allowed else {
-                transfer.end(.cancelled)
+                if live.removeValue(forKey: id) != nil {
+                    model.send(.downloadEnded(id: id, end: .cancelled))
+                }
                 return nil
             }
         }
         // It may have been cancelled, or failed, while the question was up.
-        guard transfer.state == .starting else { return nil }
+        guard live[id] != nil else { return nil }
         let destination = URL(
             fileURLWithPath: downloadDestination(
                 folder: folder.path, suggested: suggestedFilename,
                 reserved: reserved.map(\.path)))
         reserved.insert(destination)
-        transfer.started(at: destination)
+        live[id]?.destination = destination
+        model.send(.downloadSaving(id: id, file: destination.path))
         return destination
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        guard let transfer = transfer(of: download), let file = transfer.destination else {
-            return
-        }
+        guard let id = id(of: download), let file = live[id]?.destination else { return }
+        live[id] = nil
         reserved.remove(file)
-        transfer.end(.finished(file))
+        model.send(.downloadEnded(id: id, end: .finished))
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        asking[ObjectIdentifier(download)] = nil
-        guard let transfer = transfer(of: download) else { return }
+        guard let id = id(of: download), let failed = live.removeValue(forKey: id) else {
+            return
+        }
         let cancelled = (error as NSError).code == NSURLErrorCancelled
-        if let file = transfer.destination {
+        if let file = failed.destination {
             // Part of a file under its real name would pass for the whole of it.
             if !cancelled { try? FileManager.default.removeItem(at: file) }
             reserved.remove(file)
         }
-        transfer.end(cancelled ? .cancelled : .failed(error.localizedDescription))
+        model.send(
+            .downloadEnded(
+                id: id,
+                end: cancelled ? .cancelled : .failed(reason: error.localizedDescription))
+        )
     }
 
-    private func transfer(of download: WKDownload) -> Transfer? {
-        transfers.first { $0.progress === download.progress }
+    /// The id the model knows `download` by, while it is under way.
+    private func id(of download: WKDownload) -> String? {
+        live.first { $0.value.download === download }?.key
     }
 
     // MARK: - Names

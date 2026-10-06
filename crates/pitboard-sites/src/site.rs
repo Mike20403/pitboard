@@ -134,6 +134,32 @@ impl Site {
     pub fn names(conjunction: Conjunction) -> String {
         listed(&ALL.map(Site::name), conjunction)
     }
+
+    /// Whether `path`, percent-decoded, leads to one of the site's sign-in paths, which sign
+    /// in whoever a link belongs to: a link from outside to one is refused, and a window is
+    /// never opened on one again.
+    ///
+    /// Read by segment, as WebKit loads it: WebKit drops `.` and `..` segments, `%2e`
+    /// included, before the request is sent, so they are resolved here. Empty segments are
+    /// skipped, so `//magic-link`, which a server merging slashes would route to sign-in, is
+    /// one too. Compared in lower case.
+    pub fn signs_in(&self, path: &str) -> bool {
+        let path = path.to_lowercase();
+        let mut resolved: Vec<&str> = Vec::new();
+        for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+            match segment {
+                "." => {}
+                ".." => {
+                    resolved.pop();
+                }
+                _ => resolved.push(segment),
+            }
+        }
+        self.sign_in_paths.iter().any(|prefix| {
+            resolved.len() >= prefix.len()
+                && resolved.iter().zip(prefix.iter()).all(|(a, b)| a == b)
+        })
+    }
 }
 
 /// `names` as an English sentence lists them, as Foundation's list format does in English:
@@ -175,6 +201,40 @@ mod tests {
             CHATGPT.name(),
             "chatgpt.com",
             "never ChatGPT, which is OpenAI's app"
+        );
+    }
+
+    /// A sign-in path is read by segment, in any case, with dot segments resolved and empty
+    /// ones skipped, and a path that only starts like one, or holds one further down, is not
+    /// one.
+    #[test]
+    fn a_sign_in_path_is_read_by_segment() {
+        for path in [
+            "/magic-link",
+            "/magic-link/x",
+            "/MAGIC-LINK",
+            "//magic-link",
+            "/./magic-link",
+            "/x/../magic-link",
+        ] {
+            assert!(CLAUDE.signs_in(path), "{path}");
+        }
+        for path in [
+            "/",
+            "",
+            "/magic-links-guide",
+            "/chat/magic-link",
+            "/magic-link/..",
+        ] {
+            assert!(!CLAUDE.signs_in(path), "{path}");
+        }
+        assert!(CHATGPT.signs_in("/api/auth/callback/openai"));
+        assert!(CHATGPT.signs_in("/api/auth"));
+        assert!(!CHATGPT.signs_in("/api"));
+        assert!(!CHATGPT.signs_in("/auth/login"));
+        assert!(
+            !CHATGPT.signs_in("/magic-link"),
+            "claude.ai's, not chatgpt.com's"
         );
     }
 

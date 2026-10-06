@@ -13,7 +13,9 @@ use super::apps::{CHATGPT, FixtureApps, Unposted};
 use super::tools::Browser;
 use crate::model::preferences::Preferences;
 use crate::model::state::Cadence;
-use crate::model::{LocalTime, ModelListener, PitboardModel, Platform};
+use crate::model::{
+    LocalTime, ModelListener, PitboardModel, Platform, WindowsLaunch, WindowsPlace,
+};
 use crate::{Made, Pitboard};
 use pitboard_core::api::Owner;
 use pitboard_core::app::AppFile;
@@ -29,6 +31,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// The Pitboard link scheme a fixture answers: a debug build's, whichever build it is, so a UI
+/// test's link never reaches a copy installed.
+pub(crate) const LINK_SCHEME: &str = "pitboard-debug";
 
 const HOUR: i64 = 3_600;
 const DAY: i64 = 86_400;
@@ -604,6 +610,9 @@ fn codex_spare() -> Person {
 pub(crate) struct Launched {
     pub(crate) core: Arc<Pitboard>,
     pub(crate) apps: Arc<FixtureApps>,
+    /// Where the account windows' records are kept: in the fixture's own folder, made again
+    /// at each launch, never in the app's own directory.
+    pub(crate) windows: WindowsLaunch,
     /// The machine, for a test to look at. The core keeps it as long as it needs it.
     #[cfg(test)]
     pub(crate) machine: Arc<Machine>,
@@ -636,6 +645,10 @@ impl Launched {
                 notifications: Arc::new(Unposted),
                 local_time,
                 earlier: None,
+                windows: Some(WindowsPlace {
+                    launch: self.windows.clone(),
+                    web_scheme: super::pages::SCHEME.into(),
+                }),
             },
             Cadence::APP,
         )
@@ -682,9 +695,20 @@ pub(crate) fn make(world: World, folder: Folder) -> Result<Launched, Unmade> {
         },
         crate::ASK_AGAIN_AFTER,
     ));
+    let windows = WindowsLaunch {
+        directory: machine.root().to_string_lossy().into_owned(),
+        key: machine
+            .home()
+            .join(".pitboard")
+            .to_string_lossy()
+            .into_owned(),
+        link_scheme: LINK_SCHEME.into(),
+        earlier: None,
+    };
     Ok(Launched {
         core,
         apps,
+        windows,
         #[cfg(test)]
         machine,
     })

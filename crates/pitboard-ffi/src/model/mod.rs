@@ -25,6 +25,9 @@
 //! `Notifications` once for each reset, across launches. It also keeps what is about this
 //! machine rather than its accounts: the daily renewal schedule, repaired once a launch,
 //! renewing now, doctor's checks, the activity log and the `pitboard` a terminal would run.
+//! And it keeps the account windows' books, in `windows.rs`: which store is whose and the
+//! page each window was last on, kept in a file of the app's own, which windows close and
+//! which stores go after a read, the link waiting for an account and the downloads.
 //! What each snapshot says of all that, every sentence and row the menu bar, the menu, the
 //! window and the settings show, is made by `present`, in `crate::present`, which asks the
 //! app's `LocalTime` for each clock time and date. A minute tick makes it again for what
@@ -35,6 +38,7 @@ mod lanes;
 pub(crate) mod machine;
 pub(crate) mod preferences;
 pub(crate) mod state;
+pub(crate) mod windows;
 
 #[cfg(test)]
 mod advising;
@@ -58,11 +62,13 @@ mod switching;
 mod testing;
 #[cfg(test)]
 mod threaded;
+#[cfg(test)]
+mod windowing;
 
 use crate::account_windows::AlertText;
 use crate::present::{
-    AccountSection, AccountsShown, Footing, MachineShown, MenuBarText, MenuNotices, PanelNotice,
-    Question, SetupStep, SheetText, SigningInText, present,
+    AccountSection, AccountWindowsShown, AccountsShown, Footing, MachineShown, MenuBarText,
+    MenuNotices, PanelNotice, Question, SetupStep, SheetText, SigningInText, present,
 };
 use crate::{Abandoned, Pitboard, Status, Tool, Warning};
 use lanes::Lanes;
@@ -91,6 +97,61 @@ pub struct AppLaunch {
     /// with no earlier store.
     #[uniffi(default)]
     pub earlier_preferences: Option<EarlierPreferences>,
+    /// Where the account windows' records are kept, and what this launch is to them. `None`
+    /// for an app that keeps them nowhere: its windows are then recorded for as long as it
+    /// runs, and no store is deleted.
+    #[uniffi(default)]
+    pub windows: Option<WindowsLaunch>,
+}
+
+/// Where the account windows' records are kept, and what this launch is to them.
+///
+/// The records are the app's whichever Pitboard directory it serves, as its web stores are:
+/// WebKit keeps every store of one app under the person's own Library, whatever `HOME` says.
+/// So they are kept in a directory of the app's own, not in Pitboard's directory, and each
+/// Pitboard directory's are kept apart in them, under `key`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct WindowsLaunch {
+    /// A directory of the app's own, the same whatever `HOME` says: on macOS the app's folder
+    /// in Application Support, named by its bundle id. The model keeps `windows.json` there,
+    /// making the directory where it is not there yet.
+    pub directory: String,
+    /// What this launch's Pitboard directory is called in the records: on macOS the
+    /// directory as Foundation standardises a file URL, as the app keyed `webStores` and
+    /// `windowPages` before the model kept them. Another key would leave every store recorded
+    /// before nobody's, never to be deleted, and every window without its last page.
+    pub key: String,
+    /// The scheme of the Pitboard links this build answers, as its Share extension writes
+    /// them: `pitboard`, or `pitboard-debug` for a debug build.
+    pub link_scheme: String,
+    /// What the app's earlier store held of the records, before the model kept them: on macOS
+    /// UserDefaults' `webStores` and `windowPages`, for the model to take once. Where
+    /// `windows.json` is there it wins, and this is not read. `None` for an app with no
+    /// earlier store.
+    #[uniffi(default)]
+    pub earlier: Option<EarlierWindowRecords>,
+}
+
+/// The account windows' records as an app's earlier store held them, every Pitboard
+/// directory's, by the key each was kept under, as `WindowsLaunch` hands them over once. A
+/// store id may be in either case: Foundation writes a UUID in upper case.
+#[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
+pub struct EarlierWindowRecords {
+    /// The stores each directory's windows were made with: `webStores`.
+    pub stores: HashMap<String, Vec<String>>,
+    /// The page each window was last on, by its store, for each directory: `windowPages`.
+    pub pages: HashMap<String, HashMap<String, String>>,
+}
+
+/// How a download an account window started ended.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum DownloadEnd {
+    /// The whole file is where it was saving to.
+    Finished,
+    /// It stopped, for the reason given, as the app's system says it.
+    Failed { reason: String },
+    /// Somebody stopped it, or Pitboard did, as it quit.
+    Cancelled,
 }
 
 /// The app's own preferences as an app's earlier store held them, as `AppLaunch` hands them
@@ -241,6 +302,51 @@ pub enum Intent {
     /// Look for the `pitboard` a terminal would run, as the settings do when they show it, and
     /// as an app does once it has linked its own onto the `PATH`.
     LookForCommandLine,
+    /// An account's window opened, the one whose store is `store`: from a menu, the Dock, the
+    /// account picker, or as the system brought it back. Its store is recorded before the
+    /// app makes it, since a store made and never recorded would never be deleted, and once
+    /// it is, `AccountWindowsShown::open` lists the window with the page it starts at. A
+    /// store is compared without regard to case.
+    WindowOpened { store: String },
+    /// The window whose store is `store` has closed.
+    WindowClosed { store: String },
+    /// The page of the window whose store is `store` is now `url`: kept as the page it opens
+    /// at next time, where it is one of its site's own pages and not its sign-in.
+    PageShown { store: String, url: String },
+    /// Everything the window whose store is `store` keeps was removed, as somebody asked:
+    /// the page it was last on goes too.
+    WebsiteDataRemoved { store: String },
+    /// The app deleted the store `store`, which `AccountWindowsShown::deleting` asked for,
+    /// and everything in it.
+    StoreDeleted { store: String },
+    /// The app could not delete the store `store`, which something still holds: it stays
+    /// recorded, and is asked for again after the next read.
+    StoreHeld { store: String },
+    /// A Pitboard link the app was asked to open, as `text`, such as one the Share extension
+    /// wrote. Nothing opens by itself: it waits in `AccountWindowsShown::picker` for somebody
+    /// to choose an account, replacing one still waiting.
+    LinkArrived { text: String },
+    /// Somebody chose the account whose store is `store` for the link `arrival` names, and
+    /// the app opens that account's window: the link is its first page, or loads in it where
+    /// it is open. Only once `LinkPicker::armed` says Open answers, and only for the link
+    /// still waiting.
+    OpenLink { arrival: u64, store: String },
+    /// The picker on the link `arrival` names was closed without a choice.
+    DismissLink { arrival: u64 },
+    /// A page of the window whose store is `store` started a download, which the app calls
+    /// `id`, named `name` after the address it came from where that names one.
+    DownloadStarted {
+        id: String,
+        store: String,
+        name: Option<String>,
+    },
+    /// The download `id` is saving to `file`, the path the app chose with
+    /// `download_destination`.
+    DownloadSaving { id: String, file: String },
+    /// The download `id` has ended.
+    DownloadEnded { id: String, end: DownloadEnd },
+    /// Somebody cleared the downloads of the window whose store is `store` that have ended.
+    ClearDownloads { store: String },
 }
 
 /// A sheet over the main window, as the Swift model's `AccountSheet` has them. Not called
@@ -471,6 +577,10 @@ pub struct Snapshot {
     /// accounts: daily renewal, Renew Now, doctor's checks, the activity log and the command
     /// line a terminal runs.
     pub machine: MachineShown,
+    /// The account windows: which accounts have one, the windows open and what each loads,
+    /// the windows to close and the stores to delete, the link waiting for an account, and
+    /// the downloads.
+    pub account_windows: AccountWindowsShown,
 }
 
 /// What a platform's own code could not do. Every method of a trait an app implements
@@ -609,6 +719,10 @@ impl PitboardModel {
                 notifications,
                 local_time,
                 earlier: launch.earlier_preferences,
+                windows: launch.windows.map(|launch| WindowsPlace {
+                    launch,
+                    web_scheme: windows::WEB_SCHEME.into(),
+                }),
             },
             Cadence::APP,
         )
@@ -668,6 +782,15 @@ pub(crate) struct Platform {
     pub(crate) local_time: Arc<dyn LocalTime>,
     /// The app's preferences as its earlier store held them, taken once.
     pub(crate) earlier: Option<EarlierPreferences>,
+    /// Where the account windows' records are kept, for an app that keeps them.
+    pub(crate) windows: Option<WindowsPlace>,
+}
+
+/// Where the account windows' records are kept, and the scheme their pages are on.
+pub(crate) struct WindowsPlace {
+    pub(crate) launch: WindowsLaunch,
+    /// The scheme every page a window keeps is on: `https`, or a fixture's own.
+    pub(crate) web_scheme: String,
 }
 
 impl PitboardModel {
@@ -679,7 +802,12 @@ impl PitboardModel {
         cadence: Cadence,
     ) -> Arc<PitboardModel> {
         let clock = Clock::starting();
-        let state = State::new(cadence);
+        let mut state = State::new(cadence);
+        if let Some(place) = &platform.windows {
+            state
+                .windows
+                .on(&place.launch.link_scheme, &place.web_scheme);
+        }
         let first = present(&state, clock.now().epoch(), platform.local_time.as_ref());
         let shown = Arc::new(Mutex::new(first));
         let stopped = Arc::new(AtomicBool::new(false));
@@ -688,7 +816,12 @@ impl PitboardModel {
             core,
             platform.apps,
             platform.notifications,
-            platform.earlier,
+            lanes::Keeping {
+                earlier: platform.earlier,
+                windows: platform
+                    .windows
+                    .map(|place| lanes::RecordsFile::of(place.launch)),
+            },
             cadence,
             &mailbox,
         );

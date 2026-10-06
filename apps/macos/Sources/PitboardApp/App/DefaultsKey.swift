@@ -3,11 +3,6 @@
 enum DefaultsKey {
     /// What the menu bar item shows.
     static let menuBarShows = "menuBarShows"
-    /// The account windows' stores each Pitboard directory made, by the directory's path.
-    static let webStores = "webStores"
-    /// The page each account window was last on, by the Pitboard directory's path and the
-    /// window's store.
-    static let windowPages = "windowPages"
 
     /// Where this app kept what the model now keeps in `app.json`, read once to hand over.
     enum Earlier {
@@ -19,5 +14,14 @@ enum DefaultsKey {
         static let hideSecondAccountNudge = "hideSecondAccountNudge"
 
         static let all = [hasBeenSeen, secondAccountDeclined, hideSecondAccountNudge]
+
+        /// The account windows' stores each Pitboard directory made, by the directory's
+        /// path, each store as `UUID.uuidString` writes it.
+        static let webStores = "webStores"
+        /// The page each account window was last on, by the Pitboard directory's path and
+        /// the window's store.
+        static let windowPages = "windowPages"
+
+        static let windows = [webStores, windowPages]
     }
 }

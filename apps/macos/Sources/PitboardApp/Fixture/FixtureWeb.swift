@@ -12,10 +12,10 @@
         /// A fixture's windows: a stand-in page for every address of every site and sign-in
         /// host, stores that live in memory, downloads in the fixture's folder, and links to
         /// anywhere else opened nowhere. Nothing reaches a site, and nothing is written under
-        /// `~/Library/WebKit` of whoever runs the tests.
+        /// `~/Library/WebKit` of whoever runs the tests. Their records are the fixture's
+        /// model's, in the fixture's folder.
         static func fixture(
-            defaults: UserDefaults, folder: URL,
-            openElsewhere: @escaping @MainActor (URL) -> Void = { _ in }
+            folder: URL, openElsewhere: @escaping @MainActor (URL) -> Void = { _ in }
         ) -> WebEnvironment {
             let downloads = folder.appendingPathComponent("Downloads")
             try? FileManager.default.createDirectory(
@@ -23,8 +23,6 @@
             return WebEnvironment(
                 scheme: fixtureScheme,
                 stores: FixtureDataStores(),
-                record: StoreRecord(defaults: defaults, directory: "fixture"),
-                pages: PageRecord(defaults: defaults, directory: "fixture"),
                 downloads: downloads,
                 openElsewhere: openElsewhere,
                 configure: { configuration in
