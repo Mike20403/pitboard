@@ -357,13 +357,13 @@ public sealed class ModelTests
             [
                 new OpenWindow(
                     Store, work, new PageLoad(Serial: 2, Url: "https://claude.ai/"), new WindowNoteKind.SignIn(),
-                    ClearDownloads: new Choice("Clear", new Intent.ClearDownloads(Store))),
+                    ClearDownloads: new Choice("Clear", new Intent.ClearDownloads(Store), Enabled: false)),
             ],
             Waiting = new WindowWaiting(
                 WindowTitle: "Account",
                 Shown: new WaitingShown.ReadFailed(
                     Title: "Couldn’t Read Accounts", Detail: "could not read Pitboard's account list",
-                    Retry: new Choice("Try Again", new Intent.Refresh(Asked: true)))),
+                    Retry: new Choice("Try Again", new Intent.Refresh(Asked: true), Enabled: true))),
             Deleting = [new StoreDeletion(Store: Store, Ask: 1)],
             Picker = new LinkPicker(
                 Arrival: 1, Armed: true,
@@ -388,6 +388,7 @@ public sealed class ModelTests
         Assert.IsTrue(choose.Accounts[0].Open);
         Assert.IsInstanceOfType<DownloadState.Running>(snapshot.AccountWindows.Downloads[0].State);
         Assert.IsInstanceOfType<Intent.ClearDownloads>(snapshot.AccountWindows.Open[0].ClearDownloads.Intent);
+        Assert.IsFalse(snapshot.AccountWindows.Open[0].ClearDownloads.Enabled);
         var failed = Assert.IsInstanceOfType<WaitingShown.ReadFailed>(snapshot.AccountWindows.Waiting.Shown);
         Assert.AreEqual("Try Again", failed.Retry.Title);
         Assert.AreEqual("A download is in progress. Quit anyway?", PitboardFfiMethods.DownloadsQuitQuestion(1)?.Title);
@@ -578,10 +579,12 @@ public sealed class ModelTests
 
     /// <summary>
     /// A snapshot says what the menu bar, the menu and the window show as records of their
-    /// own: an account's row with its limits and what pressing it sends, a notice with what
-    /// can be done about it and the question asked first, what the menu says of the notices,
-    /// the footing and the step it asks for, and what the pane shows in place of a list. What
-    /// pressing something sends is an Intent, which the app sends as it is.
+    /// own: an account's row with its limits, what pressing it sends, and what its own menu
+    /// offers, held back where it cannot be chosen, with the windows it opens and the question
+    /// asked before it is forgotten; a notice with what can be done about it and the question
+    /// asked first, what the menu says of the notices, the footing and the step it asks for,
+    /// and what the pane shows in place of a list, each button with whether it can be pressed.
+    /// What pressing something sends is an Intent, which the app sends as it is.
     /// </summary>
     [TestMethod]
     public void ASnapshotSaysWhatTheMenuAndTheWindowShow()
@@ -589,19 +592,37 @@ public sealed class ModelTests
         var limit = new LimitRow(
             Name: "5-hour", Short: "5h", Percent: 72.4, Figure: "72%", Level: UsageLevel.Low,
             Resets: "resets in 1h 05m", Spoken: "5-hour limit, 72 percent used, resets in 1 hour, 5 minutes");
-        var use = new ItemAction(
-            Title: "Use", Spoken: "Use spare (Codex)", MenuTitle: "Use spare",
-            Intent: new Intent.SwitchTo("codex/spare"));
+        var use = new ItemAction(Title: "Use", Spoken: "Use spare (Codex)", Intent: new Intent.SwitchTo("codex/spare"));
+        var window = PitboardFfiMethods.WindowAccounts(
+            [
+                new Account(
+                    Id: "codex:spare", Provider: "codex", Label: "spare", Qualified: "codex/spare",
+                    Unplaced: false, Email: "spare@example.com", AccountUuid: "spare", SignedIn: false,
+                    Switchable: true, Parked: null, Usage: null, Stale: null, StaleExplanation: null,
+                    LastsSeconds: null, LastsBurning: false),
+            ])[0];
         var spare = new AccountItem(
             Id: "codex:spare", Provider: "codex", Qualified: "codex/spare", Title: "spare",
             Email: "spare@example.com", SpokenName: "spare (Codex)", Spoken: "spare (Codex)", InUse: false,
-            NeedsSignIn: false, Unplaced: false, Switching: false, Busy: false, Action: use,
+            NeedsSignIn: false, Unplaced: false, Switching: false, Action: use,
             Summary: "5-hour 72%", Problem: null, StaleNote: null, Pace: null,
-            ParkedNote: "Parked login good for 3 more days", Help: null, Limits: [limit], Renamable: true,
-            CanForget: true,
-            ForgetQuestion: new Question(
-                Title: "Forget “spare (Codex)”?", Message: "Pitboard deletes the login it parked for this account.",
-                Confirm: "Forget"));
+            ParkedNote: "Parked login good for 3 more days", Help: null, Limits: [limit],
+            Offers:
+            [
+                new ItemOffer(Title: "Use spare", Intent: use.Intent, Enabled: true, Confirm: null),
+                new ItemOffer(
+                    Title: "Sign In Again…", Intent: new Intent.PresentSheet(new Sheet.SignInAgain("codex", "spare")),
+                    Enabled: false, Confirm: null),
+                new ItemOffer(
+                    Title: "Rename…", Intent: new Intent.PresentSheet(new Sheet.Rename("codex", "spare")),
+                    Enabled: true, Confirm: null),
+            ],
+            Windows: [new WindowOffer(Title: "Open chatgpt.com", Window: window)],
+            Forget: new ItemOffer(
+                Title: "Forget…", Intent: new Intent.Forget("codex/spare"), Enabled: true,
+                Confirm: new Question(
+                    Title: "Forget “spare (Codex)”?",
+                    Message: "Pitboard deletes the login it parked for this account.", Confirm: "Forget")));
         var giveUp = new NoticeAction(
             Title: "Give Up…", Intent: new Intent.AbandonStuckSwitch(), Dismisses: false, Switches: false,
             Enabled: true,
@@ -623,16 +644,21 @@ public sealed class ModelTests
             MenuNotices = new MenuNotices(Install: null, Switches: [], Others: others),
             Setup = new SetupStep(
                 Title: "Add a second Codex account", Detail: "job is the only Codex account Pitboard knows.",
-                Actions: [new Choice("Add Account…", new Intent.PresentSheet(new Sheet.Add("codex")))]),
+                Actions: [new Choice("Add Account…", new Intent.PresentSheet(new Sheet.Add("codex")), Enabled: true)]),
             AccountsShown = new AccountsShown.ReadFailed(
                 Title: "Couldn’t Read Accounts", Detail: "OpenAI could not be reached",
-                Retry: new Choice("Try Again", new Intent.Refresh(true))),
+                Retry: new Choice("Try Again", new Intent.Refresh(true), Enabled: false)),
         };
 
         var row = snapshot.Sections[0].Accounts[0];
         Assert.AreEqual<Intent>(new Intent.SwitchTo("codex/spare"), row.Action?.Intent);
         Assert.AreEqual(UsageLevel.Low, row.Limits[0].Level);
-        Assert.AreEqual("Forget", row.ForgetQuestion?.Confirm);
+        Assert.AreEqual<Intent>(row.Action!.Intent, row.Offers[0].Intent);
+        Assert.IsFalse(row.Offers[1].Enabled);
+        Assert.AreEqual("chatgpt.com", row.Windows[0].Window.Site.Host);
+        Assert.AreEqual<Intent?>(new Intent.Forget("codex/spare"), row.Forget?.Intent);
+        Assert.AreEqual("Forget", row.Forget?.Confirm?.Confirm);
+        Assert.IsFalse(((AccountsShown.ReadFailed)snapshot.AccountsShown).Retry.Enabled);
         Assert.IsTrue(snapshot.Notices[0].Severity > Severity.Warning);
         Assert.AreEqual<Intent>(new Intent.AbandonStuckSwitch(), snapshot.Notices[0].Actions[0].Intent);
         Assert.AreEqual("Give Up", snapshot.Notices[0].Actions[0].Confirm?.Confirm);

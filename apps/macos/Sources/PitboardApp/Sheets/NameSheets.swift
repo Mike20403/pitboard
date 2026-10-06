@@ -5,8 +5,9 @@ import SwiftUI
 /// is already there; or gives an enrolled account a new name, which keeps its parked login
 /// and its place, inside its own tool.
 ///
-/// What it says, whether Save can be pressed and what it saves are the model's: Save offers
-/// what `nameToSave` would save, and the model saves by the same rule.
+/// What it says, its default button's words, whether that can be pressed and what it saves
+/// are the model's: the button offers what `nameToSave` would save, and the model saves by
+/// the same rule.
 struct NameSheet: View {
     let model: AppModel
     let sheet: Sheet
@@ -41,7 +42,7 @@ struct NameSheet: View {
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
                 .disabled(busy)
-            Button(sheet.saveTitle, action: save)
+            Button(text?.confirm ?? "", action: save)
                 .keyboardShortcut(.defaultAction)
                 .disabled(nameToSave(sheet: sheet, typed: name) == nil || busy)
         }
@@ -53,13 +54,5 @@ struct NameSheet: View {
         guard let name = nameToSave(sheet: sheet, typed: name), model.sheetText?.saving != true
         else { return }
         model.send(saving(name))
-    }
-}
-
-extension Sheet {
-    /// What a naming sheet's default button says: the window's own control.
-    fileprivate var saveTitle: String {
-        if case .rename = self { return "Rename" }
-        return "Save"
     }
 }

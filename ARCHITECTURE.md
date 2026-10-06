@@ -135,10 +135,11 @@ pages load, as a browser would.
   - `present/` makes each `Snapshot` from the model's state: `present` takes the state and
     the moment, and builds every sentence and row the menu bar, the menu and the window
     show, so a view decides nothing. `accounts.rs` is the menu bar's words and the
-    accounts' sections and rows with their limits, `notices.rs` the notices, their order
-    and what the menu says of them, `setup.rs` the footing, the step it asks for and what
-    stands in for an empty list, `sheets.rs` the sheets, the quit question and a failure's
-    alert, with `name_to_save`, the rule a sheet's Save and the model both save by,
+    accounts' sections and rows, with their limits and what each one's own menu offers,
+    `notices.rs` the notices, their order and what the menu says of them, `setup.rs` the
+    footing, the step it asks for and what stands in for an empty list, `sheets.rs` the
+    sheets with their default buttons' words, the quit question and a failure's alert, with
+    `name_to_save`, the rule a sheet's default button and the model both save by,
     `machine.rs` what the settings and the window's other panes show of this machine, daily
     renewal, Renew Now, doctor's checks, the activity log and the command line,
     `windows.rs` the account windows, what a window says until it can show its page, what
@@ -148,9 +149,14 @@ pages load, as a browser would.
     is `pitboard_core::words`', called from there, such as a renewal's note and doctor's
     summary. A clock time, and a change's date
     and time, are the person's to read, so they are asked of the app's `LocalTime`.
-    A button the snapshot offers comes with its words beside the intent it sends, so a view
-    never words an intent; a control each app always has, such as its toolbar's "Add
-    Account…" or "Quit Pitboard", and what is about the app's own system stay the app's.
+    A button the snapshot offers comes with its words beside the intent it sends, and with
+    whether it can be pressed now where it can be held back, so a view never words an
+    intent or decides whether to offer one: a row's action, what an account's own menu
+    offers (`AccountItem`'s `offers`, `windows` and `forget`), a pane's Try Again, a
+    window's Clear and a sheet's default button. A control each app always has, such as its
+    toolbar's "Add Account…" or "Quit Pitboard", held back where the snapshot says what it
+    waits for is under way, and what is about the app's own system or done by the app alone,
+    such as Copy Email Address, stay the app's.
   - `fixture/` holds the fixtures, the worlds a debug build of either app and its UI tests
     launch into by name, as the macOS app's debug build and UI tests do. Only the `fixture`
     feature compiles them, and it enables `pitboard-core`'s `test-support`. `worlds.rs`
@@ -467,12 +473,10 @@ pages load, as a browser would.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core, and everything the menu bar, the menu, the window and the settings show, and
-  what each button sends, is the model's. One thing is left for later: an account's shortcut
-  menu still words Sign In Again…, Rename… and Forget… in Swift, and sends what they ask
-  for, offered by `AccountItem`'s `renamable`, `can_forget` and `busy`, until the model
-  offers them as it offers the row's own action. Whether the copy of the app runs from a
-  temporary place is the core's rule too, `schedule::in_a_temporary_copy`, which the model
-  asks before it offers to link the command line. The account windows' records are kept
+  what each button sends, is the model's, an account's own menu with it: what it offers,
+  in what words, and what it holds back. Whether the copy of the app runs from a temporary
+  place is the core's rule too, `schedule::in_a_temporary_copy`, which the model asks
+  before it offers to link the command line. The account windows' records are kept
   under Pitboard's directory standardised as Foundation standardises a file URL, as the
   app kept them before the core said where it is: the app works that key out in
   `WebEnvironment.recordKey` alone and hands it to the model as `WindowsLaunch::key`.

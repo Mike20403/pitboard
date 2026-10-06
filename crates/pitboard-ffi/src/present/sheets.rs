@@ -108,6 +108,7 @@ pub(crate) fn sheet_text(seen: &Seen) -> Option<SheetText> {
             name: String::new(),
             prompt: "work".into(),
             not_offered: not_offered(seen, &addable),
+            confirm: "Sign In".into(),
             saving,
         },
         Sheet::SignInAgain { label, .. } => SheetText {
@@ -119,6 +120,7 @@ pub(crate) fn sheet_text(seen: &Seen) -> Option<SheetText> {
             name: label.clone(),
             prompt: "work".into(),
             not_offered: None,
+            confirm: "Sign In".into(),
             saving,
         },
         Sheet::Name { email, .. } => SheetText {
@@ -134,6 +136,7 @@ pub(crate) fn sheet_text(seen: &Seen) -> Option<SheetText> {
             name: String::new(),
             prompt: "work".into(),
             not_offered: None,
+            confirm: "Save".into(),
             saving,
         },
         Sheet::Rename { label, .. } => SheetText {
@@ -147,6 +150,7 @@ pub(crate) fn sheet_text(seen: &Seen) -> Option<SheetText> {
             name: label.clone(),
             prompt: label.clone(),
             not_offered: None,
+            confirm: "Rename".into(),
             saving,
         },
     };

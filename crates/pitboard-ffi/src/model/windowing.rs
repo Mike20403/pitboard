@@ -466,6 +466,7 @@ fn a_window_that_cannot_show_its_page_says_why_in_the_models_words() {
                 retry: Choice {
                     title: "Try Again".into(),
                     intent: Intent::Refresh { asked: true },
+                    enabled: true,
                 },
             },
         }
@@ -1281,7 +1282,9 @@ fn a_download_goes_from_starting_to_its_end_once() {
 }
 
 /// Each open window's list of downloads clears the ones that have ended with a button the
-/// model words beside the intent it sends. The Swift worded it in AccountWindowView.swift.
+/// model words beside the intent it sends, held back until one of the window's own has ended,
+/// since before then there is nothing for it to clear. The Swift worded it in
+/// AccountWindowView.swift, and held it back there while every download in the list ran.
 #[test]
 fn an_open_window_offers_to_clear_its_ended_downloads() {
     let mut machine = machine();
@@ -1292,9 +1295,43 @@ fn an_open_window_offers_to_clear_its_ended_downloads() {
         window.clear_downloads,
         Choice {
             title: "Clear".into(),
-            intent: Intent::ClearDownloads { store: work },
-        }
+            intent: Intent::ClearDownloads {
+                store: work.clone()
+            },
+            enabled: false,
+        },
+        "nothing in its list"
     );
+    let clears = |model: &Hand| {
+        open_window(model, &work)
+            .expect("the window open")
+            .clear_downloads
+            .enabled
+    };
+    for (id, store) in [("1", work.to_uppercase()), ("2", chatgpt("m"))] {
+        model.send(Intent::DownloadStarted {
+            id: id.into(),
+            store,
+            name: Some(format!("{id}.txt")),
+        });
+    }
+    assert!(!clears(&model), "its one download under way");
+    model.send(Intent::DownloadEnded {
+        id: "2".into(),
+        end: DownloadEnd::Cancelled,
+    });
+    assert!(!clears(&model), "another window's ended");
+    model.send(Intent::DownloadEnded {
+        id: "1".into(),
+        end: DownloadEnd::Failed {
+            reason: "The network connection was lost.".into(),
+        },
+    });
+    assert!(clears(&model), "its own ended");
+    model.send(Intent::ClearDownloads {
+        store: work.clone(),
+    });
+    assert!(!clears(&model), "cleared");
 }
 
 /// Quitting stops every download under way, so it asks first, as Safari does, saying how

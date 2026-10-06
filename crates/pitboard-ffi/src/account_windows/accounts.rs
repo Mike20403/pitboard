@@ -80,7 +80,7 @@ pub(crate) fn windows(accounts: &[Account]) -> Vec<WindowAccount> {
 
 /// The windows `account` has, one for each site of its tool. The site is checked as well as
 /// the store: two tools' accounts can share an account id.
-fn windows_of_account(account: &Account, accounts: &[Account]) -> Vec<WindowAccount> {
+pub(crate) fn windows_of_account(account: &Account, accounts: &[Account]) -> Vec<WindowAccount> {
     windows(accounts)
         .into_iter()
         .filter(|window| {
@@ -116,7 +116,7 @@ pub fn window_of_store(accounts: Vec<Account>, store: String) -> Option<WindowAc
 }
 
 /// The windows `account` has among those of `accounts`, one for each site of its tool: what
-/// its row offers to open.
+/// its row's own menu offers to open, which the snapshot carries as `AccountItem::windows`.
 #[uniffi::export]
 pub fn windows_of(account: Account, accounts: Vec<Account>) -> Vec<WindowAccount> {
     windows_of_account(&account, &accounts)

@@ -61,6 +61,7 @@ struct AccountWindowView: View {
                         Text(detail)
                     } actions: {
                         Button(retry.title) { windows.model.send(retry.intent) }
+                            .disabled(!retry.enabled)
                     }
                 }
             }
@@ -208,7 +209,7 @@ private struct DownloadsList: View {
                 HStack {
                     Spacer()
                     Button(clear.title) { windows.model.send(clear.intent) }
-                        .disabled(transfers.allSatisfy(\.running))
+                        .disabled(!clear.enabled)
                 }
                 .padding(8)
             }

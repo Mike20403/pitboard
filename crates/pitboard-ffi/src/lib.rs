@@ -52,10 +52,11 @@ mod present;
 pub use present::{
     AccountItem, AccountSection, AccountWindowsShown, AccountsShown, ActivityLine, ActivityShown,
     CheckLine, ChecksShown, Choice, CommandLineShown, DownloadShown, DownloadState, EmptyList,
-    Footing, ItemAction, LimitRow, LinkPicker, MachineShown, MenuBarText, MenuEntry, MenuNotices,
-    NoticeAction, OpenWindow, PageLoad, PanelNotice, PickerAccount, PickerShown, Question,
-    RenewalShown, ScheduleShown, SetupStep, Severity, SheetText, SheetTool, SigningInText,
-    StoreDeletion, WaitingShown, WindowWaiting, downloads_quit_question, name_to_save,
+    Footing, ItemAction, ItemOffer, LimitRow, LinkPicker, MachineShown, MenuBarText, MenuEntry,
+    MenuNotices, NoticeAction, OpenWindow, PageLoad, PanelNotice, PickerAccount, PickerShown,
+    Question, RenewalShown, ScheduleShown, SetupStep, Severity, SheetText, SheetTool,
+    SigningInText, StoreDeletion, WaitingShown, WindowOffer, WindowWaiting,
+    downloads_quit_question, name_to_save,
 };
 
 mod account_windows;

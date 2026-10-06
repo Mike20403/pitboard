@@ -76,7 +76,7 @@ struct AccountsPane: View {
                 Text(detail)
             } actions: {
                 Button(retry.title) { model.send(retry.intent) }
-                    .disabled(model.reading)
+                    .disabled(!retry.enabled)
             }
         case .noAccounts(let title, let detail, let add):
             ContentUnavailableView {
@@ -86,6 +86,7 @@ struct AccountsPane: View {
             } actions: {
                 Button(add.title) { model.send(add.intent) }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!add.enabled)
             }
         case .reading(let title):
             ProgressView(title)
@@ -138,30 +139,20 @@ struct AccountsPane: View {
 
     // MARK: - What can be done to an account
 
+    /// The account's own menu: what the model offers to do to it, each held back where the
+    /// model says, then its windows, then the app's own Copy Email Address, and forgetting it
+    /// last, where the model offers that.
     @ViewBuilder private func menu(for item: AccountItem) -> some View {
-        let account = model.account(item.id)
-        if let action = item.action, action.offeredInItsMenu {
-            Button(action.menuTitle) { model.send(action.intent) }
+        ForEach(item.offers, id: \.title) { offer in
+            Button(offer.title) { perform(offer) }
+                .disabled(!offer.enabled)
         }
-        if item.renamable, let label = account?.label {
-            Button("Sign In Again…") {
-                model.send(
-                    .presentSheet(sheet: .signInAgain(provider: item.provider, label: label)))
-            }
-            .disabled(item.busy)
-            Button("Rename…") {
-                model.send(.presentSheet(sheet: .rename(provider: item.provider, label: label)))
-            }
-        }
-        let sites = account.map {
-            windowsOf(account: $0, accounts: model.status?.accounts ?? [])
-        }
-        if let sites, !sites.isEmpty {
+        if !item.windows.isEmpty {
             Divider()
-            ForEach(sites) { window in
-                Button("Open \(window.site.name)") {
+            ForEach(item.windows, id: \.window.store) { offer in
+                Button(offer.title) {
                     windows.presence.activate()
-                    openWindow(id: AccountWindowScene.id, value: window.id)
+                    openWindow(id: AccountWindowScene.id, value: offer.window.id)
                 }
             }
         }
@@ -172,20 +163,26 @@ struct AccountsPane: View {
                 NSPasteboard.general.setString(item.email, forType: .string)
             }
         }
-        if item.canForget {
+        if let forget = item.forget {
             Divider()
-            Button("Forget…", role: .destructive) { forget(item) }
+            Button(forget.title, role: .destructive) { perform(forget) }
+                .disabled(!forget.enabled)
         }
     }
 
-    /// Asks the question the model puts before an account is forgotten. Only an enrolled
-    /// account that is not the one in use may be: forgetting that one would throw away the
-    /// only record of who is signed in, and the core refuses it.
+    /// Forgetting the account, where the model offers it, as its menu does: the Delete key's
+    /// answer in the list.
     private func forget(_ item: AccountItem) {
-        guard item.canForget, let question = item.forgetQuestion,
-            let qualified = item.qualified
-        else { return }
-        asking = Asking(question: question, intent: .forget(qualified: qualified))
+        if let forget = item.forget, forget.enabled { perform(forget) }
+    }
+
+    /// Asks the question an offer comes with first, where it has one, and otherwise sends it.
+    private func perform(_ offer: ItemOffer) {
+        if let question = offer.confirm {
+            asking = Asking(question: question, intent: offer.intent)
+        } else {
+            model.send(offer.intent)
+        }
     }
 
     private func perform(_ action: NoticeAction) {
@@ -201,17 +198,6 @@ struct AccountsPane: View {
 private struct Asking: Equatable {
     let question: Question
     let intent: Intent
-}
-
-extension ItemAction {
-    /// Whether an account's own menu offers it as an item of its own: switching to it and
-    /// naming it. Signing in again is an item the menu has for every enrolled account.
-    fileprivate var offeredInItsMenu: Bool {
-        switch intent {
-        case .switchTo, .presentSheet(.name): true
-        default: false
-        }
-    }
 }
 
 /// The one next thing to do on a machine that is not set up yet, above its accounts, with
@@ -234,8 +220,10 @@ private struct SetupTip: View {
                         if index == 0 {
                             Button(choice.title) { perform(choice.intent) }
                                 .buttonStyle(.borderedProminent)
+                                .disabled(!choice.enabled)
                         } else {
                             Button(choice.title) { perform(choice.intent) }
+                                .disabled(!choice.enabled)
                         }
                     }
                 }

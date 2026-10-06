@@ -222,11 +222,6 @@ public final class AppModel {
     /// Why the last read did not answer, in Pitboard's own words.
     public var problem: String? { readFailure?.message }
 
-    /// The account shown with `id`, as the core read it.
-    public func account(_ id: String) -> Account? {
-        status?.accounts.first { $0.id == id }
-    }
-
     /// The row shown for the account with `id`.
     public func item(_ id: String) -> AccountItem? {
         sections.lazy.flatMap(\.accounts).first { $0.id == id }

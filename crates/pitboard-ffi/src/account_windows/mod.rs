@@ -20,11 +20,11 @@ mod policy;
 pub(crate) mod records;
 mod stores;
 
-pub(crate) use accounts::forget_message_on;
 pub use accounts::{
     SiteMenu, WindowAccount, forget_message, site_menus, window_accounts, window_of_store,
     windows_of,
 };
+pub(crate) use accounts::{forget_message_on, windows_of_account};
 pub use downloads::{download_destination, download_host, download_question};
 pub use notes::{WindowNoteKind, opening_note, remove_data_alert, window_note};
 pub use pages::{

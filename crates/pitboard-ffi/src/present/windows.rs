@@ -218,11 +218,17 @@ pub(crate) fn account_windows(seen: &Seen) -> AccountWindowsShown {
                 account: account.clone(),
                 load,
                 note,
+                // Held back until one of its own downloads has ended: before then it would
+                // clear nothing.
                 clear_downloads: Choice {
                     title: "Clear".into(),
                     intent: Intent::ClearDownloads {
                         store: window.store.clone(),
                     },
+                    enabled: windows
+                        .downloads
+                        .iter()
+                        .any(|download| download.store == window.store && !download.running()),
                 },
             })
         })
@@ -263,11 +269,14 @@ const READING: &str = "Reading accounts…";
 /// What they say where the accounts could not be read, and nothing is known.
 const READ_FAILED: &str = "Couldn’t Read Accounts";
 
-/// Reading the accounts again, as somebody asked.
+/// Reading the accounts again, as somebody asked. Offered while a read runs too, as
+/// AccountWindowView.swift and AccountPicker.swift offered it, where the accounts pane holds
+/// its own back.
 fn retry() -> Choice {
     Choice {
         title: "Try Again".into(),
         intent: Intent::Refresh { asked: true },
+        enabled: true,
     }
 }
 
@@ -311,6 +320,7 @@ fn picker(seen: &Seen) -> Option<LinkPicker> {
                             provider: Some(link.site.provider.clone()),
                         },
                     },
+                    enabled: true,
                 },
                 link,
             }
