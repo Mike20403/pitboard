@@ -1105,6 +1105,30 @@ impl World {
             .expect("the account signed in privately, enrolled");
     }
 
+    /// A switch to Claude Code's `label` that nothing can finish, as the core leaves one.
+    /// Claude Code's keychain locks as the switch writes, so the switch cannot tell what it
+    /// wrote and keeps its record and every copy. Claude Code then renews the login it has,
+    /// which matches neither side the record kept, and its session expires, so Anthropic
+    /// will not say whose it is either.
+    pub(super) fn stuck_switching_to(&self, label: &str) {
+        let live = live_service(&self.ctx);
+        self.host
+            .live()
+            .fault(&live, pitboard_core::testing::Fault::LocksOnWrite);
+        let locked = self.elsewhere().switch_to(label);
+        self.host.live().heal_all();
+        assert_eq!(
+            locked.expect_err("the keychain locked").error.code(),
+            "switch_unverified"
+        );
+        let renewed = self.claude_login_as("renewed", "access-renewed-since", 0.0);
+        self.api.token_trouble(
+            "access-renewed-since",
+            pitboard_core::testing::Trouble::Unauthorized,
+        );
+        self.host.live().plant(&live, &renewed);
+    }
+
     /// A stand-in for `claude`, a script of the test's own that this machine's core runs as
     /// `claude auth login` from now on. It writes what 2.1.289 writes before it opens the
     /// browser, then reads each line typed back as the register's `sign_in_output` and

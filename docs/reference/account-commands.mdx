@@ -34,6 +34,8 @@ An account asked about recently is not asked again until its numbers could have 
 
 `status` exits 0 even when a service cannot be reached, and the account's last line says why. It exits 1 only when Pitboard cannot load its account list.
 
+When an interrupted switch is waiting that the next change cannot finish, `status` warns with `recovery_undetermined` and the message that change would stop with. It finishes nothing; see [Recover after a crash, a restore or a move](/troubleshooting/recovery#an-interrupted-switch-cannot-be-finished). `--offline` gives the same warning wherever it can tell without asking Anthropic. It cannot tell when Claude Code renewed its login after the switch stopped, because only Anthropic can say whose that login is.
+
 To see the last numbers measured, without asking anyone:
 
 ```sh

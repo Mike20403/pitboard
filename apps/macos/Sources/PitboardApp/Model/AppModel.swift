@@ -254,8 +254,9 @@ public final class AppModel {
                 await self?.refresh(ifOlderThan: Self.staleAfter)
             }
         }
-        // Somebody else on this machine changing something. Reading it costs no network
-        // and no keychain, so it can follow a terminal switch within a second or two.
+        // Somebody else on this machine changing something. Reading it costs no network, and
+        // no keychain unless an interrupted switch is waiting, so it can follow a terminal
+        // switch within a second or two.
         Task { [weak self] in
             while !Task.isCancelled {
                 await self?.noticeOtherChanges()
@@ -326,7 +327,8 @@ public final class AppModel {
     }
 
     /// Has anything on this machine changed since the last look. Reads only what is already
-    /// known: no network, no keychain, and no request of any service.
+    /// known: no network, and no request of any service. The keychain is read only while an
+    /// interrupted switch is waiting, to tell whether anything can finish it.
     ///
     /// Two things are looked at, because they mean different things. The account index
     /// changing can be a switch made somewhere else, so who is signed in is read again. The
@@ -357,6 +359,15 @@ public final class AppModel {
             forgetSwitchesUndone(by: read)
             advise(from: read)
             afterRead?(read)
+            // A read that asks nobody says a switch is stuck wherever that can be told
+            // without a request. Saying nothing, it cannot tell a switch given up on or
+            // finished elsewhere from one only a service could judge, so where one is offered
+            // the read that asks says which.
+            if read.warnings.contains(where: { $0.code == "recovery_undetermined" }) {
+                stuck = true
+            } else if stuck {
+                await refresh()
+            }
         } else if seenReadings != measured, let shown = status,
             let read = try? await service.statusOffline()
         {

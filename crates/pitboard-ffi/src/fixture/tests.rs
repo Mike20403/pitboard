@@ -5,8 +5,8 @@
 
 use super::apps::CHATGPT;
 use super::pages;
-use super::tools::{CLAUDE_ADDRESS, CODEX_ADDRESS};
-use super::worlds::{Folder, Launched, World, make};
+use super::tools::{CLAUDE_ADDRESS, CLAUDE_REFUSES, CODEX_ADDRESS};
+use super::worlds::{Folder, Launched, World, make, out_of_reach};
 use crate::model::{Intent, ModelListener, Pane, PitboardModel, PlatformError, Sheet, Snapshot};
 use crate::present::testing::Utc;
 use crate::present::{AccountsShown, Footing};
@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 
 /// As long as a test waits for another thread, however slow the machine running it.
 const PATIENCE: Duration = Duration::from_secs(30);
+
+/// A code as Claude Code's browser page shows one, `<code>#<state>`, which its sign-in takes:
+/// what a UI test types.
+const CODE: &str = "fixture-code#state";
 
 /// `world`, made in a folder of this test's own.
 fn made(world: World) -> Launched {
@@ -91,7 +95,7 @@ fn sign_in_to_the_end(core: &Pitboard, label: &str) -> Result<Enrolled, Pitboard
     let session = core.sign_in(label.into())?;
     while let Some(line) = session.next_line() {
         if line.contains("Paste code") {
-            session.paste("fixture-code".into())?;
+            session.paste(CODE.into())?;
         }
     }
     session.finish()
@@ -100,11 +104,12 @@ fn sign_in_to_the_end(core: &Pitboard, label: &str) -> Result<Enrolled, Pitboard
 // Where each fixture starts.
 
 /// The UI tests launch the app into these fixtures and assert on what each starts with, so
-/// a change here is a change to what they test: who a read shows, who the offline read
-/// shows, and which tools were found. Read on the real core, a read whose service cannot be
-/// reached still answers, each account saying so, and an interrupted switch is not said by a
-/// read at all: the Swift fixture failed both reads, `unreachable` and
-/// `recovery_undetermined`, which the core never does.
+/// a change here is a change to what they test: who a read shows, or the code it fails
+/// with, the codes it warns with, who the offline read shows, and which tools were found.
+/// readFailure's reads both fail, as the core's do where its account index cannot be read,
+/// so there is nothing known to fall back on. stuck's read warns that an interrupted switch
+/// is waiting, as the Swift fixture's has since the core's read said so, and its offline
+/// read says nothing of it, since only Anthropic could say whose Claude Code's login is.
 ///
 /// FixtureTests.swift's eachFixtureStartsWhereItsTestsExpect.
 #[test]
@@ -119,34 +124,49 @@ fn each_fixture_starts_where_its_tests_expect() {
                 "codex/main, in use",
                 "codex/spare",
             ],
-            World::OneTool | World::ReadFailure | World::Stuck => vec![work, "claude/personal"],
+            World::OneTool | World::Stuck => vec![work, "claude/personal"],
             World::OnlyOne => vec![work],
             World::Unnamed => vec!["dana@work.example, in use"],
             World::Empty | World::FirstLaunch | World::NoClaudeCode => Vec::new(),
+            // No read answers, below.
+            World::ReadFailure => Vec::new(),
         };
         let launched = made(world);
         let core = &launched.core;
-        let fresh = read(core);
-        assert_eq!(described(&fresh), expected, "{}", world.name());
-        let offline = core.status_offline().expect("what is known");
-        assert_eq!(who(&offline), who(&fresh), "{}", world.name());
-
-        let unreachable = fresh
-            .accounts
-            .iter()
-            .filter(|account| account.stale.as_deref() == Some("unreachable"))
-            .count();
-        assert_eq!(
-            unreachable,
-            if world == World::ReadFailure { 2 } else { 0 },
-            "{}",
-            world.name()
-        );
         if world == World::ReadFailure {
-            assert!(
-                fresh.accounts.iter().all(|account| account.usage.is_some()),
-                "the last numbers measured"
+            assert_eq!(
+                refusal(core.status(true)).as_deref(),
+                Some("state_unreadable")
             );
+            assert_eq!(
+                refusal(core.status_offline()).as_deref(),
+                Some("state_unreadable")
+            );
+        } else {
+            let fresh = read(core);
+            assert_eq!(described(&fresh), expected, "{}", world.name());
+            let warned: Vec<&str> = fresh
+                .warnings
+                .iter()
+                .map(|warning| warning.code.as_str())
+                .collect();
+            let expected: &[&str] = if world == World::Stuck {
+                &["recovery_undetermined"]
+            } else {
+                &[]
+            };
+            assert_eq!(warned, expected, "{}", world.name());
+            assert!(
+                fresh
+                    .accounts
+                    .iter()
+                    .all(|account| account.stale.as_deref() != Some("unreachable")),
+                "{}",
+                world.name()
+            );
+            let offline = core.status_offline().expect("what is known");
+            assert_eq!(who(&offline), who(&fresh), "{}", world.name());
+            assert_eq!(offline.warnings, Vec::new(), "{}", world.name());
         }
         assert_eq!(
             crate::tools()
@@ -464,7 +484,7 @@ fn a_claude_code_sign_in_waits_for_the_code_and_then_parks_the_account() {
         let session = Arc::clone(&session);
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(300));
-            session.paste("fixture-code".into())
+            session.paste(CODE.into())
         })
     };
     assert_eq!(session.next_line(), None);
@@ -486,6 +506,100 @@ fn a_claude_code_sign_in_waits_for_the_code_and_then_parks_the_account() {
         described(&read(core)),
         ["claude/work, in use", "claude/personal", "claude/travel"]
     );
+}
+
+/// Claude Code's sign-in refuses a line typed back that is not `<code>#<state>` with both
+/// halves, with its own `Invalid code.` line, and reads on in the same sign-in, asking
+/// nothing again; the first line with both halves it takes, whatever its state says, as the
+/// register's `sign_in_takes_another_code` holds of 2.1.289. A line typed before it asks is
+/// read once it does.
+#[test]
+fn claude_code_refuses_a_code_without_both_halves_and_reads_another() {
+    let launched = made(World::OneTool);
+    let core = &launched.core;
+    let session = core.sign_in("claude/travel".into()).expect("started");
+    session.paste("fixture-code".into()).expect("typed back");
+    let mut said = String::new();
+    while let Some(line) = session.next_line() {
+        said.push_str(&line);
+        if line == CLAUDE_REFUSES {
+            break;
+        }
+    }
+    assert!(
+        said.ends_with(&format!("Paste code here if prompted > {CLAUDE_REFUSES}")),
+        "{said:?}"
+    );
+    for refused in ["#state", "fixture-code#", "  fixture-code  "] {
+        session.paste(refused.into()).expect("typed back");
+        assert_eq!(
+            session.next_line().as_deref(),
+            Some(CLAUDE_REFUSES),
+            "{refused:?}"
+        );
+    }
+    session
+        .paste(" fixture-code#any state at all ".into())
+        .expect("typed back");
+    assert_eq!(session.next_line(), None);
+    assert_eq!(
+        session.finish().expect("enrolled").email,
+        "travel@example.com"
+    );
+}
+
+/// A code Claude Code refused is said in the sheet, in the sentence the owner approved on 6
+/// October 2026, and the field is offered again for the same sign-in, which takes the next
+/// code: what AccountsWindowTests.swift's tests that add a Claude Code account meet in this
+/// world, where they type `fixture-code` with no state, until they type a code with its `#`.
+#[test]
+fn a_refused_code_is_said_in_the_sheet_and_another_is_asked_for() {
+    let launched = made(World::OneTool);
+    let (model, told) = started(&launched);
+    model.send(Intent::PresentSheet {
+        sheet: Sheet::Add { provider: None },
+    });
+    model.send(Intent::SignIn {
+        provider: "claude".into(),
+        name: "third".into(),
+    });
+    told.until("the code asked for", |snapshot| {
+        snapshot
+            .signing_in
+            .as_ref()
+            .is_some_and(|signing| signing.wants_code)
+    });
+    model.send(Intent::PasteCode {
+        code: "fixture-code".into(),
+    });
+    let refused = told.until("the code refused", |snapshot| {
+        snapshot
+            .signing_in
+            .as_ref()
+            .is_some_and(|signing| signing.wants_code && signing.code_refused)
+    });
+    assert_eq!(
+        refused
+            .signing_in_text
+            .and_then(|text| text.refused)
+            .as_deref(),
+        Some(
+            "Claude Code didn’t take that code. Copy the whole code your browser shows, and \
+             paste it again."
+        )
+    );
+    model.send(Intent::PasteCode { code: CODE.into() });
+    told.until("the account listed", |snapshot| {
+        snapshot.signing_in.is_none()
+            && read_in(snapshot)
+            && snapshot.status.as_ref().is_some_and(|status| {
+                status
+                    .accounts
+                    .iter()
+                    .any(|account| account.qualified.as_deref() == Some("claude/third"))
+            })
+    });
+    model.shutdown();
 }
 
 /// Codex's sign-in prints the address to open beside the loopback address the browser comes
@@ -611,21 +725,34 @@ fn signing_in_again_to_the_account_in_use_keeps_it_in_use() {
 // The rest of the machine.
 
 /// An interrupted switch nothing can finish is given up on once, and asking again has
-/// nothing to give up on. On the real core a read never fails over one, as the Swift
-/// fixture's did: what is refused until then is every change, which finishes an
-/// interrupted switch before anything else. Claude Code's session has expired meanwhile,
-/// which giving up does not change.
+/// nothing to give up on. Until then a read warns of it, with the words a change is refused
+/// with, and every change is refused, since each finishes an interrupted switch before
+/// anything else; after, neither. Claude Code's session has expired meanwhile, which giving
+/// up does not change.
 ///
 /// FixtureTests.swift's givingUpOnTheInterruptedSwitchHappensOnce.
 #[test]
 fn giving_up_on_the_interrupted_switch_happens_once() {
     let launched = made(World::Stuck);
     let core = &launched.core;
-    assert!(core.status(true).is_ok(), "a read is never refused over it");
+    let warned = read(core).warnings;
     assert_eq!(
-        refusal(core.switch_to("claude/personal".into())).as_deref(),
-        Some("recovery_undetermined")
+        warned
+            .iter()
+            .map(|warning| warning.code.as_str())
+            .collect::<Vec<_>>(),
+        ["recovery_undetermined"]
     );
+    match core.switch_to("claude/personal".into()) {
+        Err(PitboardError::Failed { code, message, .. }) => {
+            assert_eq!(code, "recovery_undetermined");
+            assert_eq!(
+                message, warned[0].message,
+                "the read says what a change is told"
+            );
+        }
+        other => panic!("{:?}", other.map(|_| ())),
+    }
 
     assert_eq!(
         core.abandon_recovery().expect("given up"),
@@ -636,10 +763,12 @@ fn giving_up_on_the_interrupted_switch_happens_once() {
         })
     );
     assert_eq!(core.abandon_recovery().expect("nothing to give up"), None);
+    let after = read(core);
     assert_eq!(
-        described(&read(core)),
+        described(&after),
         ["claude/work, in use", "claude/personal"]
     );
+    assert_eq!(after.warnings, Vec::new(), "nothing is waiting any more");
     assert_ne!(
         refusal(core.switch_to("claude/personal".into())).as_deref(),
         Some("recovery_undetermined"),
@@ -735,19 +864,31 @@ fn the_schedule_turns_on_and_off() {
 
 /// A UI test launches the app into a fixture many times, and each launch starts where the
 /// last one did, whatever the last one left: the folder emptied and made again, seen before
-/// unless it is the first launch, what it has told empty, and the same accounts. The first
-/// launch is kept while the second is made in its folder, as the folder an app launches
-/// into is kept from one launch to the next, so what the first left is there to be emptied.
+/// unless it is the first launch, what it has told empty, and the same accounts, or, in
+/// readFailure, the same failure, its account index that nobody may read emptied with the
+/// rest. The first launch is kept while the second is made in its folder, as the folder an
+/// app launches into is kept from one launch to the next, so what the first left is there
+/// to be emptied.
 ///
 /// FixtureTests.swift's everyLaunchStartsWhereTheLastOneDid, but for the login item and
 /// notifications' permission, which are the app's.
 #[test]
 fn every_launch_starts_where_the_last_one_did() {
     use pitboard_core::app::AppFile;
+    let known = |core: &Pitboard| match core.status_offline() {
+        Ok(status) => Ok(who(&status)),
+        Err(PitboardError::Failed { code, .. }) => Err(code),
+    };
     for world in World::ALL {
         let first = made(world);
         let core = &first.core;
-        let accounts = who(&core.status_offline().expect("what is known"));
+        let accounts = known(core);
+        assert_eq!(
+            accounts.is_err(),
+            world == World::ReadFailure,
+            "{}",
+            world.name()
+        );
         let preferences = core.app_file(AppFile::Preferences).expect("readable");
         assert_eq!(
             preferences
@@ -778,12 +919,7 @@ fn every_launch_starts_where_the_last_one_did() {
         );
         assert!(!left.exists(), "{}: the folder emptied", world.name());
         let core = &again.core;
-        assert_eq!(
-            who(&core.status_offline().expect("what is known")),
-            accounts,
-            "{}",
-            world.name()
-        );
+        assert_eq!(known(core), accounts, "{}", world.name());
         assert_eq!(
             core.app_file(AppFile::Preferences).expect("readable"),
             preferences,
@@ -1214,9 +1350,7 @@ fn accounts_are_added_through_each_tools_sign_in() {
             .as_ref()
             .is_some_and(|signing| signing.wants_code)
     });
-    model.send(Intent::PasteCode {
-        code: "fixture-code".into(),
-    });
+    model.send(Intent::PasteCode { code: CODE.into() });
     told.until("the account listed", |snapshot| {
         snapshot.signing_in.is_none()
             && read_in(snapshot)
@@ -1317,14 +1451,93 @@ fn accounts_are_renamed_and_forgotten_as_the_window_offers() {
     model.shutdown();
 }
 
+/// A read that fails is said in the menu, as one item that opens the window on the
+/// accounts, and in the window, as MenuBarTests.swift's
+/// testAFailedReadIsSaidInTheMenuAndInTheWindow reads it in readFailure: the item and the
+/// notice are both "Couldn’t read usage". On the real core a read fails where the account
+/// index cannot be read, and then so does the read of what is known, so two things that test
+/// reads are not there: the notice says the core's own words, that it could not read
+/// Pitboard's account list, where the Swift fixture said "Anthropic could not be reached",
+/// and no account is listed, where the Swift fixture listed claude/work. The window says it
+/// could not read the accounts instead, with Try Again.
+#[test]
+fn a_failed_read_is_said_in_the_menu_and_in_the_window() {
+    let launched = made(World::ReadFailure);
+    let told = Arc::new(Told::default());
+    let model = launched.model(Arc::clone(&told) as Arc<dyn ModelListener>, Arc::new(Utc));
+    model.send(Intent::Start);
+    let shown = told.until("the read failed", |snapshot| {
+        snapshot.read_failure.is_some() && !snapshot.reading
+    });
+    let failure = shown.read_failure.expect("failed");
+    assert_eq!(failure.code, "state_unreadable");
+    assert!(
+        failure
+            .message
+            .starts_with("could not read Pitboard's account list at "),
+        "{failure:?}"
+    );
+
+    let item = shown.menu_notices.others.expect("an item");
+    assert_eq!(item.title, "Couldn’t read usage");
+    assert_eq!(
+        item.intent,
+        Some(Intent::ShowWindow {
+            pane: Some(Pane::Accounts)
+        })
+    );
+    assert_eq!(
+        shown
+            .notices
+            .iter()
+            .map(|notice| (notice.id.as_str(), notice.title.as_str()))
+            .collect::<Vec<_>>(),
+        [("read", "Couldn’t read usage")]
+    );
+    assert_eq!(
+        shown.notices[0].lines,
+        std::slice::from_ref(&failure.message)
+    );
+
+    assert_eq!(shown.status, None, "nothing is known");
+    assert!(shown.sections.is_empty());
+    assert_eq!(
+        shown.menu_accounts_note.as_deref(),
+        Some("No accounts to show")
+    );
+    assert_eq!(
+        shown.accounts_shown,
+        AccountsShown::ReadFailed {
+            title: "Couldn’t Read Accounts".into(),
+            detail: failure.message,
+            retry: crate::present::Choice {
+                title: "Try Again".into(),
+                intent: Intent::Refresh { asked: true },
+            },
+        }
+    );
+    model.shutdown();
+}
+
 /// With Anthropic out of reach, the real core still reads: each account says why its
-/// numbers are the last measured, and nothing says a read failed, where the Swift fixture's
-/// read failed and the menu said "Couldn’t read usage". MenuBarTests.swift's
-/// testAFailedReadIsSaidInTheMenuAndInTheWindow reads that, and so its answer changes in
-/// PR 10 unless the core's read comes to say so.
+/// numbers are the last measured, and nothing says a read failed. readFailure was made so
+/// before it was given an account index the core cannot read, and the Swift fixture's
+/// readFailure failed the read, `unreachable`, which the core's never does; so oneTool is
+/// made so here, once its accounts have been read.
 #[test]
 fn a_service_out_of_reach_leaves_the_last_numbers_and_says_why_on_each_account() {
-    let launched = made(World::ReadFailure);
+    let launched = made(World::OneTool);
+    out_of_reach(&launched.machine).expect("out of reach");
+    let fresh = read(&launched.core);
+    assert_eq!(
+        fresh
+            .accounts
+            .iter()
+            .map(|account| (account.stale.as_deref(), account.usage.is_some()))
+            .collect::<Vec<_>>(),
+        [(Some("unreachable"), true), (Some("unreachable"), true)]
+    );
+
     let (model, told) = started(&launched);
     let shown = told.until("the accounts read", read_in);
     let items: Vec<_> = shown
@@ -1346,28 +1559,71 @@ fn a_service_out_of_reach_leaves_the_last_numbers_and_says_why_on_each_account()
     model.shutdown();
 }
 
-/// An interrupted switch nothing can finish is said once a switch is refused over it, as
-/// the core refuses every change then, and giving up says what it kept. No read of the real
-/// core says one is waiting, so the notice that offers Give Up… is not shown as the window
-/// opens, where the Swift fixture's read failed and showed it: AccountsWindowTests.swift's
+/// An interrupted switch nothing can finish is offered a way out as the app starts, since
+/// the read says it is waiting: the window's first notice, with Give Up… and its question,
+/// and the menu's one item, which opens the window on the accounts. Giving up says what it
+/// kept, and nothing is waiting any more. This is what AccountsWindowTests.swift's
 /// testGivingUpOnAnInterruptedSwitch and MenuBarTests.swift's
-/// testShowingANoticeOpensTheWindowOnTheAccounts read that, and so their answers change in
-/// PR 10 unless the core's read comes to say so.
+/// testShowingANoticeOpensTheWindowOnTheAccounts read in stuck. That second test first waits,
+/// on This Mac, for a check called "Keychain", which the core's doctor has none of; there it
+/// has "interrupted switch", worth looking at, beside personal's parked login.
 #[test]
-fn an_interrupted_switch_is_said_when_a_switch_is_refused_over_it() {
+fn an_interrupted_switch_is_offered_a_way_out_as_the_app_starts() {
     let launched = made(World::Stuck);
     let (model, told) = started(&launched);
     let shown = told.until("the accounts read", read_in);
-    assert!(!shown.stuck);
-    assert!(shown.notices.iter().all(|notice| notice.id != "stuck"));
+    assert!(shown.stuck);
+    let notice = shown.notices.first().expect("a notice");
+    assert_eq!(
+        (notice.id.as_str(), notice.title.as_str()),
+        ("stuck", "An interrupted switch is waiting")
+    );
+    let give_up = notice.actions.first().expect("an action");
+    assert_eq!(give_up.title, "Give Up…");
+    assert_eq!(give_up.intent, Intent::AbandonStuckSwitch);
+    assert_eq!(
+        give_up
+            .confirm
+            .as_ref()
+            .map(|question| question.confirm.as_str()),
+        Some("Give Up")
+    );
+    let item = shown.menu_notices.others.expect("an item");
+    assert_eq!(item.title, "An interrupted switch is waiting");
+    assert_eq!(
+        item.intent,
+        Some(Intent::ShowWindow {
+            pane: Some(Pane::Accounts)
+        })
+    );
 
-    model.send(Intent::SwitchTo {
-        qualified: "claude/personal".into(),
+    model.send(Intent::PaneShown {
+        pane: Pane::Machine,
     });
-    let refused = told.until("the switch refused", |snapshot| snapshot.failure.is_some());
-    let failure = refused.failure.expect("said");
-    assert_eq!(failure.code.as_deref(), Some("recovery_undetermined"));
-    assert!(failure.message.contains("was interrupted"), "{failure:?}");
+    let checked = told.until("the checks made", |snapshot| {
+        !snapshot.machine.checks.lines.is_empty() && !snapshot.machine.checks.checking
+    });
+    let interrupted = checked
+        .machine
+        .checks
+        .lines
+        .iter()
+        .find(|line| line.name == "interrupted switch")
+        .expect("doctor's check");
+    assert_eq!(interrupted.level, crate::Level::Warn);
+    assert!(
+        checked
+            .machine
+            .checks
+            .lines
+            .iter()
+            .all(|line| line.name != "Keychain")
+    );
+    assert_eq!(
+        checked.machine.checks.summary.as_deref(),
+        Some("2 things are worth looking at."),
+        "personal's parked login, and the switch"
+    );
 
     model.send(Intent::AbandonStuckSwitch);
     let given_up = told.until("what giving up kept", |snapshot| {
@@ -1389,6 +1645,9 @@ fn an_interrupted_switch_is_said_when_a_switch_is_refused_over_it() {
             .any(|line| line.contains("2 logins kept")),
         "{notice:?}"
     );
+    told.until("nothing waiting", |snapshot| {
+        !snapshot.stuck && snapshot.notices.iter().all(|notice| notice.id != "stuck")
+    });
     model.shutdown();
 }
 
@@ -1402,9 +1661,9 @@ fn an_interrupted_switch_is_said_when_a_switch_is_refused_over_it() {
 /// left alone only while its refresh token lapses within three days, which is when doctor
 /// warns of it, since both ask `doctor::renewal_due`.
 ///
-/// So that test's answer changes in PR 10, unless the core comes to say what the Swift
-/// fixture said: the sentence is the same, of personal's parked login rather than of daily
-/// renewal.
+/// So in PR 10 that test reads what the core's doctor says: the sentence is the same, of
+/// personal's parked login rather than of daily renewal, and it waits for one of the core's
+/// checks rather than one called "Keychain".
 #[test]
 fn this_mac_shows_the_cores_checks() {
     let launched = made(World::OneTool);

@@ -243,7 +243,7 @@ When Codex's checks appear and Claude Code is absent, `doctor` leaves out most o
   | `private_on_disk` | `logins on disk` | No file that holds a login can be read by other users. |
   | `state` | `accounts` | Pitboard's account list can be read, and how many accounts are enrolled. |
   | `parked_login` | `account <label>` | One per Claude Code account. Its parked login is there, can be read, and does not expire within 3 days. |
-  | `interrupted_switch` | `interrupted switch` | Only when a switch did not finish. Always warns. |
+  | `interrupted_switch` | `interrupted switch` | Only when a switch did not finish. Always warns. When `doctor` can tell without asking anyone that the next change cannot finish it, it gives the message that change would stop with, and suggests `pitboard abandon`. It cannot tell when only Anthropic can say whose login Claude Code is using. |
   | `discarded` | `old parked logins` | Only when parked logins are waiting to be deleted. |
   | `machine_id` | `machine id` | Only when this machine has no stable identifier. |
   | `storage_v5` | `storage v5` | Whether Claude Code's storage v5 flag is on, and if so, whether its login is in the fallback file. |

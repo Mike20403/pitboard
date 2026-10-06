@@ -51,11 +51,14 @@ pub(crate) enum World {
     Unnamed,
     /// One Claude Code account, so nothing to switch to.
     OnlyOne,
-    /// `OneTool` with Anthropic out of reach, so the numbers shown are the last measured.
+    /// `OneTool` with an account index the core cannot read, so every read of the accounts
+    /// fails, `state_unreadable`, and nothing is known to list.
     ReadFailure,
     /// `OneTool` with a switch to personal interrupted, which nothing can finish: Claude
     /// Code's keychain locked as it was written, and Claude Code has since renewed its login
-    /// and its session has expired, so neither the record nor Anthropic says whose it is.
+    /// and its session has expired, so neither the record nor Anthropic says whose it is. The
+    /// read that asks Anthropic says so, `recovery_undetermined`, so the app offers Give Up…
+    /// as it starts.
     Stuck,
     /// `TwoTools`, with ChatGPT open and running Codex's login.
     ChatGptOpen,
@@ -237,7 +240,8 @@ pub(crate) struct Machine {
     /// How many logins have been made, so each has tokens of its own.
     logins: AtomicUsize,
     /// Every access token each person's logins have had, by their id: what a service is
-    /// asked about them with.
+    /// asked about them with, which a test puts out of reach.
+    #[cfg(test)]
     tokens: Mutex<HashMap<String, Vec<String>>>,
 }
 
@@ -275,6 +279,7 @@ impl Machine {
             now: epoch_now(),
             usage: Mutex::new(HashMap::new()),
             logins: AtomicUsize::new(0),
+            #[cfg(test)]
             tokens: Mutex::new(HashMap::new()),
         })
     }
@@ -458,6 +463,7 @@ impl Machine {
             );
         }
         self.api.using(access, self.used_by(person));
+        #[cfg(test)]
         self.tokens
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -467,6 +473,7 @@ impl Machine {
     }
 
     /// Every access token `person`'s logins have had.
+    #[cfg(test)]
     fn tokens_of(&self, person: &Person) -> Vec<String> {
         self.tokens
             .lock()
@@ -742,7 +749,7 @@ fn seed(world: World, machine: &Machine) -> Result<(), Unmade> {
         World::ReadFailure => {
             claude_accounts(machine)?;
             claude_switches(machine)?;
-            out_of_reach(machine)
+            unreadable_index(machine)
         }
         World::Stuck => {
             claude_accounts(machine)?;
@@ -851,9 +858,34 @@ fn codex_parked(machine: &Machine) -> Result<(), Unmade> {
     machine.parked(&spare, "spare", &login, "app", DAY)
 }
 
+/// Pitboard's account index, `state.json` in the fixture's own Pitboard directory, made one
+/// nobody may read once everything in it was put there: what the person whose home it is in
+/// meets where a `pitboard` run as somebody else wrote it, since the core writes it private
+/// to whoever writes it. So every read of the accounts fails as it does on such a machine,
+/// `state_unreadable`, the read of what is known with it. Checked, since the system's
+/// administrator reads a file whatever its mode says, and a system without Unix modes has
+/// none to give it: there, the world is not made, rather than made otherwise than its name
+/// says.
+fn unreadable_index(machine: &Machine) -> Result<(), Unmade> {
+    with_mode(&machine.home().join(".pitboard").join("state.json"), 0o000)?;
+    match service::Pitboard::new(machine.base.clone()).status_offline() {
+        Err(error) if error.code() == "state_unreadable" => Ok(()),
+        Err(error) => Err(Unmade(format!(
+            "reading the unreadable account index: {error}"
+        ))),
+        Ok(_) => Err(Unmade(
+            "the account index can still be read: this user reads a file whatever its mode \
+             says, or this system gives files no mode"
+                .into(),
+        )),
+    }
+}
+
 /// Anthropic out of reach from now on, once the accounts have been read: what was measured
-/// is remembered, and nothing newer can be.
-fn out_of_reach(machine: &Machine) -> Result<(), Unmade> {
+/// is remembered, and nothing newer can be. No world is made this way; a test makes oneTool
+/// so, as readFailure was before it was given an account index the core cannot read.
+#[cfg(test)]
+pub(crate) fn out_of_reach(machine: &Machine) -> Result<(), Unmade> {
     let (_, front_end) = machine.front_end("app", 10 * 60);
     front_end
         .status(true)

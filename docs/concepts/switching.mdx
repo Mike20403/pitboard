@@ -56,4 +56,6 @@ Those commands are `pitboard use`, `enroll`, `forget`, `rename`, `repair` and `u
 
 A login matching neither fingerprint usually means the tool refreshed it after the switch stopped. Then Pitboard must identify it, which for Claude Code means asking Anthropic. Until it can, every such command stops without changing anything.
 
+`pitboard status` warns about such a switch with `recovery_undetermined`, in the words those commands stop with, and changes nothing. `pitboard status --offline` gives the same warning unless only Anthropic can tell whose the login is. The app shows the notice **An interrupted switch is waiting** each time it reads your accounts. A switch the next command can finish gets no warning.
+
 To give up on the switch, see [Recover after a crash, a restore or a move](/troubleshooting/recovery#an-interrupted-switch-cannot-be-finished).

@@ -255,6 +255,16 @@ pages load, as a browser would.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
+- A read never settles an interrupted switch. Every change settles one first, under
+  Pitboard's lock. Where that change would stop at it as `recovery_undetermined`,
+  `status`, `status_offline` and `doctor` say so in its words, from the same reads and the
+  same decision (`read` and `decide` in `switch/journal.rs`, through `switch::stuck`), and
+  that check takes no lock and writes nothing. `status_offline` and `doctor` send no
+  request, so they say it only where the record and the logins tell it without one: a
+  Codex login names its own account, and a Claude Code login renewed since the switch
+  stopped is one only Anthropic can name. While a switch is waiting, telling reads the
+  tool's login and the copy the switch parked, which on macOS are keychain items; with no
+  record there, the check is one look at whether the file is there.
 - No test starts the person's own login shell. A test names a shell of its own in `SHELL`,
   one that is not there, or hands in what a shell said.
 - A test never reaches the system's own scheduler. A test context schedules through
@@ -1230,12 +1240,20 @@ Measured on 6 October 2026 on macOS 27.0, with `pitboard-ffi` built for
   `crates/pitboard-ffi/src/fixture/tests.rs`:
   - A read whose service cannot be reached answers, each account's numbers the last
     measured and saying "Anthropic could not be reached"; `status` fails only where the
-    account index cannot be read. The Swift fixture failed the read, `unreachable`.
-  - No read says a switch was interrupted, whether or not it can be finished: every change
-    finishes one first, and one that cannot be finished is refused with
-    `recovery_undetermined`. The Swift fixture failed the read with that code, which is the
-    only thing that showed the notice offering Give Up…, so no read of the real core shows
-    it.
+    account index cannot be read, and the read of what is known fails with it. The Swift
+    fixture failed readFailure's read, `unreachable`, and listed its accounts from what was
+    known. So readFailure's account index is one nobody may read, mode `000`, given it once
+    the world's history is made, and both its reads fail, `state_unreadable`: "could not
+    read Pitboard's account list at …: Permission denied (os error 13)", on macOS 27.0 as an
+    ordinary user. The menu's item and the window's notice say "Couldn’t read usage" with
+    those words, and the window, with nothing known to list, says "Couldn’t Read Accounts"
+    with Try Again, where the Swift fixture listed claude/work under the notice. A service
+    out of reach is held in oneTool instead, made so in its test.
+  - The fixture's Claude Code refuses a line typed back without both halves of
+    `<code>#<state>`, with its own `Invalid code.` line, and reads another, as the register's
+    `sign_in_takes_another_code` holds of 2.1.289; the Swift fixture took any line. So a UI
+    test types a code with its `#`, such as `fixture-code#state`, and one typed without
+    meets the sheet saying the code was refused, with the field offered again.
   - A switch is logged as `use`, after the command, where the Swift fixture logged `switch`.
   - Claude Code's sessions follow a switch within 33 seconds, `ADOPTION_CEILING_SECONDS`,
     where the Swift fixture said 45.
@@ -1246,7 +1264,13 @@ Measured on 6 October 2026 on macOS 27.0, with `pitboard-ffi` built for
     parked login due that the read before it left alone only while its refresh token lapses
     within three days, and that is when doctor warns of it, since both ask
     `doctor::renewal_due`. So oneTool says "One thing is worth looking at." as before, of
-    personal's parked login rather than of daily renewal.
+    personal's parked login rather than of daily renewal. stuck has doctor's "interrupted
+    switch" worth looking at besides, so it says "2 things are worth looking at.".
   - A read lists the account in use first, and the read of what is known lists only
     enrolled accounts, so a login nobody has named is listed once the first read has asked
     its service whose it is.
+- stuck shows the notice offering Give Up… as the app starts, as the Swift fixture did, now
+  from the core's own read: a read says an interrupted switch is waiting wherever the next
+  change would be refused over it, as a warning with the refusal's code,
+  `recovery_undetermined`, and its words. The read of what is known says nothing of it
+  there, since only Anthropic could say whose Claude Code's login is.

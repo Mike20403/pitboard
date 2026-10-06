@@ -98,7 +98,93 @@ fn an_undeterminable_outcome_keeps_the_record_and_changes_nothing() {
         "the only record of the interrupted switch must survive"
     );
     assert_eq!(env.state(), before, "nothing may change on a guess");
-    env.delete_park(&orphan);
+    assert!(env.is_parked(&orphan));
+}
+
+/// A switch nothing can finish is said on every read, in the words a change refused over it
+/// uses, so the app can offer to give up on it as it opens rather than after a switch fails.
+/// The read only says so: the record, the account list and every copy stay as they were.
+#[test]
+fn status_says_an_interrupted_switch_it_cannot_finish_is_waiting() {
+    let mut env = two_accounts("status-stuck");
+    let orphan = interrupted_switch(&env);
+    env.expire("access-refresh-a");
+    let journal = env.root.join("pitboard/journal.json");
+    let (before, recorded) = (env.state(), std::fs::read(&journal).unwrap());
+
+    let (out, err, code) = env.run(&["status", "--json"]);
+    let envelope: serde_json::Value = serde_json::from_str(&out).expect(&err);
+
+    assert_eq!(code, 0, "a read is not refused over it: {out}");
+    let warned: Vec<&serde_json::Value> = envelope["warnings"]
+        .as_array()
+        .expect("a list of warnings")
+        .iter()
+        .filter(|w| w["code"] == "recovery_undetermined")
+        .collect();
+    assert_eq!(warned.len(), 1, "{out}");
+    assert_eq!(
+        std::fs::read(&journal).unwrap(),
+        recorded,
+        "the record is kept"
+    );
+    assert_eq!(env.state(), before, "a read changes nothing");
+    assert!(env.is_parked(&orphan), "and deletes nothing");
+
+    // The record has no fingerprints, so only Anthropic can say whose the login is, and the
+    // read that asks nobody does not say what it cannot know.
+    let (out, err, code) = env.run(&["status", "--offline", "--json"]);
+    assert_eq!(code, 0, "{err}");
+    let known: serde_json::Value = serde_json::from_str(&out).expect(&err);
+    assert_eq!(known["warnings"], serde_json::json!([]), "{out}");
+
+    let (_, err, code) = env.run(&["status"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("warning: an earlier switch from `alpha` to `beta` was interrupted"),
+        "{err}"
+    );
+
+    let (out, err, _) = env.run(&["use", "beta", "--json"]);
+    let refused: serde_json::Value = serde_json::from_str(&out).expect(&err);
+    assert_eq!(refused["error"]["code"], "recovery_undetermined", "{out}");
+    assert_eq!(
+        warned[0]["message"], refused["error"]["message"],
+        "the read says what the change that stops at it says"
+    );
+}
+
+/// The read that asks nobody says it too, wherever it can tell without asking: here Claude
+/// Code has signed out since, so nothing says which side of the switch won, and that needs
+/// no answer from Anthropic. Where only Anthropic could say whose the login is, as in the
+/// test before this one, it says nothing it cannot know.
+#[test]
+fn status_offline_says_an_interrupted_switch_it_can_tell_is_waiting() {
+    let env = two_accounts("offline-stuck");
+    let orphan = interrupted_switch(&env);
+    env.sign_out();
+    let journal = env.root.join("pitboard/journal.json");
+    let (before, recorded) = (env.state(), std::fs::read(&journal).unwrap());
+
+    let (out, err, code) = env.run(&["status", "--offline", "--json"]);
+    let envelope: serde_json::Value = serde_json::from_str(&out).expect(&err);
+
+    assert_eq!(code, 0, "a read is not refused over it: {out}");
+    let warned: Vec<&serde_json::Value> = envelope["warnings"]
+        .as_array()
+        .expect("a list of warnings")
+        .iter()
+        .filter(|w| w["code"] == "recovery_undetermined")
+        .collect();
+    assert_eq!(warned.len(), 1, "{out}");
+    assert_eq!(std::fs::read(&journal).unwrap(), recorded);
+    assert_eq!(env.state(), before);
+    assert!(env.is_parked(&orphan));
+
+    let (out, err, _) = env.run(&["use", "beta", "--json"]);
+    let refused: serde_json::Value = serde_json::from_str(&out).expect(&err);
+    assert_eq!(refused["error"]["code"], "recovery_undetermined", "{out}");
+    assert_eq!(warned[0]["message"], refused["error"]["message"]);
 }
 
 /// `use beta` killed after installing beta's login and before recording it: the state still

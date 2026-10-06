@@ -19,7 +19,7 @@ Usage: pitboard abandon [OPTIONS]
 
 The accounts the switch was moving from and to keep their [parked logins](/concepts/switching#parked-logins). For OpenAI's Codex CLI, `abandon` drops a parked login that copies the login in use.
 
-`abandon` refuses while `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, in the environment or in Claude Code's settings, even for a Codex switch. It exits 3 with the error `custom_oauth_endpoint`.
+`abandon` refuses a Claude Code switch while `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, in the environment or in Claude Code's settings. It exits 3 with the error `custom_oauth_endpoint`. It gives up on a Codex switch whether or not that variable is set.
 
 ```sh
 pitboard abandon
@@ -63,7 +63,7 @@ It prints a line for each parked login it gives back, and one for each other kin
 
 On Linux, "keychain" in these lines means `~/.pitboard/vault/`, which no other Pitboard directory shares.
 
-While `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, `repair` refuses as `abandon` does.
+While `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, in the environment or in Claude Code's settings, `repair` refuses for every tool. It exits 3 with the error `custom_oauth_endpoint`.
 
 For when to use it, see [Pitboard lost track of parked logins](/troubleshooting/recovery#pitboard-lost-track-of-parked-logins).
 

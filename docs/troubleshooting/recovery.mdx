@@ -8,7 +8,7 @@ A crash, a restore or a move to another computer can leave Pitboard out of step 
 
 ## An interrupted switch cannot be finished
 
-Every command that changes something stops with an error saying an earlier switch `was interrupted, and Pitboard cannot yet tell whether it finished`. In the app, a switch fails with the same message, and the **Accounts** pane shows the notice **An interrupted switch is waiting**. `pitboard doctor` and the app's **This Mac** pane list `interrupted switch` until a change finishes it.
+Every command that changes something stops with an error saying an earlier switch `was interrupted, and Pitboard cannot yet tell whether it finished`. `pitboard status` gives the same message as a warning. In the app, the **Accounts** pane shows the notice **An interrupted switch is waiting** each time Pitboard reads your accounts, and a switch fails with the same message. `pitboard doctor` and the app's **This Mac** pane list `interrupted switch` until a change finishes it. `pitboard status --offline` and `pitboard doctor` ask nobody, so they give the message unless only Anthropic can tell whose login Claude Code is using.
 
 A switch stopped halfway, for example in a power cut, and Pitboard cannot tell whose login the tool is using. For how Pitboard settles a switch, see [How switching works](/concepts/switching#interrupted-switches).
 

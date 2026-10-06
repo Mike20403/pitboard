@@ -17,7 +17,7 @@
 //! instruction a person is ever given.
 
 use super::harness::{
-    NOW, POINTS, codex_machine, document, hold, machine, owner, recover, signed_in,
+    NOW, POINTS, codex_machine, document, hold, login_of, machine, owner, recover, signed_in,
 };
 use super::*;
 use crate::api::scripted::{ScriptedApi, Trouble};
@@ -151,6 +151,168 @@ fn a_switch_whose_token_rotated_while_it_was_interrupted_still_needs_anthropic()
         journal::pending(&ctx),
         "and the record is kept for a later run"
     );
+}
+
+/// How a machine is left after a switch was killed, before anything reads it: what reading
+/// it asks, and the service it asks.
+type Leave = fn(&super::harness::Machine) -> (Context, Arc<ScriptedApi>);
+
+/// Every way a machine is found after a switch was killed: as it was; signed out of the
+/// tool; with a login the tool renewed since, which matches neither side the record kept;
+/// with the copy the switch parked unreadable, alone and with a renewed login; with the
+/// service out of reach, alone and with a renewed login; with the record damaged; and with
+/// the record written for another slot.
+const AFTERWARDS: [(&str, Leave); 9] = [
+    ("as it was", |m| (m.ctx.clone(), Arc::clone(&m.api))),
+    ("signed out", |m| {
+        m.fault_live(Fault::Vanish);
+        (m.ctx.clone(), Arc::clone(&m.api))
+    }),
+    ("renewed since", |m| {
+        m.sign_in(&login_of(m, "here", "renewed-since"));
+        (m.ctx.clone(), Arc::clone(&m.api))
+    }),
+    ("park unreadable", |m| {
+        unreadable(m);
+        (m.ctx.clone(), Arc::clone(&m.api))
+    }),
+    ("renewed since and park unreadable", |m| {
+        m.sign_in(&login_of(m, "here", "renewed-since"));
+        unreadable(m);
+        (m.ctx.clone(), Arc::clone(&m.api))
+    }),
+    ("offline", unreachable),
+    ("renewed since and offline", |m| {
+        m.sign_in(&login_of(m, "here", "renewed-since"));
+        unreachable(m)
+    }),
+    ("record damaged", |m| {
+        if recorded(m, "park_service").is_some() {
+            std::fs::write(
+                home::dir(&m.ctx).join("journal.json"),
+                "{\"started_at\": 17",
+            )
+            .expect("written");
+        }
+        (m.ctx.clone(), Arc::clone(&m.api))
+    }),
+    ("recorded for another slot", |m| {
+        let path = home::dir(&m.ctx).join("journal.json");
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            let mut record: Value = serde_json::from_str(&raw).expect("a record");
+            record["slot"] = json!("somewhere else");
+            std::fs::write(&path, record.to_string()).expect("written");
+        }
+        (m.ctx.clone(), Arc::clone(&m.api))
+    }),
+];
+
+/// The copy the switch parked, where it reserved one, cannot be read.
+fn unreadable(m: &super::harness::Machine) {
+    if let Some(park) = recorded(m, "park_service") {
+        m.mem
+            .vault()
+            .fault(&park, Fault::Unreadable("locked".into()));
+    }
+}
+
+/// The machine with its service out of reach for every login it has held.
+fn unreachable(m: &super::harness::Machine) -> (Context, Arc<ScriptedApi>) {
+    let offline = ScriptedApi::new();
+    for refresh in ["here-refresh", "there-refresh", "renewed-since"] {
+        offline.token_trouble(&format!("access-{refresh}"), Trouble::Offline);
+    }
+    let ctx = m.ctx.clone().with_scripted_api(Arc::clone(&offline));
+    (ctx, offline)
+}
+
+/// A field of the record of the interrupted switch, where there is one.
+fn recorded(m: &super::harness::Machine, field: &str) -> Option<String> {
+    let raw = std::fs::read_to_string(home::dir(&m.ctx).join("journal.json")).ok()?;
+    let record: Value = serde_json::from_str(&raw).ok()?;
+    record[field].as_str().map(str::to_owned)
+}
+
+/// Everything on the machine: Pitboard's files, every parked login and the live one.
+type Everything = (
+    Vec<(String, Vec<u8>)>,
+    Vec<(String, Option<String>)>,
+    Option<String>,
+);
+
+fn everything(m: &super::harness::Machine) -> Everything {
+    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(home::dir(&m.ctx))
+        .expect("a Pitboard home")
+        .map(|entry| {
+            let path = entry.expect("an entry").path();
+            let body = std::fs::read(&path).unwrap_or_default();
+            (path.display().to_string(), body)
+        })
+        .collect();
+    files.sort();
+    let vault = m.mem.vault();
+    let parked = vault
+        .services()
+        .into_iter()
+        .map(|service| {
+            let held = vault.peek(&service);
+            (service, held)
+        })
+        .collect();
+    let (store, service) = m.live_store();
+    (files, parked, store.peek(&service))
+}
+
+/// What a read says of an interrupted switch is what the next change does with it, worked
+/// out without doing it. For every tool, every step a switch can be killed at, and every
+/// way the machine can be found afterwards, a read says the switch is waiting exactly where
+/// settling it is refused as `recovery_undetermined`, in that refusal's words, and changes
+/// nothing on the way. A switch under way in another run leaves the same record at each
+/// step as one killed there, so this is also what a read made meanwhile says.
+///
+/// A read that asks nobody says the same wherever the record and the logins tell it, and
+/// nothing where only the service could: never something else, and never with a request.
+#[test]
+fn a_read_says_a_switch_is_waiting_exactly_where_settling_it_is_refused() {
+    type Make = fn(&str) -> super::harness::Machine;
+    let machines: [(&str, Make); 2] = [("claude", machine), ("codex", codex_machine)];
+    for (tool, make) in machines {
+        for point in POINTS {
+            for (left, leave) in AFTERWARDS {
+                let at = format!("{tool}, {point}, {left}");
+                let m = make(&format!(
+                    "read-{}-{}",
+                    point.replace('.', "-"),
+                    left.replace(' ', "-")
+                ));
+                let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+                let died = fault::killing(point, || switch(settled, &m.key("there")));
+                assert_eq!(died.unwrap_err(), point, "{at}");
+                let (ctx, api) = leave(&m);
+                let state = state::load(&ctx).expect("an account list");
+                let before = everything(&m);
+
+                let asked = stuck(&ctx, &state, Asking::Service).map(|e| e.to_string());
+                let calls = api.calls();
+                let unasked = stuck(&ctx, &state, Asking::Nobody).map(|e| e.to_string());
+
+                assert_eq!(api.calls(), calls, "{at}: asking nobody asks nobody");
+                assert_eq!(everything(&m), before, "{at}: a read changes nothing");
+                let refused = match settle(&ctx, None) {
+                    Err(e) if e.code() == "recovery_undetermined" => Some(e.to_string()),
+                    _ => None,
+                };
+                assert_eq!(asked, refused, "{at}");
+                assert!(
+                    unasked.is_none() || unasked == asked,
+                    "{at}: {unasked:?} where a read that asks says {asked:?}"
+                );
+                if m.which == ProviderId::Codex {
+                    assert_eq!(unasked, asked, "{at}: a Codex login names its account");
+                }
+            }
+        }
+    }
 }
 
 /// Enrolling by signing in writes a login into the vault before anything names it. Killed

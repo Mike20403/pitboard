@@ -65,6 +65,10 @@ pub enum Warning {
         label: String,
         why: String,
     },
+    /// An interrupted switch is waiting that the next change cannot finish, and every change
+    /// stops at it until it can be finished or is given up on. The refusal that change would
+    /// make, said by a read so that nobody has to make a change to find out.
+    SwitchStuck(Error),
 }
 
 impl Warning {
@@ -73,7 +77,9 @@ impl Warning {
         match self {
             Warning::Recovered(r) => r.code(),
             Warning::LockCompromised { .. } => "lock_compromised",
-            Warning::ConfigNotUpdated(e) | Warning::RenewalFailed(e) => e.code(),
+            Warning::ConfigNotUpdated(e) | Warning::RenewalFailed(e) | Warning::SwitchStuck(e) => {
+                e.code()
+            }
             Warning::ParksPendingRemoval(_) => "parks_pending_removal",
             Warning::ParkedLoginRefused { .. } => "parked_login_refused",
             Warning::AuthOverridden { .. } => "auth_overridden",
@@ -97,7 +103,9 @@ impl fmt::Display for Warning {
                  signed in.",
                 tool.name()
             ),
-            Warning::ConfigNotUpdated(e) | Warning::RenewalFailed(e) => write!(f, "{e}"),
+            Warning::ConfigNotUpdated(e) | Warning::RenewalFailed(e) | Warning::SwitchStuck(e) => {
+                write!(f, "{e}")
+            }
             Warning::ParksPendingRemoval(count) => write!(
                 f,
                 "{count} parked login(s) no longer in use could not be removed yet; Pitboard \
@@ -200,12 +208,28 @@ impl Pitboard {
     /// false: a number is only asked for again once the tightest limit it describes could
     /// have moved by a percentage point, which collapses several front ends on one machine
     /// to one request per account per few minutes.
+    ///
+    /// An interrupted switch the next change cannot finish is said as that change would
+    /// refuse over it, and nothing is done about it: every change stops at it until it can
+    /// be finished or is given up on, and a front end that waited for a change to be
+    /// refused could not offer to give up on it until then. One the next change finishes by
+    /// itself is not said. Nobody has anything to do about it: the rows already say who is
+    /// signed in from each tool's login rather than from Pitboard's record, and the change
+    /// that finishes it says what it found.
     pub fn status(&self, fresh: bool) -> Result<Done<status::Report>> {
-        let mut warnings = Vec::new();
         let renewed = switch::renew_parked(&self.ctx);
         // Unreadable is not the same as empty: reporting it as empty would say the enrolled
         // logins are gone.
         let state = state::load(&self.ctx)?;
+        // Alongside the report rather than before it. Where only the service can say whose
+        // the live login is, both ask it, and asked one after the other, a service that did
+        // not answer held the read for its timeout twice.
+        let (stuck, report) = std::thread::scope(|scope| {
+            let stuck = scope.spawn(|| switch::stuck(&self.ctx, &state, switch::Asking::Service));
+            let report = status::gather(&self.ctx, &state, fresh);
+            (stuck.join().ok().flatten(), report)
+        });
+        let mut warnings: Vec<Warning> = stuck.map(Warning::SwitchStuck).into_iter().collect();
         for (key, outcome) in renewed {
             audit::record(&self.ctx, "renew", &key.typed(), outcome.code());
             match outcome {
@@ -218,7 +242,7 @@ impl Pitboard {
             }
         }
         Ok(Done {
-            value: status::gather(&self.ctx, &state, fresh),
+            value: report,
             warnings,
         })
     }
@@ -230,11 +254,24 @@ impl Pitboard {
     /// The same report without asking anyone: the last numbers Pitboard measured, and who
     /// each tool's own files say is signed in. Nothing is renewed and nothing is asked, so
     /// it answers at once wherever there is no network.
+    ///
+    /// An interrupted switch the next change cannot finish is said here too, as [`status`]
+    /// says it, wherever that can be told without a request: a Claude Code login renewed
+    /// since the switch stopped is one only Anthropic can say whose it is, and then nothing
+    /// is said. Telling reads the tool's login and the copy the switch parked, which on
+    /// macOS are keychain items, and only while a switch is waiting: otherwise one look at
+    /// whether its record is there is the whole of it.
+    ///
+    /// [`status`]: Pitboard::status
     pub fn status_offline(&self) -> Result<Done<status::Report>> {
         let state = state::load(&self.ctx)?;
+        let warnings = switch::stuck(&self.ctx, &state, switch::Asking::Nobody)
+            .map(Warning::SwitchStuck)
+            .into_iter()
+            .collect();
         Ok(Done {
             value: status::gather_offline(&self.ctx, &state),
-            warnings: Vec::new(),
+            warnings,
         })
     }
 
@@ -709,6 +746,298 @@ mod tests {
         assert_eq!(died.unwrap_err(), "switch.park_recorded");
         assert!(switch::interrupted(&m.ctx));
         m
+    }
+
+    /// The same switch, which the next change cannot finish: nothing is signed in to the
+    /// tool any more, so nothing says which side of the switch won. Told apart without
+    /// asking anyone, for either tool.
+    fn stuck(make: Make, name: &str) -> Machine {
+        let m = interrupted(make, name);
+        m.fault_live(crate::store::memory::Fault::Vanish);
+        m
+    }
+
+    /// The switch interrupted on a Claude Code machine, which the next change cannot finish
+    /// either, though only Anthropic could tell: Claude Code has since renewed the login, so
+    /// it matches neither side the record kept, and its session has expired, so Anthropic
+    /// will not say whose it is. An access token the scripted service does not know is one
+    /// it refuses.
+    fn stuck_unless_asked(name: &str) -> Machine {
+        let m = interrupted(machine, name);
+        m.sign_in(&crate::switch::harness::document("renewed-since"));
+        m
+    }
+
+    /// The warnings a read gives, by code and words.
+    fn said(read: &Done<status::Report>) -> Vec<(&'static str, String)> {
+        read.warnings
+            .iter()
+            .map(|w| (w.code(), w.to_string()))
+            .collect()
+    }
+
+    /// Everything a read must leave as it found it: Pitboard's files but the records a
+    /// live read keeps by design (what it measured, the history its runways are worked out
+    /// from, and when to ask again), every parked login and the live one.
+    type Untouched = (
+        BTreeMap<String, Vec<u8>>,
+        Vec<(String, Option<String>)>,
+        Option<serde_json::Value>,
+    );
+
+    fn untouched(m: &Machine) -> Untouched {
+        let kept_by_a_read = ["usage.json", "usage.lock", "readings", "asking.json"];
+        let mut files = files(m);
+        files.retain(|path, _| !kept_by_a_read.iter().any(|kept| path.ends_with(kept)));
+        let vault = m.mem.vault();
+        let parked = vault
+            .services()
+            .into_iter()
+            .map(|service| {
+                let held = vault.peek(&service);
+                (service, held)
+            })
+            .collect();
+        (files, parked, m.live())
+    }
+
+    /// A switch nothing can finish was said only by a change refused over it. The app looks
+    /// for it in what a read says, so it never offered to give up on one, and `pitboard
+    /// status` never said it at all. A read says it now, in the words of the refusal, and
+    /// changes nothing: the record is kept for whatever finishes it or gives up on it.
+    #[test]
+    fn a_read_says_an_interrupted_switch_it_cannot_finish_is_waiting() {
+        for (tool, make) in MACHINES {
+            let m = stuck(make, &format!("read-stuck-{tool}"));
+            let pitboard = Pitboard::new(m.ctx.clone());
+            let before = untouched(&m);
+
+            let read = pitboard
+                .status(false)
+                .expect("a read is not refused over it");
+
+            assert_eq!(untouched(&m), before, "{tool}: a read changes nothing");
+            assert!(switch::interrupted(&m.ctx), "{tool}: the record is kept");
+            let refused = pitboard
+                .switch_to(&m.key("there").typed())
+                .expect_err("every change stops at it");
+            assert_eq!(refused.error.code(), "recovery_undetermined", "{tool}");
+            assert_eq!(
+                said(&read),
+                [("recovery_undetermined", refused.error.to_string())],
+                "{tool}: said in the refusal's own words"
+            );
+        }
+    }
+
+    /// Where only the service can say whose the live login is, a read asks it, as the next
+    /// change would.
+    #[test]
+    fn a_read_asks_whose_the_login_is_where_only_the_service_can_say() {
+        let m = stuck_unless_asked("read-stuck-asked");
+        let pitboard = Pitboard::new(m.ctx.clone());
+        let before = untouched(&m);
+
+        let read = pitboard.status(false).expect("a read");
+
+        assert_eq!(untouched(&m), before, "a read changes nothing");
+        let refused = pitboard.switch_to("there").expect_err("it stops at it");
+        assert_eq!(
+            said(&read),
+            [("recovery_undetermined", refused.error.to_string())]
+        );
+        assert!(
+            refused.error.to_string().contains("has expired"),
+            "{}",
+            refused.error
+        );
+    }
+
+    /// A switch the next change finishes by itself is not one anybody has to do anything
+    /// about. The rows already say who is signed in, from the tool's login and not from
+    /// Pitboard's record, and the change that finishes it says what it found.
+    #[test]
+    fn a_read_says_nothing_of_a_switch_the_next_change_finishes() {
+        for (tool, make) in MACHINES {
+            let m = interrupted(make, &format!("read-settles-{tool}"));
+            let before = untouched(&m);
+
+            let read = Pitboard::new(m.ctx.clone()).status(false).expect("a read");
+
+            assert_eq!(said(&read), [], "{tool}");
+            assert_eq!(untouched(&m), before, "{tool}: a read finishes nothing");
+            assert!(switch::interrupted(&m.ctx), "{tool}");
+        }
+    }
+
+    /// The read never says a switch is waiting that the next change would not stop at for
+    /// that reason, and never offers to give up on one that giving up cannot reach. Under a
+    /// custom Claude Code endpoint every change is refused over the endpoint before it comes
+    /// to a Claude Code switch, and giving up on one is refused too. A Codex switch is
+    /// settled under one as anywhere else, and given up on as anywhere else: giving up
+    /// refused it, so the read offered a way out that could not be taken.
+    #[test]
+    fn a_read_says_a_switch_is_waiting_only_where_a_change_would_stop_at_it() {
+        for (tool, make) in MACHINES {
+            let m = stuck(make, &format!("read-stuck-custom-{tool}"));
+            let mut ctx = m.ctx.clone();
+            ctx.custom_oauth = true;
+            let pitboard = Pitboard::new(ctx);
+
+            let read = pitboard.status(false).expect("a read");
+            let known = pitboard.status_offline().expect("a read");
+            let refused = pitboard
+                .switch_to(&m.key("there").typed())
+                .expect_err("refused");
+
+            let codes: Vec<&str> = read.warnings.iter().map(Warning::code).collect();
+            let expected: &[&str] = match m.which {
+                ProviderId::Claude => &[],
+                ProviderId::Codex => &["recovery_undetermined"],
+            };
+            assert_eq!(codes, expected, "{tool}: {}", refused.error);
+            let codes: Vec<&str> = known.warnings.iter().map(Warning::code).collect();
+            assert_eq!(codes, expected, "{tool}: the read that asks nobody too");
+            assert_eq!(
+                refused.error.code() == "recovery_undetermined",
+                !expected.is_empty(),
+                "{tool}"
+            );
+
+            let gave_up = pitboard.abandon_recovery();
+            match m.which {
+                ProviderId::Claude => assert_eq!(
+                    gave_up.expect_err("refused").code(),
+                    "custom_oauth_endpoint",
+                    "{tool}"
+                ),
+                ProviderId::Codex => {
+                    assert!(gave_up.expect("given up").is_some(), "{tool}");
+                    assert!(!switch::interrupted(&m.ctx), "{tool}: nothing waits");
+                }
+            }
+        }
+    }
+
+    /// Every read says it, the one that asks nobody too: what an app reads each time the
+    /// account index moves, and what `pitboard status --offline` prints. It sends no request,
+    /// so it says it wherever the record and the logins tell it without one, in the words of
+    /// the refusal, and changes nothing. Where only Anthropic could say whose the login is,
+    /// it does not say what it cannot know.
+    #[test]
+    fn a_read_that_asks_nobody_says_a_switch_is_waiting_wherever_it_can_tell() {
+        for (tool, make) in MACHINES {
+            let m = stuck(make, &format!("known-stuck-{tool}"));
+            let pitboard = Pitboard::new(m.ctx.clone());
+            let (before, asked) = (untouched(&m), m.api.calls());
+
+            let read = pitboard.status_offline().expect("a read");
+
+            assert_eq!(untouched(&m), before, "{tool}: a read changes nothing");
+            assert_eq!(m.api.calls(), asked, "{tool}: and asks nobody");
+            assert!(switch::interrupted(&m.ctx), "{tool}: the record is kept");
+            let refused = pitboard
+                .switch_to(&m.key("there").typed())
+                .expect_err("every change stops at it");
+            assert_eq!(
+                said(&read),
+                [("recovery_undetermined", refused.error.to_string())],
+                "{tool}"
+            );
+        }
+
+        let m = stuck_unless_asked("known-stuck-unasked");
+        let asked = m.api.calls();
+        let read = Pitboard::new(m.ctx.clone())
+            .status_offline()
+            .expect("a read");
+        assert_eq!(m.api.calls(), asked, "asks nobody");
+        assert_eq!(said(&read), [], "only Anthropic could tell");
+    }
+
+    /// A tool whose login names its own account is identified from the login, which asks
+    /// nobody, so a read that sends no request can still tell whether the next change
+    /// finishes its switch. Here Codex has renewed its login since the switch stopped, so the
+    /// login matches neither side the record kept, and the copy the switch parked cannot be
+    /// read. `doctor` and the read that asks nobody said nothing of it, as though only OpenAI
+    /// could say whose the login is.
+    #[test]
+    fn whose_a_codex_login_is_is_told_without_asking_anyone() {
+        let m = interrupted(codex_machine, "codex-renewed-since");
+        m.sign_in(&crate::switch::harness::codex_login(
+            "here",
+            "renewed-since",
+        ));
+        m.mem.vault().fault(
+            &reserved(&m),
+            crate::store::memory::Fault::Unreadable("locked".into()),
+        );
+        let pitboard = Pitboard::new(m.ctx.clone());
+        let asked = m.api.calls();
+
+        let read = pitboard.status_offline().expect("a read");
+        let checks = pitboard.doctor().checks;
+
+        assert_eq!(m.api.calls(), asked, "asks nobody");
+        let refused = pitboard
+            .switch_to("codex/there")
+            .expect_err("it stops at it");
+        assert_eq!(refused.error.code(), "recovery_undetermined");
+        assert_eq!(
+            said(&read),
+            [("recovery_undetermined", refused.error.to_string())]
+        );
+        let check = checks
+            .iter()
+            .find(|c| c.code == "interrupted_switch")
+            .expect("said");
+        assert_eq!(check.detail, refused.error.to_string());
+    }
+
+    /// The park the interrupted switch reserved, as its record names it.
+    fn reserved(m: &Machine) -> String {
+        let raw = std::fs::read_to_string(crate::home::dir(&m.ctx).join("journal.json"))
+            .expect("a record");
+        serde_json::from_str::<serde_json::Value>(&raw).expect("a record is JSON")["park_service"]
+            .as_str()
+            .expect("a park")
+            .to_owned()
+    }
+
+    /// `doctor` sends no request, and says what a read says wherever it can tell without
+    /// one: the refusal, and the way out. Where only the service could tell, it says what
+    /// it always said, that a switch did not finish.
+    #[test]
+    fn doctor_says_a_switch_is_stuck_where_it_can_tell_without_asking() {
+        for (tool, make) in MACHINES {
+            let m = stuck(make, &format!("doctor-stuck-{tool}"));
+            let pitboard = Pitboard::new(m.ctx.clone());
+            let before = untouched(&m);
+
+            let checks = pitboard.doctor().checks;
+
+            assert_eq!(untouched(&m), before, "{tool}: doctor changes nothing");
+            let refused = pitboard
+                .switch_to(&m.key("there").typed())
+                .expect_err("refused");
+            let check = checks
+                .iter()
+                .find(|c| c.code == "interrupted_switch")
+                .expect("said");
+            assert_eq!(check.level, doctor::Level::Warn, "{tool}");
+            assert_eq!(check.detail, refused.error.to_string(), "{tool}");
+            assert!(check.advice.contains("pitboard abandon"), "{tool}");
+        }
+
+        let m = stuck_unless_asked("doctor-stuck-unasked");
+        let asked = m.api.calls();
+        let checks = Pitboard::new(m.ctx.clone()).doctor().checks;
+        assert_eq!(m.api.calls(), asked, "doctor asks nobody");
+        let check = checks
+            .iter()
+            .find(|c| c.code == "interrupted_switch")
+            .expect("said");
+        assert_eq!(check.detail, "a switch did not finish");
     }
 
     /// Every file in Pitboard's own directory but the audit log.

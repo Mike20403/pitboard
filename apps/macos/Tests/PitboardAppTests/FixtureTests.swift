@@ -61,38 +61,40 @@ private func signInToTheEnd(
 // MARK: - Where each fixture starts
 
 /// The UI tests launch the app into these fixtures and assert on what each starts with, so
-/// a change here is a change to what they test: who a read shows, or the code it fails
-/// with, who the offline read shows, and which tools were found. A read that fails still
-/// has the offline read to fall back on.
+/// a change here is a change to what they test: who a read shows, the code it fails with
+/// or warns with, who the offline read shows, and which tools were found. A read that fails
+/// still has the offline read to fall back on.
 @Test(arguments: Fixture.allCases)
 func eachFixtureStartsWhereItsTestsExpect(_ fixture: Fixture) async throws {
     let work = "claude/work, in use"
-    let expected: (failure: String?, shown: [String]) =
+    let expected: (failure: String?, warned: [String], shown: [String]) =
         switch fixture {
         case .twoTools, .chatGPTOpen:
             (
-                nil,
+                nil, [],
                 [
                     work, "claude/personal", "claude/old, parked_access_expired",
                     "codex/main, in use", "codex/spare",
                 ]
             )
-        case .oneTool: (nil, [work, "claude/personal"])
-        case .onlyOne: (nil, [work])
-        case .unnamed: (nil, ["dana@work.example, in use"])
-        case .empty, .firstLaunch: (nil, [])
-        case .noClaudeCode: (nil, [])
-        case .readFailure: ("unreachable", [work, "claude/personal"])
-        case .stuck: ("recovery_undetermined", [work, "claude/personal"])
+        case .oneTool: (nil, [], [work, "claude/personal"])
+        case .onlyOne: (nil, [], [work])
+        case .unnamed: (nil, [], ["dana@work.example, in use"])
+        case .empty, .firstLaunch: (nil, [], [])
+        case .noClaudeCode: (nil, [], [])
+        case .readFailure: ("unreachable", [], [work, "claude/personal"])
+        case .stuck: (nil, ["recovery_undetermined"], [work, "claude/personal"])
         }
     let core = FixtureCore(fixture)
     let offline = try await core.statusOffline()
     #expect(described(offline) == expected.shown)
+    #expect(offline.warnings == [])
 
     do {
         let read = try await core.status(fresh: true)
         #expect(expected.failure == nil)
         #expect(read.accounts == offline.accounts)
+        #expect(read.warnings.map(\.code) == expected.warned)
     } catch {
         #expect(AppModel.code(of: error) == expected.failure)
     }
@@ -384,20 +386,20 @@ func signingInAgainToTheAccountInUseKeepsItInUse() async throws {
 
 // MARK: - The rest of the machine
 
-/// An interrupted switch is given up on once. The read that failed on it then works, and
-/// asking again has nothing to give up on.
+/// An interrupted switch is given up on once. The read that said it was waiting then says
+/// nothing of it, and asking again has nothing to give up on.
 @Test func givingUpOnTheInterruptedSwitchHappensOnce() async throws {
     let core = FixtureCore(.stuck)
-    #expect(await refusal { try await core.status(fresh: true) } == "recovery_undetermined")
+    let waiting = try await core.status(fresh: true)
+    #expect(waiting.warnings.map(\.code) == ["recovery_undetermined"])
 
     #expect(
         try await core.abandonRecovery()
             == Abandoned(from: "work", to: "personal", loginsKept: 2))
     #expect(try await core.abandonRecovery() == nil)
-    #expect(
-        described(try await core.status(fresh: true)) == [
-            "claude/work, in use", "claude/personal",
-        ])
+    let read = try await core.status(fresh: true)
+    #expect(described(read) == ["claude/work, in use", "claude/personal"])
+    #expect(read.warnings == [])
 }
 
 /// The log keeps what changed newest last, and names Claude Code's accounts bare and any

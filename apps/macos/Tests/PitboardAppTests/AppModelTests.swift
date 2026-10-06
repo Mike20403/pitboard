@@ -31,6 +31,8 @@ private final class Stub: Core, @unchecked Sendable {
     }
 
     private(set) var freshAsks = 0
+    /// Every read that asks, fresh or not.
+    private(set) var reads = 0
     var offline: Result<Status, Error> = .success(Status(now: 0, accounts: [], warnings: []))
     var changed: Int64 = 0
     /// When the readings last changed. A read moves it, as the core's does: what it measured
@@ -44,6 +46,7 @@ private final class Stub: Core, @unchecked Sendable {
     var duringRead: (@MainActor () async -> Void)?
     func status(fresh: Bool) async throws -> Status {
         if fresh { freshAsks += 1 }
+        reads += 1
         readings += 1
         let answer = self.answer
         await duringRead?()
@@ -1033,6 +1036,51 @@ private func standInApp(in directory: URL) throws -> URL {
     #expect(stub.offlineReads == before + 1, "it read what is already known")
     #expect(stub.freshAsks == 0, "and asked Anthropic nothing")
     #expect(model.status?.accounts.first?.label == "work")
+}
+
+/// Every read says whether a switch is stuck, the one made when the account index moves too.
+/// A switch interrupted in a terminal that nothing can finish is offered to give up on as the
+/// index moves. One given up on in a terminal stopped being offered only at the next read
+/// every few minutes, and offering it meanwhile offered nothing to give up on. A read that
+/// asks nobody says nothing of it then, which is also what it says of a switch only a service
+/// could judge, so the model asks, and the read that asks says which.
+@MainActor
+@Test func aStuckSwitchIsTakenFromTheReadMadeWhenTheIndexMoves() async {
+    let accounts = [account("work", signedIn: true)]
+    let interrupted = Warning(
+        code: "recovery_undetermined", message: "An interrupted switch is waiting.")
+    let stub = Stub(.success(status(accounts)))
+    let model = AppModel(testing: stub)
+    await model.refresh()
+    #expect(!model.stuck)
+
+    stub.offline = .success(status(accounts, warnings: [interrupted]))
+    stub.changed = 42
+    await model.noticeOtherChangesForTesting()
+    #expect(model.stuck, "offered as the index moves")
+    #expect(stub.reads == 1, "asking nobody")
+
+    // Given up on in a terminal.
+    stub.offline = .success(status(accounts))
+    stub.changed = 43
+    await model.noticeOtherChangesForTesting()
+    #expect(!model.stuck)
+    #expect(stub.reads == 2)
+    #expect(stub.freshAsks == 0, "asked as the timer asks")
+
+    // Nothing was stuck, so a read that asks nobody and says nothing of it is the end of it.
+    stub.changed = 44
+    await model.noticeOtherChangesForTesting()
+    #expect(stub.reads == 2)
+
+    // Stuck where only the service can tell, which the read that asks says.
+    stub.answer = .success(status(accounts, warnings: [interrupted]))
+    await model.refresh()
+    #expect(model.stuck)
+    stub.changed = 45
+    await model.noticeOtherChangesForTesting()
+    #expect(model.stuck, "kept")
+    #expect(stub.reads == 4)
 }
 
 /// Every session's status line records what its session has seen, and a reading only moves

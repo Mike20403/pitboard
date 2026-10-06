@@ -58,6 +58,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- After an interrupted switch Pitboard cannot finish, the app shows **An interrupted switch
+  is waiting**, with its **Give Up** button, each time it reads your accounts, and
+  `pitboard status` warns with `recovery_undetermined` in the words a change stops with.
+  Neither said so before. The app looks for it in what a read says, and no read said it, so
+  the notice never appeared and a switch failed with nothing offered but **OK**. Reading
+  finishes and changes nothing. `pitboard status --offline` and `pitboard doctor` give the
+  same message unless only Anthropic can tell whose login Claude Code is using. The app
+  puts the notice away once the switch is given up on or finished in a terminal.
+- `pitboard abandon`, and the app's **Give Up**, give up on an interrupted Codex switch
+  while `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, as a change to a Codex account goes ahead
+  with it set. Both refused, so a Codex switch nothing could finish could not be given up
+  on either.
 - `pitboard doctor`, and the app's checks, no longer warn that a parked login "could not be
   read this time" after a switch, a sign-in that enrolled an account, or a renewal of a
   parked login. Pitboard writes a park's name down before it writes the login, and the name

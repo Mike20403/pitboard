@@ -232,7 +232,8 @@ pub(crate) enum Why {
     /// true, and an empty list would say the accounts are gone.
     InPlaceOf(Ticket),
     /// The account index changed somewhere else, which can be a switch: who is signed in,
-    /// and the numbers. `measured` is when the readings were written, as the look found it.
+    /// the numbers, and whether a switch is stuck. `measured` is when the readings were
+    /// written, as the look found it.
     Changed { measured: i64 },
     /// Only the readings moved, newer numbers some session or the command line recorded:
     /// the numbers and nothing else.
@@ -1657,6 +1658,19 @@ impl State {
             }
             Why::Changed { measured } => {
                 if let Some(read) = read {
+                    // A read that asks nobody says a switch is stuck wherever that can be
+                    // told without a request. Saying nothing, it cannot tell a switch given
+                    // up on or finished elsewhere from one only a service could judge, so
+                    // where one is offered the read that asks says which.
+                    if read
+                        .warnings
+                        .iter()
+                        .any(|w| w.code == "recovery_undetermined")
+                    {
+                        self.stuck = true;
+                    } else if self.stuck {
+                        self.refresh(Asked::default(), now, jobs);
+                    }
                     self.forget_switches_undone(&read);
                     self.advise(&read, jobs);
                     self.status = Some(read);

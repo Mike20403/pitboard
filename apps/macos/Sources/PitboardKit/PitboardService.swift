@@ -7,7 +7,9 @@ public protocol Core: Sendable {
     /// Every account of every tool, each asked of its own tool's service.
     func status(fresh: Bool) async throws -> Status
     /// The last numbers Pitboard measured, and who each tool's own files say is signed in.
-    /// No network and no keychain, so it answers at once and works on a plane.
+    /// No network, and no keychain unless an interrupted switch is waiting, so it answers at
+    /// once and works on a plane. It warns of a switch nothing can finish as `status` does,
+    /// wherever that can be told without a request.
     func statusOffline() async throws -> Status
     func doctor() async -> Diagnosis
     /// What is running a tool with a login a switch would leave it on, by kind, from the

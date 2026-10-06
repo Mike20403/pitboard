@@ -96,6 +96,10 @@ cargo test --locked -p pitboard-ffi --features fixture
 cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
 ```
 
+The readFailure world makes its account index unreadable with file modes, so its tests fail,
+saying why, where the user can read a file of mode `000`: as root, in a container running as
+root, or on a file system without Unix modes.
+
 The snapshots in `crates/pitboard/tests/snapshots` pin the `--json` contract. A snapshot
 changes only when the contract changes on purpose. Review the difference with
 `cargo insta review`, and say in the pull request why the contract moved.
@@ -167,10 +171,14 @@ worlds are in `crates/pitboard-ffi/src/fixture`, with the same ten names. Each i
 core over a machine of its own: a home in the folder `pitboard-fixture` in the temporary
 directory, the keychain, the process list and the scheduler in memory, and Anthropic and
 OpenAI answering from a script. Its accounts were put there by the core, signed in,
-enrolled, parked and switched, so a world shows what the core makes of it. Only a library
-built with the `fixture` feature has them, which `build-xcframework.sh --fixture` builds;
-the bindings are the same either way. `build-app.sh` never passes it, and fails a build
-whose library or app holds a fixture:
+enrolled, parked and switched, so a world shows what the core makes of it: `readFailure`'s
+reads fail because its account index is a file nobody may read, and `stuck`'s read says an
+interrupted switch is waiting. Each tool's sign-in is played as its register says it
+behaves, so the fixture's Claude Code, like the real one, refuses a code typed back that is
+not `<code>#<state>`: type one such as `fixture-code#state`. Only a library built with the
+`fixture` feature has them, which `build-xcframework.sh --fixture` builds; the bindings are
+the same either way. `build-app.sh` never passes it, and fails a build whose library or app
+holds a fixture:
 
 ```sh
 ./apps/macos/scripts/build-xcframework.sh --fixture

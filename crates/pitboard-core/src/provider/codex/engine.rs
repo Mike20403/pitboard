@@ -105,6 +105,11 @@ impl Provider for Codex {
         })
     }
 
+    /// The ID token names the account, read with no network call.
+    fn identifies_by_itself(&self) -> bool {
+        true
+    }
+
     fn usage(&self, ctx: &Context, credential: &Credential) -> Result<Snapshot, ProviderError> {
         let shape = |detail: &str| ProviderError::ShapeUnexpected {
             provider: ProviderId::Codex,
