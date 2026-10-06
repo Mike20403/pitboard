@@ -20,13 +20,13 @@ struct MenuBarContent: View {
         attention
         accounts
         Section {
-            Button("Add Account…") { model.present(.add(provider: nil)) }
+            Button("Add Account…") { model.send(.presentSheet(sheet: .add(provider: nil))) }
                 .keyboardShortcut("n")
             Button {
-                Task { await model.refresh(asked: true) }
+                model.send(.refresh(asked: true))
             } label: {
                 Text("Refresh")
-                Text(updated)
+                Text(model.updatedMenu)
             }
             .keyboardShortcut("r")
             .disabled(model.reading)
@@ -37,7 +37,7 @@ struct MenuBarContent: View {
             }
         }
         Section {
-            Button("Open Pitboard") { model.showWindow() }
+            Button("Open Pitboard") { model.send(.showWindow(pane: nil)) }
                 .keyboardShortcut("0")
             Button("Settings…") {
                 // Choosing an item of a menu bar item's menu does not make the app active,
@@ -63,48 +63,41 @@ struct MenuBarContent: View {
 
     // MARK: - What needs attention
 
-    /// Advice to switch, as items that switch; anything else to know about, as one item
-    /// that opens the window where it is said in full; an update that is ready; and the one
-    /// thing to do on a machine that is not set up.
+    /// How to install Claude Code where no tool is here; advice to switch, as items that
+    /// switch; anything else to know about, as one item that opens the window where it is
+    /// said in full; and an update that is ready.
     @ViewBuilder private var attention: some View {
-        let notices = model.notices().filter { $0.severity != .info }
-        let advice = notices.filter { $0.switchesTo != nil }
-        let others = notices.filter { $0.switchesTo == nil }
+        let notices = model.menuNotices
         let waiting = updates.available ? updates.waiting : nil
-        if !notices.isEmpty || waiting != nil || model.footing == .noClaudeCode {
+        if notices.install != nil || !notices.switches.isEmpty || notices.others != nil
+            || waiting != nil
+        {
             Section {
-                if model.footing == .noClaudeCode {
+                if let install = notices.install {
                     Button {
-                        openURL(Links.installClaudeCode)
+                        if let link = install.link.flatMap(URL.init(string:)) { openURL(link) }
                     } label: {
                         Image(systemName: "questionmark.circle")
-                        Text("Claude Code isn’t installed")
-                        Text("Learn how to install it")
+                        entry(install)
                     }
                 }
-                ForEach(advice) { notice in
-                    if let (qualified, label) = notice.switchesTo {
-                        Button {
-                            Task { await model.switchAsked(to: qualified) }
-                        } label: {
-                            Image(systemName: Symbol.switchAccount)
-                            Text("Switch to \(label)")
-                            Text(notice.title)
-                        }
-                        .disabled(model.switchUnderWay != nil)
-                    }
-                }
-                if let first = others.first {
+                ForEach(Array(notices.switches.enumerated()), id: \.offset) { _, advice in
                     Button {
-                        model.showWindow(.accounts)
+                        if let intent = advice.intent { model.send(intent) }
                     } label: {
-                        Image(systemName: first.severity.symbol)
-                        Text(
-                            others.count == 1
-                                ? first.title : "\(others.count) things to look at")
-                        Text(others.count == 1 ? "Show in Pitboard" : first.title)
+                        Image(systemName: Symbol.switchAccount)
+                        entry(advice)
                     }
-                    .help(others.count == 1 ? first.lines.joined(separator: " ") : "")
+                    .disabled(!advice.enabled)
+                }
+                if let others = notices.others {
+                    Button {
+                        if let intent = others.intent { model.send(intent) }
+                    } label: {
+                        Image(systemName: (others.severity ?? .warning).symbol)
+                        entry(others)
+                    }
+                    .help(others.help ?? "")
                 }
                 if let waiting {
                     Button {
@@ -118,99 +111,64 @@ struct MenuBarContent: View {
         }
     }
 
+    @ViewBuilder private func entry(_ entry: MenuEntry) -> some View {
+        Text(entry.title)
+        if let subtitle = entry.subtitle { Text(subtitle) }
+    }
+
     // MARK: - Accounts
 
     /// A section per tool once there is more than one, headed with its name. The account in
-    /// use in each is checked, and choosing another switches to it.
+    /// use in each is checked, and choosing another does what pressing it means.
     @ViewBuilder private var accounts: some View {
-        if model.status == nil {
+        if let note = model.menuAccountsNote {
             Section {
-                Text(model.problem == nil ? "Reading accounts…" : "No accounts to show")
-            }
-        } else if model.groups.isEmpty {
-            if model.footing != .noClaudeCode {
-                Section {
-                    Text("No accounts yet")
-                }
+                Text(note)
             }
         } else {
-            ForEach(model.groups) { group in
-                if let name = group.name {
-                    Section(name) { items(of: group) }
+            ForEach(model.sections, id: \.id) { section in
+                if let heading = section.heading {
+                    Section(heading) { items(of: section) }
                 } else {
-                    Section { items(of: group) }
+                    Section { items(of: section) }
                 }
             }
         }
     }
 
-    private func items(of group: AccountGroup) -> some View {
-        ForEach(group.accounts, id: \.id) { account in
-            AccountMenuItem(
-                description: AccountDescription(
-                    account, switching: model.switchUnderWay, busy: model.signingIn != nil),
-                perform: perform)
+    private func items(of section: AccountSection) -> some View {
+        ForEach(section.accounts, id: \.id) { item in
+            AccountMenuItem(item: item) { model.send($0) }
         }
-    }
-
-    private func perform(_ action: AccountAction) {
-        switch action {
-        case .use(let qualified):
-            Task { await model.switchAsked(to: qualified) }
-        case .signInAgain(let provider, let label):
-            model.present(.signInAgain(provider: provider, label: label))
-        case .name(let provider, let email):
-            model.present(.name(provider: provider, email: email))
-        case .none:
-            break
-        }
-    }
-
-    /// When the numbers were read, as a time rather than an age: a menu can stay open, and
-    /// "just now" would still say so ten minutes later.
-    private var updated: String {
-        if model.reading { return "Reading…" }
-        if let at = model.updatedAt { return "Updated \(clockTime(at))" }
-        return model.problem == nil ? "Not read yet" : "Showing the last numbers measured"
     }
 }
 
 /// One account in the menu: its name, what its limits stand at, and a check mark when it is
 /// the one in use. Choosing it does what pressing it means: switch, sign in again, or name.
 private struct AccountMenuItem: View {
-    let description: AccountDescription
-    let perform: (AccountAction) -> Void
+    let item: AccountItem
+    let perform: (Intent) -> Void
 
     var body: some View {
         Toggle(
             isOn: Binding(
-                get: { description.inUse },
+                get: { item.inUse },
                 // Choosing it does what pressing it means, whichever way the check mark
                 // would go: the one in use stays in use until another is chosen, and a
                 // login in use with no name yet is named from its own checked item.
-                set: { _ in perform(description.action) })
+                set: { _ in
+                    if let action = item.action { perform(action.intent) }
+                })
         ) {
-            Text(description.title)
-            Text(description.summary)
+            Text(item.title)
+            Text(item.summary)
         }
-        .disabled(!description.inUse && description.action == .none)
-        .help(description.problem ?? description.staleNote ?? "")
-    }
-}
-
-extension Notice {
-    /// The account advice offers, when this is advice.
-    var switchesTo: (qualified: String, label: String)? {
-        for action in actions {
-            if case .use(let qualified, let label) = action { return (qualified, label) }
-        }
-        return nil
+        .disabled(!item.inUse && item.action == nil)
+        .help(item.help ?? "")
     }
 }
 
 /// Addresses the app links to, named once.
 enum Links {
     static let documentation = URL(string: "https://docs.usepitboard.com")!
-    static let installClaudeCode = URL(
-        string: "https://docs.claude.com/en/docs/claude-code/setup")!
 }

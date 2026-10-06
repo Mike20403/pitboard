@@ -1,110 +1,65 @@
+import PitboardKit
 import SwiftUI
 
-/// Names the login signed in now, so Pitboard can park it: no browser, since the login is
-/// already there.
+/// Names the login signed in now, so Pitboard can park it, with no browser since the login
+/// is already there; or gives an enrolled account a new name, which keeps its parked login
+/// and its place, inside its own tool.
+///
+/// What it says, whether Save can be pressed and what it saves are the model's: Save offers
+/// what `nameToSave` would save, and the model saves by the same rule.
 struct NameSheet: View {
     let model: AppModel
-    let provider: String
-    let email: String
-    @State private var name = ""
-    @State private var saving = false
-    @State private var failure: ActionFailure?
+    let sheet: Sheet
+    /// What saving `name` asks of the model.
+    let saving: (String) -> Intent
+    @State private var name: String
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
+    init(model: AppModel, sheet: Sheet, saving: @escaping (String) -> Intent) {
+        self.model = model
+        self.sheet = sheet
+        self.saving = saving
+        _name = State(initialValue: model.sheetText?.name ?? "")
+    }
+
     var body: some View {
-        SheetLayout(
-            title: "Name This Account",
-            message: "\(email) is signed in to \(model.tool(provider)?.name ?? provider). "
-                + "Pitboard parks its login under this name whenever you switch to another "
-                + "account."
-        ) {
+        let text = model.sheetText
+        // A name being saved cannot be withdrawn, so there is nothing to cancel.
+        let busy = text?.saving ?? false
+        SheetLayout(title: text?.title ?? "", message: text?.message ?? "") {
             Section {
-                TextField("Name", text: $name, prompt: Text("work"))
+                TextField("Name", text: $name, prompt: Text(text?.prompt ?? ""))
                     .accessibilityIdentifier("sheet.name")
                     .focused($focused)
                     .onSubmit(save)
             }
-            if let failure {
+            if let failure = model.sheetFailure {
                 SheetFailure(failure: failure)
             }
         } buttons: {
-            // A name being saved cannot be withdrawn, so there is nothing to cancel.
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-                .disabled(saving)
-            Button("Save", action: save)
+                .disabled(busy)
+            Button(sheet.saveTitle, action: save)
                 .keyboardShortcut(.defaultAction)
-                .disabled(trimmed(name).isEmpty || saving)
+                .disabled(nameToSave(sheet: sheet, typed: name) == nil || busy)
         }
         .onAppear { focused = true }
-        .interactiveDismissDisabled(saving)
+        .interactiveDismissDisabled(busy)
     }
 
     private func save() {
-        let name = trimmed(name)
-        guard !name.isEmpty, !saving else { return }
-        saving = true
-        Task {
-            failure = await model.enrol(name, for: provider)
-            saving = false
-        }
+        guard let name = nameToSave(sheet: sheet, typed: name), model.sheetText?.saving != true
+        else { return }
+        model.send(saving(name))
     }
 }
 
-/// Gives an enrolled account a new name. It keeps its parked login and its place; only the
-/// name changes, and only inside its own tool.
-struct RenameSheet: View {
-    let model: AppModel
-    let provider: String
-    let label: String
-    @State private var name: String
-    @State private var saving = false
-    @State private var failure: ActionFailure?
-    @FocusState private var focused: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    init(model: AppModel, provider: String, label: String) {
-        self.model = model
-        self.provider = provider
-        self.label = label
-        _name = State(initialValue: label)
-    }
-
-    var body: some View {
-        SheetLayout(
-            title: "Rename “\(label)”",
-            message: "The account keeps its parked login. Only the name you switch to it by "
-                + "changes, here and in the command line."
-        ) {
-            Section {
-                TextField("Name", text: $name, prompt: Text(label))
-                    .accessibilityIdentifier("sheet.name")
-                    .focused($focused)
-                    .onSubmit(save)
-            }
-            if let failure {
-                SheetFailure(failure: failure)
-            }
-        } buttons: {
-            Button("Cancel", role: .cancel) { dismiss() }
-                .keyboardShortcut(.cancelAction)
-                .disabled(saving)
-            Button("Rename", action: save)
-                .keyboardShortcut(.defaultAction)
-                .disabled(trimmed(name).isEmpty || trimmed(name) == label || saving)
-        }
-        .onAppear { focused = true }
-        .interactiveDismissDisabled(saving)
-    }
-
-    private func save() {
-        let name = trimmed(name)
-        guard !name.isEmpty, name != label, !saving else { return }
-        saving = true
-        Task {
-            failure = await model.rename(label, of: provider, to: name)
-            saving = false
-        }
+extension Sheet {
+    /// What a naming sheet's default button says: the window's own control.
+    fileprivate var saveTitle: String {
+        if case .rename = self { return "Rename" }
+        return "Save"
     }
 }

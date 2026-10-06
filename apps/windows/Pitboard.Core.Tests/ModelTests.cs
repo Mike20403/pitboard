@@ -568,18 +568,19 @@ public sealed class ModelTests
 
     /// <summary>
     /// A snapshot says what is known of the machine as records of its own: daily renewal with
-    /// the core's schedule, Renew Now's note, doctor's checks with each level and its spoken
-    /// word, each change in the activity log with its place in the list and what stands in
-    /// for the list when empty, and the command line a terminal runs, the core's own record
-    /// of which it found. Two records made with `[]` for each list compare equal, since every
-    /// `[]` of one type is the same empty array: comparing those says nothing of lists.
+    /// the core's schedule, Renew Now's note, doctor's checks with their place in the list,
+    /// each level and its spoken word, each change in the activity log with its place in the
+    /// list and what stands in for the list when empty, and the command line a terminal runs,
+    /// the core's own record of which it found. Two records made with `[]` for each list
+    /// compare equal, since every `[]` of one type is the same empty array: comparing those
+    /// says nothing of lists.
     /// </summary>
     [TestMethod]
     public void ASnapshotSaysWhatIsKnownOfTheMachine()
     {
         var plist = "/Users/x/Library/LaunchAgents/com.usepitboard.renew.plist";
         var keychain = new CheckLine(
-            Code: "keychain", Name: "Keychain", Level: Level.Fail, SpokenLevel: "Failed", Detail: "locked",
+            Id: 0, Code: "keychain", Name: "Keychain", Level: Level.Fail, SpokenLevel: "Failed", Detail: "locked",
             Advice: "Unlock the login keychain.");
         var switched = new ActivityLine(
             Id: 0, Date: "Oct 5, 2026 at 2:05 PM", Change: "Switch", Account: "codex/spare",
@@ -607,6 +608,7 @@ public sealed class ModelTests
         Assert.AreEqual("Renewed one.", snapshot.Machine.Renewal.Note);
         Assert.AreEqual(Level.Fail, snapshot.Machine.Checks.Lines[0].Level);
         Assert.AreEqual("Failed", snapshot.Machine.Checks.Lines[0].SpokenLevel);
+        Assert.AreEqual(0UL, snapshot.Machine.Checks.Lines[0].Id);
         Assert.AreEqual(keychain, snapshot.Machine.Checks.Lines[0]);
         Assert.AreEqual(0UL, snapshot.Machine.Activity.Lines[0].Id);
         Assert.IsFalse(snapshot.Machine.Activity.Lines[0].Done);

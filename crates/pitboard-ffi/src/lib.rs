@@ -7,6 +7,12 @@
 //! `download_destination`, which asks it whether each name it tries is taken, and
 //! `find_command_line`, which looks along a search path and is made off the main thread.
 //! Timestamps are epoch seconds.
+//!
+//! The model and what it presents came from the macOS app's Swift. Where a comment here
+//! names a Swift file the app no longer has, such as `AppModel.swift`, `MachineModel.swift`
+//! or `Notifier.swift`, or a test in `AppModelTests.swift`, `PresentationTests.swift` or
+//! `MenuTests.swift`, it means that file as it was before the app ran on the model, at
+//! commit 277539b. The `AppModelTests.swift` the app's package has since is another.
 
 use pitboard_core::app::AppContext;
 use pitboard_core::context::{Context, Environment};

@@ -85,7 +85,7 @@ struct AccountPicker: View {
             Text(problem).explanatory()
             buttons {
                 cancelButton
-                Button("Try Again") { Task { await windows.model.refresh(asked: true) } }
+                Button("Try Again") { windows.model.send(.refresh(asked: true)) }
                     .keyboardShortcut(.defaultAction)
             }
         case .refused(let reason):
@@ -111,7 +111,7 @@ struct AccountPicker: View {
                 Spacer()
                 cancelButton
                 Button("Add Account…") {
-                    windows.model.present(.add(provider: link.site.provider))
+                    windows.model.send(.presentSheet(sheet: .add(provider: link.site.provider)))
                 }
                 .keyboardShortcut(.defaultAction)
             }

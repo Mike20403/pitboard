@@ -9,7 +9,7 @@ import PitboardKit
 enum Main {
     @MainActor
     static func main() {
-        let helper = Settings.bundledCommandLine(in: Bundle.main.bundleURL)
+        let helper = appCommandLine(app: Bundle.main.bundleURL.path)
         switch Launch.action(for: CommandLine.arguments, helper: helper) {
         case .app:
             Pitboard.main()

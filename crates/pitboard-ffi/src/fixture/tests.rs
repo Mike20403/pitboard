@@ -1663,7 +1663,8 @@ fn an_interrupted_switch_is_offered_a_way_out_as_the_app_starts() {
 ///
 /// So in PR 10 that test reads what the core's doctor says: the sentence is the same, of
 /// personal's parked login rather than of daily renewal, and it waits for one of the core's
-/// checks rather than one called "Keychain".
+/// checks rather than one called "Keychain". work's parked login and personal's are two
+/// checks of one code, so the pane lists them by their ids.
 #[test]
 fn this_mac_shows_the_cores_checks() {
     let launched = made(World::OneTool);
@@ -1692,6 +1693,17 @@ fn this_mac_shows_the_cores_checks() {
         "{:#?}",
         checks.lines
     );
+    // Every account's parked login is a check of its own under one code, and each is a line
+    // with its own id, which the pane lists them by.
+    let parked: Vec<&str> = checks
+        .lines
+        .iter()
+        .filter(|line| line.code == "parked_login")
+        .map(|line| line.name.as_str())
+        .collect();
+    assert!(parked.len() > 1, "{:#?}", checks.lines);
+    let ids: std::collections::BTreeSet<u64> = checks.lines.iter().map(|line| line.id).collect();
+    assert_eq!(ids.len(), checks.lines.len(), "{:#?}", checks.lines);
     let personal = checks
         .lines
         .iter()

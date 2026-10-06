@@ -3,12 +3,6 @@ import PitboardKit
 
 @testable import PitboardApp
 
-/// The tools as the core lists them, written out so no test asks the core for them.
-let claudeCode = Tool(
-    code: "claude", name: "Claude Code", program: "claude", service: "Anthropic")
-let codex = Tool(code: "codex", name: "Codex", program: "codex", service: "OpenAI")
-let bothTools = [claudeCode, codex]
-
 extension Site {
     /// The sites as the core declares them: what each test of a window's rules runs against.
     static var claude: Site { sitesFor(provider: "claude")[0] }
@@ -22,100 +16,74 @@ extension SiteLink {
     }
 }
 
-func window(
-    _ kind: String, _ percent: Double, resets: Int64? = 100, scope: String? = nil,
-    active: Bool = true, length: Int64? = nil
-) -> Limit {
-    Limit(
-        kind: kind, lengthSeconds: length, scope: scope, percent: percent, resetsAt: resets,
-        severity: nil, isActive: active)
-}
-
 /// An account as the core reports one. `label` nil is a login signed in and not enrolled.
 /// Switchable unless it is the one signed in, as a real one is.
 func account(
-    _ label: String?, of provider: String = "claude", signedIn: Bool = false,
-    switchable: Bool? = nil, uuid: String? = nil, _ windows: [Limit] = []
+    _ label: String?, of provider: String = "claude", email: String? = nil,
+    signedIn: Bool = false, switchable: Bool? = nil, uuid: String? = nil
 ) -> Account {
     let uuid = uuid ?? label ?? "someone"
     return Account(
         id: "\(provider):\(uuid)", provider: provider, label: label,
         qualified: label.map { "\(provider)/\($0)" }, unplaced: false,
-        email: "\(label ?? uuid)@example.com", accountUuid: uuid, signedIn: signedIn,
+        email: email ?? "\(label ?? uuid)@example.com", accountUuid: uuid, signedIn: signedIn,
         switchable: switchable ?? (!signedIn && label != nil), parked: nil,
-        usage: Usage(source: .live, observedAt: 0, windows: windows), stale: nil,
+        usage: Usage(source: .live, observedAt: 0, windows: []), stale: nil,
         staleExplanation: nil, lastsSeconds: nil, lastsBurning: false)
-}
-
-/// A tool's login that belongs to no account Pitboard can name, as the core reports one:
-/// no label, no email, no account id, and what is wrong with it.
-func unplaced(of provider: String, signedIn: Bool = false) -> Account {
-    Account(
-        id: "\(provider):login", provider: provider, label: nil, qualified: nil,
-        unplaced: true, email: "", accountUuid: "", signedIn: signedIn, switchable: false,
-        parked: nil, usage: nil, stale: "login_unreadable",
-        staleExplanation: "Codex's login could not be read; run `pitboard doctor`",
-        lastsSeconds: nil, lastsBurning: false)
 }
 
 func status(_ accounts: [Account], warnings: [Warning] = []) -> Status {
     Status(now: 0, accounts: accounts, warnings: warnings)
 }
 
-extension AppModel {
-    /// The app's model with nothing of the Mac running the tests behind it: `service` for
-    /// the core, preferences of the test's own, a login item that registers nothing, and a
-    /// command line that links nothing. Nothing runs by itself unless `watching` says so, so
-    /// a test drives every read and knows what set what.
-    convenience init(
-        testing service: any Core, watching: Bool = false,
-        defaults: UserDefaults = TestDefaults(), commandLineTool: CommandLineTool = .nowhere,
-        loginItem: any LoginItem = StandInLoginItem(),
-        appControl: any PitboardApp.AppControl = StandInAppControl()
-    ) {
-        self.init(
-            watching: watching, service: service, defaults: defaults,
-            commandLineTool: commandLineTool, loginItem: loginItem, appControl: appControl,
-            notifies: false)
+/// Stands in for the Rust model: hands out the snapshot a test gives it, and keeps every
+/// intent sent, so nothing a test does reaches a core or the machine running it.
+final class StandInModel: PitboardModelProtocol, @unchecked Sendable {
+    // Unchecked because every read and write holds `lock`.
+    private let lock = NSLock()
+    private let first: Snapshot
+    private var intents: [Intent] = []
+
+    init(_ first: Snapshot) {
+        self.first = first
     }
+
+    /// Every intent sent, oldest first.
+    var sent: [Intent] { lock.withLock { intents } }
+
+    func send(intent: Intent) { lock.withLock { intents.append(intent) } }
+    func shutdown() {}
+    func snapshot() -> Snapshot { first }
 }
 
-/// Other apps, as a test says they are, and nothing on the machine running the tests: this
-/// Mac may have ChatGPT open. Named with its module, since the bindings now have an
-/// `AppControl` too: the Rust model's, which takes this one's place once the app uses it.
-@MainActor
-final class StandInAppControl: PitboardApp.AppControl {
-    var running: Set<String>
-    /// Whether an app asked to quit does. One busy with work, or whose person said no, does
-    /// not.
-    var quits: Bool
-    /// Every app asked to quit and every app opened, in order.
-    private(set) var asked: [String] = []
-
-    init(running: Set<String> = [], quits: Bool = true) {
-        self.running = running
-        self.quits = quits
-    }
-
-    /// Where a test's app is, which is nowhere on the machine running it.
-    static func copy(of bundleID: String) -> URL {
-        URL(fileURLWithPath: "/stand-in/\(bundleID).app")
-    }
-
-    func running(_ bundleID: String) -> URL? {
-        running.contains(bundleID) ? Self.copy(of: bundleID) : nil
-    }
-
-    func requestQuit(_ bundleID: String) {
-        asked.append("quit \(bundleID)")
-        if quits { running.remove(bundleID) }
-    }
-
-    func open(_ copy: URL) {
-        let bundleID = copy.deletingPathExtension().lastPathComponent
-        asked.append("open \(bundleID)")
-        running.insert(bundleID)
-    }
+/// A snapshot with nothing in it but what a test says, as a model that has read nothing yet
+/// would make one, numbered `revision`.
+func snapshot(
+    _ revision: UInt64, status: Status? = nil, readFailure: ReadFailure? = nil,
+    window: WindowRequest = WindowRequest(serial: 0, pane: nil)
+) -> Snapshot {
+    Snapshot(
+        revision: revision, now: 0, reading: false, updatedAt: nil, status: status,
+        warnings: [], readFailure: readFailure, stuck: false, installed: nil,
+        switchUnderWay: nil, quitQuestion: nil, lastSwitches: [], abandoned: nil, failure: nil,
+        windowRequest: window, signingIn: nil, sheet: nil, sheetFailure: nil,
+        menuBar: MenuBarText(nameAndUsage: "", usage: "", spoken: "Pitboard"), sections: [],
+        showsTools: false, notices: [],
+        menuNotices: MenuNotices(install: nil, switches: [], others: nil), footing: .ready,
+        setup: nil, accountsShown: .reading(title: "Reading accounts…"),
+        menuAccountsNote: nil, updatedMenu: "", updatedWindow: "", sheetText: nil,
+        signingInText: nil, quitConfirmation: nil, failureAlert: nil,
+        machine: MachineShown(
+            schedule: ScheduleShown(
+                schedule: nil, on: false, changing: false, enabled: true, runs: nil,
+                scheduledIn: nil, note: nil, failed: nil),
+            renewal: RenewalShown(renewing: false, note: ""),
+            checks: ChecksShown(
+                lines: [], summary: nil, checking: false, checked: nil, waiting: nil),
+            activity: ActivityShown(lines: [], empty: nil),
+            commandLine: CommandLineShown(
+                found: nil, inTerminal: nil, updateNote: nil, offersLink: false,
+                cannotLink: nil)))
 }
 
 /// Preferences kept in memory for one test alone, so what one test declines is not what the
@@ -145,58 +113,6 @@ final class TestDefaults: UserDefaults, @unchecked Sendable {
         object(forKey: key) as? [String]
     }
     override func bool(forKey key: String) -> Bool { object(forKey: key) as? Bool ?? false }
-}
-
-/// A login item that keeps what it is told and registers nothing, so no test puts itself
-/// among the login items of whoever runs it.
-@MainActor
-final class StandInLoginItem: LoginItem {
-    private(set) var state: LoginItemState = .disabled
-    func register() throws { state = .enabled }
-    func unregister() throws { state = .disabled }
-    func openSystemSettings() {}
-}
-
-extension CommandLineTool {
-    /// A command line that is not there: no app around it, nowhere to look for one, and a
-    /// link that no script is run to make.
-    static let nowhere = CommandLineTool(
-        helper: nil, installPlaces: [],
-        link: FileManager.default.temporaryDirectory
-            .appendingPathComponent("pitboard-nowhere/bin/pitboard").path,
-        execute: { _ in [NSAppleScript.errorMessage: "No script is run in a test."] })
-}
-
-/// Holds whatever comes to it until the test lets it through, so a test can make one thing
-/// happen while another is still under way: a read still waiting on a service, a sign-in
-/// still starting.
-@MainActor
-final class Gate {
-    private var waiting: [CheckedContinuation<Void, Never>] = []
-    private var opened = false
-    /// How many have come to it so far, let through or not.
-    private(set) var arrivals = 0
-
-    /// Waits here until the test lets it through, or goes straight on once it is open.
-    func pass() async {
-        arrivals += 1
-        guard !opened else { return }
-        await withCheckedContinuation { waiting.append($0) }
-    }
-
-    /// Lets through the one that has waited longest, and nobody else.
-    func letOneThrough() {
-        guard !waiting.isEmpty else { return }
-        waiting.removeFirst().resume()
-    }
-
-    /// Lets everyone through, those waiting and those still to come.
-    func open() {
-        opened = true
-        let all = waiting
-        waiting = []
-        for waiter in all { waiter.resume() }
-    }
 }
 
 /// Stands in for AppleScript: keeps each script it is handed and raises what it is told to,

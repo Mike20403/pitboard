@@ -32,8 +32,7 @@ build=$((${version%%.*} * 10000 + ${rest%%.*} * 100 + ${rest#*.}))
 
 # A fixture world's text, which only a core built with the `fixture` feature holds: a word
 # of its stand-in pages and an account of its worlds. Looked for in the core's library here,
-# and in the app once it is built, which would also hold the Swift fixture a debug build
-# compiles.
+# and in the app once it is built, which links that library.
 holds_a_fixture() {
     LC_ALL=C grep -a -q -e 'A Pitboard fixture page' -e 'dana@work.example' "$1"
 }

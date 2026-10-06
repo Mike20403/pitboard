@@ -70,8 +70,9 @@ final class MenuBarTests: XCTestCase {
         XCTAssertTrue(app.menuItem("Claude Code isn’t installed").waitForExistence(timeout: 5))
     }
 
-    /// A read that failed is one item in the menu, and choosing it opens the window, where
-    /// the notice says why above the last numbers measured.
+    /// A read that failed is one item in the menu, and choosing it opens the window, which
+    /// says why in the core's own words. The fixture's account list cannot be read, so
+    /// nothing is known to list, and the window says it could not read the accounts.
     @MainActor
     func testAFailedReadIsSaidInTheMenuAndInTheWindow() {
         let app = XCUIApplication.launched(.readFailure)
@@ -79,11 +80,11 @@ final class MenuBarTests: XCTestCase {
         let item = app.menuItem("Couldn’t read usage")
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.click()
-        let notice = app.descendants(matching: .any)["notice.read"]
-        XCTAssertTrue(notice.waitForExistence(timeout: 5))
-        XCTAssertTrue(notice.staticTexts["Couldn’t read usage"].exists)
-        XCTAssertTrue(notice.text("BEGINSWITH", "Anthropic could not be reached").exists)
-        XCTAssertTrue(app.accountRow("claude/work").exists)
+        XCTAssertTrue(app.staticTexts["Couldn’t Read Accounts"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.text("BEGINSWITH", "could not read Pitboard's account list at ").exists)
+        XCTAssertTrue(app.buttons["Try Again"].exists)
+        XCTAssertFalse(app.accountRow("claude/work").exists)
     }
 
     /// The menu's item for something to look at opens the window on the accounts, where it
@@ -93,7 +94,7 @@ final class MenuBarTests: XCTestCase {
         let app = XCUIApplication.launched(.stuck)
         app.openWindow()
         app.descendants(matching: .any)["sidebar.machine"].click()
-        let checks = app.staticTexts["Keychain"]
+        let checks = app.staticTexts["interrupted switch"]
         XCTAssertTrue(checks.waitForExistence(timeout: 5))
 
         app.openMenu()

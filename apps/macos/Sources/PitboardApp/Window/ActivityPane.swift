@@ -2,67 +2,46 @@ import PitboardKit
 import SwiftUI
 
 /// Everything Pitboard has changed, newest first, from the log it keeps: every switch,
-/// enrolment, rename, forget and renewal, whichever front end asked for it.
+/// enrolment, rename, forget and renewal, whichever front end asked for it, as the model says
+/// each.
 struct ActivityPane: View {
-    let machine: MachineModel
-
-    /// A line of the log, numbered. The log itself has no id: two changes can share a
-    /// timestamp, a verb and a subject, and rows that claim the same identity make a Table
-    /// drop all but one of them.
-    struct Line: Identifiable {
-        let id: Int
-        let change: Change
-        let date: Date?
-    }
-
-    private var lines: [Line] {
-        machine.changes.enumerated().map {
-            Line(id: $0.offset, change: $0.element, date: changeDate($0.element.at))
-        }
-    }
+    let model: AppModel
 
     var body: some View {
-        Table(lines) {
+        let activity = model.machine.activity
+        Table(activity.lines) {
             TableColumn("Date") { line in
-                Group {
-                    if let date = line.date {
-                        Text(date.formatted(date: .abbreviated, time: .shortened))
-                    } else {
-                        Text(line.change.at)
-                    }
-                }
-                .monospacedDigit()
+                Text(line.date).monospacedDigit()
             }
             .width(min: 120, ideal: 150)
             TableColumn("Change") { line in
-                Text(changeVerb(line.change.verb))
+                Text(line.change)
             }
             .width(min: 70, ideal: 90)
             TableColumn("Account") { line in
-                Text(line.change.subject).lineLimit(1).truncationMode(.middle)
+                Text(line.account).lineLimit(1).truncationMode(.middle)
             }
             TableColumn("Result") { line in
-                Text(changeOutcome(line.change.outcome))
-                    .foregroundStyle(line.change.outcome == "ok" ? .secondary : .primary)
+                Text(line.result)
+                    .foregroundStyle(line.done ? .secondary : .primary)
             }
             .width(min: 60, ideal: 90)
             TableColumn("Asked By") { line in
-                Text(changeCaller(line.change.caller)).foregroundStyle(.secondary)
+                Text(line.askedBy).foregroundStyle(.secondary)
             }
             .width(min: 80, ideal: 110)
         }
         .overlay {
-            if machine.changes.isEmpty {
+            if let empty = activity.empty {
                 ContentUnavailableView(
-                    "No Activity",
-                    systemImage: Symbol.activity,
-                    description: Text("Pitboard lists every change it makes here."))
+                    empty.title, systemImage: Symbol.activity,
+                    description: Text(empty.detail))
             }
         }
         .navigationTitle("Activity")
         .toolbar {
             Button {
-                Task { await machine.readChanges() }
+                model.send(.paneShown(pane: .activity))
             } label: {
                 Label("Refresh", systemImage: Symbol.refresh)
             }
@@ -71,9 +50,14 @@ struct ActivityPane: View {
         .focusedSceneValue(
             \.refresh,
             RefreshCommand(title: "Refresh", disabled: false) {
-                Task { await machine.readChanges() }
+                model.send(.paneShown(pane: .activity))
             }
         )
-        .task { await machine.readChanges() }
+        // Every visit: the log is read each time the pane is shown.
+        .task { model.send(.paneShown(pane: .activity)) }
     }
 }
+
+/// A line of the log, numbered by the model: the log has no id of its own, and rows that
+/// claim the same identity make a Table drop all but one of them.
+extension ActivityLine: Identifiable {}

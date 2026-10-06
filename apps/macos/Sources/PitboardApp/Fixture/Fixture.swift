@@ -3,85 +3,86 @@
     import PitboardKit
 
     /// A machine in a known state, for the UI tests and for looking at the app without
-    /// touching the one it runs on. Only a debug build has these: a release build never reads
-    /// `PITBOARD_FIXTURE`, so nothing outside can put the app in a world that is not real.
-    public enum Fixture: String, CaseIterable, Sendable {
-        /// Claude Code and Codex, each with an account in use and one to switch to, and a
-        /// Claude Code account whose parked login needs a sign-in.
-        case twoTools
-        /// Claude Code alone, with two accounts.
-        case oneTool
-        /// Claude Code is installed and nobody is signed in to it.
-        case empty
-        /// `empty`, opened for the first time.
-        case firstLaunch
-        /// Neither Claude Code nor Codex is on this machine, and nothing is signed in.
-        case noClaudeCode
-        /// Somebody is signed in to Claude Code and Pitboard has no name for them.
-        case unnamed
-        /// One Claude Code account, so nothing to switch to.
-        case onlyOne
-        /// The service could not be reached, and the last numbers measured are shown.
-        case readFailure
-        /// An interrupted switch that cannot be finished until the service answers.
-        case stuck
-        /// `twoTools`, with ChatGPT open and running Codex's login.
-        case chatGPTOpen
-
+    /// touching the one it runs on. The worlds are Rust's, `pitboard-ffi`'s fixtures, by the
+    /// names `fixtureNames()` gives: the real core and the real model over a machine of their
+    /// own. Only a debug build reads `PITBOARD_FIXTURE`, so nothing outside can put a release
+    /// in a world that is not real, and only a library built with `--fixture` has them.
+    ///
+    /// What is here is the native half a fixture needs: a login item that registers nothing,
+    /// a command line linked in the fixture's own folder without a password, and the account
+    /// windows' stand-ins in `FixtureWeb.swift`.
+    enum Fixture {
         /// The environment variable a debug build reads the fixture's name from.
         static let variable = "PITBOARD_FIXTURE"
 
-        /// The defaults a fixture keeps its preferences in, emptied at every launch so each
-        /// test starts from the same place and nothing reaches the real app's.
+        /// The defaults a fixture keeps the app's view preferences in, emptied at every launch
+        /// so each test starts from the same place and nothing reaches the real app's. The
+        /// model's own preferences are in the fixture's Pitboard directory.
         static let suite = "com.usepitboard.Pitboard.fixture"
-
-        /// The fixture's world. It reads, notices changes and reads when a menu opens, as the
-        /// app does on a real machine, since that is what the UI tests are testing; only
-        /// notifications are left out. Its accounts' windows load stand-in pages and keep
-        /// nothing on disk. `defaults` stands in for the fixture's suite, for a unit test that
-        /// must not leave the suite's file behind.
-        @MainActor
-        func dependencies(defaults given: UserDefaults? = nil) -> Dependencies {
-            let defaults = given ?? UserDefaults(suiteName: Self.suite) ?? .standard
-            if given == nil { defaults.removePersistentDomain(forName: Self.suite) }
-            if self != .firstLaunch { defaults.set(true, forKey: DefaultsKey.hasBeenSeen) }
-            let apps = FixtureApps(running: self == .chatGPTOpen ? [FixtureApps.chatGPT] : [])
-            return Dependencies(
-                core: FixtureCore(self, apps: apps),
-                defaults: defaults,
-                loginItem: FixtureLoginItem(),
-                appControl: FixtureAppControl(apps),
-                commandLineTool: Self.commandLineTool(),
-                notifies: false,
-                watching: true,
-                web: .fixture(defaults: defaults),
-                linkScheme: Self.linkScheme)
-        }
 
         /// The Pitboard link scheme a fixture answers: the debug build's, whichever build this
         /// is, so a UI test's link never reaches a copy installed.
         static let linkScheme = "pitboard-debug"
-    }
 
-    extension Fixture {
-        /// A command line inside a stand-in app in a temporary directory, and a link that
-        /// is made there without asking anyone for a password, so linking it can be tried
-        /// without writing to `/usr/local/bin`.
-        static func commandLineTool() -> CommandLineTool {
-            // One folder, emptied at every launch, rather than one per launch left behind.
-            let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("pitboard-fixture")
-            try? FileManager.default.removeItem(at: root)
-            let helper = root.appendingPathComponent("Pitboard.app/Contents/Helpers/pitboard")
-            let bin = root.appendingPathComponent("bin")
-            try? FileManager.default.createDirectory(
-                at: helper.deletingLastPathComponent(), withIntermediateDirectories: true)
-            FileManager.default.createFile(
-                atPath: helper.path, contents: Data("#!/bin/sh\n".utf8),
-                attributes: [.posixPermissions: 0o755])
+        /// The fixture's folder, `pitboard-fixture` in the temporary directory as Rust's
+        /// `std::env::temp_dir` finds it: `TMPDIR` where it is set, which Foundation's
+        /// temporary directory does not read, and the user's own temporary directory where
+        /// it is not. The model makes the world there, and the native stand-ins keep what
+        /// they make beside it.
+        static func folder(environment: [String: String]) -> URL {
+            let temporary =
+                environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? FileManager.default.temporaryDirectory
+            return temporary.appendingPathComponent("pitboard-fixture", isDirectory: true)
+        }
+
+        /// The fixture called `name`'s world, which reads, notices changes and reads when a
+        /// menu opens, as the app does on a real machine, since that is what the UI tests are
+        /// testing; it posts no notification. A name that is none of them, or a library built
+        /// without fixtures, stops the launch, saying why in the core's words: the latter
+        /// names the flag a library with them is built with.
+        @MainActor
+        static func dependencies(named name: String, environment: [String: String])
+            -> Dependencies
+        {
+            let model: AppModel
+            do {
+                model = try AppModel.listening { listener in
+                    try PitboardModel.fixture(
+                        name: name, listener: listener, localTime: MacLocalTime())
+                }
+            } catch let refused as FixtureError {
+                switch refused {
+                case .Unavailable(let reason), .Unknown(let reason), .Failed(let reason):
+                    Launch.fail(reason)
+                }
+            } catch {
+                Launch.fail("the fixture \(name) could not be made: \(error)")
+            }
+            // Only once the model has made its world: making it empties the folder first.
+            let folder = folder(environment: environment)
+            let defaults = UserDefaults(suiteName: suite) ?? .standard
+            defaults.removePersistentDomain(forName: suite)
+            return Dependencies(
+                model: model,
+                defaults: defaults,
+                loginItem: FixtureLoginItem(),
+                commandLineTool: commandLineTool(in: folder),
+                web: .fixture(defaults: defaults, folder: folder),
+                linkScheme: linkScheme,
+                quitting: {})
+        }
+
+        /// The command line inside the fixture's stand-in app, which the model's world makes,
+        /// and a link to it in the fixture's `bin`, where the model looks for the `pitboard` a
+        /// terminal runs: made without asking anyone for a password, so linking it can be
+        /// tried without writing to `/usr/local/bin`.
+        static func commandLineTool(in folder: URL) -> CommandLineTool {
+            let helper = folder.appendingPathComponent("Pitboard.app/Contents/Helpers/pitboard")
+            let bin = folder.appendingPathComponent("bin")
             let link = bin.appendingPathComponent("pitboard")
             return CommandLineTool(
-                helper: helper.path, installPlaces: [bin.path], link: link.path,
+                helper: helper.path, link: link.path,
                 execute: { _ in
                     try? FileManager.default.createDirectory(
                         at: bin, withIntermediateDirectories: true)
@@ -90,65 +91,6 @@
                     return nil
                 })
         }
-    }
-
-    /// The apps running on a fixture's machine. Its core sees them running a tool, and its
-    /// app control quits and opens them, so the two agree the way the process list and
-    /// macOS's list of apps agree on a real machine. Nothing here touches a real app.
-    final class FixtureApps: @unchecked Sendable {
-        /// ChatGPT, as the core names it from the `codex` it runs.
-        static let chatGPT = "com.openai.codex"
-
-        private let lock = NSLock()
-        private var running: Set<String>
-        private var said: [String] = []
-
-        /// Every app asked to quit and every app opened, in order, for a test to read.
-        var asked: [String] { lock.withLock { said } }
-
-        init(running: Set<String> = []) {
-            self.running = running
-        }
-
-        /// Where an app of the fixture's is, which is nowhere on the machine running it.
-        static func copy(of bundleID: String) -> URL {
-            URL(fileURLWithPath: "/fixture/\(bundleID).app")
-        }
-
-        func isRunning(_ bundleID: String) -> Bool {
-            lock.withLock { running.contains(bundleID) }
-        }
-
-        func quit(_ bundleID: String) {
-            lock.withLock {
-                said.append("quit \(bundleID)")
-                running.remove(bundleID)
-            }
-        }
-
-        func open(_ copy: URL) {
-            let bundleID = copy.deletingPathExtension().lastPathComponent
-            lock.withLock {
-                said.append("open \(bundleID)")
-                running.insert(bundleID)
-            }
-        }
-    }
-
-    /// Quits and opens the fixture's apps, and nothing on the machine running it.
-    @MainActor
-    final class FixtureAppControl: AppControl {
-        private let apps: FixtureApps
-
-        init(_ apps: FixtureApps) {
-            self.apps = apps
-        }
-
-        func running(_ bundleID: String) -> URL? {
-            apps.isRunning(bundleID) ? FixtureApps.copy(of: bundleID) : nil
-        }
-        func requestQuit(_ bundleID: String) { apps.quit(bundleID) }
-        func open(_ copy: URL) { apps.open(copy) }
     }
 
     /// A login item that remembers what it was told and registers nothing.

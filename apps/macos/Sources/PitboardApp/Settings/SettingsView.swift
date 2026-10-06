@@ -6,6 +6,8 @@ import SwiftUI
 /// Command-comma.
 struct SettingsView: View {
     let model: AppModel
+    let openAtLogin: OpenAtLogin
+    let commandLineLink: CommandLineLink
     let presence: AppPresence
     let updates: any Updates
 
@@ -19,10 +21,10 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            GeneralSettings(machine: model.machine)
+            GeneralSettings(model: model, openAtLogin: openAtLogin)
                 .tabItem { Label("General", systemImage: Symbol.general) }
                 .tag(Tab.general)
-            CommandLineSettings(machine: model.machine)
+            CommandLineSettings(model: model, link: commandLineLink)
                 .tabItem { Label("Command Line", systemImage: Symbol.terminal) }
                 .tag(Tab.commandLine)
             UpdatesSettings(updates: updates)
@@ -39,28 +41,33 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettings: View {
-    let machine: MachineModel
+    let model: AppModel
+    let openAtLogin: OpenAtLogin
     @AppStorage(DefaultsKey.menuBarShows) private var shows = MenuBarShows.nameAndUsage
 
     var body: some View {
+        let schedule = model.machine.schedule
+        let renewal = model.machine.renewal
         Form {
             Section {
                 Toggle(
                     "Open Pitboard at login",
                     isOn: Binding(
-                        get: { machine.openAtLogin != .disabled },
-                        set: { machine.setOpenAtLogin($0) })
+                        get: { openAtLogin.state != .disabled },
+                        set: { openAtLogin.set($0) })
                 )
                 .accessibilityIdentifier("settings.openAtLogin")
-                if machine.openAtLogin == .requiresApproval {
+                if openAtLogin.state == .requiresApproval {
                     LabeledContent {
-                        Button("Open Login Items Settings…") { machine.openLoginItemSettings() }
+                        Button("Open Login Items Settings…") {
+                            openAtLogin.openSystemSettings()
+                        }
                     } label: {
                         Text("macOS is waiting for you to allow Pitboard in Login Items.")
                             .explanatory()
                     }
                 }
-                if let failed = machine.loginItemFailed {
+                if let failed = openAtLogin.failed {
                     Text(failed).explanatory()
                 }
                 Picker("Menu bar shows", selection: $shows) {
@@ -71,21 +78,20 @@ private struct GeneralSettings: View {
             }
 
             Section {
+                // Shows what was asked for while the scheduler answers, and cannot be pressed
+                // meanwhile; only turning it on is held back where this copy cannot, so a
+                // schedule that cannot work can still be taken away.
                 Toggle(
                     "Renew parked logins daily",
                     isOn: Binding(
-                        get: { machine.scheduling ?? machine.renewsDaily },
-                        set: { wanted in Task { await machine.setSchedule(on: wanted) } })
+                        get: { schedule.on }, set: { model.send(.setSchedule(on: $0)) })
                 )
                 .accessibilityIdentifier("settings.renewDaily")
-                // Only turning it on, so a schedule that cannot work can still be taken away.
-                .disabled(
-                    machine.scheduling != nil
-                        || (!machine.renewsDaily && machine.cannotSchedule != nil))
-                if case .installed(let path, let every) = machine.schedule {
-                    LabeledContent(
-                        "Runs",
-                        value: every == 86_400 ? "Every day" : "Every \(every / 3600) hours")
+                .disabled(!schedule.enabled)
+                if let runs = schedule.runs {
+                    LabeledContent("Runs", value: runs)
+                }
+                if let path = schedule.scheduledIn {
                     LabeledContent("Scheduled in") {
                         Text(path)
                             .foregroundStyle(.secondary)
@@ -93,22 +99,18 @@ private struct GeneralSettings: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                } else if case .unsupported = machine.schedule {
-                    Text("This Mac has no scheduler Pitboard knows how to write to.")
-                        .explanatory()
-                } else if let why = machine.cannotSchedule {
-                    Text(why).explanatory()
                 }
-                if let failed = machine.scheduleFailed {
+                if let note = schedule.note {
+                    Text(note).explanatory()
+                }
+                if let failed = schedule.failed {
                     Text(failed).explanatory()
                 }
                 LabeledContent {
-                    Button("Renew Now") { Task { await machine.renewNow() } }
-                        .disabled(machine.renewing)
+                    Button("Renew Now") { model.send(.renewNow) }
+                        .disabled(renewal.renewing)
                 } label: {
-                    Text(
-                        machine.renewals.map { renewalNote(renewals: $0) }
-                            ?? "Renew every parked login that is due.")
+                    Text(renewal.note)
                 }
             } header: {
                 Text("While you’re away")
@@ -125,14 +127,15 @@ private struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .task {
-            machine.readLoginItem()
-            await machine.readSchedule()
+            openAtLogin.read()
+            // A terminal can change the schedule while the app runs.
+            model.send(.readSchedule)
             // Approving Pitboard in Login Items happens in System Settings, and coming back
             // from there makes the app active again without showing this tab anew.
             for await _ in NotificationCenter.default.notifications(
                 named: NSApplication.didBecomeActiveNotification)
             {
-                machine.readLoginItem()
+                openAtLogin.read()
             }
         }
     }
@@ -142,54 +145,43 @@ private struct GeneralSettings: View {
 /// none. Only then: a `pitboard` found is one somebody installed, and a link in front of it
 /// would change what their terminal runs without saying so.
 private struct CommandLineSettings: View {
-    let machine: MachineModel
+    let model: AppModel
+    let link: CommandLineLink
 
     var body: some View {
+        let shown = model.machine.commandLine
         Form {
             Section {
-                switch machine.commandLine {
-                case .bundled(let path), .another(let path):
-                    LabeledContent("In your terminal") {
-                        Text(path).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                case .nowhere:
-                    LabeledContent("In your terminal", value: "Not installed")
-                case nil:
-                    LabeledContent("In your terminal") {
+                LabeledContent("In your terminal") {
+                    if let found = shown.inTerminal {
+                        Text(found).foregroundStyle(.secondary).textSelection(.enabled)
+                    } else {
                         ProgressView().controlSize(.small)
                     }
                 }
-                if case .nowhere = machine.commandLine {
-                    if machine.commandLineTool.linkable {
-                        LabeledContent {
-                            Button("Install Command Line Tool…") {
-                                Task { await machine.installCommandLine() }
-                            }
-                            .disabled(machine.linking)
-                        } label: {
-                            Text(
-                                "Links \(machine.commandLineTool.link) to the one inside this "
-                                    + "app. macOS asks for an administrator’s password."
-                            )
-                            .explanatory()
+                if shown.offersLink {
+                    LabeledContent {
+                        Button("Install Command Line Tool…") {
+                            Task { await link.install() }
                         }
-                    } else if machine.commandLineTool.translocated {
+                        .disabled(link.linking)
+                    } label: {
                         Text(
-                            "Move Pitboard to your Applications folder first. Until then macOS "
-                                + "runs it from a temporary copy, and a link to that would break."
+                            "Links \(link.target) to the one inside this app. macOS asks for "
+                                + "an administrator’s password."
                         )
                         .explanatory()
                     }
+                } else if let cannot = shown.cannotLink {
+                    Text(cannot).explanatory()
                 }
-                if let failed = machine.linkFailed {
+                if let failed = link.failed {
                     Text(failed).explanatory()
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: Design.rowSpacing) {
-                    switch machine.commandLine {
-                    case .bundled: Text(updateNote(bundled: true)).footnote()
-                    case .another: Text(updateNote(bundled: false)).footnote()
-                    default: EmptyView()
+                    if let note = shown.updateNote {
+                        Text(note).footnote()
                     }
                     // One literal, so its code spans are drawn as code.
                     Text(
@@ -204,7 +196,7 @@ private struct CommandLineSettings: View {
             }
         }
         .formStyle(.grouped)
-        .task { await machine.findCommandLine() }
+        .task { model.send(.lookForCommandLine) }
     }
 }
 

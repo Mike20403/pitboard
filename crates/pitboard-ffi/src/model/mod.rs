@@ -5,7 +5,8 @@
 //! exports is async, and nothing it exports waits on the core: `send` puts an intent in the
 //! model's mailbox and waits for nothing, `snapshot` takes the lock the actor holds only
 //! while it compares and copies a snapshot, and `shutdown` waits for the actor to take the
-//! messages already in its mailbox, none of which waits on anything.
+//! messages already in its mailbox, none of which waits on anything, and for each sign-in
+//! under way to stop.
 //!
 //! Inside, one thread, the actor, owns the `State` and nothing else touches it. It takes
 //! each message in turn, has `State::apply` say what follows, which does no I/O at all, and
@@ -71,7 +72,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// What the app was started with, which the model reads as the command line reads its own:
 /// the environment, and where the app is. Not called `Launch`, which the macOS app already
@@ -581,6 +582,8 @@ pub struct PitboardModel {
     /// Set once the model is stopped, after which the listener is told nothing more.
     stopped: Arc<AtomicBool>,
     actor: Mutex<Option<JoinHandle<()>>>,
+    /// The sign-ins under way, which `shutdown` waits for.
+    sign_ins: Arc<lanes::SignIns>,
 }
 
 #[uniffi::export]
@@ -623,12 +626,20 @@ impl PitboardModel {
         let _ = self.mailbox.send(Msg::Intent(intent));
     }
 
-    /// Stops the model: its timers, its lanes once each has finished what it is doing, and
-    /// its listener, which is called no more once this returns, beyond a call already under
-    /// way on its own thread. Waits for the actor to end, which it does once it has taken
-    /// the messages already in its mailbox, none of which waits on anything, and for nothing
-    /// else, so the listener may call it too. For an app to call as it quits: the listener
-    /// holds the app, which holds the model, so neither is freed before that.
+    /// Stops the model: its timers, its lanes once each has finished what it is doing, its
+    /// listener, which is called no more once this returns, beyond a call already under way
+    /// on its own thread, and every sign-in under way, which has stopped by the time this
+    /// returns. Waits for the actor to end, which it does once it has taken the messages
+    /// already in its mailbox, none of which waits on anything; then for the lane of calls
+    /// to sign-ins, which stops each sign-in once the actor has gone, to have stopped each
+    /// one's tool and waited for it, and for a sign-in still starting, or enrolling what it
+    /// signed in to, to end, for no longer than ten seconds in all. Nothing else, and
+    /// nothing a sign-in does waits on the listener, so the listener may call it too.
+    ///
+    /// For an app to call as it quits: the listener holds the app, which holds the model, so
+    /// neither is freed before that, and the app's process ends once this returns, which
+    /// ends no tool it started. Returning before the lane had stopped them, it let the
+    /// process end first.
     pub fn shutdown(&self) {
         self.stop();
         let actor = self.actor.lock().ok().and_then(|mut actor| actor.take());
@@ -636,9 +647,16 @@ impl PitboardModel {
             && actor.thread().id() != std::thread::current().id()
         {
             let _ = actor.join();
+            let _ = self.sign_ins.stopped_within(SIGN_INS_STOP_WITHIN);
         }
     }
 }
+
+/// How long `shutdown` waits for the sign-ins under way to stop. One still starting can wait
+/// on the person's login shell, which the core gives five seconds
+/// (`host::unix::shell::PATIENCE`), and stops its tool at once once started. Past this the
+/// app quits all the same.
+const SIGN_INS_STOP_WITHIN: Duration = Duration::from_secs(10);
 
 /// What the model asks of the app's own system.
 pub(crate) struct Platform {
@@ -674,6 +692,7 @@ impl PitboardModel {
             cadence,
             &mailbox,
         );
+        let sign_ins = lanes.sign_ins();
         let actor = Actor {
             state,
             lanes,
@@ -691,6 +710,7 @@ impl PitboardModel {
             shown,
             stopped,
             actor: Mutex::new(Some(actor)),
+            sign_ins,
         })
     }
 

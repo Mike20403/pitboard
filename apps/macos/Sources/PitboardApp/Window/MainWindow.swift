@@ -1,3 +1,4 @@
+import PitboardKit
 import SwiftUI
 
 /// Pitboard's one window, beside the menu rather than instead of it.
@@ -9,8 +10,9 @@ struct MainWindow: View {
     /// The scene's id, named once so the menu bar item and the scene cannot drift apart.
     static let id = "main"
 
-    @Bindable var model: AppModel
+    let model: AppModel
     let windows: AccountWindows
+    let requests: WindowRequests
     @SceneStorage("pane") private var pane = WindowPane.accounts
 
     var body: some View {
@@ -24,40 +26,53 @@ struct MainWindow: View {
         } detail: {
             switch pane {
             case .accounts: AccountsPane(model: model, windows: windows)
-            case .activity: ActivityPane(machine: model.machine)
-            case .machine: MachinePane(machine: model.machine)
+            case .activity: ActivityPane(model: model)
+            case .machine: MachinePane(model: model)
             }
         }
         .frame(minWidth: 640, minHeight: 440)
         .appWindow(windows.presence)
-        .sheet(item: $model.sheet) { sheet in
+        // The model keeps the sheet; this one goes however it goes, and the model is told.
+        .sheet(
+            item: Binding(
+                get: { model.sheet },
+                set: { if $0 == nil { model.send(.closeSheet) } })
+        ) { sheet in
             AccountSheetView(model: model, sheet: sheet)
         }
-        .failureAlert($model.presentedFailure)
         .alert(
-            "Quit \(model.quitting?.name ?? "") to switch?",
+            model.failureAlert?.title ?? "",
             isPresented: Binding(
-                get: { model.quitting != nil }, set: { if !$0 { model.closeQuitQuestion() } }),
-            presenting: model.quitting
-        ) { quitting in
-            Button("Quit \(quitting.name) and Switch") {
-                Task { await model.quitAndSwitch(quitting) }
-            }
-            Button("Cancel", role: .cancel) { model.closeQuitQuestion() }
-        } message: { quitting in
-            Text(
-                "\(quitting.name) keeps using the account it started with until it quits. "
-                    + "Pitboard quits it, switches, and opens it again.")
+                get: { model.failureAlert != nil },
+                set: { if !$0 { model.send(.dismissFailure) } }),
+            presenting: model.failureAlert
+        ) { _ in
+            Button("OK") {}
+        } message: { alert in
+            Text(alert.message)
         }
-        // A request for the window from the menu or the model can want a pane: a sheet is
-        // about accounts, and so is a notice. Asked for when the window opens as well, since
-        // a window opened by the request is not there to see it change.
-        .onChange(of: model.windowRequests) { showRequestedPane() }
-        .onAppear { showRequestedPane() }
-    }
-
-    private func showRequestedPane() {
-        if let wanted = model.requestedPane { pane = wanted }
+        // Closing the question, however it closes, keeps the app open; the button that
+        // answers it names the switch it answers, so it switches whichever arrives first.
+        .alert(
+            quitAsked?.question.title ?? "",
+            isPresented: Binding(
+                get: { quitAsked != nil },
+                set: { if !$0 { model.send(.keepAppOpen) } }),
+            presenting: quitAsked
+        ) { asked in
+            Button(asked.question.confirm) {
+                model.send(.quitAndSwitch(qualified: asked.qualified))
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { asked in
+            Text(asked.question.message)
+        }
+        // A request for the window can want a pane: a sheet is about accounts, and so is a
+        // notice. Asked for when the window opens as well, since a window opened by the
+        // request is not there to see it change; once for each request.
+        .onChange(of: model.windowRequest.serial, initial: true) {
+            pane = requests.pane(for: model.windowRequest, from: pane)
+        }
     }
 
     /// The sidebar's selection. A list selects nothing when its selection is cleared, and a
@@ -65,21 +80,31 @@ struct MainWindow: View {
     private var selection: Binding<WindowPane?> {
         Binding(get: { pane }, set: { if let chosen = $0 { pane = chosen } })
     }
+
+    /// The question about quitting an app, with the switch its answer names.
+    private var quitAsked: QuitAsked? {
+        guard let question = model.quitConfirmation, let asked = model.quitQuestion else {
+            return nil
+        }
+        return QuitAsked(question: question, qualified: asked.qualified)
+    }
 }
 
-extension View {
-    /// An alert for a failure somebody should hear about, gone once it is read.
-    func failureAlert(_ failure: Binding<ActionFailure?>) -> some View {
-        alert(
-            failure.wrappedValue?.title ?? "",
-            isPresented: Binding(
-                get: { failure.wrappedValue != nil },
-                set: { if !$0 { failure.wrappedValue = nil } }),
-            presenting: failure.wrappedValue
-        ) { _ in
-            Button("OK") { failure.wrappedValue = nil }
-        } message: { shown in
-            Text(([shown.message] + shown.warnings.map(\.message)).joined(separator: "\n\n"))
+/// What the quit question asks, and the account to switch to once it is answered.
+private struct QuitAsked: Equatable {
+    let question: Question
+    let qualified: String
+}
+
+/// A sheet the model keeps over the window, told apart from another so that one replacing
+/// it is put up afresh.
+extension Sheet: Identifiable {
+    public var id: String {
+        switch self {
+        case .add(let provider): "add/\(provider ?? "")"
+        case .signInAgain(let provider, let label): "again/\(provider)/\(label)"
+        case .name(let provider, _): "name/\(provider)"
+        case .rename(let provider, let label): "rename/\(provider)/\(label)"
         }
     }
 }

@@ -88,7 +88,13 @@ pub struct ChecksShown {
 /// One of doctor's checks. Not called `CheckRow`, which MachinePane.swift has a view of.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct CheckLine {
-    /// Stable, as doctor names it, so a list tells one check from another.
+    /// Its place in the list, in the order doctor makes the checks, from 0. A check's code is
+    /// not its own: doctor makes one check of each enrolled account's parked login, and every
+    /// one of a tool's is `parked_login`, or `codex_parked_login`, so a list whose rows
+    /// claimed the code would have two or more rows of one identity.
+    pub id: u64,
+    /// What kind of check it is, as `pitboard doctor --json` gives a check's `code`. Several
+    /// checks can share one.
     pub code: String,
     pub name: String,
     pub level: Level,
@@ -233,10 +239,10 @@ fn checks(seen: &Seen) -> ChecksShown {
     let checking = machine.checking > 0;
     let any = !machine.checks.is_empty();
     ChecksShown {
-        lines: machine
-            .checks
-            .iter()
-            .map(|check| CheckLine {
+        lines: (0..)
+            .zip(&machine.checks)
+            .map(|(id, check)| CheckLine {
+                id,
                 code: check.code.clone(),
                 name: check.name.clone(),
                 level: check.level,

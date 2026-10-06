@@ -49,7 +49,7 @@ struct AccountWindowView: View {
             } description: {
                 Text(problem)
             } actions: {
-                Button("Try Again") { Task { await windows.model.refresh(asked: true) } }
+                Button("Try Again") { windows.model.send(.refresh(asked: true)) }
             }
             .navigationTitle("Account")
         } else {
