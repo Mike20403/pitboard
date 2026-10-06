@@ -84,6 +84,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   after a hand edit, the app deletes no window's data and never writes over the file. Each
   window then opens at its site's home with the sign-in note at each launch, and keeps its
   data.
+- Building Pitboard on Windows, as `cargo install pitboard` does there, stops with
+  `Pitboard for Windows is not released yet.` It said that Pitboard runs on macOS and
+  Linux, and that another system needs a host of its own. Pitboard still does not build on
+  Windows.
 - Pitboard's facts about Claude Code and Codex say, for each of macOS, Linux and Windows,
   whether they were read there and from which build. Read from the Windows builds, x64 and
   ARM64, seven of Claude Code's 17 facts hold on 2.1.289, and nine of Codex's 16 on

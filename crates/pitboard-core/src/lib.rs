@@ -22,7 +22,13 @@
 //! Every change goes through [`switch`], which records what it is about to do first and
 //! finishes an interrupted one before starting another.
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+// Pitboard for Windows is being built, and reaches people only once the command line, the
+// app, their installers and their docs are done. Until then a release says so on Windows,
+// in the words the Windows build will use when it refuses, rather than compile there.
+#[cfg(windows)]
+compile_error!("Pitboard for Windows is not released yet.");
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 compile_error!(
     "Pitboard runs on macOS and Linux. Another system needs a host of its own in \
      `host/`, saying where its stores, processes and scheduler are."
