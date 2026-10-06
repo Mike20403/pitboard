@@ -11,6 +11,7 @@ pub fn forget(settled: Settled, key: &Key) -> Result<(String, Vec<Warning>)> {
         _exclusive,
         mut state,
         ctx,
+        permit,
     } = settled;
     // Who is signed in is a fact about the machine. Pitboard's record of its last switch
     // is stale the moment someone signs in with the tool's own login command, and
@@ -34,12 +35,12 @@ pub fn forget(settled: Settled, key: &Key) -> Result<(String, Vec<Warning>)> {
         label: key.typed(),
         enrolled,
     })?;
-    state::save(&ctx, &state)?;
+    state::save(&ctx, permit, &state)?;
     crate::fault::point("forget.recorded");
-    crate::readings::forget(&ctx, &account.account_uuid);
-    crate::budget::forget(&ctx, &account.account_uuid);
-    crate::history::forget(&ctx, &account.account_uuid);
-    let pending = purge(&ctx, &mut state);
+    crate::readings::forget(&ctx, permit, &account.account_uuid);
+    crate::budget::forget(&ctx, permit, &account.account_uuid);
+    crate::history::forget(&ctx, permit, &account.account_uuid);
+    let pending = purge(&ctx, permit, &mut state);
     Ok((
         account.email,
         (pending > 0)

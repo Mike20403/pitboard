@@ -221,15 +221,18 @@ fn schedule(seen: &Seen) -> ScheduleShown {
     }
 }
 
-/// Renew Now, and what the last renewal did, in `pitboard renew`'s words.
+/// Renew Now, and what the last renewal did, in `pitboard renew`'s words, or why it was
+/// refused, in the core's: a run that renewed nothing because it was refused does not read
+/// as one where nothing was due.
 fn renewal(seen: &Seen) -> RenewalShown {
     let machine = &seen.state.machine;
     RenewalShown {
         renewing: machine.renewing,
-        note: machine.renewals.as_deref().map_or_else(
-            || words::RENEWS_WHAT_IS_DUE.to_owned(),
-            crate::renewal_note_of,
-        ),
+        note: match &machine.renewals {
+            None => words::RENEWS_WHAT_IS_DUE.to_owned(),
+            Some(Ok(renewals)) => crate::renewal_note_of(renewals),
+            Some(Err(refused)) => refused.to_string(),
+        },
     }
 }
 

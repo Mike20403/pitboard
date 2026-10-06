@@ -6,6 +6,7 @@
 use crate::api::{agent, retry_after, server_time, test_base};
 use crate::context::Context;
 use crate::provider::{ProviderError, ProviderId};
+use crate::service::Permit;
 use crate::usage::{Snapshot, Source, Window};
 use serde_json::Value;
 
@@ -77,7 +78,14 @@ pub(crate) trait OpenAi: Send + Sync + std::fmt::Debug {
         now: i64,
     ) -> Result<Snapshot, ProviderError>;
 
-    fn renew(&self, ctx: &Context, refresh_token: &str) -> Result<Fresh, ProviderError>;
+    /// The token exchange, which spends `refresh_token` as it answers, so it takes the
+    /// [`Permit`] only the one gate every change passes makes.
+    fn renew(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        refresh_token: &str,
+    ) -> Result<Fresh, ProviderError>;
 }
 
 /// OpenAI, over the network. What every real context uses.
@@ -95,14 +103,23 @@ impl OpenAi for Network {
         ask_usage(ctx, access_token, account_id, now)
     }
 
-    fn renew(&self, ctx: &Context, refresh_token: &str) -> Result<Fresh, ProviderError> {
-        ask_renew(ctx, refresh_token)
+    fn renew(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        refresh_token: &str,
+    ) -> Result<Fresh, ProviderError> {
+        ask_renew(ctx, permit, refresh_token)
     }
 }
 
 /// Ask OpenAI through this context.
-pub(crate) fn renew(ctx: &Context, refresh_token: &str) -> Result<Fresh, ProviderError> {
-    ctx.openai().renew(ctx, refresh_token)
+pub(crate) fn renew(
+    ctx: &Context,
+    permit: Permit,
+    refresh_token: &str,
+) -> Result<Fresh, ProviderError> {
+    ctx.openai().renew(ctx, permit, refresh_token)
 }
 
 pub(crate) fn usage(
@@ -114,7 +131,7 @@ pub(crate) fn usage(
     ctx.openai().usage(ctx, access_token, account_id, now)
 }
 
-fn ask_renew(ctx: &Context, refresh_token: &str) -> Result<Fresh, ProviderError> {
+fn ask_renew(ctx: &Context, _: Permit, refresh_token: &str) -> Result<Fresh, ProviderError> {
     let body = serde_json::json!({
         "client_id": CLIENT_ID,
         "grant_type": "refresh_token",

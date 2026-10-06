@@ -399,9 +399,9 @@ pub(crate) enum Answer {
         own: OwnCommandLine,
         outcome: Scheduled,
     },
-    /// What renewing every parked login that was due came to.
+    /// What renewing every parked login that was due came to, or why it was refused.
     Renewed {
-        renewals: Vec<Renewed>,
+        renewals: Result<Vec<Renewed>, PitboardError>,
     },
     /// Doctor's checks.
     Checked {

@@ -1615,3 +1615,65 @@ fn the_windows_records_are_kept_in_the_apps_own_directory() {
     });
     model.shutdown();
 }
+
+/// Where Pitboard runs as root or under sudo, the app writes no file of its own either:
+/// the account windows' records are kept as they are, here not there at all, while the
+/// windows' books are kept in memory as before. A record written as root would be root's.
+///
+/// The model still asks the platform to delete the website data of a store nobody has asked
+/// for, which the test waits on only as the sign that the launch's bookkeeping ran. That is
+/// not meant: an elevated app is to be refused whole, which the app phase of the Windows
+/// plan does, and until then the platform's delete is not gated.
+#[test]
+fn the_windows_records_are_not_written_where_pitboard_may_change_nothing() {
+    use super::{EarlierWindowRecords, WindowsLaunch, WindowsPlace};
+    use std::collections::HashMap;
+
+    let world = World::new("windows-elevated");
+    world.enrolled("work", "here", 10.0);
+    world
+        .host
+        .runs_with(pitboard_core::host::Elevation::Elevated { why: "as root" });
+    let directory = world.dir("Application Support").join("app");
+    let key = world.pitboard_dir().to_string_lossy().into_owned();
+    let work = crate::account_windows::store_id((&pitboard_sites::CLAUDE).into(), "here".into());
+    let gone = "00000000-0000-4000-8000-000000000001";
+    let told = Arc::new(Told::default());
+    let model = PitboardModel::over(
+        world.core(),
+        Arc::clone(&told) as Arc<dyn ModelListener>,
+        Platform {
+            windows: Some(WindowsPlace {
+                launch: WindowsLaunch {
+                    directory: directory.to_string_lossy().into_owned(),
+                    key: key.clone(),
+                    link_scheme: "pitboard".into(),
+                    earlier: Some(EarlierWindowRecords {
+                        stores: HashMap::from([(
+                            key.clone(),
+                            vec![gone.to_uppercase(), work.to_uppercase()],
+                        )]),
+                        pages: HashMap::new(),
+                    }),
+                },
+                web_scheme: "https".into(),
+            }),
+            ..platform(StandInApps::new(&[], true))
+        },
+        QUICK,
+    );
+    let _ = told.model.set(Arc::downgrade(&model));
+    model.send(Intent::Start);
+    last_where(&told, "the store nobody has asked for", |last| {
+        last.account_windows
+            .deleting
+            .iter()
+            .map(|asked| asked.store.as_str())
+            .eq([gone])
+    });
+    model.shutdown();
+    assert!(
+        !directory.join("windows.json").exists(),
+        "nothing is written as root"
+    );
+}

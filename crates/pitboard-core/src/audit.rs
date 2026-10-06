@@ -3,6 +3,7 @@
 //! identifiers, so it is safe to paste into a bug report.
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::{home, time};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -15,9 +16,14 @@ fn path(ctx: &Context) -> PathBuf {
     home::dir(ctx).join("audit.log")
 }
 
-/// A failure to audit never fails the operation it describes.
-pub fn record(ctx: &Context, verb: &str, subject: &str, outcome: &str) {
-    let _ = append(ctx, &line(ctx.now(), &ctx.caller, verb, subject, outcome));
+/// A failure to audit never fails the operation it describes. A change refused at the gate
+/// every change passes is not recorded: recording it would be a change.
+pub fn record(ctx: &Context, permit: Permit, verb: &str, subject: &str, outcome: &str) {
+    let _ = append(
+        ctx,
+        permit,
+        &line(ctx.now(), &ctx.caller, verb, subject, outcome),
+    );
 }
 
 fn line(at: i64, caller: &str, verb: &str, subject: &str, outcome: &str) -> String {
@@ -32,7 +38,7 @@ fn line(at: i64, caller: &str, verb: &str, subject: &str, outcome: &str) -> Stri
     )
 }
 
-fn append(ctx: &Context, line: &str) -> std::io::Result<()> {
+fn append(ctx: &Context, permit: Permit, line: &str) -> std::io::Result<()> {
     // Never makes the home itself. Every change settles first, which makes it; and after an
     // uninstall there is no home to write into and nothing left to describe.
     if !std::fs::metadata(home::dir(ctx)).is_ok_and(|m| m.is_dir()) {
@@ -40,9 +46,9 @@ fn append(ctx: &Context, line: &str) -> std::io::Result<()> {
     }
     let path = path(ctx);
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > LIMIT_BYTES) {
-        std::fs::rename(&path, path.with_extension("log.1"))?;
+        crate::host::fs::rename(permit, &path, &path.with_extension("log.1"))?;
     }
-    crate::host::fs::private(OpenOptions::new().create(true).append(true))
+    crate::host::fs::private(permit, OpenOptions::new().create(true).append(true))
         .open(&path)?
         .write_all(line.as_bytes())
 }
@@ -135,9 +141,9 @@ mod tests {
             .with_caller("cli".into())
             .with_clock(clock.clone());
 
-        record(&ctx, "use", "work", "ok");
+        record(&ctx, Permit::for_a_test(), "use", "work", "ok");
         clock.advance(3600);
-        record(&ctx, "use", "personal", "ok");
+        record(&ctx, Permit::for_a_test(), "use", "personal", "ok");
 
         let entries = read(&ctx, 10);
         assert_eq!(entries.len(), 2);

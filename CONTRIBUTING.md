@@ -98,7 +98,21 @@ cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
 
 The readFailure world makes its account index unreadable with file modes, so its tests fail,
 saying why, where the user can read a file of mode `000`: as root, in a container running as
-root, or on a file system without Unix modes.
+root, or on a file system without Unix modes. So do two of the core's tests that make a
+folder read-only for a write to fail:
+`a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run` and
+`a_schedule_that_cannot_be_taken_away_leaves_every_login_where_it_was`.
+
+Pitboard changes nothing as root or under `sudo`, and a test that runs the real machine runs
+as whoever runs the tests. So `cargo test` run as root, as in a development container whose
+only user is root, fails most of the integration tests in `crates/pitboard/tests`, with
+`elevated`. Most set up their accounts by running `pitboard enroll`, and the output of
+`status`, `doctor` and the status line gains the `read_only` warning or the failing
+`elevated` check. On macOS `keychain_write_is_harmless` fails too. Three tests in
+`crates/pitboard-ffi/src/launch.rs`, which make the app's core on the real machine as the
+app does, fail with `elevated`. The other unit tests and the fixtures run on `MemoryHost`,
+which runs as the person unless a test says otherwise. Run the tests as a user of your own,
+never as root on a machine that holds logins.
 
 The snapshots in `crates/pitboard/tests/snapshots` pin the `--json` contract. A snapshot
 changes only when the contract changes on purpose. Review the difference with

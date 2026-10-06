@@ -22,6 +22,7 @@ use super::harness::{
 use super::*;
 use crate::api::scripted::{ScriptedApi, Trouble};
 use crate::fault;
+use crate::service::Permit;
 use crate::store::memory::Fault;
 use serde_json::json;
 use std::sync::Arc;
@@ -40,7 +41,9 @@ fn a_switch_killed_at_any_step_recovers_to_something_whole() {
         for point in POINTS {
             let m = make(&point.replace('.', "-"));
 
-            let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+            let settled = settle(&m.ctx, Permit::for_a_test(), None)
+                .expect("nothing to recover yet")
+                .0;
             let died = fault::killing(point, || switch(settled, &m.key("there")));
             assert_eq!(
                 died.unwrap_err(),
@@ -68,7 +71,9 @@ fn a_switch_killed_with_nobody_to_ask_is_recovered_from_the_record() {
     for point in POINTS {
         let m = machine(&format!("offline-{}", point.replace('.', "-")));
 
-        let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+        let settled = settle(&m.ctx, Permit::for_a_test(), None)
+            .expect("nothing to recover yet")
+            .0;
         let died = fault::killing(point, || {
             switch(
                 settled,
@@ -87,7 +92,7 @@ fn a_switch_killed_with_nobody_to_ask_is_recovered_from_the_record() {
         // Which side the live credential came from is written in the record as two
         // fingerprints, so this settles without asking anyone. Dropped at once: a settled
         // machine holds Pitboard's exclusivity lock until it is.
-        let decided = settle(&ctx, None).is_ok();
+        let decided = settle(&ctx, Permit::for_a_test(), None).is_ok();
         assert!(
             decided,
             "{point}: recovery should read the live login's fingerprint rather than \
@@ -113,7 +118,9 @@ fn a_switch_killed_with_nobody_to_ask_is_recovered_from_the_record() {
 #[test]
 fn a_switch_whose_token_rotated_while_it_was_interrupted_still_needs_anthropic() {
     let m = machine("rotated-offline");
-    let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover yet")
+        .0;
     let died = fault::killing("switch.park_recorded", || {
         switch(
             settled,
@@ -142,7 +149,7 @@ fn a_switch_whose_token_rotated_while_it_was_interrupted_still_needs_anthropic()
     offline.token_trouble("access-here-refresh", Trouble::Offline);
 
     assert!(
-        settle(&ctx, None).is_err(),
+        settle(&ctx, Permit::for_a_test(), None).is_err(),
         "with nothing to read off and nobody to ask, this must not be guessed at"
     );
     assert_eq!(m.mem.vault().services(), before, "nothing may be deleted");
@@ -285,7 +292,9 @@ fn a_read_says_a_switch_is_waiting_exactly_where_settling_it_is_refused() {
                     point.replace('.', "-"),
                     left.replace(' ', "-")
                 ));
-                let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+                let settled = settle(&m.ctx, Permit::for_a_test(), None)
+                    .expect("nothing to recover yet")
+                    .0;
                 let died = fault::killing(point, || switch(settled, &m.key("there")));
                 assert_eq!(died.unwrap_err(), point, "{at}");
                 let (ctx, api) = leave(&m);
@@ -298,7 +307,7 @@ fn a_read_says_a_switch_is_waiting_exactly_where_settling_it_is_refused() {
 
                 assert_eq!(api.calls(), calls, "{at}: asking nobody asks nobody");
                 assert_eq!(everything(&m), before, "{at}: a read changes nothing");
-                let refused = match settle(&ctx, None) {
+                let refused = match settle(&ctx, Permit::for_a_test(), None) {
                     Err(e) if e.code() == "recovery_undetermined" => Some(e.to_string()),
                     _ => None,
                 };
@@ -324,9 +333,16 @@ fn enrolling_killed_between_the_write_and_the_record_leaves_nothing_unnamed() {
         let m = machine(&point.replace('.', "-"));
         m.api.owned_by("access-third-refresh", owner("third"));
 
-        let settled = settle(&m.ctx, None).expect("nothing to recover").0;
-        let login = enroll::planted(&m.ctx, ProviderId::Claude, document("third-refresh"))
-            .expect("a sign-in");
+        let settled = settle(&m.ctx, Permit::for_a_test(), None)
+            .expect("nothing to recover")
+            .0;
+        let login = enroll::planted(
+            &m.ctx,
+            Permit::for_a_test(),
+            ProviderId::Claude,
+            document("third-refresh"),
+        )
+        .expect("a sign-in");
         let died = fault::killing(point, || {
             enroll(
                 settled,
@@ -353,7 +369,9 @@ fn signing_in_again_killed_at_any_step_recovers_to_something_whole() {
             let m = make(&format!("again-{}", point.replace('.', "-")));
             let login = signed_in(&m, "here", "here-refresh-2");
 
-            let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+            let settled = settle(&m.ctx, Permit::for_a_test(), None)
+                .expect("nothing to recover yet")
+                .0;
             let died = fault::killing(point, || enroll(settled, &m.key("here"), Some(login)));
             assert_eq!(
                 died.unwrap_err(),
@@ -387,7 +405,9 @@ fn a_switch_whose_login_was_removed_again_does_not_report_a_switch() {
     let m = machine("did-not-hold");
     let parked_before = m.mem.vault().services();
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover yet")
+        .0;
     m.mem.live().fault(&m.service, Fault::DeletedAfterWrite);
     let failed = switch(
         settled,
@@ -443,7 +463,9 @@ fn a_switch_that_cannot_read_the_store_back_keeps_every_copy_and_its_record() {
 
     // The keychain locks partway through, which is what a screen lock does. The reads the
     // switch makes before it writes still answer; the write and everything after it do not.
-    let settled = settle(&m.ctx, None).expect("nothing to recover yet").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover yet")
+        .0;
     m.mem.live().fault(&m.service, Fault::LocksOnWrite);
     let failed = switch(
         settled,
@@ -520,7 +542,7 @@ fn renewing_killed_between_the_write_and_the_record_leaves_nothing_unnamed() {
             }),
         ),
     );
-    state::save(&m.ctx, &state).expect("saved");
+    state::save(&m.ctx, Permit::for_a_test(), &state).expect("saved");
     m.api.renews(
         "there-refresh",
         crate::api::Renewed {
@@ -533,7 +555,9 @@ fn renewing_killed_between_the_write_and_the_record_leaves_nothing_unnamed() {
         },
     );
 
-    let died = fault::killing("renew.park_stored", || renew::renew_parked(&m.ctx));
+    let died = fault::killing("renew.park_stored", || {
+        renew::renew_parked(&m.ctx, Permit::for_a_test())
+    });
     assert_eq!(died.unwrap_err(), "renew.park_stored");
 
     recover(&m).expect("recovery");
@@ -584,7 +608,7 @@ fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
             &lapsed,
         ),
     );
-    state::save(&m.ctx, &state).expect("saved");
+    state::save(&m.ctx, Permit::for_a_test(), &state).expect("saved");
     m.api.renews(
         "there-refresh",
         crate::api::Renewed {
@@ -606,7 +630,7 @@ fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
         move || {
             testing::deny_changes(&locked);
         },
-        || renew::renew_parked(&m.ctx),
+        || renew::renew_parked(&m.ctx, Permit::for_a_test()),
     );
     testing::allow_changes(&home);
     assert!(
@@ -634,7 +658,9 @@ fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
 #[test]
 fn forgetting_killed_after_the_record_still_deletes_the_park() {
     let m = machine("forget-recorded");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
 
     let died = fault::killing("forget.recorded", || {
         forget::forget(

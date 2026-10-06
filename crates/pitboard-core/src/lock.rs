@@ -27,6 +27,7 @@
 //! The writers are a session and [`crate::daemon`], the supervisor that outlives sessions
 //! and refreshes on a timer of its own. Both come through here.
 
+use crate::service::Permit;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,6 +64,8 @@ impl LockError {
 
 pub struct Guard {
     path: PathBuf,
+    /// What lets the heartbeat touch the lock and its release remove it.
+    permit: Permit,
     stop: Stop,
     beat: Option<thread::JoinHandle<()>>,
     /// Set by the heartbeat when the lock directory stopped being the one this guard took.
@@ -89,7 +92,7 @@ impl Drop for Guard {
         // A compromised lock belongs to whoever reclaimed it. Removing it here would take
         // their lock away and leave the next writer colliding with them too.
         if !self.compromised() {
-            let _ = std::fs::remove_dir(&self.path);
+            let _ = crate::host::fs::remove_dir(self.permit, &self.path);
         }
     }
 }
@@ -111,25 +114,25 @@ fn mtime(path: &Path) -> io::Result<SystemTime> {
 /// value it asked for would find a mismatch every single time and abandon every switch, so
 /// the value read back is the only one worth remembering. It also makes a filesystem that
 /// truncates, which a network home may, a case that needs no special handling at all.
-fn touch(path: &Path, at: SystemTime) -> io::Result<SystemTime> {
-    crate::host::fs::touch_dir(path, at)?;
+fn touch(permit: Permit, path: &Path, at: SystemTime) -> io::Result<SystemTime> {
+    crate::host::fs::touch_dir(permit, path, at)?;
     mtime(path)
 }
 
 /// Take the lock guarding `target`, waiting up to about seven and a half seconds.
-pub fn acquire(target: &Path) -> Result<Guard, LockError> {
+pub fn acquire(permit: Permit, target: &Path) -> Result<Guard, LockError> {
     let path = PathBuf::from(format!("{}.lock", target.display()));
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(LockError::Io)?;
+        crate::host::fs::create_dir_all(permit, parent).map_err(LockError::Io)?;
     }
 
     let mut backoff = MIN_BACKOFF;
     for attempt in 0..=RETRIES {
-        match std::fs::create_dir(&path) {
-            Ok(()) => return start(path).map_err(LockError::Io),
+        match crate::host::fs::create_dir(permit, &path) {
+            Ok(()) => return start(permit, path).map_err(LockError::Io),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 if age(&path).is_some_and(|a| a > STALE) {
-                    let _ = std::fs::remove_dir(&path);
+                    let _ = crate::host::fs::remove_dir(permit, &path);
                     continue;
                 }
             }
@@ -143,7 +146,7 @@ pub fn acquire(target: &Path) -> Result<Guard, LockError> {
     Err(LockError::Busy)
 }
 
-fn start(path: PathBuf) -> io::Result<Guard> {
+fn start(permit: Permit, path: PathBuf) -> io::Result<Guard> {
     // What the filesystem actually stored for the directory we just made. Every later beat
     // compares against this, and replaces it with what it stores next.
     let mut held = mtime(&path)?;
@@ -174,7 +177,7 @@ fn start(path: PathBuf) -> io::Result<Guard> {
                         return;
                     }
                 }
-                match touch(&path, SystemTime::now()) {
+                match touch(permit, &path, SystemTime::now()) {
                     Ok(stored) => held = stored,
                     Err(_) => {
                         compromised.store(true, Ordering::Release);
@@ -186,6 +189,7 @@ fn start(path: PathBuf) -> io::Result<Guard> {
     };
     Ok(Guard {
         path,
+        permit,
         stop,
         beat: Some(beat),
         compromised,
@@ -198,7 +202,12 @@ mod tests {
 
     /// Backdate a lock so only a live heartbeat could rescue it.
     fn age_past_staleness(lock: &Path) {
-        touch(lock, SystemTime::now() - Duration::from_secs(3600)).unwrap();
+        touch(
+            Permit::for_a_test(),
+            lock,
+            SystemTime::now() - Duration::from_secs(3600),
+        )
+        .unwrap();
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -214,7 +223,7 @@ mod tests {
         let t = scratch("basic");
         let lock = t.with_extension("").parent().unwrap().join("target.lock");
         {
-            let _g = acquire(&t).expect("should acquire");
+            let _g = acquire(Permit::for_a_test(), &t).expect("should acquire");
             assert!(lock.is_dir(), "the lock directory should exist while held");
         }
         assert!(
@@ -226,9 +235,12 @@ mod tests {
     #[test]
     fn refuses_while_another_holder_is_alive() {
         let t = scratch("busy");
-        let _held = acquire(&t).expect("first acquire");
+        let _held = acquire(Permit::for_a_test(), &t).expect("first acquire");
         // The holder heartbeats, so this must exhaust its retries rather than steal it.
-        assert!(matches!(acquire(&t), Err(LockError::Busy)));
+        assert!(matches!(
+            acquire(Permit::for_a_test(), &t),
+            Err(LockError::Busy)
+        ));
     }
 
     #[test]
@@ -237,14 +249,14 @@ mod tests {
         let lock = PathBuf::from(format!("{}.lock", t.display()));
         std::fs::create_dir_all(&lock).unwrap();
         age_past_staleness(&lock);
-        let _g = acquire(&t).expect("a stale lock must be reclaimable");
+        let _g = acquire(Permit::for_a_test(), &t).expect("a stale lock must be reclaimable");
     }
 
     #[test]
     fn releasing_is_immediate() {
         let t = scratch("release");
         let started = std::time::Instant::now();
-        drop(acquire(&t).unwrap());
+        drop(acquire(Permit::for_a_test(), &t).unwrap());
         assert!(
             started.elapsed() < Duration::from_millis(250),
             "release took {:?}",
@@ -257,7 +269,7 @@ mod tests {
     #[test]
     fn the_heartbeat_keeps_a_held_lock_young() {
         let t = scratch("beat");
-        let g = acquire(&t).unwrap();
+        let g = acquire(Permit::for_a_test(), &t).unwrap();
         let lock = PathBuf::from(format!("{}.lock", t.display()));
         let when_taken = mtime(&lock).unwrap();
 
@@ -279,7 +291,7 @@ mod tests {
     #[test]
     fn a_lock_somebody_else_touched_is_never_ours_again() {
         let t = scratch("compromised");
-        let g = acquire(&t).unwrap();
+        let g = acquire(Permit::for_a_test(), &t).unwrap();
         let lock = PathBuf::from(format!("{}.lock", t.display()));
 
         // What reclaiming it looks like from here: the directory's mtime is somebody else's.
@@ -304,7 +316,7 @@ mod tests {
     #[test]
     fn a_lock_that_vanished_is_not_quietly_remade() {
         let t = scratch("vanished");
-        let g = acquire(&t).unwrap();
+        let g = acquire(Permit::for_a_test(), &t).unwrap();
         let lock = PathBuf::from(format!("{}.lock", t.display()));
         std::fs::remove_dir(&lock).unwrap();
 
@@ -319,11 +331,11 @@ mod tests {
     #[test]
     fn what_the_filesystem_stored_is_what_gets_remembered() {
         let t = scratch("granularity");
-        let _g = acquire(&t).unwrap();
+        let _g = acquire(Permit::for_a_test(), &t).unwrap();
         let lock = PathBuf::from(format!("{}.lock", t.display()));
 
         let asked = SystemTime::now();
-        let stored = touch(&lock, asked).unwrap();
+        let stored = touch(Permit::for_a_test(), &lock, asked).unwrap();
         assert_eq!(
             stored,
             mtime(&lock).unwrap(),

@@ -13,6 +13,7 @@
 
 use crate::context::Context;
 use crate::error::{Error, Result};
+use crate::service::Permit;
 use crate::state::State;
 use crate::{atomic, home, park, store};
 use std::path::PathBuf;
@@ -31,12 +32,12 @@ fn read(ctx: &Context) -> Vec<String> {
         .collect()
 }
 
-fn store_list(ctx: &Context, names: &[String]) -> Result<()> {
+fn store_list(ctx: &Context, permit: Permit, names: &[String]) -> Result<()> {
     let path = path(ctx);
     if names.is_empty() {
         // Nothing outstanding: leave no file rather than an empty one, so the ordinary
         // state of a machine is the absence of this.
-        match std::fs::remove_file(&path) {
+        match crate::host::fs::remove_file(permit, &path) {
             Ok(()) => return Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(source) => return Err(Error::HomeUnwritable { path, source }),
@@ -44,14 +45,14 @@ fn store_list(ctx: &Context, names: &[String]) -> Result<()> {
     }
     let mut body = names.join("\n");
     body.push('\n');
-    atomic::write(&path, body.as_bytes(), atomic::Perms::Secret)
+    atomic::write(permit, &path, body.as_bytes(), atomic::Perms::Secret)
         .map_err(|source| Error::HomeUnwritable { path, source })
 }
 
 /// Write a name down before anything is written into it. A name here that never receives a
 /// login costs one line and is dropped by the next sweep.
-pub fn reserve(ctx: &Context, service: &str) -> Result<()> {
-    home::ensure(ctx).map_err(|source| Error::HomeUnwritable {
+pub fn reserve(ctx: &Context, permit: Permit, service: &str) -> Result<()> {
+    home::ensure(ctx, permit).map_err(|source| Error::HomeUnwritable {
         path: home::dir(ctx),
         source,
     })?;
@@ -59,7 +60,7 @@ pub fn reserve(ctx: &Context, service: &str) -> Result<()> {
     if !names.iter().any(|n| n == service) {
         names.push(service.to_string());
     }
-    store_list(ctx, &names)
+    store_list(ctx, permit, &names)
 }
 
 /// What resolving unnamed logins did.
@@ -96,20 +97,20 @@ impl Reclaimed {
 /// Runs in every `settle`, after the journal has had its say, so a switch's own park is
 /// already accounted for by then. It reads Pitboard's own list rather than asking the
 /// store, because it is on the path of every change and a keychain dump is not free.
-pub fn sweep(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
+pub fn sweep(ctx: &Context, permit: Permit, state: &mut State) -> Result<Reclaimed> {
     let ours = read(ctx);
-    resolve(ctx, state, ours.clone(), &ours)
+    resolve(ctx, permit, state, ours.clone(), &ours)
 }
 
 /// The same, asking the store what is actually there rather than trusting Pitboard's list.
 /// This is what finds a login whose name was lost with the list, or written by a version
 /// that had no list. `pitboard repair` runs it; nothing else does, because on macOS it
 /// dumps the keychain.
-pub fn reclaim(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
+pub fn reclaim(ctx: &Context, permit: Permit, state: &mut State) -> Result<Reclaimed> {
     let ours = read(ctx);
     let Some(stored) = store::vault_list(ctx)? else {
         // A store that cannot be enumerated: Pitboard's own list is all there is.
-        return resolve(ctx, state, ours.clone(), &ours);
+        return resolve(ctx, permit, state, ours.clone(), &ours);
     };
     let mut names = stored;
     for listed in &ours {
@@ -117,7 +118,7 @@ pub fn reclaim(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
             names.push(listed.clone());
         }
     }
-    resolve(ctx, state, names, &ours)
+    resolve(ctx, permit, state, names, &ours)
 }
 
 /// `ours` is the list of names this Pitboard wrote down before creating them. It is what
@@ -133,6 +134,7 @@ pub fn reclaim(ctx: &Context, state: &mut State) -> Result<Reclaimed> {
 /// as such, so letting it go later never deletes it either: only using it does.
 fn resolve(
     ctx: &Context,
+    permit: Permit,
     state: &mut State,
     names: Vec<String>,
     ours: &[String],
@@ -154,12 +156,12 @@ fn resolve(
                     keep.push(service);
                 }
             }
-            Ok(Some(raw)) => match adopt(ctx, state, &service, &raw, written_here) {
+            Ok(Some(raw)) => match adopt(ctx, permit, state, &service, &raw, written_here) {
                 Some(label) => out.given_back.push((label, service)),
                 None if written_here => {
                     // This Pitboard wrote this name down, wrote a login into it, and
                     // nothing here recorded it. That is an orphan and nothing else can be.
-                    release(ctx, state, &service);
+                    release(ctx, permit, state, &service);
                     out.deleted.push(service);
                 }
                 None => out.strangers.push(service),
@@ -167,10 +169,10 @@ fn resolve(
         }
     }
     if keep != ours {
-        store_list(ctx, &keep)?;
+        store_list(ctx, permit, &keep)?;
     }
     if !out.given_back.is_empty() || !out.deleted.is_empty() {
-        crate::state::save(ctx, state)?;
+        crate::state::save(ctx, permit, state)?;
     }
     Ok(out)
 }
@@ -192,6 +194,7 @@ fn resolve(
 /// for both holders.
 fn adopt(
     ctx: &Context,
+    permit: Permit,
     state: &mut State,
     service: &str,
     raw: &str,
@@ -230,22 +233,22 @@ fn adopt(
         state.park_foreign(&key, park);
     }
     let label = key.typed();
-    crate::audit::record(ctx, "reclaim", &label, "ok");
+    crate::audit::record(ctx, permit, "reclaim", &label, "ok");
     Some(label)
 }
 
 /// List it for deletion the way every other unwanted park is listed, so a delete that fails
 /// is retried rather than forgotten.
-fn release(ctx: &Context, state: &mut State, service: &str) {
+fn release(ctx: &Context, permit: Permit, state: &mut State, service: &str) {
     debug_assert!(park::is_park_name(service), "only Pitboard's own names");
     state.release(service);
-    crate::audit::record(ctx, "reclaim", service, "discarded");
+    crate::audit::record(ctx, permit, "reclaim", service, "discarded");
 }
 
 /// Forget everything listed, without touching the vault. Only `uninstall` does this, once
 /// it has deleted what the names refer to.
-pub fn clear(ctx: &Context) {
-    let _ = std::fs::remove_file(path(ctx));
+pub fn clear(ctx: &Context, permit: Permit) {
+    let _ = crate::host::fs::remove_file(permit, &path(ctx));
 }
 
 /// Every name still outstanding, for `doctor` to report: written down, and named by nothing
@@ -286,7 +289,7 @@ mod tests {
             .with_pitboard_home(root.clone())
             .with_memory_stores(Arc::clone(&mem))
             .with_clock(Arc::new(FixedClock::at(NOW)) as Arc<dyn Clock>);
-        home::ensure(&ctx).expect("a home");
+        home::ensure(&ctx, Permit::for_a_test()).expect("a home");
         (ctx, mem, root)
     }
 
@@ -316,10 +319,20 @@ mod tests {
     #[test]
     fn a_name_claimed_but_never_written_to_is_simply_dropped() {
         let (ctx, _mem, root) = machine("never-written");
-        reserve(&ctx, "pitboard-park-acc-1760000000000").expect("reserved");
+        reserve(
+            &ctx,
+            Permit::for_a_test(),
+            "pitboard-park-acc-1760000000000",
+        )
+        .expect("reserved");
         let mut state = State::default();
 
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            0
+        );
         assert!(outstanding(&ctx, None).is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -328,7 +341,7 @@ mod tests {
     fn a_name_the_state_records_is_not_outstanding() {
         let (ctx, _mem, root) = machine("recorded");
         let service = "pitboard-park-acc-1760000000000";
-        reserve(&ctx, service).expect("reserved");
+        reserve(&ctx, Permit::for_a_test(), service).expect("reserved");
         let mut state = State::default();
         state.accounts.push(account("work", "acc"));
         state.park(
@@ -346,12 +359,17 @@ mod tests {
     fn an_orphan_goes_back_to_the_account_whose_name_it_carries() {
         let (ctx, mem, root) = machine("adopt");
         let service = "pitboard-park-acc-1760000000000";
-        reserve(&ctx, service).expect("reserved");
+        reserve(&ctx, Permit::for_a_test(), service).expect("reserved");
         mem.vault().plant(service, &oauth("r").to_string());
 
         let mut state = State::default();
         state.accounts.push(account("work", "acc"));
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 1);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            1
+        );
 
         let park = state
             .get(&crate::state::Key::new(
@@ -382,7 +400,7 @@ mod tests {
         let (ctx, mem, root) = machine(name);
         mem.vault().plant(held.0, &oauth(held.1).to_string());
         mem.vault().plant(orphan.0, &oauth(orphan.1).to_string());
-        reserve(&ctx, orphan.0).expect("reserved");
+        reserve(&ctx, Permit::for_a_test(), orphan.0).expect("reserved");
         let mut state = State::default();
         state.accounts.push(account("work", "acc"));
         state.park(
@@ -407,7 +425,12 @@ mod tests {
         let orphan = "pitboard-park-acc-1760000000000";
         let (ctx, mut state, root) = holding("same-chain", (held, "r", NOW), (orphan, "r"));
 
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 1);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            1
+        );
         assert_eq!(parked(&state).as_deref(), Some(held));
         assert!(state.discarded.iter().any(|s| s == orphan));
         assert!(outstanding(&ctx, None).is_empty());
@@ -422,7 +445,12 @@ mod tests {
         let orphan = "pitboard-park-acc-1750000000000";
         let (ctx, mut state, root) = holding("older", (held, "held", NOW), (orphan, "orphan"));
 
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 1);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            1
+        );
         assert_eq!(parked(&state).as_deref(), Some(held));
         assert!(state.discarded.iter().any(|s| s == orphan));
         let _ = std::fs::remove_dir_all(root);
@@ -438,7 +466,7 @@ mod tests {
         let (ctx, mut state, root) =
             holding("newer", (held, "spent", 1_750_000_000), (orphan, "fresh"));
 
-        let reclaimed = sweep(&ctx, &mut state).expect("swept");
+        let reclaimed = sweep(&ctx, Permit::for_a_test(), &mut state).expect("swept");
         assert_eq!(reclaimed.given_back.len(), 1);
         assert_eq!(parked(&state).as_deref(), Some(orphan));
         assert!(
@@ -453,7 +481,7 @@ mod tests {
     fn an_item_that_cannot_be_read_stays_listed_rather_than_being_guessed_at() {
         let (ctx, mem, root) = machine("unreadable");
         let service = "pitboard-park-acc-1760000000000";
-        reserve(&ctx, service).expect("reserved");
+        reserve(&ctx, Permit::for_a_test(), service).expect("reserved");
         mem.vault().plant(service, &oauth("r").to_string());
         mem.vault().fault(
             service,
@@ -461,7 +489,12 @@ mod tests {
         );
 
         let mut state = State::default();
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            0
+        );
         assert_eq!(outstanding(&ctx, None), vec![service.to_string()]);
         assert!(state.discarded.is_empty(), "nothing is deleted on a guess");
         let _ = std::fs::remove_dir_all(root);
@@ -484,10 +517,15 @@ mod tests {
         state.accounts.push(account("work", "acc"));
 
         // The cheap sweep cannot see it, because it only reads Pitboard's own list.
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            0
+        );
         assert!(state.get(&work()).expect("account").parked.is_none());
 
-        let reclaimed = reclaim(&ctx, &mut state).expect("reclaimed");
+        let reclaimed = reclaim(&ctx, Permit::for_a_test(), &mut state).expect("reclaimed");
         assert_eq!(reclaimed.given_back.len(), 1);
         assert_eq!(reclaimed.given_back[0].0, "work");
         assert_eq!(
@@ -523,7 +561,7 @@ mod tests {
         mem.vault().plant(service, &oauth("r").to_string());
 
         let mut state = State::default();
-        let reclaimed = reclaim(&ctx, &mut state).expect("reclaimed");
+        let reclaimed = reclaim(&ctx, Permit::for_a_test(), &mut state).expect("reclaimed");
 
         assert!(reclaimed.given_back.is_empty());
         assert!(
@@ -547,10 +585,10 @@ mod tests {
         let (ctx, mem, root) = machine("our-orphan");
         let service = "pitboard-park-stranger-1760000000000";
         mem.vault().plant(service, &oauth("r").to_string());
-        reserve(&ctx, service).expect("written down first");
+        reserve(&ctx, Permit::for_a_test(), service).expect("written down first");
 
         let mut state = State::default();
-        let reclaimed = reclaim(&ctx, &mut state).expect("reclaimed");
+        let reclaimed = reclaim(&ctx, Permit::for_a_test(), &mut state).expect("reclaimed");
 
         assert_eq!(reclaimed.deleted, vec![service.to_string()]);
         assert!(reclaimed.strangers.is_empty());
@@ -562,7 +600,7 @@ mod tests {
     fn a_name_the_state_already_carries_is_not_swept_at_all() {
         let (ctx, mem, root) = machine("already-named");
         let service = "pitboard-park-acc-1760000000000";
-        reserve(&ctx, service).expect("reserved");
+        reserve(&ctx, Permit::for_a_test(), service).expect("reserved");
         mem.vault().plant(service, &oauth("r").to_string());
 
         let mut state = State::default();
@@ -572,7 +610,12 @@ mod tests {
             park::describe(ProviderId::Claude, service, NOW, &oauth("r")),
         );
 
-        assert_eq!(sweep(&ctx, &mut state).expect("swept").found(), 0);
+        assert_eq!(
+            sweep(&ctx, Permit::for_a_test(), &mut state)
+                .expect("swept")
+                .found(),
+            0
+        );
         assert!(outstanding(&ctx, None).is_empty());
         assert!(state.discarded.is_empty());
         let _ = std::fs::remove_dir_all(root);

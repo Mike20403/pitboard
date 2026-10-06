@@ -13,6 +13,7 @@ use super::*;
 use crate::api::scripted::Trouble;
 use crate::provider::codex::api::Fresh;
 use crate::provider::{Adoption, Credential};
+use crate::service::Permit;
 
 fn whose(m: &super::harness::Machine) -> Option<String> {
     let live = m.live()?;
@@ -28,7 +29,9 @@ fn whose(m: &super::harness::Machine) -> Option<String> {
 #[test]
 fn a_codex_switch_moves_one_login_in_and_one_out() {
     let m = codex_machine("moves");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
 
     let (outcome, _) = switch(settled, &m.key("there")).expect("switched");
 
@@ -73,7 +76,9 @@ fn a_codex_switch_leaves_claude_code_alone() {
         .live()
         .plant(&claude, "{\"claudeAiOauth\":{\"refreshToken\":\"c\"}}");
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     switch(settled, &m.key("there")).expect("switched");
 
     assert_eq!(
@@ -89,9 +94,11 @@ fn the_same_label_on_two_tools_is_two_accounts() {
     let m = codex_machine("same-label");
     let mut state = state::load(&m.ctx).expect("state");
     state.upsert(super::harness::account("there", "claude-there", None));
-    state::save(&m.ctx, &state).expect("saved");
+    state::save(&m.ctx, Permit::for_a_test(), &state).expect("saved");
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     switch(settled, &m.key("there")).expect("switched");
 
     let state = state::load(&m.ctx).expect("state");
@@ -121,7 +128,9 @@ fn a_park_openai_refuses_is_renewed_before_it_goes_live() {
         },
     );
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     switch(settled, &m.key("there")).expect("switched");
 
     let live = m.live().expect("a live login");
@@ -142,7 +151,9 @@ fn a_park_openai_will_not_renew_moves_nothing() {
         .codex_renew_trouble("there-refresh", Trouble::InvalidGrant);
     let before = m.live();
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let refused = switch(settled, &m.key("there")).expect_err("refused");
 
     assert_eq!(refused.code(), "parked_login_refused");
@@ -176,7 +187,9 @@ fn a_park_that_does_not_stick_leaves_the_live_login_in_place() {
         .fault_all(crate::store::memory::Fault::DeletedAfterWrite);
     let before = m.live();
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     assert!(switch(settled, &m.key("there")).is_err());
 
     assert_eq!(m.live(), before, "`here` must still be signed in");
@@ -205,7 +218,7 @@ fn running_codex_sessions_are_counted_and_warned_about() {
     let m = codex_machine("sessions");
     m.mem.runs("codex", 2);
 
-    let settled = settle(&m.ctx, Some(ProviderId::Codex))
+    let settled = settle(&m.ctx, Permit::for_a_test(), Some(ProviderId::Codex))
         .expect("nothing to recover")
         .0;
     let (_, warnings) = switch(settled, &m.key("there")).expect("switched");
@@ -244,7 +257,7 @@ fn what_still_runs_the_old_login_is_told_apart_by_where_it_runs_from() {
         ],
     );
 
-    let settled = settle(&m.ctx, Some(ProviderId::Codex))
+    let settled = settle(&m.ctx, Permit::for_a_test(), Some(ProviderId::Codex))
         .expect("nothing to recover")
         .0;
     let (_, warnings) = switch(settled, &m.key("there")).expect("switched");
@@ -280,7 +293,7 @@ fn what_still_runs_the_old_login_is_told_apart_by_where_it_runs_from() {
 #[test]
 fn no_running_session_is_no_warning() {
     let m = codex_machine("no-sessions");
-    let settled = settle(&m.ctx, Some(ProviderId::Codex))
+    let settled = settle(&m.ctx, Permit::for_a_test(), Some(ProviderId::Codex))
         .expect("nothing to recover")
         .0;
     let (_, warnings) = switch(settled, &m.key("there")).expect("switched");
@@ -299,15 +312,17 @@ fn a_custom_claude_endpoint_does_not_stop_a_codex_switch() {
     let m = codex_machine("custom-oauth");
     let mut ctx = m.ctx.clone();
     ctx.custom_oauth = true;
-    assert!(settle(&ctx, Some(ProviderId::Codex)).is_ok());
+    assert!(settle(&ctx, Permit::for_a_test(), Some(ProviderId::Codex)).is_ok());
     assert_eq!(
-        settle(&ctx, Some(ProviderId::Claude))
+        settle(&ctx, Permit::for_a_test(), Some(ProviderId::Claude))
             .err()
             .map(|e| e.code()),
         Some("custom_oauth_endpoint")
     );
     assert_eq!(
-        settle(&ctx, None).err().map(|e| e.code()),
+        settle(&ctx, Permit::for_a_test(), None)
+            .err()
+            .map(|e| e.code()),
         Some("custom_oauth_endpoint"),
         "a change that could touch every tool's accounts is Claude Code's business too"
     );
@@ -319,11 +334,14 @@ fn a_sign_in_is_enrolled_only_under_its_own_tool() {
     let m = codex_machine("wrong-tool");
     let login = super::enroll::planted(
         &m.ctx,
+        Permit::for_a_test(),
         ProviderId::Codex,
         codex_login("third", "third-refresh"),
     )
     .expect("a sign-in");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let refused =
         enroll(settled, &Key::new(ProviderId::Claude, "third"), Some(login)).expect_err("refused");
     assert_eq!(refused.code(), "usage");
@@ -335,11 +353,14 @@ fn a_codex_sign_in_is_parked_as_a_codex_account() {
     let m = codex_machine("sign-in");
     let login = super::enroll::planted(
         &m.ctx,
+        Permit::for_a_test(),
         ProviderId::Codex,
         codex_login("third", "third-refresh"),
     )
     .expect("a sign-in");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let key = m.key("third");
     enroll(settled, &key, Some(login)).expect("enrolled");
 
@@ -361,11 +382,13 @@ fn a_codex_sign_in_is_parked_as_a_codex_account() {
 #[test]
 fn abandoning_a_codex_switch_keeps_no_twin_of_the_live_login() {
     let m = codex_machine("abandon-twin");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let died = crate::fault::killing("switch.park_recorded", || switch(settled, &m.key("there")));
     assert_eq!(died.unwrap_err(), "switch.park_recorded");
 
-    abandon(&m.ctx).expect("abandoned");
+    abandon(&m.ctx, Permit::for_a_test()).expect("abandoned");
 
     let state = state::load(&m.ctx).expect("state");
     assert!(
@@ -376,7 +399,7 @@ fn abandoning_a_codex_switch_keeps_no_twin_of_the_live_login() {
         state.get(&m.key("there")).unwrap().parked.is_some(),
         "and `there`'s park, the only copy of it, is kept"
     );
-    settle(&m.ctx, None).expect("purged on the next change");
+    settle(&m.ctx, Permit::for_a_test(), None).expect("purged on the next change");
     hold(&m, "after abandoning a Codex switch");
 }
 
@@ -390,13 +413,21 @@ fn a_codex_refresh_during_a_switch_is_not_written_over() {
     let m = codex_machine("refreshed-meanwhile");
     let refreshed = codex_login("here", "here-refresh-2");
     let writer = m.ctx.clone();
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
 
     let refused = crate::fault::meanwhile(
         "switch.park_recorded",
         move || {
             let live = provider::of(ProviderId::Codex).live(&writer).unwrap();
-            store::write_raw(&live.chain, &live.service, &refreshed.to_string()).unwrap();
+            store::write_raw(
+                &live.chain,
+                Permit::for_a_test(),
+                &live.service,
+                &refreshed.to_string(),
+            )
+            .unwrap();
         },
         || switch(settled, &m.key("there")),
     )
@@ -414,7 +445,7 @@ fn a_codex_refresh_during_a_switch_is_not_written_over() {
         "the park copied a chain the refresh spent, so it is not offered as a login"
     );
     assert!(state.get(&m.key("there")).unwrap().parked.is_some());
-    settle(&m.ctx, None).expect("the next change purges");
+    settle(&m.ctx, Permit::for_a_test(), None).expect("the next change purges");
     hold(&m, "after a refresh during a Codex switch");
 }
 
@@ -426,13 +457,21 @@ fn another_sign_in_during_a_switch_keeps_the_outgoing_park() {
     let m = codex_machine("signed-in-meanwhile");
     let other = codex_login("other", "other-refresh");
     let writer = m.ctx.clone();
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
 
     let refused = crate::fault::meanwhile(
         "switch.park_recorded",
         move || {
             let live = provider::of(ProviderId::Codex).live(&writer).unwrap();
-            store::write_raw(&live.chain, &live.service, &other.to_string()).unwrap();
+            store::write_raw(
+                &live.chain,
+                Permit::for_a_test(),
+                &live.service,
+                &other.to_string(),
+            )
+            .unwrap();
         },
         || switch(settled, &m.key("there")),
     )
@@ -455,15 +494,19 @@ fn another_sign_in_during_a_switch_keeps_the_outgoing_park() {
 #[test]
 fn an_interrupted_switch_is_recovered_only_where_it_ran() {
     let m = codex_machine("slot-bound");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let died = crate::fault::killing("switch.park_recorded", || switch(settled, &m.key("there")));
     assert_eq!(died.unwrap_err(), "switch.park_recorded");
 
     let elsewhere = m.ctx.clone().with_codex_home("/somewhere/else".into());
-    let refused = settle(&elsewhere, None).err().expect("refused elsewhere");
+    let refused = settle(&elsewhere, Permit::for_a_test(), None)
+        .err()
+        .expect("refused elsewhere");
     assert_eq!(refused.code(), "recovery_elsewhere");
     assert!(refused.to_string().contains("CODEX_HOME"), "{refused}");
 
-    settle(&m.ctx, None).expect("recovered where it ran");
+    settle(&m.ctx, Permit::for_a_test(), None).expect("recovered where it ran");
     hold(&m, "after recovering where the switch ran");
 }

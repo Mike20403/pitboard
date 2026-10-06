@@ -555,6 +555,12 @@ pub enum Error {
     )]
     SignInInProgress,
 
+    /// This process runs as root or under sudo, or the system could not say whether it
+    /// does, so Pitboard changes nothing: the one gate every change passes refused it. `why`
+    /// is how it runs, as the host said it, and `None` where the host could not say.
+    #[error("{}", elevated(*why))]
+    Elevated { why: Option<&'static str> },
+
     /// The command line itself was wrong; the message is clap's.
     #[error("{0}")]
     Usage(String),
@@ -635,6 +641,7 @@ impl Error {
             SignInNotIsolated { .. } => "sign_in_not_isolated",
             RenewalFailed { .. } => "renewal_failed",
             SignInInProgress => "sign_in_in_progress",
+            Elevated { .. } => "elevated",
             Usage(_) => "usage",
             Store(e) => e.code(),
             Lock(e) => e.code(),
@@ -689,6 +696,20 @@ impl Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// What the gate says when it refuses: the same for root and for sudo, since the way out is
+/// the same.
+fn elevated(why: Option<&str>) -> &'static str {
+    match why {
+        Some(_) => {
+            "Pitboard changes nothing when it runs as root or with sudo. Run it as yourself."
+        }
+        None => {
+            "Pitboard changes nothing when it cannot tell whether it runs as root or with sudo. \
+             Run it as yourself."
+        }
+    }
+}
 
 /// What makes a tool's live login readable again, where it could not be read.
 fn make_readable(tool: ProviderId) -> &'static str {

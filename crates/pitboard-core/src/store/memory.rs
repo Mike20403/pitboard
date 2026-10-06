@@ -10,6 +10,7 @@
 //! does exactly what it is told.
 
 use super::{Backend, Error, RawStore};
+use crate::service::Permit;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -219,7 +220,7 @@ impl RawStore for Arc<MemoryStore> {
         }
     }
 
-    fn write(&self, service: &str, contents: &str) -> Result<(), Error> {
+    fn write(&self, _: Permit, service: &str, contents: &str) -> Result<(), Error> {
         if self.has_locked(service) {
             return Err(Error::Write("the keychain is locked".into()));
         }
@@ -257,7 +258,7 @@ impl RawStore for Arc<MemoryStore> {
         }
     }
 
-    fn delete(&self, service: &str) -> Result<(), Error> {
+    fn delete(&self, _: Permit, service: &str) -> Result<(), Error> {
         self.items
             .lock()
             .expect("a poisoned test store is a failed test")
@@ -299,7 +300,10 @@ mod tests {
     fn a_write_that_does_not_read_back_is_reported_rather_than_believed() {
         let s = store();
         s.fault("svc", Fault::CorruptWrite("something else".into()));
-        assert!(matches!(s.write("svc", "after"), Err(Error::NotDurable(_))));
+        assert!(matches!(
+            s.write(Permit::for_a_test(), "svc", "after"),
+            Err(Error::NotDurable(_))
+        ));
         assert_eq!(s.peek("svc").as_deref(), Some("something else"));
     }
 
@@ -308,7 +312,10 @@ mod tests {
         let s = store();
         s.plant("svc", "before");
         s.fault("svc", Fault::FailWrite("told to".into()));
-        assert!(matches!(s.write("svc", "after"), Err(Error::Write(_))));
+        assert!(matches!(
+            s.write(Permit::for_a_test(), "svc", "after"),
+            Err(Error::Write(_))
+        ));
         assert_eq!(s.peek("svc").as_deref(), Some("before"));
     }
 
@@ -342,7 +349,10 @@ mod tests {
             s.read("svc").expect("still readable"),
             Some("before".into())
         );
-        assert!(matches!(s.write("svc", "after"), Err(Error::Write(_))));
+        assert!(matches!(
+            s.write(Permit::for_a_test(), "svc", "after"),
+            Err(Error::Write(_))
+        ));
         assert!(
             matches!(s.read("svc"), Err(Error::Unreadable(_))),
             "once it is locked it cannot answer at all"

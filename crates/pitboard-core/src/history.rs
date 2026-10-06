@@ -18,6 +18,7 @@
 //! goes when the file is next written.
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::usage::Snapshot;
 use crate::{atomic, home};
 use serde::{Deserialize, Serialize};
@@ -104,7 +105,7 @@ fn worth_keeping(last: Option<&Point>, next: &Point) -> bool {
 }
 
 /// Record a reading, if it says anything.
-pub fn record(ctx: &Context, account_uuid: &str, snapshot: &Snapshot) {
+pub fn record(ctx: &Context, permit: Permit, account_uuid: &str, snapshot: &Snapshot) {
     let Some(path) = path(ctx, account_uuid) else {
         return;
     };
@@ -114,7 +115,7 @@ pub fn record(ctx: &Context, account_uuid: &str, snapshot: &Snapshot) {
     if !worth_keeping(existing.last(), &next) {
         return;
     }
-    if crate::host::fs::create_private_dir(&dir(ctx)).is_err() {
+    if crate::host::fs::create_private_dir(permit, &dir(ctx)).is_err() {
         return;
     }
     let Ok(line) = serde_json::to_string(&next) else {
@@ -132,23 +133,27 @@ pub fn record(ctx: &Context, account_uuid: &str, snapshot: &Snapshot) {
             .chain(std::iter::once(line))
             .collect();
         let _ = atomic::write(
+            permit,
             &path,
             format!("{}\n", kept.join("\n")).as_bytes(),
             atomic::Perms::Secret,
         );
         return;
     }
-    if let Ok(mut file) =
-        crate::host::fs::private(std::fs::OpenOptions::new().create(true).append(true)).open(&path)
+    if let Ok(mut file) = crate::host::fs::private(
+        permit,
+        std::fs::OpenOptions::new().create(true).append(true),
+    )
+    .open(&path)
     {
         let _ = writeln!(file, "{line}");
     }
 }
 
 /// Forget an account nobody is enrolled as any more.
-pub fn forget(ctx: &Context, account_uuid: &str) {
+pub fn forget(ctx: &Context, permit: Permit, account_uuid: &str) {
     if let Some(path) = path(ctx, account_uuid) {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::host::fs::remove_file(permit, &path);
     }
 }
 
@@ -284,7 +289,7 @@ mod tests {
         let ctx = Context::new(root.clone())
             .with_pitboard_home(root.clone())
             .with_clock(Arc::clone(&clock) as Arc<dyn Clock>);
-        home::ensure(&ctx).expect("a home");
+        home::ensure(&ctx, Permit::for_a_test()).expect("a home");
         (ctx, clock, Scratch(root))
     }
 
@@ -319,8 +324,18 @@ mod tests {
     #[test]
     fn a_reading_is_kept_and_read_back() {
         let (ctx, _clock, _s) = machine("round-trip");
-        record(&ctx, "acc", &reading(NOW, 10.0, NOW + 3600));
-        record(&ctx, "acc", &reading(NOW + 600, 20.0, NOW + 3000));
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW, 10.0, NOW + 3600),
+        );
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW + 600, 20.0, NOW + 3000),
+        );
 
         let kept = series(&ctx, "acc");
         assert_eq!(kept.len(), 2);
@@ -333,17 +348,42 @@ mod tests {
     #[test]
     fn a_reading_that_says_nothing_new_is_not_kept() {
         let (ctx, _clock, _s) = machine("quiet");
-        record(&ctx, "acc", &reading(NOW, 10.0, NOW + 3600));
-        record(&ctx, "acc", &reading(NOW + 10, 10.0, NOW + 3590));
-        record(&ctx, "acc", &reading(NOW + 20, 10.2, NOW + 3580));
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW, 10.0, NOW + 3600),
+        );
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW + 10, 10.0, NOW + 3590),
+        );
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW + 20, 10.2, NOW + 3580),
+        );
         assert_eq!(series(&ctx, "acc").len(), 1, "nothing moved");
 
         // A real move is kept however soon it comes.
-        record(&ctx, "acc", &reading(NOW + 30, 11.0, NOW + 3570));
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW + 30, 11.0, NOW + 3570),
+        );
         assert_eq!(series(&ctx, "acc").len(), 2);
 
         // And so is a reading far enough from the last one.
-        record(&ctx, "acc", &reading(NOW + 30 + APART, 11.0, NOW + 3000));
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW + 30 + APART, 11.0, NOW + 3000),
+        );
         assert_eq!(series(&ctx, "acc").len(), 3);
     }
 
@@ -353,6 +393,7 @@ mod tests {
         for day in 0..20 {
             record(
                 &ctx,
+                Permit::for_a_test(),
                 "acc",
                 &reading(NOW + day * 86_400, day as f64, NOW + day * 86_400 + 3600),
             );
@@ -452,16 +493,26 @@ mod tests {
     #[test]
     fn what_is_known_about_an_account_goes_when_the_account_does() {
         let (ctx, _clock, _s) = machine("forget");
-        record(&ctx, "acc", &reading(NOW, 10.0, NOW + 3600));
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "acc",
+            &reading(NOW, 10.0, NOW + 3600),
+        );
         assert!(!series(&ctx, "acc").is_empty());
-        forget(&ctx, "acc");
+        forget(&ctx, Permit::for_a_test(), "acc");
         assert!(series(&ctx, "acc").is_empty());
     }
 
     #[test]
     fn a_name_that_is_not_an_identifier_is_refused_rather_than_escaped() {
         let (ctx, _clock, _s) = machine("traversal");
-        record(&ctx, "../../etc/passwd", &reading(NOW, 10.0, NOW + 3600));
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            "../../etc/passwd",
+            &reading(NOW, 10.0, NOW + 3600),
+        );
         assert!(series(&ctx, "../../etc/passwd").is_empty());
         assert!(path(&ctx, "").is_none());
     }

@@ -9,6 +9,7 @@
 pub mod scripted;
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::usage::{self, Snapshot};
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -114,9 +115,12 @@ pub struct Renewed {
 pub(crate) trait Api: Send + Sync + std::fmt::Debug {
     fn owner(&self, ctx: &Context, access_token: &str) -> Result<Owner, ApiError>;
     fn usage(&self, ctx: &Context, access_token: &str) -> Result<Snapshot, ApiError>;
+    /// The token exchange, which spends `refresh_token` as it answers, so it takes the
+    /// [`Permit`] only the one gate every change passes makes.
     fn renew(
         &self,
         ctx: &Context,
+        permit: Permit,
         refresh_token: &str,
         scopes: &[String],
         client_id: Option<&str>,
@@ -139,11 +143,12 @@ impl Api for Anthropic {
     fn renew(
         &self,
         ctx: &Context,
+        permit: Permit,
         refresh_token: &str,
         scopes: &[String],
         client_id: Option<&str>,
     ) -> Result<Renewed, ApiError> {
-        ask_renew(ctx, refresh_token, scopes, client_id)
+        ask_renew(ctx, permit, refresh_token, scopes, client_id)
     }
 }
 
@@ -158,11 +163,13 @@ pub fn usage(ctx: &Context, access_token: &str) -> Result<Snapshot, ApiError> {
 
 pub fn renew(
     ctx: &Context,
+    permit: Permit,
     refresh_token: &str,
     scopes: &[String],
     client_id: Option<&str>,
 ) -> Result<Renewed, ApiError> {
-    ctx.api().renew(ctx, refresh_token, scopes, client_id)
+    ctx.api()
+        .renew(ctx, permit, refresh_token, scopes, client_id)
 }
 
 pub(crate) fn agent() -> &'static Agent {
@@ -230,6 +237,7 @@ pub(crate) fn retry_after(headers: &ureq::http::HeaderMap) -> Option<i64> {
 /// as that client. Renewing it as the first-party one would be a different login.
 fn ask_renew(
     ctx: &Context,
+    _: Permit,
     refresh_token: &str,
     scopes: &[String],
     client_id: Option<&str>,

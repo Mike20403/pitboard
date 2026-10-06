@@ -4,6 +4,7 @@
 
 use crate::context::Context;
 use crate::error::{Error, Result};
+use crate::service::Permit;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -21,9 +22,9 @@ pub fn dir(ctx: &Context) -> PathBuf {
     ctx.pitboard_home.clone()
 }
 
-pub fn ensure(ctx: &Context) -> io::Result<PathBuf> {
+pub fn ensure(ctx: &Context, permit: Permit) -> io::Result<PathBuf> {
     let path = dir(ctx);
-    crate::host::fs::create_private_dir(&path)?;
+    crate::host::fs::create_private_dir(permit, &path)?;
     Ok(path)
 }
 

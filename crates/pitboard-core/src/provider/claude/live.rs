@@ -8,6 +8,7 @@
 
 use super::{paths as claude, slot};
 use crate::context::Context;
+use crate::service::Permit;
 use crate::store::{Error, Live, RawStore};
 use std::path::{Path, PathBuf};
 
@@ -51,13 +52,16 @@ pub(crate) fn read_signin(ctx: &Context, dir: &Path) -> Result<Option<String>, E
 /// It refuses any name that could be a real login: the default slot, and whatever this
 /// context's own `CLAUDE_CONFIG_DIR` hashes to. A scratch directory's hash is safe by
 /// construction, and those two are the only names in the family that are not.
-pub(crate) fn discard_signin(ctx: &Context, dir: &Path) -> Result<(), Error> {
+pub(crate) fn discard_signin(ctx: &Context, permit: Permit, dir: &Path) -> Result<(), Error> {
     let service = slot::service_for_dir(&dir.to_string_lossy());
     if service == slot::LIVE_SERVICE || service == claude::live_service(ctx) {
         return Err(Error::Write(format!("refusing to delete {service}")));
     }
     match ctx.host().foreign_secrets(ctx, &slot::account_name(ctx)) {
-        Some(keychain) => keychain.delete(&service),
-        None => ctx.host().file(dir.join(slot::CRED_FILE)).delete(""),
+        Some(keychain) => keychain.delete(permit, &service),
+        None => ctx
+            .host()
+            .file(dir.join(slot::CRED_FILE))
+            .delete(permit, ""),
     }
 }

@@ -8,6 +8,7 @@
 use crate::context::Context;
 use crate::error::{Error, Result};
 use crate::provider::ProviderId;
+use crate::service::Permit;
 use crate::{atomic, home};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -594,7 +595,7 @@ fn three_to_four(document: &mut serde_json::Value) {
     document["schema"] = serde_json::json!(SCHEMA);
 }
 
-pub(crate) fn save(ctx: &Context, state: &State) -> Result<()> {
+pub(crate) fn save(ctx: &Context, permit: Permit, state: &State) -> Result<()> {
     home::check_location(&home::dir(ctx))?;
     let mut state = state.clone();
     for &tool in ProviderId::ALL {
@@ -606,9 +607,9 @@ pub(crate) fn save(ctx: &Context, state: &State) -> Result<()> {
         path: path.clone(),
         source,
     };
-    home::ensure(ctx).map_err(write)?;
+    home::ensure(ctx, permit).map_err(write)?;
     let body = serde_json::to_string_pretty(state).expect("State is always serialisable");
-    atomic::write(&path, body.as_bytes(), atomic::Perms::Secret).map_err(write)
+    atomic::write(permit, &path, body.as_bytes(), atomic::Perms::Secret).map_err(write)
 }
 
 #[cfg(test)]
@@ -638,7 +639,7 @@ mod tests {
             parked: None,
         });
         state.set_active(ProviderId::Claude, Some("work".into()));
-        save(&here, &state).expect("saved");
+        save(&here, Permit::for_a_test(), &state).expect("saved");
 
         assert_eq!(
             load(&here).unwrap().active_for(ProviderId::Claude),
@@ -667,7 +668,7 @@ mod tests {
         let mut state = State::default();
         state.set_active(ProviderId::Claude, Some("work".into()));
         state.set_active(ProviderId::Codex, Some("work".into()));
-        save(&here, &state).expect("saved");
+        save(&here, Permit::for_a_test(), &state).expect("saved");
 
         let moved = here.clone().with_codex_home("/somewhere/else".into());
         let loaded = load(&moved).unwrap();

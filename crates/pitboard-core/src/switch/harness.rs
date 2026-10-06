@@ -15,6 +15,7 @@ use crate::api::Owner;
 use crate::api::scripted::ScriptedApi;
 use crate::provider::ProviderId;
 use crate::provider::claude::paths as claude;
+use crate::service::Permit;
 
 use crate::host::memory::MemoryHost;
 use crate::state::Account;
@@ -66,8 +67,13 @@ impl Machine {
         let live = crate::provider::of(self.which)
             .live(&self.ctx)
             .expect("a store to write to");
-        store::write_raw(&live.chain, &live.service, &document.to_string())
-            .expect("the live login is written");
+        store::write_raw(
+            &live.chain,
+            Permit::for_a_test(),
+            &live.service,
+            &document.to_string(),
+        )
+        .expect("the live login is written");
     }
 
     pub(crate) fn key(&self, label: &str) -> Key {
@@ -172,9 +178,10 @@ pub(crate) fn machine(name: &str) -> Machine {
 
     // `there` holds a parked login, written the way a switch would have written it.
     std::fs::create_dir_all(root.join(".pitboard")).expect("a Pitboard home");
-    let parked_service = park::reserve(&ctx, "there").expect("a free name");
+    let parked_service = park::reserve(&ctx, Permit::for_a_test(), "there").expect("a free name");
     let parked = park::store_at(
         &ctx,
+        Permit::for_a_test(),
         crate::provider::ProviderId::Claude,
         &parked_service,
         &oauth("there-refresh", 30),
@@ -185,7 +192,7 @@ pub(crate) fn machine(name: &str) -> Machine {
     state.accounts.push(account("here", "here", None));
     state.accounts.push(account("there", "there", Some(parked)));
     state.set_active(ProviderId::Claude, Some("here".into()));
-    state::save(&ctx, &state).expect("saved");
+    state::save(&ctx, Permit::for_a_test(), &state).expect("saved");
 
     Machine {
         ctx,
@@ -292,9 +299,11 @@ pub(crate) fn codex_machine(name: &str) -> Machine {
     }
 
     std::fs::create_dir_all(machine.root.join(".pitboard")).expect("a Pitboard home");
-    let parked_service = park::reserve(&machine.ctx, &codex_id("there")).expect("a free name");
+    let parked_service =
+        park::reserve(&machine.ctx, Permit::for_a_test(), &codex_id("there")).expect("a free name");
     let parked = park::store_at(
         &machine.ctx,
+        Permit::for_a_test(),
         ProviderId::Codex,
         &parked_service,
         &codex_login("there", "there-refresh"),
@@ -309,7 +318,7 @@ pub(crate) fn codex_machine(name: &str) -> Machine {
         .accounts
         .push(codex_account("there", &codex_id("there"), Some(parked)));
     state.set_active(ProviderId::Codex, Some("here".into()));
-    state::save(&machine.ctx, &state).expect("saved");
+    state::save(&machine.ctx, Permit::for_a_test(), &state).expect("saved");
     machine
 }
 
@@ -327,7 +336,13 @@ pub(crate) fn login_of(m: &Machine, who: &str, refresh: &str) -> Value {
 
 /// A sign-in the tool finished as `who`, left where a finished one leaves its login.
 pub(crate) fn signed_in(m: &Machine, who: &str, refresh: &str) -> enroll::SignIn {
-    enroll::planted(&m.ctx, m.which, login_of(m, who, refresh)).expect("a sign-in")
+    enroll::planted(
+        &m.ctx,
+        Permit::for_a_test(),
+        m.which,
+        login_of(m, who, refresh),
+    )
+    .expect("a sign-in")
 }
 
 /// The service answers a renewal of the login on `refresh` with one on `renewed`.
@@ -452,5 +467,5 @@ pub(crate) fn hold(m: &Machine, after: &str) {
 
 /// Recovery, run the way the next command runs it.
 pub(crate) fn recover(m: &Machine) -> Result<()> {
-    settle(&m.ctx, None).map(|_| ())
+    settle(&m.ctx, Permit::for_a_test(), None).map(|_| ())
 }

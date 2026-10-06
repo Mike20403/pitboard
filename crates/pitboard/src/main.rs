@@ -333,6 +333,10 @@ fn statusline(pitboard: &Pitboard) -> Report {
 }
 
 fn enroll_signing_in(pitboard: &Pitboard, label: &str) -> Report {
+    // Refused before the sign-in is announced, as root or under sudo, where none opens.
+    if let Err(refused) = pitboard.permit() {
+        return Report::failed(Some("enroll"), refused);
+    }
     // The account this would sign in to again, of the tool the label is for: another
     // tool's account of the same name is somebody else to sign in as.
     let existing = pitboard.account_to_enroll(label);
@@ -521,7 +525,10 @@ enum ScheduleCommand {
 }
 
 fn renew(pitboard: &Pitboard) -> Report {
-    let outcomes = pitboard.renew();
+    let outcomes = match pitboard.renew() {
+        Ok(outcomes) => outcomes,
+        Err(error) => return Report::failed(Some("renew"), error),
+    };
     let renewed = outcomes
         .iter()
         .filter(|(_, r)| matches!(r, Renewal::Renewed))
@@ -827,9 +834,11 @@ fn main() -> ExitCode {
         Command::Forget { label, yes } => {
             // The way back is a browser sign-in for that account, which is the cost
             // Pitboard exists to spare people. Asked only where there is someone to ask:
-            // a pipe, a script and --json go straight through.
+            // a pipe, a script and --json go straight through. Nor is a question asked whose
+            // answer would only be refused, as root or under sudo.
             if !yes
                 && !cli.json
+                && pitboard.permit().is_ok()
                 && std::io::stdin().is_terminal()
                 && std::io::stderr().is_terminal()
             {
@@ -856,6 +865,7 @@ fn main() -> ExitCode {
         Command::Uninstall { yes } => {
             if !yes
                 && !cli.json
+                && pitboard.permit().is_ok()
                 && std::io::stdin().is_terminal()
                 && std::io::stderr().is_terminal()
             {

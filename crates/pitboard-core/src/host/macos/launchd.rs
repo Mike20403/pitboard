@@ -6,6 +6,7 @@ use crate::context::Context;
 use crate::error::Result;
 use crate::host::Scheduler;
 use crate::schedule::EVERY_SECONDS;
+use crate::service::Permit;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -54,39 +55,42 @@ impl Scheduler for Launchd {
         Some(PathBuf::from(unescape(program)))
     }
 
-    fn put(&self, ctx: &Context, program: &Path) -> Result<()> {
+    fn put(&self, ctx: &Context, permit: Permit, program: &Path) -> Result<()> {
         let path = Self::agent(ctx);
         let before = std::fs::read_to_string(&path).ok();
-        service::write(&path, &plist(program, ctx.argv_fallback()))?;
+        service::write(permit, &path, &plist(program, ctx.argv_fallback()))?;
         // `bootstrap` is launchd's own word for this, and replaces the deprecated `load`.
         let domain = Self::domain();
         let target = path.to_string_lossy();
-        let _ = self.control.run(LAUNCHCTL, &["bootout", &domain, &target]);
-        if let Err(refused) = self
+        let _ = self
             .control
-            .start(LAUNCHCTL, &["bootstrap", &domain, &target])
+            .run(permit, LAUNCHCTL, &["bootout", &domain, &target]);
+        if let Err(refused) =
+            self.control
+                .start(permit, LAUNCHCTL, &["bootstrap", &domain, &target])
         {
-            service::restore(&path, before.as_deref());
+            service::restore(permit, &path, before.as_deref());
             if before.is_some() {
                 let _ = self
                     .control
-                    .start(LAUNCHCTL, &["bootstrap", &domain, &target]);
+                    .start(permit, LAUNCHCTL, &["bootstrap", &domain, &target]);
             }
             return Err(refused);
         }
         Ok(())
     }
 
-    fn remove(&self, ctx: &Context) -> Result<bool> {
+    fn remove(&self, ctx: &Context, permit: Permit) -> Result<bool> {
         let path = Self::agent(ctx);
         if !path.is_file() {
             return Ok(false);
         }
         let _ = self.control.run(
+            permit,
             LAUNCHCTL,
             &["bootout", &Self::domain(), &path.to_string_lossy()],
         );
-        service::remove(&path)?;
+        service::remove(permit, &path)?;
         Ok(true)
     }
 
@@ -178,11 +182,19 @@ mod tests {
             std::fs::write(program, "").expect("a program");
         }
         let ctx = Context::new(home.clone()).with_memory_stores(MemoryHost::new());
-        install(&ctx.clone().with_schedule_program(app.clone())).expect("0.3.0's schedule");
+        install(
+            &ctx.clone().with_schedule_program(app.clone()),
+            Permit::for_a_test(),
+        )
+        .expect("0.3.0's schedule");
         let the_app = ctx.clone().with_schedule_program(bundled.clone());
 
         assert!(
-            !repair(&the_app.clone().with_scheduled_job(LABEL.into())).expect("nothing to do"),
+            !repair(
+                &the_app.clone().with_scheduled_job(LABEL.into()),
+                Permit::for_a_test()
+            )
+            .expect("nothing to do"),
             "started by the schedule"
         );
         assert_eq!(installed_program(&ctx), Some(app));
@@ -196,7 +208,10 @@ mod tests {
         );
 
         let opened = the_app.with_scheduled_job("application.com.datlechin.pitboard.1.2".into());
-        assert!(repair(&opened).expect("repaired"), "opened from Finder");
+        assert!(
+            repair(&opened, Permit::for_a_test()).expect("repaired"),
+            "opened from Finder"
+        );
         assert_eq!(installed_program(&ctx), Some(bundled));
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -216,7 +231,7 @@ mod tests {
         let ctx = Context::new(home.clone())
             .with_memory_stores(MemoryHost::new())
             .with_schedule_program(bundled.clone());
-        install(&ctx).expect("installed");
+        install(&ctx, Permit::for_a_test()).expect("installed");
         let written = std::fs::read_to_string(Launchd::agent(&ctx)).expect("the agent");
         assert!(written.contains("/Tools&amp;Apps/"), "{written}");
         assert!(!written.contains("/Tools&Apps/"), "{written}");

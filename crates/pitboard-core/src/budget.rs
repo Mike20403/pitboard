@@ -21,6 +21,7 @@
 //! Nothing here is secret. It is names, times and counts.
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::usage::Snapshot;
 use crate::{atomic, home};
 use serde::{Deserialize, Serialize};
@@ -136,9 +137,9 @@ fn load(ctx: &Context) -> Ledger {
         .unwrap_or_default()
 }
 
-fn save(ctx: &Context, ledger: &Ledger) {
+fn save(ctx: &Context, permit: Permit, ledger: &Ledger) {
     if let Ok(body) = serde_json::to_string(ledger) {
-        let _ = atomic::write(&path(ctx), body.as_bytes(), atomic::Perms::Secret);
+        let _ = atomic::write(permit, &path(ctx), body.as_bytes(), atomic::Perms::Secret);
     }
 }
 
@@ -198,7 +199,7 @@ pub enum Outcome {
 /// entry and write the whole thing back, so the last writer would erase what the others
 /// learned. Which is exactly what happened: two accounts asked together, one budgeted and
 /// one not, forever.
-pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
+pub fn record(ctx: &Context, permit: Permit, outcomes: &[(String, Outcome)]) {
     if outcomes.is_empty() {
         return;
     }
@@ -230,7 +231,7 @@ pub fn record(ctx: &Context, outcomes: &[(String, Outcome)]) {
             }
         }
     }
-    save(ctx, &ledger);
+    save(ctx, permit, &ledger);
 }
 
 /// `retry_after` is what Anthropic said to wait, where it said anything, and is believed
@@ -267,10 +268,10 @@ pub fn holds(ctx: &Context) -> Vec<(String, i64)> {
 }
 
 /// Drop what is known about an account nobody is enrolled as any more.
-pub fn forget(ctx: &Context, account_uuid: &str) {
+pub fn forget(ctx: &Context, permit: Permit, account_uuid: &str) {
     let mut ledger = load(ctx);
     if ledger.remove(account_uuid).is_some() {
-        save(ctx, &ledger);
+        save(ctx, permit, &ledger);
     }
 }
 
@@ -301,7 +302,7 @@ mod tests {
         let ctx = Context::new(root.clone())
             .with_pitboard_home(root.clone())
             .with_clock(Arc::clone(&clock) as Arc<dyn Clock>);
-        home::ensure(&ctx).expect("a home");
+        home::ensure(&ctx, Permit::for_a_test()).expect("a home");
         (ctx, clock, Scratch(root))
     }
 
@@ -375,7 +376,11 @@ mod tests {
     fn asking_again_inside_the_floor_serves_what_is_already_known() {
         let (ctx, clock, _s) = machine("floor");
         let five_hour = reading(&["five_hour"]);
-        record(&ctx, &[("acc".into(), Outcome::Answered)]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::Answered)],
+        );
 
         assert_eq!(
             may_ask(&ctx, "acc", Some(&five_hour), false),
@@ -393,7 +398,11 @@ mod tests {
     #[test]
     fn asking_for_it_goes_past_the_floor() {
         let (ctx, _clock, _s) = machine("forced");
-        record(&ctx, &[("acc".into(), Outcome::Answered)]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::Answered)],
+        );
         assert_eq!(
             may_ask(&ctx, "acc", Some(&reading(&["five_hour"])), true),
             None
@@ -405,7 +414,11 @@ mod tests {
     #[test]
     fn asking_for_it_keeps_a_wait_the_service_asked_for() {
         let (ctx, clock, _s) = machine("forced-rate-limited");
-        record(&ctx, &[("acc".into(), Outcome::RateLimited(Some(300)))]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::RateLimited(Some(300)))],
+        );
         assert_eq!(may_ask(&ctx, "acc", None, true), Some(Held::RateLimited));
         clock.advance(301);
         assert_eq!(may_ask(&ctx, "acc", None, true), None);
@@ -416,7 +429,11 @@ mod tests {
     #[test]
     fn asking_for_it_tries_an_unreachable_service_again() {
         let (ctx, _clock, _s) = machine("forced-unreachable");
-        record(&ctx, &[("acc".into(), Outcome::Unreachable)]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::Unreachable)],
+        );
         assert_eq!(may_ask(&ctx, "acc", None, false), Some(Held::Unreachable));
         assert_eq!(may_ask(&ctx, "acc", None, true), None);
     }
@@ -427,7 +444,11 @@ mod tests {
     #[test]
     fn an_unreachable_service_is_not_called_rate_limiting() {
         let (ctx, _clock, _s) = machine("never-answered");
-        record(&ctx, &[("acc".into(), Outcome::Unreachable)]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::Unreachable)],
+        );
         assert_eq!(may_ask(&ctx, "acc", None, false), Some(Held::Unreachable));
     }
 
@@ -452,7 +473,11 @@ mod tests {
     #[test]
     fn a_retry_after_is_taken_at_its_word() {
         let (ctx, clock, _s) = machine("retry-after");
-        record(&ctx, &[("acc".into(), Outcome::RateLimited(Some(300)))]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::RateLimited(Some(300)))],
+        );
 
         assert!(may_ask(&ctx, "acc", None, false).is_some());
         clock.advance(299);
@@ -466,7 +491,11 @@ mod tests {
         let (ctx, clock, _s) = machine("doubling");
         let waits: Vec<i64> = (0..8)
             .map(|_| {
-                record(&ctx, &[("acc".into(), Outcome::RateLimited(None))]);
+                record(
+                    &ctx,
+                    Permit::for_a_test(),
+                    &[("acc".into(), Outcome::RateLimited(None))],
+                );
                 let held = holds(&ctx);
                 clock.advance(held.first().map_or(0, |(_, left)| *left));
                 held.first().map_or(0, |(_, left)| *left)
@@ -484,10 +513,18 @@ mod tests {
     #[test]
     fn an_answer_clears_a_wait_and_starts_the_floor_again() {
         let (ctx, _clock, _s) = machine("cleared");
-        record(&ctx, &[("acc".into(), Outcome::RateLimited(Some(3600)))]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::RateLimited(Some(3600)))],
+        );
         assert!(!holds(&ctx).is_empty());
 
-        record(&ctx, &[("acc".into(), Outcome::Answered)]);
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::Answered)],
+        );
         assert!(holds(&ctx).is_empty());
         assert_eq!(may_ask(&ctx, "acc", None, false), Some(Held::Fresh));
     }
@@ -495,8 +532,12 @@ mod tests {
     #[test]
     fn what_is_known_about_an_account_goes_when_the_account_does() {
         let (ctx, _clock, _s) = machine("forget");
-        record(&ctx, &[("acc".into(), Outcome::RateLimited(Some(3600)))]);
-        forget(&ctx, "acc");
+        record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc".into(), Outcome::RateLimited(Some(3600)))],
+        );
+        forget(&ctx, Permit::for_a_test(), "acc");
         assert!(holds(&ctx).is_empty());
         assert_eq!(may_ask(&ctx, "acc", None, false), None);
     }

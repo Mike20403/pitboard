@@ -9,6 +9,7 @@
 use super::harness::{machine, owner, recover};
 use super::*;
 use crate::api::scripted::Trouble;
+use crate::service::Permit;
 
 /// The account is kept, the label is kept, and the copy that cannot work is dropped, so the
 /// way back is one sign-in rather than an enrolment.
@@ -20,7 +21,9 @@ fn a_parked_login_anthropic_refuses_is_not_installed() {
     m.api.renew_trouble("there-refresh", Trouble::InvalidGrant);
     let live_before = m.mem.live().peek(&m.service);
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let failed = switch(
         settled,
         &crate::state::Key::new(crate::provider::ProviderId::Claude, "there"),
@@ -81,7 +84,9 @@ fn a_parked_login_that_belongs_to_another_account_is_refused() {
     let live_before = m.mem.live().peek(&m.service);
     let parked_before = m.mem.vault().services();
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let failed = switch(
         settled,
         &crate::state::Key::new(crate::provider::ProviderId::Claude, "there"),
@@ -111,7 +116,9 @@ fn a_switch_will_not_install_a_login_it_could_not_ask_about() {
     let live_before = m.mem.live().peek(&m.service);
     let parked_before = m.mem.vault().services();
 
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let failed = switch(
         settled,
         &crate::state::Key::new(crate::provider::ProviderId::Claude, "there"),
@@ -135,7 +142,9 @@ fn a_switch_will_not_install_a_login_it_could_not_ask_about() {
 #[test]
 fn a_park_that_answers_for_its_own_account_is_installed() {
     let m = machine("proved");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let (outcome, _) = switch(
         settled,
         &crate::state::Key::new(crate::provider::ProviderId::Claude, "there"),
@@ -162,7 +171,9 @@ fn a_login_pitboard_cannot_find_is_not_the_same_as_nobody_being_signed_in() {
 
     // Claude Code's config still says who is signed in; the login is not in any store.
     m.mem.live().delete_everything();
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let failed = switch(
         settled,
         &crate::state::Key::new(crate::provider::ProviderId::Claude, "there"),
@@ -176,7 +187,9 @@ fn a_login_pitboard_cannot_find_is_not_the_same_as_nobody_being_signed_in() {
 
     // With nothing in the config either, nobody is signed in and that is all it says.
     std::fs::write(m.ctx_home().join(".claude.json"), "{}").expect("a config");
-    let settled = settle(&m.ctx, None).expect("nothing to recover").0;
+    let settled = settle(&m.ctx, Permit::for_a_test(), None)
+        .expect("nothing to recover")
+        .0;
     let failed = switch(
         settled,
         &crate::state::Key::new(crate::provider::ProviderId::Claude, "there"),

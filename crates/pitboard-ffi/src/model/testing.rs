@@ -488,8 +488,8 @@ pub(super) struct Machine {
     pub repair_asks: usize,
     /// The command line inside this copy of the app: none, unless a test says.
     pub own: OwnCommandLine,
-    /// What renewing gives.
-    pub renewals: Vec<Renewed>,
+    /// What renewing gives, or what it is refused with.
+    pub renewals: Result<Vec<Renewed>, Refusal>,
     pub renew_asks: usize,
     /// Doctor's checks.
     pub checks: Vec<Check>,
@@ -550,7 +550,7 @@ impl Machine {
             repairs: Ok(false),
             repair_asks: 0,
             own: OwnCommandLine::default(),
-            renewals: Vec::new(),
+            renewals: Ok(Vec::new()),
             renew_asks: 0,
             checks: Vec::new(),
             doctor_asks: 0,
@@ -812,7 +812,7 @@ impl Machine {
             Job::Renew => {
                 self.renew_asks += 1;
                 Answer::Renewed {
-                    renewals: self.renewals.clone(),
+                    renewals: self.renewals.clone().map_err(|refused| refused.error()),
                 }
             }
             Job::Check => {

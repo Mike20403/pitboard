@@ -462,6 +462,125 @@ fn renew_says_what_it_did_as_the_app_says_it() {
     renewal.assert();
 }
 
+/// Every file under `dir`, by path, with what it holds.
+fn tree(dir: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut found = std::collections::BTreeMap::new();
+    for entry in std::fs::read_dir(dir).expect("a directory") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() {
+            found.extend(tree(&path));
+        } else {
+            let body = std::fs::read(&path).expect("a file");
+            found.insert(path, body);
+        }
+    }
+    found
+}
+
+/// Under sudo, `renew` renewed a parked login as root and wrote what came back as root,
+/// where the person's own runs might not replace it again. It is refused now, with the code
+/// a program branches on, having asked nobody and written nothing, the audit log included.
+/// Without sudo, the same run renews.
+#[test]
+fn renew_under_sudo_is_refused_and_changes_nothing() {
+    let mut env = two_accounts("renew-sudo");
+    access_lapsed(&env, "beta");
+    let renewal = env.answers_renewal(
+        "refresh-b",
+        200,
+        serde_json::json!({
+            "access_token": "access-refresh-b2", "refresh_token": "refresh-b2",
+            "expires_in": 28_800, "refresh_token_expires_in": 2_592_000,
+            "scope": "user:inference user:profile", "token_type": "Bearer"
+        }),
+    );
+    let before = tree(&env.root);
+
+    let out = env
+        .command(&["renew", "--json"])
+        .env("SUDO_UID", "501")
+        .output()
+        .expect("run Pitboard");
+
+    assert_eq!(out.status.code(), Some(1));
+    let refused = envelope(&String::from_utf8_lossy(&out.stdout));
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["command"], "renew");
+    assert_eq!(refused["error"]["code"], "elevated");
+    assert_eq!(
+        refused["error"]["message"],
+        "Pitboard changes nothing when it runs as root or with sudo. Run it as yourself."
+    );
+    assert!(tree(&env.root) == before, "nothing is written");
+    assert!(!renewal.matched(), "nobody is asked");
+
+    let (out, err, code) = env.run(&["renew"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out, "Renewed one.\n");
+    renewal.assert();
+}
+
+/// Under sudo, `enroll --sign-in` is refused before it says it is opening the tool's
+/// sign-in, as `forget` and `uninstall` ask no question first: no sign-in opens, so none is
+/// announced, and nothing is written.
+#[test]
+fn enrolling_by_sign_in_under_sudo_announces_no_sign_in() {
+    let env = two_accounts("enroll-sudo");
+    // First on the PATH, so a sign-in the gate let through would start this stand-in and
+    // never the person's own `claude`.
+    env.install_fake_claude(&common::credential("refresh-c").to_string());
+    let before = tree(&env.root);
+
+    let out = env
+        .command(&["enroll", "side", "--sign-in"])
+        .env("SUDO_UID", "501")
+        .output()
+        .expect("run Pitboard");
+
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!err.contains("sign-in. Sign in as"), "{err}");
+    assert!(
+        err.contains("Pitboard changes nothing when it runs as root or with sudo."),
+        "{err}"
+    );
+    assert!(tree(&env.root) == before, "nothing is written");
+}
+
+/// Under sudo, `pitboard status` answers what `--offline` answers and says why, asking
+/// Anthropic nothing and writing nothing.
+#[test]
+fn status_under_sudo_answers_from_what_was_measured() {
+    let mut env = two_accounts("status-sudo");
+    env.expect_usage_requests(0);
+    let before = tree(&env.root);
+
+    let out = env
+        .command(&["status", "--json"])
+        .env("SUDO_UID", "501")
+        .output()
+        .expect("run Pitboard");
+
+    assert_eq!(out.status.code(), Some(0));
+    let read = envelope(&String::from_utf8_lossy(&out.stdout));
+    assert_eq!(read["ok"], true);
+    let codes: Vec<&str> = read["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .filter_map(|w| w["code"].as_str())
+        .collect();
+    assert_eq!(codes, ["read_only"]);
+    assert!(
+        read["warnings"][0]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("Pitboard runs with sudo, so it changes nothing")),
+        "{read}"
+    );
+    assert!(tree(&env.root) == before, "nothing is written");
+    env.assert_usage_requests();
+}
+
 #[test]
 fn forgetting_the_signed_in_account_is_refused() {
     let env = two_accounts("forget");

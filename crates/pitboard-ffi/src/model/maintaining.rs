@@ -435,10 +435,10 @@ fn an_older_apps_schedule_is_read_again_only_once_it_was_repaired() {
 fn renewing_now_says_what_it_renewed_and_reads_the_accounts_once() {
     let mut model = Hand::new();
     let mut machine = machine();
-    machine.renewals = vec![
+    machine.renewals = Ok(vec![
         renewed("work", "claude", "renewed"),
         renewed("codex/spare", "codex", "renewal_deferred"),
-    ];
+    ]);
     model.refresh(&mut machine);
     let reads = model.count(any_read);
     let renewal = shown(&model).renewal;
@@ -464,6 +464,29 @@ fn renewing_now_says_what_it_renewed_and_reads_the_accounts_once() {
         renewal.note,
         "Renewed 1 of 2; the rest are tried again next time."
     );
+}
+
+/// A renewal the core refused, as it refuses every change where Pitboard runs as root or
+/// under sudo, is said in the core's words. The core answered an empty list, which read as
+/// "No parked login was due." when nothing had been looked at. The accounts are read again
+/// after it, as after any renewal.
+#[test]
+fn a_refused_renewal_says_why_rather_than_that_nothing_was_due() {
+    let mut model = Hand::new();
+    let mut machine = machine();
+    let refused = "Pitboard changes nothing when it runs as root or with sudo. Run it as yourself.";
+    machine.renewals = Err(refusal("elevated", refused, Vec::new()));
+    model.refresh(&mut machine);
+    let reads = model.count(any_read);
+
+    model.send(Intent::RenewNow);
+    model.run(&mut machine);
+
+    assert_eq!(machine.renew_asks, 1);
+    assert_eq!(model.count(any_read), reads + 1);
+    let renewal = shown(&model).renewal;
+    assert!(!renewal.renewing);
+    assert_eq!(renewal.note, refused);
 }
 
 /// A second Renew Now while one runs does nothing, as the Swift settings held its button

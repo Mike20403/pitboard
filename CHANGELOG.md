@@ -111,6 +111,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   are: each `pitboard doctor --json` detail joins its parts with ` · `, and
   `pitboard statusline --json`'s `line` does too, so both now carry `\u00b7`. What Pitboard
   prints without `--json`, and the JSON files Pitboard keeps, are unchanged.
+- On macOS and Linux, Pitboard refuses every command that changes something when it runs
+  as root or with `sudo`, with the error code `elevated`:
+  `Pitboard changes nothing when it runs as root or with sudo. Run it as yourself.` That
+  includes a container or a WSL distribution whose only user is root. Pitboard tells
+  `sudo` by `SUDO_UID` being set, as it is under `sudo -u` another user too, and in a
+  shell, tmux or editor server started with `sudo -iu` and your own name, which passes
+  `SUDO_UID` to everything it starts; `env -u SUDO_UID` runs a command without it. Pitboard
+  changed things as root before: a file it made then was root's, and a keychain item might
+  have been, where your own runs might not read or replace it. A refused command writes
+  nothing, not even its line in `pitboard log`. `pitboard schedule uninstall` and
+  `pitboard uninstall` are refused too, so a schedule or a Pitboard directory made as root
+  is removed by hand, as
+  [Pitboard changes nothing as root](https://docs.usepitboard.com/troubleshooting#pitboard-changes-nothing-as-root)
+  says.
+  - `pitboard status` still answers, with what `pitboard status --offline` shows and the
+    warning `read_only`, which says why. It renews no parked login, asks Anthropic and
+    OpenAI nothing and writes nothing. The status line still answers too, and writes
+    nothing.
+  - `pitboard doctor` fails its `elevated` check, first, with how Pitboard runs.
+  - `pitboard renew --json` reports a refused run as the error `elevated`, where it gave
+    an empty list, and **Renew Now** in the app says why, where it said
+    `No parked login was due.`
+  - `forget` and `uninstall` ask no question whose answer would be refused, and
+    `enroll --sign-in` does not say it is opening a sign-in.
+- In `pitboard-core`, `service::Pitboard::renew` returns a `Result`, and
+  `service::Permit` and `Pitboard::permit` are new. Everything outside `service` that
+  writes, removes, changes a store of logins or the scheduler, starts a tool's sign-in or
+  renews a parked login takes a `Permit`, which only `Pitboard::permit` makes: among them
+  `app::write_file`, `audit::record`, `schedule::install`, `status::gather`,
+  `switch::settle` and `statusline::read`, which takes an `Option<Permit>` and writes
+  nothing without one. `host::Elevation` is new. These change the crate's public API.
 
 ### Fixed
 

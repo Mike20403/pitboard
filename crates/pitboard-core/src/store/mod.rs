@@ -15,6 +15,7 @@ pub(crate) mod vault;
 pub(crate) use file::PlainFile;
 
 use crate::context::Context;
+use crate::service::Permit;
 
 use serde_json::Value;
 use std::path::PathBuf;
@@ -106,13 +107,15 @@ impl Cost {
 }
 
 /// One credential store. `write` must read its result back and return `Ok` only if it
-/// holds exactly what was written.
+/// holds exactly what was written. Both changes take the [`Permit`] only the one gate
+/// every change passes makes, so no login is written or deleted, in the keychain or in a
+/// file, by a run that did not ask whether it may.
 pub(crate) trait RawStore: Send + Sync {
     fn kind(&self) -> Backend;
     fn contains(&self, service: &str) -> Result<bool, Error>;
     fn read(&self, service: &str) -> Result<Option<String>, Error>;
-    fn write(&self, service: &str, contents: &str) -> Result<(), Error>;
-    fn delete(&self, service: &str) -> Result<(), Error>;
+    fn write(&self, permit: Permit, service: &str, contents: &str) -> Result<(), Error>;
+    fn delete(&self, permit: Permit, service: &str) -> Result<(), Error>;
 
     /// Every name Pitboard put here, where the store can be asked. `None` where it cannot,
     /// which is what a store with no way to enumerate answers rather than an empty list:
@@ -182,9 +185,14 @@ fn resolve_in<'a>(
     Ok(None)
 }
 
-fn write_in(chain: &[&dyn RawStore], service: &str, contents: &str) -> Result<(), Error> {
+fn write_in(
+    chain: &[&dyn RawStore],
+    permit: Permit,
+    service: &str,
+    contents: &str,
+) -> Result<(), Error> {
     let backend = resolve_in(chain, service)?.unwrap_or(chain[0]);
-    backend.write(service, contents)
+    backend.write(permit, service, contents)
 }
 
 fn with_live<T>(live: &Live, run: impl FnOnce(&[&dyn RawStore]) -> T) -> T {
@@ -229,16 +237,21 @@ pub fn read(live: &Live, service: &str) -> Result<Option<Value>, Error> {
 /// Write the live credential where it already lives. A failed keychain write is never
 /// answered by writing the plaintext file: that demotion is Claude Code's to make, and
 /// making it here would move the user's token somewhere weaker without saying so.
-pub fn write_raw(live: &Live, service: &str, contents: &str) -> Result<(), Error> {
-    with_live(live, |chain| write_in(chain, service, contents))
+pub fn write_raw(live: &Live, permit: Permit, service: &str, contents: &str) -> Result<(), Error> {
+    with_live(live, |chain| write_in(chain, permit, service, contents))
 }
 
 pub fn vault_read(ctx: &Context, service: &str) -> Result<Option<String>, Error> {
     vault(ctx).read(service)
 }
 
-pub fn vault_write(ctx: &Context, service: &str, contents: &str) -> Result<(), Error> {
-    vault(ctx).write(service, contents)
+pub fn vault_write(
+    ctx: &Context,
+    permit: Permit,
+    service: &str,
+    contents: &str,
+) -> Result<(), Error> {
+    vault(ctx).write(permit, service, contents)
 }
 
 /// What writing `contents` into the vault would cost against its ceiling, where it has one.
@@ -246,8 +259,8 @@ pub fn vault_cost(ctx: &Context, service: &str, contents: &str) -> Option<Cost> 
     vault(ctx).cost(service, contents)
 }
 
-pub fn vault_delete(ctx: &Context, service: &str) -> Result<(), Error> {
-    vault(ctx).delete(service)
+pub fn vault_delete(ctx: &Context, permit: Permit, service: &str) -> Result<(), Error> {
+    vault(ctx).delete(permit, service)
 }
 
 /// Every parked login on this machine, asked of the store rather than read out of
@@ -306,7 +319,7 @@ mod tests {
         let plaintext = store(Backend::File);
         let chain: [&dyn RawStore; 2] = [&keychain, &plaintext];
 
-        let result = write_in(&chain, "svc", "after");
+        let result = write_in(&chain, Permit::for_a_test(), "svc", "after");
 
         assert!(matches!(result, Err(Error::Write(_))));
         assert_eq!(
@@ -323,7 +336,7 @@ mod tests {
         keychain.fault("svc", Fault::CorruptWrite("something else".into()));
         let chain: [&dyn RawStore; 1] = [&keychain];
         assert!(matches!(
-            write_in(&chain, "svc", "after"),
+            write_in(&chain, Permit::for_a_test(), "svc", "after"),
             Err(Error::NotDurable(_))
         ));
     }
@@ -334,7 +347,7 @@ mod tests {
         let plaintext = holding(Backend::File, "svc", "before");
         let chain: [&dyn RawStore; 2] = [&keychain, &plaintext];
 
-        write_in(&chain, "svc", "after").unwrap();
+        write_in(&chain, Permit::for_a_test(), "svc", "after").unwrap();
 
         assert_eq!(plaintext.read("svc").unwrap().as_deref(), Some("after"));
         assert_eq!(
@@ -350,7 +363,7 @@ mod tests {
         let plaintext = store(Backend::File);
         let chain: [&dyn RawStore; 2] = [&keychain, &plaintext];
 
-        write_in(&chain, "svc", "fresh").unwrap();
+        write_in(&chain, Permit::for_a_test(), "svc", "fresh").unwrap();
 
         assert_eq!(keychain.read("svc").unwrap().as_deref(), Some("fresh"));
         assert_eq!(plaintext.read("svc").unwrap(), None);
@@ -369,10 +382,10 @@ mod tests {
             fn read(&self, _: &str) -> Result<Option<String>, Error> {
                 unreachable!()
             }
-            fn write(&self, _: &str, _: &str) -> Result<(), Error> {
+            fn write(&self, _: Permit, _: &str, _: &str) -> Result<(), Error> {
                 unreachable!()
             }
-            fn delete(&self, _: &str) -> Result<(), Error> {
+            fn delete(&self, _: Permit, _: &str) -> Result<(), Error> {
                 unreachable!()
             }
         }
@@ -380,7 +393,7 @@ mod tests {
         let chain: [&dyn RawStore; 2] = [&Broken, &plaintext];
 
         assert!(matches!(
-            write_in(&chain, "svc", "x"),
+            write_in(&chain, Permit::for_a_test(), "svc", "x"),
             Err(Error::Unreadable(_))
         ));
         assert_eq!(

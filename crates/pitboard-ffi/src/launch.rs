@@ -712,18 +712,26 @@ impl AppCore {
             .collect()
     }
 
-    /// Renew every parked login that is due, and nothing else.
-    pub(crate) fn renew(&self) -> Vec<Renewed> {
-        self.core()
+    /// Renew every parked login that is due, and nothing else. Refused, as every change is,
+    /// where this process may change nothing.
+    pub(crate) fn renew(&self) -> Result<Vec<Renewed>, PitboardError> {
+        Ok(self
+            .core()
             .core
-            .renew()
+            .renew()?
             .into_iter()
             .map(|(key, outcome)| Renewed {
                 label: key.typed(),
                 provider: key.provider.code().into(),
                 outcome: outcome.code().to_string(),
             })
-            .collect()
+            .collect())
+    }
+
+    /// The proof the one gate every change passes hands out, where this process may change
+    /// anything, for a file the app keeps of its own outside Pitboard's directory.
+    pub(crate) fn permit(&self) -> Result<service::Permit, PitboardError> {
+        Ok(self.core().core.permit()?)
     }
 
     /// Whether anything keeps parked logins alive without a command being run.
@@ -743,9 +751,10 @@ impl AppCore {
 
     /// Ask this computer's own scheduler to renew parked logins daily. Opt-in, and the
     /// settings say what it does before offering it. Refused where the app named no command
-    /// line to run.
+    /// line to run, and first, as every change is, where this process may change nothing.
     pub(crate) fn schedule_install(&self) -> Result<String, PitboardError> {
         let made = self.core();
+        made.core.permit()?;
         if made.helper.is_none() {
             return Err(pitboard_core::error::Error::ScheduleProgramUnnamed.into());
         }
@@ -870,6 +879,30 @@ mod tests {
         };
         assert_eq!(code, "schedule_program_unnamed");
         assert!(message.contains("command line"), "{message}");
+    }
+
+    /// Where Pitboard may change nothing, as root or under sudo, the app's schedule is
+    /// refused for that before anything else, as every change is: not for a command line
+    /// the app does not name, which would send the person to install the app again.
+    #[test]
+    fn the_app_schedules_nothing_where_pitboard_may_change_nothing() {
+        let host = pitboard_core::host::memory::MemoryHost::new();
+        host.runs_with(pitboard_core::host::Elevation::Elevated { why: "as root" });
+        let core = AppCore::asking(
+            move || {
+                let mut made = made(None, None);
+                let ctx = Context::new(PathBuf::from("/dev/null"))
+                    .with_caller("app".into())
+                    .with_memory_stores(Arc::clone(&host));
+                made.core = service::Pitboard::new(ctx);
+                (made, false)
+            },
+            ASK_AGAIN_AFTER,
+        );
+        let Err(PitboardError::Failed { code, .. }) = core.schedule_install() else {
+            panic!("the app scheduled itself as root");
+        };
+        assert_eq!(code, "elevated");
     }
 
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never

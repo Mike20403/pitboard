@@ -4,14 +4,16 @@
 //! crate asks a question and never which system it is on. The seam has two faces.
 //!
 //! [`Host`] is the part a test replaces: the stores secrets and logins live in, the process
-//! list and the scheduler, reached through the [`Context`] every call carries. A test puts
-//! [`memory::MemoryHost`] there and can make any of them fail.
+//! list, the scheduler and whether this process runs as the person, reached through the
+//! [`Context`] every call carries. A test puts [`memory::MemoryHost`] there and can make any
+//! of them fail, or say this process runs as root.
 //!
 //! [`fs`], [`proc`] and [`user`] are plain functions for what the machine does the same way
-//! whoever asks, which the tests run for real: creating a file only its owner can reach,
-//! asking whether a process is still alive, naming the person signed in. [`login_path`] is
-//! one too: the `PATH` the person's login shell builds, which an app the system started
-//! does not have.
+//! whoever asks, which the tests run for real: creating a file only its owner can reach, and
+//! every other change to the disk, each taking the [`Permit`] the one gate every change
+//! passes makes; asking whether a process is still alive; naming the person signed in.
+//! [`login_path`] is one too: the `PATH` the person's login shell builds, which an app the
+//! system started does not have.
 //!
 //! The system is chosen once, in this file, and nowhere else. A fact that differs by system
 //! is a `match` on [`OS`], and [`Os`] lists every system Pitboard runs on, so a system added
@@ -20,6 +22,7 @@
 
 use crate::context::{Context, Environment};
 use crate::error::Result;
+use crate::service::Permit;
 use crate::store::RawStore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -167,6 +170,21 @@ pub enum Kind {
     Any,
 }
 
+/// Whether this process runs as the person themselves, as the system says. Pitboard changes
+/// nothing unless it is [`Elevation::Normal`]: what a run with more rights than the person's
+/// own writes is not theirs, in their own home and their own keychain, and their next
+/// ordinary run may not be able to read it, replace it or take it away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Elevation {
+    /// As the person themselves.
+    Normal,
+    /// With rights that are not the person's own. `why` says how, in words that follow
+    /// "Pitboard runs": `as root`, or `with sudo`.
+    Elevated { why: &'static str },
+    /// The system could not say, which Pitboard takes as a reason to change nothing.
+    Unknown,
+}
+
 /// One process this user is running, and where its program runs from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Process {
@@ -223,6 +241,12 @@ pub(crate) trait Host: Send + Sync + std::fmt::Debug {
     /// The system's own scheduler, which runs daily renewal. `None` where there is none
     /// Pitboard knows how to ask.
     fn scheduler(&self) -> Option<&dyn Scheduler>;
+
+    /// Whether this process runs as the person themselves, which is what the one gate every
+    /// change passes asks ([`crate::service::Permit`]). Takes the context because part of
+    /// the answer can be in the environment this process was started with, such as the
+    /// `SUDO_UID` sudo sets.
+    fn elevation(&self, ctx: &Context) -> Elevation;
 }
 
 /// The system's own scheduler, which starts `pitboard renew` once a day: launchd on macOS,
@@ -249,10 +273,10 @@ pub(crate) trait Scheduler: Send + Sync + std::fmt::Debug {
     /// started again. The status, doctor and the app all read what is there, so a schedule
     /// left written that nothing runs would say renewal is on while it is not, which is the
     /// failure nobody would notice until the parked logins had run out.
-    fn put(&self, ctx: &Context, program: &Path) -> Result<()>;
+    fn put(&self, ctx: &Context, permit: Permit, program: &Path) -> Result<()>;
 
     /// Stop the schedule and take it away. `false` when nothing was there.
-    fn remove(&self, ctx: &Context) -> Result<bool>;
+    fn remove(&self, ctx: &Context, permit: Permit) -> Result<bool>;
 
     /// Whether this process is a run the schedule itself started. `said` is the job a test
     /// says this process runs as; `None` leaves it to what the system says.
@@ -297,5 +321,25 @@ mod tests {
     #[test]
     fn this_system_has_a_scheduler() {
         assert!(current().scheduler().is_some());
+    }
+
+    /// This system's host reads sudo from the environment the context was read from, which
+    /// is where sudo says it, and root from the process itself. Set but empty, `SUDO_UID`
+    /// says nothing, as every variable Pitboard reads that way.
+    #[test]
+    fn the_host_reads_sudo_from_the_context_and_root_from_the_process() {
+        let under = |value: &str| {
+            let env: Environment = [("SUDO_UID", value)].into_iter().collect();
+            let ctx = Context::for_command_line(&env);
+            ctx.host().elevation(&ctx)
+        };
+        assert_eq!(under("501"), Elevation::Elevated { why: "with sudo" });
+        let ctx = Context::for_unit_test();
+        assert_eq!(
+            ctx.host().elevation(&ctx),
+            user::elevation(false),
+            "withheld from a unit test, so only root is read"
+        );
+        assert_eq!(under(""), user::elevation(false));
     }
 }
