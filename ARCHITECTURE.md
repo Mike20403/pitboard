@@ -188,8 +188,8 @@ pages load, as a browser would.
     where ChatGPT runs Codex's login and quits when asked, and its notifications, which post
     nothing; `pages.rs` the stand-in pages an account window loads on `pitboard-fixture://`,
     from the site table. `mod.rs` holds what every build exports of them, the same in each:
-    `PitboardModel::fixture`, `fixture_names` and `fixture_page`, which without the feature
-    refuse, naming it, or name none. `tests.rs` is the macOS app's former
+    `PitboardModel::fixture`, `PitboardModel::fixture_in`, `fixture_names` and
+    `fixture_page`, which without the feature refuse, naming it, or name none. `tests.rs` is the macOS app's former
     `FixtureTests.swift` ported, and what each UI test reads in its world.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
@@ -346,8 +346,8 @@ pages load, as a browser would.
   `pitboard_directory`, which read the environment they are given and, without `HOME`, this
   account's passwd entry; and `fixture_names` and `fixture_page`, which read only what they
   are given. `find_command_line` looks along a search path, so a caller makes it off the main
-  thread. `PitboardModel::fixture` makes the fixture's world in its folder before it
-  answers, files in a temporary directory and nothing slower.
+  thread. `PitboardModel::fixture` and `PitboardModel::fixture_in` make the fixture's world
+  in its folder before they answer, files in a temporary directory and nothing slower.
 - What a snapshot says is made by `present`, which reads the state and the moment and asks
   nothing of anyone but the app's `LocalTime`, for each clock time and whether a moment is
   on another day than now, and for each date and time of the activity log. Where that cannot
@@ -1531,7 +1531,7 @@ Measured on 6 October 2026 on macOS 27.0, with `pitboard-ffi` built for
   `uniffi-bindgen-swift` generated from each release static library, `PitboardBindings.swift`,
   `PitboardFFI.h` and `module.modulemap`, and the C# that uniffi-bindgen-cs v0.11.0+v0.31.0
   generated, `pitboard_ffi.cs`, had the same SHA-256 each, and the C# generated from each
-  debug library did too. The feature changes what the fixture's three exports do, never
+  debug library did too. The feature changes what the fixture's four exports do, never
   their names, arguments, types or doc comments, which are all a checksum covers
   ([The C# bindings](#the-c-bindings)). So one set of bindings links against either library.
 - A library built without the feature holds none of a fixture's text: `grep -a -c` for a
