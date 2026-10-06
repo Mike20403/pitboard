@@ -8,8 +8,12 @@ use crate::service::Permit;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Directory names that mean a sync client would copy this to another machine, where a
-/// parked login must never go.
+/// Text that, anywhere in a path and as written, has always meant a sync client would copy
+/// it to another machine, where a parked login must never go. It catches the clients'
+/// folders, such as `Dropbox (Team)`, `Resilio Sync`, `Box Sync` and `Syncthing`, and with
+/// them some folders that sync nothing, such as `SyncAdmin`. Every path it refuses stays
+/// refused: a home in a synced folder is worse to let through than one in a folder that
+/// only looks like one is to refuse.
 const SYNCED: [&str; 5] = [
     "Dropbox",
     "Google Drive",
@@ -17,6 +21,60 @@ const SYNCED: [&str; 5] = [
     "com~apple~CloudDocs",
     "Sync",
 ];
+
+/// What a sync client names a folder of its own, compared one folder of the path at a time
+/// and in any case, since the file systems macOS and Windows make by default do not tell
+/// `Dropbox` from `dropbox`. Each is the whole name, or the start of one: OneDrive for
+/// Business's `OneDrive - <organisation>` and the `OneDrive-<kind>` macOS's File Provider
+/// names, Dropbox's `Dropbox (<team>)`, and Google Drive for desktop's
+/// `GoogleDrive-<account>`. A folder whose name only holds one of these, such as
+/// `syncthing`, is not refused for it here; [`SYNCED`] refuses `Syncthing` as written.
+fn a_sync_clients_folder(name: &str) -> bool {
+    let name = name.to_lowercase();
+    [
+        "onedrive",
+        "dropbox",
+        "google drive",
+        "com~apple~clouddocs",
+        "sync",
+    ]
+    .contains(&name.as_str())
+        || name.starts_with("onedrive - ")
+        || name.starts_with("onedrive-")
+        || (name.starts_with("dropbox (") && name.ends_with(')'))
+        || name.starts_with("googledrive-")
+}
+
+/// Folders every folder inside of which is a sync client's, in any case: macOS keeps each
+/// File Provider's folder in `~/Library/CloudStorage`, Box's, Dropbox's, Google Drive's and
+/// OneDrive's among them, and every iCloud Drive folder, each app's as well as
+/// `com~apple~CloudDocs`, in `~/Library/Mobile Documents`.
+const SYNCED_INSIDE: [[&str; 2]; 2] =
+    [["library", "cloudstorage"], ["library", "mobile documents"]];
+
+/// The name, or the folders, that make `path` one a sync client copies elsewhere, if any:
+/// [`SYNCED`] anywhere in it as written, then each folder of it by [`a_sync_clients_folder`]
+/// and [`SYNCED_INSIDE`].
+fn synced_by(path: &Path) -> Option<String> {
+    let text = path.to_string_lossy();
+    if let Some(marker) = SYNCED.iter().find(|marker| text.contains(**marker)) {
+        return Some((*marker).to_string());
+    }
+    let names: Vec<String> = path
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    names.iter().enumerate().find_map(|(at, name)| {
+        if a_sync_clients_folder(name) {
+            return Some(name.clone());
+        }
+        let parent = at.checked_sub(1).map(|before| names[before].as_str())?;
+        SYNCED_INSIDE
+            .iter()
+            .any(|[outer, inner]| parent.to_lowercase() == *outer && name.to_lowercase() == *inner)
+            .then(|| format!("{parent}/{name}"))
+    })
+}
 
 pub fn dir(ctx: &Context) -> PathBuf {
     ctx.pitboard_home.clone()
@@ -79,13 +137,14 @@ pub fn check_absolute(ctx: &Context) -> Result<()> {
     }
 }
 
+/// Refuses a Pitboard directory a sync client would copy to another machine, by the names
+/// in [`synced_by`], read off the path as the file system resolves it where it is there.
 pub fn check_location(path: &Path) -> Result<()> {
     let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let text = resolved.to_string_lossy();
-    match SYNCED.iter().find(|marker| text.contains(**marker)) {
+    match synced_by(&resolved) {
         Some(marker) => Err(Error::StateOnSyncedDrive {
-            path: resolved.clone(),
-            marker: (*marker).to_string(),
+            path: resolved,
+            marker,
         }),
         None => Ok(()),
     }
@@ -181,16 +240,126 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_cloud_synced_location_is_refused() {
-        for synced in [
-            "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/pitboard",
-            "/home/x/Dropbox/pitboard",
-            "/home/x/OneDrive/tools/pitboard",
-        ] {
-            assert!(check_location(Path::new(synced)).is_err(), "{synced}");
+    /// What `check_location` refused before it read folder by folder: any of [`SYNCED`]
+    /// anywhere in the path, as written.
+    fn refused_before(path: &str) -> bool {
+        SYNCED.iter().any(|marker| path.contains(marker))
+    }
+
+    /// The name `check_location` refuses `path` over, if it does.
+    fn synced_over(path: &str) -> Option<String> {
+        match check_location(Path::new(path)) {
+            Ok(()) => None,
+            Err(Error::StateOnSyncedDrive { marker, .. }) => Some(marker),
+            Err(other) => panic!("{other}"),
         }
-        assert!(check_location(Path::new("/Users/x/.pitboard")).is_ok());
-        assert!(check_location(Path::new("/home/x/.pitboard")).is_ok());
+    }
+
+    /// Real folder names of the sync clients, in the case each writes them and in others,
+    /// on every system, with the name each is refused over. A folder inside macOS's
+    /// `Library/CloudStorage` or `Library/Mobile Documents` is refused whatever it is
+    /// called. Read as text anywhere in the path, as before, `onedrive`, `GoogleDrive-` and
+    /// both of macOS's folders went through.
+    #[test]
+    fn a_sync_clients_folder_is_refused_by_its_name_in_any_case() {
+        for (path, marker) in [
+            ("/home/x/OneDrive/pitboard", "OneDrive"),
+            ("/home/x/onedrive/pitboard", "onedrive"),
+            ("/home/x/OneDrive - Contoso/pitboard", "OneDrive"),
+            ("/home/x/onedrive - contoso/pitboard", "onedrive - contoso"),
+            ("/home/x/OneDrive-Personal/pitboard", "OneDrive"),
+            ("/home/x/ONEDRIVE-PERSONAL/pitboard", "ONEDRIVE-PERSONAL"),
+            ("/home/x/Dropbox/pitboard", "Dropbox"),
+            ("/home/x/dropbox/pitboard", "dropbox"),
+            ("/home/x/Dropbox (Personal)/pitboard", "Dropbox"),
+            ("/home/x/Dropbox (Business)/pitboard", "Dropbox"),
+            ("/home/x/dropbox (team)/pitboard", "dropbox (team)"),
+            (
+                "/home/x/GoogleDrive-a@b.example/pitboard",
+                "GoogleDrive-a@b.example",
+            ),
+            (
+                "/home/x/googledrive-A@B.example/pitboard",
+                "googledrive-A@B.example",
+            ),
+            ("/home/x/Google Drive/pitboard", "Google Drive"),
+            ("/home/x/google drive/pitboard", "google drive"),
+            (
+                "/Users/x/Library/CloudStorage/Box-Box/pitboard",
+                "Library/CloudStorage",
+            ),
+            ("/Users/x/library/cloudstorage/x", "library/cloudstorage"),
+            (
+                "/Users/x/Library/Mobile Documents/iCloud~md~obsidian/pitboard",
+                "Library/Mobile Documents",
+            ),
+            (
+                "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/pitboard",
+                "com~apple~CloudDocs",
+            ),
+            (
+                "/Users/x/COM~APPLE~CLOUDDOCS/pitboard",
+                "COM~APPLE~CLOUDDOCS",
+            ),
+            ("/home/x/Sync/pitboard", "Sync"),
+            ("/home/x/sync/pitboard", "sync"),
+        ] {
+            assert_eq!(synced_over(path).as_deref(), Some(marker), "{path}");
+        }
+    }
+
+    /// A sync client's folder name counts wherever it is in the path, the home's own
+    /// folders included, so an account whose home is `/home/sync` or `/home/dropbox` has
+    /// its `~/.pitboard` refused, though nothing syncs it. That is the stricter rule, as
+    /// the CHANGELOG says: such a home went through before, being neither `Sync` nor
+    /// `Dropbox` as written, and `PITBOARD_HOME` can name a folder outside it.
+    #[test]
+    fn a_home_named_as_a_sync_client_names_its_folder_is_refused_too() {
+        for (path, marker) in [
+            ("/home/sync/.pitboard", "sync"),
+            ("/home/dropbox/.pitboard", "dropbox"),
+            ("/home/OneDrive/.pitboard", "OneDrive"),
+        ] {
+            assert_eq!(synced_over(path).as_deref(), Some(marker), "{path}");
+        }
+        assert_eq!(synced_over("/home/syncer/.pitboard"), None);
+    }
+
+    /// Everything refused as text before is refused still, the sync clients' folders it
+    /// caught by that text among them, and so are the folders that only look like one,
+    /// such as `SyncAdmin`. A folder of no sync client, in any case, is not.
+    #[test]
+    fn every_folder_refused_before_is_refused_still() {
+        let before = [
+            "/home/x/Resilio Sync/pitboard",
+            "/home/x/Box Sync/pitboard",
+            "/home/x/Syncthing/pitboard",
+            "/home/x/SyncAdmin/pitboard",
+            "/home/x/OneDriveTools/pitboard",
+            "/home/x/MyDropboxBackup/pitboard",
+            "/home/x/Google Drive Stream/pitboard",
+            "/Users/Synchro/.pitboard",
+            "/home/x/Dropbox (Personal)/pitboard",
+            "/home/x/OneDrive - Contoso/pitboard",
+        ];
+        for path in before {
+            assert!(refused_before(path), "{path}");
+            assert!(synced_over(path).is_some(), "{path}");
+        }
+        let neither = [
+            "/Users/x/.pitboard",
+            "/home/x/.pitboard",
+            "/home/x/projects/synchronous/.pitboard",
+            "/home/x/syncthing/pitboard",
+            "/home/x/dropboxes/pitboard",
+            "/home/x/onedrivetools/pitboard",
+            "/Users/x/Library/Application Support/Pitboard",
+            "/Users/x/Library/Caches/CloudStorage/pitboard",
+            "/Users/x/Documents/Library/Mobile/pitboard",
+        ];
+        for path in neither {
+            assert!(!refused_before(path), "{path}");
+            assert_eq!(synced_over(path), None, "{path}");
+        }
     }
 }

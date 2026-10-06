@@ -12,7 +12,7 @@ Pitboard's directory is `~/.pitboard`, or the path in `PITBOARD_HOME`. The comma
 
 Pitboard creates each directory at mode 0700 and each file at 0600, except those in `backups/`. An existing directory keeps its mode.
 
-Pitboard refuses a directory whose path contains `Dropbox`, `Google Drive`, `OneDrive`, `com~apple~CloudDocs` or `Sync`, because parked logins belong to one machine.
+Pitboard refuses a directory that a sync client copies to other machines, because parked logins belong to one machine. It refuses one whose path contains `Dropbox`, `Google Drive`, `OneDrive`, `com~apple~CloudDocs` or `Sync`, written so. It also refuses one inside `~/Library/CloudStorage` or `~/Library/Mobile Documents`, and one inside a folder with one of these names, in any case and wherever it is in the path, your home's own folders included: `OneDrive`, `OneDrive - <organisation>`, `OneDrive-<kind>`, `Dropbox`, `Dropbox (<team>)`, `Google Drive`, `GoogleDrive-<account>`, `com~apple~CloudDocs` or `Sync`.
 
 | File | Holds | Written by |
 | --- | --- | --- |

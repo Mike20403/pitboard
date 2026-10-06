@@ -59,7 +59,10 @@ pages load, as a browser would.
     `PITBOARD_HOME` names nowhere else.
   - `home.rs`: Pitboard's own directory, and what every home must be before anything is
     read or written under it: a full path (`check_absolute`), and, for Pitboard's own, not
-    in a folder that syncs (`check_location`).
+    in a folder that syncs (`check_location`). That is told by the text it always refused,
+    such as `Sync`, anywhere in the path as written, so nothing it refused is let through,
+    and by the names sync clients give their folders, one folder at a time and in any
+    case, and macOS's `Library/CloudStorage` and `Library/Mobile Documents`.
   - `store/`: reading and writing logins, whichever store holds them: the chain rules, a
     file, the vault of files and the stores in memory the tests use. On macOS, parked
     logins are keychain items. On Linux, they are files in the vault.

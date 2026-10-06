@@ -262,6 +262,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- Pitboard refuses more folders that sync to other machines as its directory, with
+  `state_on_synced_drive`: any folder inside `~/Library/CloudStorage`, where macOS keeps
+  the folders of cloud storage apps such as Box and Google Drive, or inside
+  `~/Library/Mobile Documents`, where iCloud Drive keeps each app's folder; and any folder
+  named `Dropbox`, `Dropbox (<team>)`, `Google Drive`, `GoogleDrive-<account>`,
+  `OneDrive`, `OneDrive - <organisation>`, `OneDrive-<kind>`, `com~apple~CloudDocs` or
+  `Sync`. A name counts in any case, so `~/dropbox` is refused as `~/Dropbox` was, and
+  wherever it is in the path, your home's own folders included: with a home of
+  `/home/sync` or `/home/dropbox`, `~/.pitboard` is refused though nothing syncs it, and
+  `PITBOARD_HOME` can name a folder outside it. On Linux the parked logins are files in
+  that directory, which such a folder would copy to every machine it syncs to. Every
+  folder Pitboard refused before is still refused, `SyncAdmin` and `OneDriveTools` among
+  them, though they sync nothing.
 - Pitboard refuses a site's sign-in link from outside however its path is written. It took
   `claude.ai/magic-link/%FF` and `chatgpt.com/api/auth/%C3`, whose paths hold a byte that is
   not text, and `claude.ai/magic-link/%CC%81`, whose path has a combining mark after a
