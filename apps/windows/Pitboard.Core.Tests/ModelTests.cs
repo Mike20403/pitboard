@@ -294,8 +294,7 @@ public sealed class ModelTests
 
     /// <summary>
     /// A sign-in is asked for by the tool and the name, a code is typed back as text, and
-    /// cancelling and closing a sheet carry nothing. The intent that signs in is a variant of
-    /// its own, which the exported SignIn object is not.
+    /// cancelling and closing a sheet carry nothing.
     /// </summary>
     [TestMethod]
     public void AnIntentToSignInCarriesWhatItIsAbout()
@@ -314,7 +313,6 @@ public sealed class ModelTests
         Assert.AreEqual<Intent>(new Intent.PresentSheet(new Sheet.Add(null)), intents[3]);
         Assert.AreNotEqual<Intent>(new Intent.PresentSheet(new Sheet.Add("codex")), intents[3]);
         Assert.AreEqual(1, intents.OfType<Intent.CancelSignIn>().Count());
-        Assert.AreNotEqual(typeof(SignIn), typeof(Intent.SignIn));
     }
 
     /// <summary>

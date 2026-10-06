@@ -12,7 +12,7 @@ use super::{
     AppControl, Intent, LocalTime, ModelListener, PitboardModel, Platform, PlatformError, Sheet,
     Snapshot,
 };
-use crate::Pitboard;
+use crate::AppCore;
 use crate::present::testing::Utc;
 use pitboard_core::testing::Asked;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -152,13 +152,13 @@ fn platform(apps: Arc<dyn AppControl>) -> Platform {
 }
 
 /// A model over `core` telling `told`, which may call it back, with no other app running.
-fn model(core: &Arc<Pitboard>, told: &Arc<Told>) -> Arc<PitboardModel> {
+fn model(core: &Arc<AppCore>, told: &Arc<Told>) -> Arc<PitboardModel> {
     model_with(core, told, &StandInApps::new(&[], true))
 }
 
 /// A model over `core` and `apps` telling `told`, which may call it back.
 fn model_with(
-    core: &Arc<Pitboard>,
+    core: &Arc<AppCore>,
     told: &Arc<Told>,
     apps: &Arc<StandInApps>,
 ) -> Arc<PitboardModel> {
@@ -696,7 +696,7 @@ fn a_read_answers_while_the_core_switches() {
 struct SigningInWorld {
     world: World,
     claude: StandIn,
-    core: Arc<Pitboard>,
+    core: Arc<AppCore>,
     told: Arc<Told>,
     model: Arc<PitboardModel>,
 }
@@ -966,7 +966,7 @@ impl LocalTime for Counting {
 /// A model over `core` telling `told`, its clock times said by `clock`, doing what it does by
 /// itself every `cadence`.
 fn model_telling_time(
-    core: &Arc<Pitboard>,
+    core: &Arc<AppCore>,
     told: &Arc<Told>,
     clock: &Arc<Counting>,
     cadence: Cadence,
@@ -1110,7 +1110,7 @@ fn naming_the_login_signed_in_now_enrols_it() {
 
 /// A model over `core` telling `told`, posting through `posted`, with no other app running.
 fn model_posting(
-    core: &Arc<Pitboard>,
+    core: &Arc<AppCore>,
     told: &Arc<Told>,
     posted: &Arc<Posted>,
 ) -> Arc<PitboardModel> {

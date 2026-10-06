@@ -1,10 +1,12 @@
 //! What Pitboard says in more than one place, each written once as a function of typed
 //! values: its sentences, the words of its columns, and the level a limit's usage is at,
 //! where the command line's colours and the app's tints change. The command line calls
-//! these functions directly. The macOS app calls the ones it shows through `pitboard-ffi`,
-//! which exports a free function of the same name for each, so where both say a thing they
-//! say it in the same words. A thing said both in a column and in a sentence, such as a
-//! limit's name or a parked login's life, has a function for each form.
+//! these functions directly, and `pitboard-ffi`'s model calls them as it makes what an app
+//! shows, so where both say a thing they say it in the same words. No app calls the free
+//! functions of the same name that `pitboard-ffi` exports for each but `span` and
+//! `parked_life_column`; only the C# tests in `apps/windows` do. A thing said both in a
+//! column and in a sentence, such as a limit's name or a parked login's life, has a function
+//! for each form.
 //!
 //! All of it is English. Clock times are not here: the command line writes them with
 //! `time::moment`, and the app in the format its Mac is set to.

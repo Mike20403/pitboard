@@ -70,7 +70,7 @@ use crate::present::{
     AccountSection, AccountWindowsShown, AccountsShown, Footing, MachineShown, MenuBarText,
     MenuNotices, PanelNotice, Question, SetupStep, SheetText, SigningInText, present,
 };
-use crate::{Abandoned, Pitboard, Status, Tool, Warning};
+use crate::{Abandoned, AppCore, Status, Tool, Warning};
 use lanes::Lanes;
 use state::{Cadence, Msg, Now, State};
 use std::collections::HashMap;
@@ -87,9 +87,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub struct AppLaunch {
     /// The environment the app was started with, every variable of it.
     pub environment: HashMap<String, String>,
-    /// Where the app is, as `Pitboard::for_app` takes it: on macOS the `.app`, which names
-    /// the command line inside it that the renewal schedule runs. `None` for anything that
-    /// is not an app, such as a test or a build directory.
+    /// Where the app is: on macOS the `.app`, which names the command line inside it that the
+    /// renewal schedule runs. `None` for anything that is not an app, such as a test or a
+    /// build directory.
     pub app_location: Option<String>,
     /// The app's own preferences as its earlier store held them, before the model kept them
     /// in Pitboard's directory: on macOS what UserDefaults holds, for the model to take once.
@@ -699,10 +699,10 @@ pub struct PitboardModel {
 #[uniffi::export]
 impl PitboardModel {
     /// The app's model, over the core the app's environment and location make, read the
-    /// way the command line reads its own, as `Pitboard::for_app` makes it; over `apps`, the
-    /// other apps on this machine; posting what has run out through `notifications`; and
-    /// saying clock times as `local_time` does, the person's own. Nothing runs by itself
-    /// until the app sends `Intent::Start`.
+    /// way the command line reads its own; over `apps`, the other apps on this machine;
+    /// posting what has run out through `notifications`; and saying clock times as
+    /// `local_time` does, the person's own. Nothing runs by itself until the app sends
+    /// `Intent::Start`.
     #[uniffi::constructor]
     pub fn new(
         launch: AppLaunch,
@@ -712,7 +712,7 @@ impl PitboardModel {
         local_time: Arc<dyn LocalTime>,
     ) -> Arc<Self> {
         PitboardModel::over(
-            Pitboard::for_app(launch.environment, launch.app_location),
+            AppCore::for_app(launch.environment, launch.app_location),
             listener,
             Platform {
                 apps,
@@ -796,7 +796,7 @@ pub(crate) struct WindowsPlace {
 impl PitboardModel {
     /// A model over `core` and `platform`, doing what it does by itself every `cadence`.
     pub(crate) fn over(
-        core: Arc<Pitboard>,
+        core: Arc<AppCore>,
         listener: Arc<dyn ModelListener>,
         platform: Platform,
         cadence: Cadence,

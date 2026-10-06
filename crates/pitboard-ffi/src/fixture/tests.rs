@@ -11,8 +11,8 @@ use crate::model::{Intent, ModelListener, Pane, PitboardModel, PlatformError, Sh
 use crate::present::testing::Utc;
 use crate::present::{AccountsShown, Footing};
 use crate::{
-    Adoption, Changed, Enrolled, EnrolledAs, FoundCommandLine, Pitboard, PitboardError, Schedule,
-    Status, Switch,
+    Adoption, AppCore, Enrolled, EnrolledAs, FoundCommandLine, PitboardError, Schedule, Status,
+    Switch,
 };
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -85,13 +85,13 @@ fn refusal<T>(answer: Result<T, PitboardError>) -> Option<String> {
     }
 }
 
-fn read(core: &Pitboard) -> Status {
+fn read(core: &AppCore) -> Status {
     core.status(true).expect("a read")
 }
 
 /// Runs a sign-in to the end the way the sheet does: reads everything the tool says, types a
 /// code back once it asks for one, and finishes.
-fn sign_in_to_the_end(core: &Pitboard, label: &str) -> Result<Enrolled, PitboardError> {
+fn sign_in_to_the_end(core: &AppCore, label: &str) -> Result<Enrolled, PitboardError> {
     let session = core.sign_in(label.into())?;
     while let Some(line) = session.next_line() {
         if line.contains("Paste code") {
@@ -412,9 +412,7 @@ fn only_an_account_not_in_use_is_forgotten() {
     );
     assert!(refusal(core.forget("claude/nobody".into())).is_some());
 
-    let forgotten: Changed = core.forget("codex/spare".into()).expect("forgotten");
-    assert_eq!(forgotten.email, "dana@home.example");
-    assert!(forgotten.warnings.is_empty());
+    core.forget("codex/spare".into()).expect("forgotten");
     assert_eq!(
         described(&read(core)),
         [
@@ -439,11 +437,8 @@ fn a_rename_needs_a_name_its_tool_has_not_given() {
         Some("label_taken")
     );
 
-    let renamed = core
-        .rename("claude/personal".into(), "main".into())
+    core.rename("claude/personal".into(), "main".into())
         .expect("renamed");
-    assert_eq!(renamed.email, "dana@home.example");
-    assert!(renamed.warnings.is_empty());
     assert_eq!(
         described(&read(core)),
         [
@@ -875,7 +870,7 @@ fn the_schedule_turns_on_and_off() {
 #[test]
 fn every_launch_starts_where_the_last_one_did() {
     use pitboard_core::app::AppFile;
-    let known = |core: &Pitboard| match core.status_offline() {
+    let known = |core: &AppCore| match core.status_offline() {
         Ok(status) => Ok(who(&status)),
         Err(PitboardError::Failed { code, .. }) => Err(code),
     };
