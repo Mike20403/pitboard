@@ -32,6 +32,7 @@ const QUICK: Cadence = Cadence {
     quit_within: Duration::from_millis(200),
     quit_checked_every: Duration::from_millis(5),
     tick_every: Duration::from_secs(3_600),
+    arming: Duration::from_millis(10),
 };
 
 /// What a listener does with the model from inside `changed`.
@@ -146,6 +147,7 @@ fn platform(apps: Arc<dyn AppControl>) -> Platform {
         notifications: Arc::new(Posted::default()),
         local_time: Arc::new(Utc),
         earlier: None,
+        windows: None,
     }
 }
 
@@ -977,6 +979,7 @@ fn model_telling_time(
             notifications: Arc::new(Posted::default()),
             local_time: Arc::clone(clock) as Arc<dyn LocalTime>,
             earlier: None,
+            windows: None,
         },
         cadence,
     );
@@ -1119,6 +1122,7 @@ fn model_posting(
             notifications: Arc::clone(posted) as Arc<dyn super::Notifications>,
             local_time: Arc::new(Utc),
             earlier: None,
+            windows: None,
         },
         QUICK,
     );
@@ -1377,5 +1381,141 @@ fn the_machine_is_kept_over_the_real_core() {
     assert_eq!(command_line.found, Some(FoundCommandLine::Nowhere));
     assert_eq!(command_line.in_terminal.as_deref(), Some("Not installed"));
     assert!(command_line.offers_link);
+    model.shutdown();
+}
+
+/// The account windows' records, kept by the lanes in a directory of the app's own, here the
+/// scratch home's: what the app's earlier store held is taken once, in its own upper case, and
+/// written private to its owner; a store no enrolled account derives is asked of the app and
+/// taken off the record once deleted; and an account forgotten in a terminal has its window
+/// closed and its store asked for, the record keeping it until the app has deleted it.
+#[test]
+fn the_windows_records_are_kept_in_the_apps_own_directory() {
+    use super::{DownloadEnd, EarlierWindowRecords, WindowsLaunch, WindowsPlace};
+    use std::collections::HashMap;
+
+    let world = World::new("windows");
+    world.enrolled("work", "here", 10.0);
+    world.parked("spare", "there", 5.0);
+    let directory = world.dir("Application Support").join("app");
+    let file = directory.join("windows.json");
+    let key = world.pitboard_dir().to_string_lossy().into_owned();
+    let store = |uuid: &str| {
+        crate::account_windows::store_id((&pitboard_sites::CLAUDE).into(), uuid.into())
+    };
+    let (work, spare) = (store("here"), store("there"));
+    let gone = "00000000-0000-4000-8000-000000000001";
+    let read = || std::fs::read_to_string(&file).unwrap_or_default();
+    let told = Arc::new(Told::default());
+    let model = PitboardModel::over(
+        world.core(),
+        Arc::clone(&told) as Arc<dyn ModelListener>,
+        Platform {
+            windows: Some(WindowsPlace {
+                launch: WindowsLaunch {
+                    directory: directory.to_string_lossy().into_owned(),
+                    key: key.clone(),
+                    link_scheme: "pitboard".into(),
+                    earlier: Some(EarlierWindowRecords {
+                        stores: HashMap::from([(
+                            key.clone(),
+                            vec![gone.to_uppercase(), work.to_uppercase()],
+                        )]),
+                        pages: HashMap::new(),
+                    }),
+                },
+                web_scheme: "https".into(),
+            }),
+            ..platform(StandInApps::new(&[], true))
+        },
+        QUICK,
+    );
+    let _ = told.model.set(Arc::downgrade(&model));
+    model.send(Intent::Start);
+    last_where(&told, "the store nobody has asked for", |last| {
+        last.account_windows
+            .deleting
+            .iter()
+            .map(|asked| asked.store.as_str())
+            .eq([gone])
+    });
+    let kept = read();
+    assert!(kept.contains(gone) && kept.contains(&work), "{kept}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&file)
+            .expect("there")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    model.send(Intent::StoreDeleted {
+        store: gone.to_uppercase(),
+    });
+    eventually("the deleted store taken off the record", || {
+        !read().contains(gone)
+    });
+
+    for opened in [&work, &spare] {
+        model.send(Intent::WindowOpened {
+            store: opened.clone(),
+        });
+    }
+    let shown = last_where(&told, "both windows open", |last| {
+        last.account_windows.open.len() == 2
+    });
+    let opened = &shown.account_windows.open[0];
+    assert_eq!(opened.note, None, "the earlier store had made it");
+    assert_eq!(opened.load.url, "https://claude.ai/");
+    assert!(read().contains(&spare), "recorded before it opened");
+    model.send(Intent::DownloadStarted {
+        id: "1".into(),
+        store: spare.clone(),
+        name: None,
+    });
+    last_where(&told, "the download under way", |last| {
+        last.account_windows
+            .downloads
+            .iter()
+            .any(|download| download.running)
+    });
+    model.send(Intent::DownloadEnded {
+        id: "1".into(),
+        end: DownloadEnd::Cancelled,
+    });
+
+    world
+        .elsewhere()
+        .forget("spare")
+        .expect("forgotten in a terminal");
+    world.index_written_later(5);
+    let forgotten = last_where(&told, "the forgotten account's window closing", |last| {
+        last.account_windows.closing == [spare.clone()]
+            && last
+                .account_windows
+                .deleting
+                .iter()
+                .map(|asked| &asked.store)
+                .eq([&spare])
+    });
+    assert!(
+        !forgotten
+            .account_windows
+            .downloads
+            .iter()
+            .any(|download| download.running)
+    );
+    assert!(read().contains(&spare), "recorded until deleted");
+    model.send(Intent::WindowClosed {
+        store: spare.clone(),
+    });
+    model.send(Intent::StoreDeleted {
+        store: spare.clone(),
+    });
+    eventually("the forgotten account's store taken off the record", || {
+        !read().contains(&spare)
+    });
     model.shutdown();
 }

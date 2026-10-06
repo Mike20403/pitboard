@@ -75,9 +75,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   command line, when they read the schedule or look for the command line, which they do
   each time they are shown. They asked the file system again each time they drew, so a copy
   moved meanwhile showed the new answer at once.
+- The app keeps the account windows' records, the data folders it made for each Pitboard
+  directory and the page each window was last on, in `windows.json` in
+  `~/Library/Application Support/com.usepitboard.Pitboard`, private to you. It kept them in
+  its macOS preferences, as `webStores` and `windowPages`. The first time it opens without
+  `windows.json`, it takes what those held, once, and removes them once the file is there.
+  Where `windows.json` is there and the app cannot read it, or cannot read records in it, as
+  after a hand edit, the app deletes no window's data and never writes over the file. Each
+  window then opens at its site's home with the sign-in note at each launch, and keeps its
+  data.
 
 ### Fixed
 
+- An account's window no longer opens again on a sign-in page of its site, such as
+  chatgpt.com's `/api/auth`, which would repeat a sign-in that has ended: it opens on the
+  page it showed before, or at the site's home. A window closed, or Pitboard quit, while it
+  was on such a page opened there again.
 - After Claude Code refuses a code you paste, the sign-in sheet says **Claude Code didn’t
   take that code. Copy the whole code your browser shows, and paste it again.** and offers
   the code field again, and the same sign-in takes the next code. The sheet asked for a code

@@ -27,16 +27,16 @@ final class WebSession {
     /// The sign-in window a page of this one opened, while it is open. One at a time: a
     /// second replaces the first, as a site starting its sign-in again expects.
     @ObservationIgnored private(set) var popup: PopupWindow?
+    /// The number of the last page the model asked this window to load.
+    @ObservationIgnored private var loaded: UInt64
 
-    /// The window of `account`, on `store`, starting at `firstPage`. `storeMadeBefore` says
-    /// this Pitboard directory made the store before; a window whose store is new says how to
-    /// sign in.
+    /// The window `open` is, on `store`, starting at the page the model says, and saying what
+    /// it says as the window opens: how to sign in, where its store is new.
     init(
-        account: WindowAccount, policy: NavigationPolicy, store: WKWebsiteDataStore,
-        environment: WebEnvironment, downloads: DownloadCenter, firstPage: URL,
-        storeMadeBefore: Bool
+        open: OpenWindow, policy: NavigationPolicy, store: WKWebsiteDataStore,
+        environment: WebEnvironment, downloads: DownloadCenter
     ) {
-        self.account = account
+        account = open.account
         self.policy = policy
         self.downloads = downloads
         openElsewhere = environment.openElsewhere
@@ -44,11 +44,10 @@ final class WebSession {
         configuration = { Page.configuration(store: store, configure: configure) }
         page = Page(role: .window, configuration: configuration())
         delegate = PageDelegate()
+        loaded = open.load.serial
         delegate.attach(to: self, page: page)
-        note = openingNote(storeMadeBefore: storeMadeBefore).map {
-            WindowNote($0, for: account)
-        }
-        page.load(firstPage)
+        note = open.note.map { WindowNote($0, for: open.account) }
+        page.load(URL(string: open.load.url) ?? policy.home)
     }
 
     /// Takes the account as a read found it again: a rename retitles the window and keeps
@@ -58,9 +57,11 @@ final class WebSession {
         self.account = account
     }
 
-    /// Opens `url`, one of the site's own links, in this window. Back returns to where the
-    /// window was.
-    func open(_ url: URL) {
+    /// Loads the page the model asked for, once: a link chosen for this window while it is
+    /// open. Back returns to where the window was.
+    func load(_ load: PageLoad) {
+        guard load.serial != loaded, let url = URL(string: load.url) else { return }
+        loaded = load.serial
         page.load(url)
     }
 

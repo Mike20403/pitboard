@@ -219,11 +219,30 @@ impl AppFile {
 /// holds it or it is not text, is an error and not nothing: an app that took it as nothing
 /// would write what it has over what it never read.
 pub fn read_app_file(ctx: &Context, file: AppFile) -> std::io::Result<Option<String>> {
-    match std::fs::read_to_string(home::dir(ctx).join(file.name())) {
+    read_file(&home::dir(ctx).join(file.name()))
+}
+
+/// What an app keeps in the file at `path`, wherever that is, or `None` where nothing is
+/// there, by the rule of `read_app_file`: a file that is there and cannot be read is an
+/// error, not nothing.
+pub fn read_file(path: &Path) -> std::io::Result<Option<String>> {
+    match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// Keeps `body` in the file at `path`, outside Pitboard's directory, as the core writes its
+/// own: the directories it needs made private first where they are not there yet, and the
+/// file written whole or not at all, private to its owner. For what an app keeps of its own
+/// that is the app's whichever Pitboard directory it serves, such as the account windows'
+/// records, which belong with the app's web stores.
+pub fn write_file(path: &Path, body: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        host::fs::create_private_dir(dir)?;
+    }
+    atomic::write(path, body.as_bytes(), atomic::Perms::Secret)
 }
 
 /// Keeps `body` in `file`, as the core writes its own: Pitboard's directory made private
@@ -708,6 +727,38 @@ mod tests {
         std::fs::write(dir.join(AppFile::Told.name()), [0xff, 0xfe, 0x00]).expect("a file");
         assert!(read_app_file(&ctx, AppFile::Preferences).is_err());
         assert!(read_app_file(&ctx, AppFile::Told).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file an app keeps outside Pitboard's directory is kept as one inside it: its
+    /// directories made private where they are not there, the file private and whole, and
+    /// nothing kept read as nothing, while a file that cannot be read is an error.
+    #[test]
+    fn a_file_kept_elsewhere_is_kept_as_pitboards_own() {
+        let root =
+            std::env::temp_dir().join(format!("pitboard-app-elsewhere-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let file = root
+            .join("Application Support")
+            .join("app")
+            .join("windows.json");
+        assert_eq!(read_file(&file).expect("read"), None);
+        write_file(&file, "{}").expect("kept");
+        write_file(&file, r#"{"stores":{}}"#).expect("kept again");
+        assert_eq!(
+            read_file(&file).expect("read").as_deref(),
+            Some(r#"{"stores":{}}"#)
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode =
+                |path: &Path| std::fs::metadata(path).expect("there").permissions().mode() & 0o777;
+            assert_eq!(mode(file.parent().expect("its directory")), 0o700);
+            assert_eq!(mode(&file), 0o600);
+        }
+        std::fs::write(&file, [0xff, 0xfe, 0x00]).expect("a file that is not text");
+        assert!(read_file(&file).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 

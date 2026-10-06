@@ -4,9 +4,9 @@
 //! asks it, WebKit on macOS and WebView2 on Windows, on its main thread: each answers at once
 //! from what it is given, and only `download_destination` looks at the file system.
 //!
-//! What follows the app's reads is still each app's own: which windows close and which stores
-//! go after a read, the records of stores and last pages, the links waiting for a window, and
-//! the account picker.
+//! What follows the app's reads is the model's, in `model/windows.rs`: which windows close
+//! and which stores go after a read, the records of stores and last pages, which `records.rs`
+//! reads and writes, the links waiting for a window, the account picker and the downloads.
 //!
 //! What differs by system is a `match` on `host::OS`, as the core's facts about the system
 //! are, so a system added there does not compile until each is said for it. Each such fact
@@ -17,6 +17,7 @@ mod downloads;
 mod notes;
 mod pages;
 mod policy;
+pub(crate) mod records;
 mod stores;
 
 pub(crate) use accounts::forget_message_on;

@@ -28,10 +28,18 @@ private final class StandInModel: PitboardModelProtocol, @unchecked Sendable {
     func snapshot() -> Snapshot { lock.withLock { first } }
 }
 
+/// The account windows of a model that has none open and nothing to say of them.
+private let noWindows = AccountWindowsShown(
+    accounts: [], menus: [], open: [],
+    waiting: WindowWaiting(windowTitle: "Account", shown: .reading(title: "Reading accounts…")),
+    closing: [], deleting: [], picker: nil, downloads: [])
+
 /// A snapshot with nothing in it but what a test says.
 private func snapshot(
     _ revision: UInt64, status: Status? = nil, reading: Bool = false,
-    readFailure: ReadFailure? = nil, window: WindowRequest = WindowRequest(serial: 0, pane: nil)
+    readFailure: ReadFailure? = nil,
+    window: WindowRequest = WindowRequest(serial: 0, pane: nil),
+    windows: AccountWindowsShown = noWindows
 ) -> Snapshot {
     Snapshot(
         revision: revision, now: Int64(revision), reading: reading, updatedAt: nil,
@@ -54,7 +62,8 @@ private func snapshot(
             activity: ActivityShown(lines: [], empty: nil),
             commandLine: CommandLineShown(
                 found: nil, inTerminal: nil, updateNote: nil, offersLink: false,
-                cannotLink: nil)))
+                cannotLink: nil)),
+        accountWindows: windows)
 }
 
 /// Claude Code accounts read at `now`, the first signed in, each measured at `measured`
@@ -147,44 +156,31 @@ private final class Told: @unchecked Sendable {
     #expect(model.apply(snapshot(5, status: status("personal"))).isEmpty, "dropped")
 }
 
-/// The account windows are told each read that says who is enrolled: one that answered, and
-/// what the poll reads once the account index changes, while reads fail too, as the Swift
-/// model told it. Not what stands in for a read that failed before anything was shown, the
-/// last numbers measured, which the Swift model never told, nor the numbers a session
-/// recorded, taken onto what is shown, which keep its time and change only each account's
-/// usage, as the Rust model takes them. A read that failed after one that answered leaves
-/// the accounts as they were, and says nothing either.
+/// The account windows are told of their part each time a snapshot shown changes it, once:
+/// not of a snapshot that moves something else, nor of one dropped. Which windows close and
+/// which stores go, and after which reads, is the Rust model's, tested in pitboard-ffi's
+/// `model/windowing.rs`.
 @MainActor
-@Test func aReadThatSaysWhoIsEnrolledIsToldOnce() {
-    let failed = ReadFailure(code: "unreachable", message: "Anthropic could not be reached")
+@Test func theAccountWindowsAreToldOfEachChangeOnce() {
     let model = AppModel(model: StandInModel(snapshot(0)))
-    var told: [Status] = []
-    model.afterRead = { told.append($0) }
+    var told: [AccountWindowsShown] = []
+    model.accountWindowsChanged = { told.append($0) }
+    let deleting = AccountWindowsShown(
+        accounts: [], menus: [], open: [], waiting: noWindows.waiting, closing: [],
+        deleting: [StoreDeletion(store: "7e15c34f-69ec-55b4-9542-f1c1fe3d7085", ask: 1)],
+        picker: nil, downloads: [])
 
-    model.apply(snapshot(1, status: status("work", "spare"), readFailure: failed))
-    model.apply(
-        snapshot(2, status: status("work", "spare", measured: 30), readFailure: failed))
-    #expect(told.isEmpty, "the last numbers measured, in place of a read that failed")
-
-    // `pitboard forget spare` in a terminal, while Anthropic is still out of reach.
-    model.apply(snapshot(3, status: status("work", now: 60), readFailure: failed))
-    #expect(told == [status("work", now: 60)], "the poll's read of the changed index")
-
-    model.apply(snapshot(4, status: status("work", now: 120)))
-    model.apply(snapshot(5, status: status("work", now: 120), reading: true))
-    model.apply(snapshot(6, status: status("work", now: 120, measured: 90)))
-    #expect(
-        told == [status("work", now: 60), status("work", now: 120)],
-        "told once, and not again for the same accounts or for their numbers")
-
-    model.apply(
-        snapshot(7, status: status("work", now: 120, measured: 90), readFailure: failed))
-    model.apply(snapshot(8, status: status("work", "travel", now: 180), readFailure: failed))
-    #expect(
-        told == [
-            status("work", now: 60), status("work", now: 120),
-            status("work", "travel", now: 180),
-        ])
+    model.apply(snapshot(1, status: status("work")))
+    #expect(told.isEmpty)
+    model.apply(snapshot(2, status: status("work"), windows: deleting))
+    #expect(told == [deleting])
+    model.apply(snapshot(3, status: status("work", "spare"), windows: deleting))
+    #expect(told == [deleting], "only something else moved")
+    model.apply(snapshot(3, status: status("work")))
+    #expect(told == [deleting], "dropped")
+    model.apply(snapshot(4, status: status("work")))
+    #expect(told == [deleting, noWindows])
+    #expect(model.accountWindows == noWindows)
 }
 
 /// What a view asks for reaches the model as it was asked, at once, and the app quitting

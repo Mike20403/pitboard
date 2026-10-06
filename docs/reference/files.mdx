@@ -89,13 +89,13 @@ The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.pli
 | --- | --- |
 | `menuBarShows` | **Menu bar shows**: `nameAndUsage`, `usage` or `icon` |
 | `settingsTab` | The Settings tab shown last: `general`, `commandLine` or `updates` |
-| `webStores` | The [account windows'](#account-windows) data folders the app made, listed under the path of the Pitboard directory it made them for. The app deletes only these. |
-| `windowPages` | The page each account's window was last on, by the Pitboard directory's path and the window's folder. Only a site's own pages are kept. Removing a window's data or forgetting its account takes its page away. |
 | Keys of Sparkle, the app's updater | Its update settings and when it last checked |
 
 macOS keeps **Open Pitboard at login** as a login item, outside this file.
 
 Earlier versions of the app kept `hasBeenSeen` and `secondAccountDeclined` in this file, and before them `hideSecondAccountNudge`. The app takes what they held into `app.json` the first time it opens a Pitboard directory without one, and removes them from this file once `app.json` is there.
+
+Earlier versions also kept the [account windows'](#account-windows) records here, as `webStores` and `windowPages`. The app takes what they held into `windows.json` the first time it opens without one, and removes them from this file once `windows.json` is there.
 
 The app's files can also be in `~/Library/Application Support`, `~/Library/Caches`, `~/Library/HTTPStorages` and `~/Library/Saved Application State`, named after `com.usepitboard.Pitboard`. In `Saved Application State`, macOS keeps the windows that were open, to restore them. To remove these files, see [Remove Pitboard](/install/remove#remove-pitboard-itself).
 
@@ -106,12 +106,13 @@ The [account windows](/reference/app#account-windows) and the Share extension ke
 | Path | What it is |
 | --- | --- |
 | `~/Library/WebKit/com.usepitboard.Pitboard/WebsiteDataStore/<id>` | One account window's website data: the site's cookies, the sign-in among them, its storage and its caches. WebKit writes it, and a sign-in window shares its account's folder. Pitboard never reads, copies or changes what is in it. |
+| `~/Library/Application Support/com.usepitboard.Pitboard/windows.json` | The windows' records: the data folders the app made, listed under the path of the Pitboard directory it made them for, and the page each window was last on. The app deletes only these folders. Only a site's own pages are kept, never its sign-in pages. Removing a window's data or forgetting its account takes its page away. Readable only by you. |
 | `~/Library/Containers/com.usepitboard.Pitboard.share` and `~/Library/Application Scripts/com.usepitboard.Pitboard.share` | Folders macOS makes for the sandboxed Share extension. Pitboard writes nothing there. |
 | `~/Downloads` | Where account windows save downloads. A name already taken gets a number, as in `report 2.pdf`. |
 
 `<id>` is a version 5 UUID made from `claude:` or `codex:` and the account's id, so the folder's name does not show the id. A renamed account keeps its folder, and with it the window's sign-in.
 
-WebKit keeps the windows' folders under your own `~/Library`, whatever `HOME` says. So the app records in `webStores` the folders it made for its Pitboard directory, `~/.pitboard` or `PITBOARD_HOME`. It deletes only those, and a copy run with another `HOME` or `PITBOARD_HOME` leaves them alone.
+WebKit keeps the windows' folders under your own `~/Library`, whatever `HOME` says. So the app records in `windows.json`, beside them, the folders it made for its Pitboard directory, `~/.pitboard` or `PITBOARD_HOME`. It deletes only those, and a copy run with another `HOME` or `PITBOARD_HOME` leaves them alone. If `windows.json` is there but the app cannot read it, or cannot read records in it, the app deletes no folder. It never writes over that file. Each window then opens at its site's home with the sign-in note at each launch, and keeps its data.
 
 The app deletes a folder once a successful read of the accounts no longer lists its account. That happens after you forget the account, in the app or with `pitboard forget`. A folder WebKit still holds is tried a few more times, then again at the next read.
 

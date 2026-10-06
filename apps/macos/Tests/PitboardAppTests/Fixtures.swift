@@ -56,11 +56,29 @@ final class StandInModel: PitboardModelProtocol, @unchecked Sendable {
     func snapshot() -> Snapshot { first }
 }
 
+/// What a window waiting for its page shows while the accounts are read, as the model says.
+let readingAccounts = WindowWaiting(
+    windowTitle: "Account", shown: .reading(title: "Reading accounts…"))
+
+/// The account windows' part of a snapshot: the windows and menus the model gives
+/// `accounts`, and whatever else a test says.
+func windowsShown(
+    _ accounts: [Account] = [], open: [OpenWindow] = [], closing: [String] = [],
+    deleting: [StoreDeletion] = [], picker: LinkPicker? = nil, downloads: [DownloadShown] = []
+) -> AccountWindowsShown {
+    AccountWindowsShown(
+        accounts: windowAccounts(accounts: accounts), menus: siteMenus(accounts: accounts),
+        open: open, waiting: readingAccounts, closing: closing, deleting: deleting,
+        picker: picker, downloads: downloads)
+}
+
 /// A snapshot with nothing in it but what a test says, as a model that has read nothing yet
-/// would make one, numbered `revision`.
+/// would make one, numbered `revision`. Its account windows are those of `status`'s
+/// accounts unless a test says otherwise.
 func snapshot(
     _ revision: UInt64, status: Status? = nil, readFailure: ReadFailure? = nil,
-    window: WindowRequest = WindowRequest(serial: 0, pane: nil)
+    window: WindowRequest = WindowRequest(serial: 0, pane: nil),
+    windows: AccountWindowsShown? = nil
 ) -> Snapshot {
     Snapshot(
         revision: revision, now: 0, reading: false, updatedAt: nil, status: status,
@@ -83,7 +101,8 @@ func snapshot(
             activity: ActivityShown(lines: [], empty: nil),
             commandLine: CommandLineShown(
                 found: nil, inTerminal: nil, updateNote: nil, offersLink: false,
-                cannotLink: nil)))
+                cannotLink: nil)),
+        accountWindows: windows ?? windowsShown(status?.accounts ?? []))
 }
 
 /// Preferences kept in memory for one test alone, so what one test declines is not what the

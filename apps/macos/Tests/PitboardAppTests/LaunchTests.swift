@@ -20,21 +20,33 @@ import Testing
     #expect(Launch.action(for: [app, "-AppleLanguages", "(en)"], helper: helper) == .app)
 }
 
-/// A scratch Pitboard directory, with or without the model's `app.json` in it. Removed by
+/// A scratch directory, standing in for both the Pitboard directory and the app's own
+/// folder, with or without the model's `app.json` and `windows.json` in it. Removed by
 /// `remove()`.
 private struct ScratchDirectory {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("pitboard-earlier-\(UUID().uuidString)")
     var appFile: URL { root.appendingPathComponent("app.json") }
+    var windowsFile: URL { root.appendingPathComponent("windows.json") }
 
     init() throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    /// The store of the earlier preferences and records over `defaults`, with its files here.
+    func store(_ defaults: UserDefaults) -> EarlierStore {
+        EarlierStore(defaults: defaults, appFile: appFile, windowsFile: windowsFile)
     }
 
     /// What the model writes once it has taken what UserDefaults held.
     func keep() throws {
         try Data(#"{"second_account_declined":["claude"],"has_been_seen":true}"#.utf8)
             .write(to: appFile)
+    }
+
+    /// What the model writes once it has taken the account windows' records.
+    func keepWindows() throws {
+        try Data(#"{"stores":{},"pages":{}}"#.utf8).write(to: windowsFile)
     }
 
     func remove() { try? FileManager.default.removeItem(at: root) }
@@ -47,7 +59,7 @@ private struct ScratchDirectory {
     let directory = try ScratchDirectory()
     defer { directory.remove() }
     let defaults = TestDefaults()
-    let store = EarlierStore(defaults: defaults, appFile: directory.appFile)
+    let store = directory.store(defaults)
     #expect(store.handOver() == nil, "nothing was ever set")
 
     defaults.set(["codex"], forKey: "secondAccountDeclined")
@@ -72,7 +84,8 @@ private struct ScratchDirectory {
     defaults.set(["codex"], forKey: "secondAccountDeclined")
     defaults.set(true, forKey: "hasBeenSeen")
     defaults.set(true, forKey: "menuBarShows")
-    let store = EarlierStore(defaults: defaults, appFile: directory.appFile)
+    defaults.set(["/Users/dana/.pitboard": ["X"]], forKey: "webStores")
+    let store = directory.store(defaults)
 
     #expect(!store.forgetOnceKept())
     #expect(defaults.object(forKey: "hasBeenSeen") != nil)
@@ -83,18 +96,75 @@ private struct ScratchDirectory {
         #expect(defaults.object(forKey: key) == nil, "\(key)")
     }
     #expect(defaults.object(forKey: "menuBarShows") != nil, "the app's own stay")
+    #expect(defaults.object(forKey: "webStores") != nil, "the windows' records' own file")
 
     defaults.set(true, forKey: "hasBeenSeen")
     #expect(store.handOver() == nil)
     #expect(defaults.object(forKey: "hasBeenSeen") == nil)
 }
 
-/// The store is the one in the Pitboard directory the core reads from the environment.
+/// The account windows' records this app kept in UserDefaults, exactly as its `StoreRecord`
+/// and `PageRecord` wrote them, are handed over as they were: every Pitboard directory's by
+/// its standardised path, and each store as `UUID.uuidString` writes it, in upper case, which
+/// the model takes in any case. Nothing set is nothing handed over.
+@Test func theWindowsRecordsAreHandedOverAsTheAppWroteThem() throws {
+    let directory = try ScratchDirectory()
+    defer { directory.remove() }
+    let defaults = TestDefaults()
+    let store = directory.store(defaults)
+    #expect(store.handOverWindows() == nil, "nothing was ever set")
+
+    let work = UUID(uuidString: "7e15c34f-69ec-55b4-9542-f1c1fe3d7085")!
+    let personal = UUID(uuidString: "323d12fb-2c52-55b5-baec-df74fb60bc24")!
+    let scratch = UUID(uuidString: "8ff9e0e6-a7e2-53e2-a594-6e53ddadd38a")!
+    // As StoreRecord.save and PageRecord.save wrote them, at a3e5ce0.
+    let stores: [String: [String]] = [
+        "/Users/dana/.pitboard": [work, personal].map(\.uuidString).sorted(),
+        "/tmp/test/.pitboard": [scratch.uuidString],
+    ]
+    let pages: [String: [String: String]] = [
+        "/Users/dana/.pitboard": [work.uuidString: "https://claude.ai/chat/1"]
+    ]
+    defaults.set(stores, forKey: "webStores")
+    defaults.set(pages, forKey: "windowPages")
+    #expect(stores["/Users/dana/.pitboard"]?.first == "323D12FB-2C52-55B5-BAEC-DF74FB60BC24")
+    #expect(store.handOverWindows() == EarlierWindowRecords(stores: stores, pages: pages))
+    #expect(store.handOverWindows() != nil, "kept until the model has kept them")
+}
+
+/// The windows' old keys go once the model has kept what they held in `windows.json`, at
+/// launch or as the app quits, and not before, apart from the preferences' keys, which go
+/// with `app.json`.
+@Test func theOldWindowKeysGoOnceTheModelHasKeptThem() throws {
+    let directory = try ScratchDirectory()
+    defer { directory.remove() }
+    let defaults = TestDefaults()
+    defaults.set(["/Users/dana/.pitboard": ["X"]], forKey: "webStores")
+    defaults.set(["/Users/dana/.pitboard": ["X": "https://claude.ai/"]], forKey: "windowPages")
+    defaults.set(true, forKey: "hasBeenSeen")
+    let store = directory.store(defaults)
+
+    #expect(!store.forgetWindowsOnceKept())
+    #expect(defaults.object(forKey: "webStores") != nil)
+
+    try directory.keepWindows()
+    #expect(store.forgetWindowsOnceKept())
+    #expect(defaults.object(forKey: "webStores") == nil)
+    #expect(defaults.object(forKey: "windowPages") == nil)
+    #expect(defaults.object(forKey: "hasBeenSeen") != nil, "the preferences' own file")
+    #expect(store.handOverWindows() == nil)
+}
+
+/// The store is the one in the Pitboard directory the core reads from the environment, and
+/// the records' in the app's own folder.
 @Test func theStoreIsInThePitboardDirectoryTheCoreReads() {
     let store = EarlierStore(
         defaults: TestDefaults(),
-        environment: ["HOME": "/Users/dana", "PITBOARD_HOME": "/Users/dana/elsewhere"])
+        environment: ["HOME": "/Users/dana", "PITBOARD_HOME": "/Users/dana/elsewhere"],
+        windowsDirectory: URL(fileURLWithPath: "/Users/dana/Library/Application Support/app"))
     #expect(store.appFile.path == "/Users/dana/elsewhere/app.json")
+    #expect(
+        store.windowsFile.path == "/Users/dana/Library/Application Support/app/windows.json")
 }
 
 #if DEBUG

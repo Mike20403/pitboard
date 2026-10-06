@@ -98,21 +98,24 @@ pages load, as a browser would.
     dialogs say who asks (`pages.rs`), and what a download is called (`downloads.rs`). What
     differs by system there, such as how a copy of a file is numbered, which names are one
     file, or an alert's "on this Mac", is a `match` on `host::OS`, as what a window cannot
-    sign in with is in `sites.rs`.
+    sign in with is in `sites.rs`. `records.rs` reads and writes the windows' records, the
+    stores each Pitboard directory made and the page each window was last on, which the
+    model keeps in `windows.json`.
   - `model/` is the app model the macOS app shows and the Windows app is to show. An app
     makes a `PitboardModel`, sends it an `Intent` for each thing asked of it, and its
     `ModelListener` is told of each numbered `Snapshot`; its `AppControl` quits and opens
     other apps, and its `Notifications` posts what has run out. `state.rs` holds what the
     model knows and decides what follows each message, `advice.rs` which account to offer
     once the one in use has run out, `preferences.rs` what the app's own preferences are,
-    and `machine.rs` what the model knows of this machine rather than its accounts;
-    `lanes.rs` runs what it decides, on a lane of reads, which reads the schedule, doctor's
-    checks and the log too, a lane of changes, one at a time, which also repairs and changes
-    the schedule and renews, a lane that lists processes and asks the app's `AppControl`
-    about other apps, a lane that asks what is installed and looks for the `pitboard` a
-    terminal runs, a thread of its own for each sign-in, a lane that types a code back to
-    one or stops it, a lane that reads and writes what the model keeps in Pitboard's
-    directory and one that posts through the app's `Notifications`, and tells the listener
+    `machine.rs` what the model knows of this machine rather than its accounts, and
+    `windows.rs` the account windows' bookkeeping; `lanes.rs` runs what it decides, on a
+    lane of reads, which reads the schedule, doctor's checks and the log too, a lane of
+    changes, one at a time, which also repairs and changes the schedule and renews, a lane
+    that lists processes and asks the app's `AppControl` about other apps, a lane that asks
+    what is installed and looks for the `pitboard` a terminal runs, a thread of its own for
+    each sign-in, a lane that types a code back to one or stops it, a lane that reads and
+    writes what the model keeps, in Pitboard's directory and the windows' records in the
+    app's own, and one that posts through the app's `Notifications`, and tells the listener
     on a thread of its own; `mod.rs` holds the exported types and the actor thread that owns
     the state. So far the model reads the accounts, looks every two seconds for a change
     made elsewhere, asks which tools are installed, switches, quits the app holding a tool's
@@ -121,9 +124,12 @@ pages load, as a browser would.
     forgets, keeps the sheet over the main window, says which account to switch to once the
     one in use has run out, notified once for each reset, keeps the app's own preferences,
     and keeps the daily renewal schedule, renews now, makes doctor's checks, reads the
-    activity log and finds the `pitboard` a terminal runs. Its tests are files of their own
-    there: `reading.rs`, `switching.rs`, `signing.rs`, `changing.rs`, `advising.rs`,
-    `keeping.rs`, `maintaining.rs`, `presenting.rs` and `cadence.rs` drive the state by
+    activity log and finds the `pitboard` a terminal runs. It keeps the account windows'
+    books too: which store is whose and each window's last page, which windows close and
+    which stores go after a read, the link waiting for an account, with the wait before it
+    can be opened, and the downloads. Its tests are files of their own there:
+    `reading.rs`, `switching.rs`, `signing.rs`, `changing.rs`, `advising.rs`, `keeping.rs`,
+    `maintaining.rs`, `presenting.rs`, `windowing.rs` and `cadence.rs` drive the state by
     hand, `lanes.rs` has the lanes' own, and `threaded.rs` drives the model through its
     threads over the real core.
   - `present/` makes each `Snapshot` from the model's state: `present` takes the state and
@@ -134,10 +140,13 @@ pages load, as a browser would.
     stands in for an empty list, `sheets.rs` the sheets, the quit question and a failure's
     alert, with `name_to_save`, the rule a sheet's Save and the model both save by,
     `machine.rs` what the settings and the window's other panes show of this machine, daily
-    renewal, Renew Now, doctor's checks, the activity log and the command line, and
-    `words.rs` the sentences both apps say and the command line does not, each a function
-    of typed values. What the command line says too is `pitboard_core::words`', called from
-    there, such as a renewal's note and doctor's summary. A clock time, and a change's date
+    renewal, Renew Now, doctor's checks, the activity log and the command line,
+    `windows.rs` the account windows, what a window says until it can show its page, what
+    the **Open Link** window says, and the question asked before quitting stops the
+    downloads an app has under way, and `words.rs` the sentences both apps say and the
+    command line does not, each a function of typed values. What the command line says too
+    is `pitboard_core::words`', called from there, such as a renewal's note and doctor's
+    summary. A clock time, and a change's date
     and time, are the person's to read, so they are asked of the app's `LocalTime`.
     A button the snapshot offers comes with its words beside the intent it sends, so a view
     never words an intent; a control each app always has, such as its toolbar's "Add
@@ -202,9 +211,10 @@ pages load, as a browser would.
   - `PitboardApp/App/Dependencies.swift` makes the model a launch runs on: over this Mac,
     from the app's environment and bundle, or in a debug build started with
     `PITBOARD_FIXTURE` a fixture's (`Fixture/Fixture.swift`), with the native stand-ins a
-    fixture needs. `AppDelegate.swift` starts it once the app has launched, tells it of a
-    wake and of a menu opening, and stops it as the app quits. `EarlierStore.swift` hands
-    the model what UserDefaults held before `app.json`, once.
+    fixture needs, and where the model keeps the account windows' records.
+    `AppDelegate.swift` starts it once the app has launched, tells it of a wake and of a
+    menu opening, and stops it as the app quits. `EarlierStore.swift` hands the model what
+    UserDefaults held before `app.json` and `windows.json`, once.
   - `PitboardApp/System/MacPlatform.swift` is what the model asks of macOS:
     `MacAppControl` (`NSRunningApplication` and `NSWorkspace`), `MacNotifications`
     (Notification Center, the category with its Switch button, and permission asked at the
@@ -443,16 +453,17 @@ pages load, as a browser would.
   are never run, and the command line inside its stand-in app are files in its own folder
   in the temporary directory, its stores, process list and scheduler are `MemoryHost`'s,
   and Anthropic and OpenAI are `ScriptedApi`. Its preferences and what it has told are in
-  its own Pitboard directory, made again at each launch. Only a library built with the
-  `fixture` feature has one, the bindings are the same either way, and nothing that ships
-  is built with it. Only a debug build of the macOS app reads `PITBOARD_FIXTURE`, and one
-  linked against a library without the feature stops at launch with the core's sentence,
-  which names the flag. What the app adds to a fixture is native and in the fixture's
-  folder or in memory: a login item that registers nothing, the command line linked in the
-  folder's `bin` with no password, and the account windows' stand-in pages, which it serves
-  from `fixture_page` on `pitboard-fixture://`. It finds that folder as Rust's
-  `std::env::temp_dir` does, from `TMPDIR`, which Foundation's temporary directory does not
-  read ([The fixtures](#the-fixtures)).
+  its own Pitboard directory, and its account windows' records in its own folder, made
+  again at each launch. Only a library built with the `fixture` feature has one, the
+  bindings are the same either way, and nothing that ships is built with it. Only a debug
+  build of the macOS app reads `PITBOARD_FIXTURE`, and one linked against a library without
+  the feature stops at launch with the core's sentence, which names the flag. What the app
+  adds to a fixture is native and in the fixture's folder or in memory: a login item that
+  registers nothing, the command line linked in the folder's `bin` with no password, and
+  the account windows' stand-in pages, which it serves from `fixture_page` on
+  `pitboard-fixture://`. It finds that folder as Rust's `std::env::temp_dir` does, from
+  `TMPDIR`, which Foundation's temporary directory does not read
+  ([The fixtures](#the-fixtures)).
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core, and everything the menu bar, the menu, the window and the settings show, and
@@ -461,9 +472,10 @@ pages load, as a browser would.
   for, offered by `AccountItem`'s `renamable`, `can_forget` and `busy`, until the model
   offers them as it offers the row's own action. Whether the copy of the app runs from a
   temporary place is the core's rule too, `schedule::in_a_temporary_copy`, which the model
-  asks before it offers to link the command line. The account windows key their records by
-  Pitboard's directory standardised as Foundation standardises a file URL, as they did
-  before the core said where it is, in `WebEnvironment.recordKey` alone.
+  asks before it offers to link the command line. The account windows' records are kept
+  under Pitboard's directory standardised as Foundation standardises a file URL, as the
+  app kept them before the core said where it is: the app works that key out in
+  `WebEnvironment.recordKey` alone and hands it to the model as `WindowsLaunch::key`.
 - The macOS app's `AppModel` shows only a snapshot newer than the one it shows, so one that
   arrives late never puts back what a newer one replaced, and assigns each part only where
   it differs. `ModelListening` hands each snapshot to the main queue, which runs them in the
@@ -482,7 +494,10 @@ pages load, as a browser would.
   `AppLaunch::earlier_preferences`, while `app.json` is not in the Pitboard directory the
   launch serves, and takes the keys out of UserDefaults once it is there: as it launches,
   or as it quits once the model has stopped. So a launch that stopped before the file was
-  written hands them over again. What the old keys mean is the model's.
+  written hands them over again. What the old keys mean is the model's. It hands over the
+  account windows' records, `webStores` and `windowPages`, the same way, in
+  `WindowsLaunch::earlier`, and takes them out once `windows.json` is in the app's own
+  folder.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.
@@ -602,19 +617,22 @@ WebKit, with a store of website data that belongs to that account alone. A page 
 a browser's Share menu reaches the app as a Pitboard link, and the person chooses which
 account's window opens it.
 
-The windows read the accounts from the app's last read. No window is ever given a Claude
-Code or Codex login. The facts this rests on are under
-[WebKit and SwiftUI](#webkit-and-swiftui) and
+The windows read the accounts from the model's last read, and their bookkeeping is the
+model's, so the Windows app's WebView2 code gets the same decisions: which store is whose,
+what each window opens at, which windows close and which stores go after a read, the link
+waiting for an account and the downloads. Each app's web code says what happened and does
+what the model says. No window is ever given a Claude Code or Codex login. The facts this
+rests on are under [WebKit and SwiftUI](#webkit-and-swiftui) and
 [claude.ai and chatgpt.com](#claudeai-and-chatgptcom).
 
 ### Where the code is
 
 - `crates/pitboard-sites`: what a site is, and what a link from outside may be, in the
   [code map](#code-map). The app reaches it through `pitboard-ffi`'s `Site` and `SiteLink`
-  records: its windows and menus ask `sites`, `sites_for` and `site_names`, and
-  `LinkInbox.swift` reads each Pitboard link with `read_pitboard_link` and says a refusal
-  with `link_refusal_reason`. Only the tests make a link with `site_link`. The Share
-  extension reaches it through `pitboard-share-ffi`.
+  records: its windows and menus ask `sites`, `sites_for` and `site_names`, and the model
+  reads each Pitboard link with `pitboard-sites`' `read_pitboard_link` and says a refusal
+  in its words. Only the tests make a link with `site_link`. The Share extension reaches it
+  through `pitboard-share-ffi`.
 - `apps/macos/Sources/PitboardLinkTarget`: where a Pitboard link goes, which the app and the
   Share extension both link. `LinkTarget.swift` names the Info.plist key `PitboardURLScheme`
   that gives each build its scheme, and finds the app an extension is inside.
@@ -625,7 +643,16 @@ Code or Codex login. The facts this rests on are under
   removes what it keeps; what a page may use and close; whose words a dialog says; what a
   download is called and where it comes from; what becomes of a page whose content stops;
   and how big a sign-in window opens. The Swift below turns what WebKit says into what
-  these read, and does what they decide.
+  these read, and does what they decide. `records.rs` is the windows' records.
+- `crates/pitboard-ffi/src/model/windows.rs`: the windows' bookkeeping, in the model's
+  state. It records a window's store before the window opens and says the page it opens
+  at, puts away what a read no longer lists, asks the app to delete each store that goes
+  and hears how it went, holds the link waiting for an account with the wait before Open
+  answers, and follows each download from its start to its end. `present/windows.rs`
+  says it in each snapshot, as `AccountWindowsShown`, with what a window says until it can
+  show its page and each window's button that clears its downloads, and
+  `downloads_quit_question` words the question before quitting for as many downloads as an
+  app has under way. `model/windowing.rs` tests it.
 - `apps/macos/Sources/PitboardApp/AccountWindows`: the windows.
   - `WindowAccount.swift` gives a window's store as the `UUID` WebKit names a store by and
     the scene keeps a window's value as.
@@ -644,31 +671,31 @@ Code or Codex login. The facts this rests on are under
   - `WebViewHost.swift` places a page's web view in SwiftUI, with the system find bar above
     it. `AccountWindowView.swift` is the window, and `AccountWindowCommands.swift` its scene
     and its items in the **File**, **Edit**, **View** and **Go** menus.
-  - `AccountWindows.swift` owns the feature: the open sessions, links waiting for a window
-    still opening, windows asked for from the Dock, each window's last page, the store
-    janitor and the downloads. `AppModel.afterRead` tells it of each snapshot whose accounts
-    say who is enrolled: a read that answered, or what the poll read once the account index
-    changed, whether or not reads fail meanwhile, as the Swift model told them; not what
-    stands in for a read that failed before anything was shown, the last numbers measured,
-    nor the numbers a session recorded, taken onto what is shown, which keep its time and
-    change only each account's usage. Which snapshots those are is `AppModel`'s to tell
-    until the account windows follow the model's reads themselves.
-  - `StoreJanitor.swift` records, makes, wipes and deletes stores. `WebEnvironment.swift` is
-    the world a launch's windows run in: the sites and WebKit's stores, or a fixture's
-    stand-ins.
-  - `LinkInbox.swift` holds the link the Share extension handed over, and
-    `AccountPicker.swift` is the **Open Link** window that asks which account opens it.
-- `apps/macos/Sources/PitboardApp/System/WebsiteData.swift`: WebKit's persistent stores, behind
-  the `WebsiteDataStores` protocol. Beside them, two records kept in the app's preferences
-  under each Pitboard directory's path: `StoreRecord`, the stores the directory made, under
-  `webStores`, and `PageRecord`, the page each account's window was last on, under
-  `windowPages`, by store.
+  - `AccountWindows.swift` owns the feature as WebKit has it: the open sessions, windows
+    asked for from the Dock, the store janitor and the downloads. It tells the model what a
+    window did: that it opened or closed, the page it is on, and a link handed over. It
+    makes a window's session as the model first lists the window in
+    `AccountWindowsShown.open`, loading each page the model numbers for it once, and
+    `AppModel.accountWindowsChanged` tells it of each change to the windows' part, which it
+    follows: a session the model says closes stops, its view closing the window, and each
+    store asked for is handed to the janitor.
+  - `StoreJanitor.swift` makes, wipes and deletes stores: each ask the model makes once,
+    tried again after each of its pauses while WebKit still holds the store, and told back
+    as deleted or held. `WebEnvironment.swift` is the world a launch's windows run in: the
+    sites and WebKit's stores, or a fixture's stand-ins, and where the model keeps their
+    records.
+  - `AccountPicker.swift` is the **Open Link** window, which shows what the model says of
+    the link waiting and sends it the account chosen.
+- `apps/macos/Sources/PitboardApp/System/WebsiteData.swift`: WebKit's persistent stores,
+  behind the `WebsiteDataStores` protocol.
 - `apps/macos/Sources/PitboardApp/App`: `AppDelegate.swift` owns the app's models and answers
   what only a delegate can: the Dock icon's menu, a click on the Dock icon, and quitting
-  while a download runs. `AppPresence.swift` gives the app a Dock icon and its menus while
-  any of its windows is open. `RefreshCommand.swift` is **View** > **Refresh**, whose
-  title and action the window in front gives. `PitboardScenes.swift` adds the account
-  windows' scene and the **Open Link** window, the one scene that takes a Pitboard link.
+  while a download runs, asked in the model's words of every download `DownloadCenter` has
+  under way, one started a moment before Quit included. `AppPresence.swift` gives the app a
+  Dock icon and its menus while any of its windows is open. `RefreshCommand.swift` is
+  **View** > **Refresh**, whose title and action the window in front gives.
+  `PitboardScenes.swift` adds the account windows' scene and the **Open Link** window, the
+  one scene that takes a Pitboard link.
 - `apps/macos/Sources/PitboardApp/Fixture/FixtureWeb.swift`: a fixture's stand-in pages for each
   site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
   anywhere else recorded and opened nowhere. The pages are `pitboard-ffi`'s `fixture_page`,
@@ -690,14 +717,46 @@ Code or Codex login. The facts this rests on are under
   a time, as Swift's `lowercased()` lowered it for every store released, where
   `str::to_lowercase` lowers a sigma that ends a word otherwise. A store id an app hands
   back is compared without regard to case, since Foundation writes a UUID in upper case.
-- A store is recorded before WebKit makes it, in the app's preferences, under the path of
-  the Pitboard directory the app reads. A store WebKit made and nobody recorded would never
-  be deleted.
+- A store is recorded before WebKit makes it, in `windows.json`, under the key of the
+  Pitboard directory the app reads: the model lists a window in
+  `AccountWindowsShown.open` only once the write recording its store has answered. A store
+  WebKit made and nobody recorded would never be deleted. A write that fails opens the
+  window all the same, and the next write writes this directory's records whole.
+- The records are the app's, as its web stores are, so `windows.json` is in a folder of the
+  app's own that the app names in `WindowsLaunch::directory`: on macOS its folder in
+  Application Support, named by its bundle id, under the person's own Library whatever
+  `HOME` says, and in a fixture the fixture's own folder. Each Pitboard directory's records
+  are kept apart in it, and each write reads the file again and changes only this one's.
+  Where the file is there it wins; where it is not, the model takes what the app's earlier
+  store held, `webStores` and `windowPages` on macOS, and writes it at once. A file that is
+  there and cannot be read, or whose text does not read as records, as a later version, a
+  hand edit or damage may leave it, is never written over, and nothing is deleted by it:
+  its windows' stores are held for the launch, so each window opens at its site's home
+  with the sign-in note. Taken as no file, the first write would leave this directory's
+  records alone in it, and a store another directory's account still uses would be
+  deleted. A store id is compared without regard to case wherever it comes from, since
+  Foundation wrote every one the macOS app recorded in upper case: compared as written,
+  every one would be taken for an orphan and deleted with its sign-in. One that is not
+  written as a UUID is dropped as the records are read, as `StoreRecord` dropped it, since
+  no app can make or delete a store by it.
 - A store is deleted only when this Pitboard directory recorded it, and a read that
   succeeded no longer derives it from any enrolled account. Every read that succeeds lists
   every enrolled account, from `state.json`, so that is a forgotten account, forgotten in
   the app or with `pitboard forget`. Nothing is deleted before the first read that
-  succeeds, or after one that failed.
+  succeeds, or after one that failed, or by what stands in for one, the last numbers
+  measured. What the poll reads once the account index changes says who is enrolled too,
+  whether or not reads that ask a service fail meanwhile and whether or not anything was
+  shown before it: it is the index every read lists the accounts from. Each such read is
+  acted on, and one that says what the last said changes nothing. The Swift model told its
+  windows of fewer: not of a read saying, its numbers apart, what was shown, to the second,
+  and not of the poll's read before anything was shown. Nothing is deleted before the
+  records are read either: a read that lands first is acted on once they are in.
+- The model claims each store it puts away before it asks anything, so a read meanwhile
+  leaves it, then asks the app through `AccountWindowsShown.deleting`, one numbered ask at
+  a time, and holds it recorded until the app answers `StoreDeleted`, when it goes from the
+  records, or `StoreHeld`, when the next read asks again with a new number. An app deletes
+  each ask once, however many snapshots list it, and a window of a store being deleted
+  waits until the app has answered.
 - A store that another Pitboard directory recorded too is never deleted while that
   directory exists. The same account enrolled in both derives the same store, so deleting
   it would sign the other directory's window out. Forgetting the account in one removes
@@ -724,8 +783,10 @@ Code or Codex login. The facts this rests on are under
   of its opener's, so it shares the account's store and keeps `window.opener`. Its page
   loads only the site and its sign-in hosts, and goes blank only when the page itself asks,
   never its opener. It saves nothing and opens no window.
-- Only a site's own pages are kept as a window's last page. **Remove Website Data** takes
-  it away, and so does a read that succeeded and no longer lists the account.
+- Only a site's own pages are kept as a window's last page, and never one of its sign-in
+  paths, which would sign the window in again with what it carried: one recorded before
+  opens the window at the site's home. **Remove Website Data** takes it away, and so does a
+  read that succeeded and no longer lists the account.
 - Hands off the session. Pitboard makes a store, wipes one when asked and deletes one when
   its account is forgotten. It never reads, copies or changes what a site keeps there,
   adds no script or message handler to a page and sets no user agent of its own. No web
@@ -750,6 +811,23 @@ Code or Codex login. The facts this rests on are under
 - `pitboard-sites` stays a leaf: no I/O, nothing of the core and no UniFFI, and `url` for
   IDNA alone. Each binding crate declares its own types over it, since the C# generator
   cannot use another crate's.
+
+### On Windows
+
+Nothing of the Windows app's account windows is written yet. Its WebView2 code would get
+the same decisions from the model, and one thing differs from WebKit in how a store goes,
+read in Microsoft's documentation of `CoreWebView2Profile.Delete` for WebView2 1.0.4191.47
+on 6 October 2026: deleting a profile marks it for deletion, closes the web views using it
+and raises its `Deleted` event, and its folder is deleted only as the browser process
+exits, or at a later start where something still held its files. Making a profile of the
+same name before then fails with `HRESULT_FROM_WIN32(ERROR_DELETE_PENDING)`. So the
+Windows app cannot answer `StoreDeleted` when it asks for a deletion, as the macOS app does
+once `remove(forIdentifier:)` returns: it answers `StoreHeld` while the folder is still
+there, which keeps the store recorded and has the next read ask again, and `StoreDeleted`
+once the folder has gone. A window of an account enrolled again meanwhile would fail to
+make its profile, which the model's rule of a window waiting while its store is deleted
+covers only while the ask is open, so the Windows app has to keep such a window from
+making its profile until the folder has gone.
 
 ## Measured facts
 

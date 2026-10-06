@@ -11,7 +11,7 @@ use pitboard_sites::WebAddress;
 /// The scheme the stand-ins are served under. WebKit does not let an app serve `https`
 /// itself, so each keeps its site's host on a scheme of its own, and the navigation rules
 /// are the same in a fixture as on the sites.
-const SCHEME: &str = "pitboard-fixture";
+pub(crate) const SCHEME: &str = "pitboard-fixture";
 
 /// The host an artifact's frame is served from: not the site's, as a real artifact's is not.
 const ARTIFACT_HOST: &str = "artifact.fixture";

@@ -8,6 +8,7 @@ use super::lanes;
 use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, Now, State};
 use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
+use crate::account_windows::records::{self, Entry, Records};
 use crate::{
     Abandoned, Account, Adoption, Change, Check, Enrolled, EnrolledAs, FoundCommandLine, Holding,
     Level, Limit, Made, OwnCommandLine, Pitboard, PitboardError, Remedy, Renewed, Schedule, Source,
@@ -460,6 +461,20 @@ pub(super) struct Machine {
     pub earlier: Option<EarlierPreferences>,
     /// Every set of preferences the model kept, in order.
     pub kept_preferences: Vec<Preferences>,
+    /// The account windows' records, `windows.json`'s text, where it is there.
+    pub windows_file: Option<String>,
+    /// `windows.json` is there and the lane cannot read it, whatever it holds.
+    pub windows_unreadable: bool,
+    /// What the app's earlier store held of the account windows' records.
+    pub windows_earlier: Option<Records>,
+    /// The app named nowhere to keep the account windows' records.
+    pub windows_nowhere: bool,
+    /// The key this launch's records are kept under.
+    pub windows_key: String,
+    /// The Pitboard directories that are there, by their keys.
+    pub directories: Vec<String>,
+    /// Every set of this directory's records the model kept, in order.
+    pub kept_windows: Vec<Entry>,
     /// What the scheduler has.
     pub scheduled: Schedule,
     /// How many times the schedule was read.
@@ -521,6 +536,13 @@ impl Machine {
             preferences_unreadable: false,
             earlier: None,
             kept_preferences: Vec::new(),
+            windows_file: None,
+            windows_unreadable: false,
+            windows_earlier: None,
+            windows_nowhere: false,
+            windows_key: DANA.into(),
+            directories: vec![DANA.into()],
+            kept_windows: Vec::new(),
             scheduled: Schedule::Absent,
             schedule_reads: 0,
             installs: 0,
@@ -549,6 +571,26 @@ impl Machine {
             runs: true,
         };
         self
+    }
+
+    /// `windows.json` as the lane would read it now.
+    fn windows_read(&self) -> std::io::Result<Option<String>> {
+        if self.windows_unreadable {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the test says it cannot be read",
+            ));
+        }
+        Ok(self.windows_file.clone())
+    }
+
+    /// This launch's records as `windows.json` holds them now.
+    pub(super) fn windows_records(&self) -> Entry {
+        self.windows_file
+            .as_deref()
+            .and_then(Records::read)
+            .map(|records| records.entry(&self.windows_key))
+            .unwrap_or_default()
     }
 
     /// What the core answers `job` with.
@@ -665,11 +707,43 @@ impl Machine {
                     done: self.forgetting.clone().map_err(|refused| refused.error()),
                 }
             }
+            // The account windows' records by the lane's own rules, over a file in memory.
             Job::LoadKept => Answer::Kept {
                 told: self.told_before.clone(),
                 preferences: (!self.preferences_unreadable).then(|| {
                     Preferences::kept(self.preferences_file.as_deref(), self.earlier.as_ref())
                 }),
+                windows: if self.windows_nowhere {
+                    None
+                } else {
+                    records::load(
+                        &self.windows_read(),
+                        &self.windows_key,
+                        self.windows_earlier.as_ref(),
+                    )
+                },
+            },
+            Job::KeepWindows { entry, write } => {
+                if let Some(text) = records::kept(
+                    &self.windows_read(),
+                    &self.windows_key,
+                    self.windows_earlier.as_ref(),
+                    &entry,
+                ) {
+                    self.windows_file = Some(text);
+                }
+                self.kept_windows.push(entry);
+                Answer::WindowsKept { write }
+            }
+            Job::CheckShared { stores } => Answer::SharedChecked {
+                shared: records::shared(
+                    &self.windows_read(),
+                    &self.windows_key,
+                    self.windows_earlier.as_ref(),
+                    &stores,
+                    |directory| self.directories.iter().any(|there| there == directory),
+                ),
+                stores,
             },
             Job::KeepPreferences { preferences } => {
                 self.preferences_file = preferences.text();
@@ -765,6 +839,9 @@ impl Machine {
         }
     }
 }
+
+/// The Pitboard directory of a test's app, as the account windows' records key it.
+pub(super) const DANA: &str = "/Users/dana/.pitboard";
 
 /// Where a scheduler keeps the renewal job, as the core names it on a Mac. Never written.
 pub(super) const PLIST: &str = "/Users/x/Library/LaunchAgents/com.usepitboard.renew.plist";

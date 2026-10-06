@@ -12,3 +12,15 @@ extension WindowAccount: Identifiable {
     /// reads as one.
     public var id: UUID { UUID(uuidString: store)! }
 }
+
+extension OpenWindow: Identifiable {
+    /// The window's store, as its account's.
+    public var id: UUID { account.id }
+}
+
+extension PickerAccount: Identifiable {
+    /// The store of the account's window.
+    public var id: UUID { window.id }
+}
+
+extension DownloadShown: Identifiable {}

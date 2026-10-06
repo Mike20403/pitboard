@@ -102,8 +102,17 @@ public sealed class ModelTests
             Footing: new Footing.OnlyOne(Provider: "claude", Label: "work"), Setup: null,
             AccountsShown: new AccountsShown.List(), MenuAccountsNote: null,
             UpdatedMenu: "Updated 08:00", UpdatedWindow: "Updated 08:00", SheetText: null,
-            SigningInText: null, QuitConfirmation: null, FailureAlert: null, Machine: Unread());
+            SigningInText: null, QuitConfirmation: null, FailureAlert: null, Machine: Unread(),
+            AccountWindows: NoWindows());
     }
+
+    /// <summary>
+    /// The account windows of a model that has none open and nothing to say of them.
+    /// </summary>
+    private static AccountWindowsShown NoWindows() => new(
+        Accounts: [], Menus: [], Open: [],
+        Waiting: new WindowWaiting(WindowTitle: "Account", Shown: new WaitingShown.Reading(Title: "Reading accounts…")),
+        Closing: [], Deleting: [], Picker: null, Downloads: []);
 
     /// <summary>
     /// What a model shows of the machine before anything about it has been read.
@@ -306,6 +315,99 @@ public sealed class ModelTests
         Assert.AreNotEqual<Intent>(new Intent.PresentSheet(new Sheet.Add("codex")), intents[3]);
         Assert.AreEqual(1, intents.OfType<Intent.CancelSignIn>().Count());
         Assert.AreNotEqual(typeof(SignIn), typeof(Intent.SignIn));
+    }
+
+    /// <summary>
+    /// The account windows cross as the Windows app's WebView2 code will hold them: where the
+    /// records are kept and what the earlier store held, a window open with the page it loads
+    /// and the button that clears its downloads, what a window waiting for its page says, a
+    /// store to delete by its ask, the picker's accounts and whether Open answers, a download
+    /// by its state, the question before quitting for as many downloads as the app has under
+    /// way, and what the app says back. What each means is the Rust tests' to prove.
+    /// </summary>
+    [TestMethod]
+    public void TheAccountWindowsCrossAsAWindowsAppWillHoldThem()
+    {
+        const string Store = "7e15c34f-69ec-55b4-9542-f1c1fe3d7085";
+        var launch = new AppLaunch(
+            new Dictionary<string, string>(), null,
+            Windows: new WindowsLaunch(
+                Directory: @"C:\Users\dana\AppData\Local\Pitboard", Key: @"C:\Users\dana\.pitboard",
+                LinkScheme: "pitboard",
+                Earlier: new EarlierWindowRecords(
+                    Stores: new Dictionary<string, string[]> { [@"C:\Users\dana\.pitboard"] = [Store] },
+                    Pages: new Dictionary<string, Dictionary<string, string>>())));
+        Assert.AreEqual("pitboard", launch.Windows?.LinkScheme);
+        Assert.IsNull(new AppLaunch(new Dictionary<string, string>(), null).Windows);
+
+        var work = PitboardFfiMethods.WindowAccounts(
+            [
+                new Account(
+                    Id: "claude:work", Provider: "claude", Label: "work", Qualified: "claude/work",
+                    Unplaced: false, Email: "work@example.com",
+                    AccountUuid: "4f3c2a10-8b7e-4d2a-9c1e-5a6b7c8d9e0f", SignedIn: true, Switchable: false,
+                    Parked: null, Usage: null, Stale: null, StaleExplanation: null, LastsSeconds: null,
+                    LastsBurning: false),
+            ])[0];
+        var link = PitboardFfiMethods.SiteLink("https://claude.ai/chat/x");
+        var windows = NoWindows() with
+        {
+            Accounts = [work],
+            Open =
+            [
+                new OpenWindow(
+                    Store, work, new PageLoad(Serial: 2, Url: "https://claude.ai/"), new WindowNoteKind.SignIn(),
+                    ClearDownloads: new Choice("Clear", new Intent.ClearDownloads(Store))),
+            ],
+            Waiting = new WindowWaiting(
+                WindowTitle: "Account",
+                Shown: new WaitingShown.ReadFailed(
+                    Title: "Couldn’t Read Accounts", Detail: "could not read Pitboard's account list",
+                    Retry: new Choice("Try Again", new Intent.Refresh(Asked: true)))),
+            Deleting = [new StoreDeletion(Store: Store, Ask: 1)],
+            Picker = new LinkPicker(
+                Arrival: 1, Armed: true,
+                Shown: new PickerShown.Choose(
+                    Title: "Open this claude.ai link as:", Link: link, LinkText: "claude.ai/chat/x",
+                    Accounts: [new PickerAccount(work, "work@example.com, window open", true)], Chosen: Store,
+                    Open: "Open")),
+            Downloads =
+            [
+                new DownloadShown(
+                    Id: "1", Store: Store, Name: "notes.txt", State: new DownloadState.Running(File: @"C:\notes.txt"),
+                    Said: null, Running: true),
+            ],
+        };
+        var snapshot = Read(5) with { AccountWindows = windows };
+
+        Assert.AreEqual(Store, snapshot.AccountWindows.Open[0].Store);
+        Assert.AreEqual(2UL, snapshot.AccountWindows.Open[0].Load.Serial);
+        Assert.AreEqual(1UL, snapshot.AccountWindows.Deleting[0].Ask);
+        var choose = Assert.IsInstanceOfType<PickerShown.Choose>(snapshot.AccountWindows.Picker?.Shown);
+        Assert.AreEqual(Store, choose.Chosen);
+        Assert.IsTrue(choose.Accounts[0].Open);
+        Assert.IsInstanceOfType<DownloadState.Running>(snapshot.AccountWindows.Downloads[0].State);
+        Assert.IsInstanceOfType<Intent.ClearDownloads>(snapshot.AccountWindows.Open[0].ClearDownloads.Intent);
+        var failed = Assert.IsInstanceOfType<WaitingShown.ReadFailed>(snapshot.AccountWindows.Waiting.Shown);
+        Assert.AreEqual("Try Again", failed.Retry.Title);
+        Assert.AreEqual("A download is in progress. Quit anyway?", PitboardFfiMethods.DownloadsQuitQuestion(1)?.Title);
+        Assert.IsNull(PitboardFfiMethods.DownloadsQuitQuestion(0));
+
+        Intent[] intents =
+        [
+            new Intent.WindowOpened(Store), new Intent.WindowClosed(Store),
+            new Intent.PageShown(Store, "https://claude.ai/chat/1"), new Intent.WebsiteDataRemoved(Store),
+            new Intent.StoreDeleted(Store), new Intent.StoreHeld(Store),
+            new Intent.LinkArrived("pitboard://open?url=https%3A%2F%2Fclaude.ai%2F"),
+            new Intent.OpenLink(Arrival: 1, Store: Store), new Intent.DismissLink(Arrival: 1),
+            new Intent.DownloadStarted("1", Store, null), new Intent.DownloadSaving("1", @"C:\notes.txt"),
+            new Intent.DownloadEnded("1", new DownloadEnd.Failed("The connection was lost.")),
+            new Intent.ClearDownloads(Store),
+        ];
+        Assert.AreEqual<Intent>(new Intent.StoreHeld(Store), intents[5]);
+        Assert.AreNotEqual<Intent>(new Intent.StoreDeleted(Store), intents[5]);
+        Assert.AreEqual(1UL, intents.OfType<Intent.OpenLink>().Single().Arrival);
+        Assert.IsInstanceOfType<DownloadEnd.Failed>(intents.OfType<Intent.DownloadEnded>().Single().End);
     }
 
     /// <summary>

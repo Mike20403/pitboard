@@ -28,6 +28,7 @@ mod machine;
 mod notices;
 mod setup;
 mod sheets;
+mod windows;
 pub(crate) mod words;
 
 #[cfg(test)]
@@ -38,6 +39,11 @@ pub use machine::{
     RenewalShown, ScheduleShown,
 };
 pub use sheets::name_to_save;
+pub use windows::{
+    AccountWindowsShown, DownloadShown, DownloadState, LinkPicker, OpenWindow, PageLoad,
+    PickerAccount, PickerShown, StoreDeletion, WaitingShown, WindowWaiting,
+    downloads_quit_question,
+};
 
 pub(crate) use accounts::in_order;
 pub(crate) use notices::run_out_notice;
@@ -577,6 +583,7 @@ pub(crate) fn present_on(os: Os, state: &State, now: i64, local: &dyn LocalTime)
         quit_confirmation: state.asking().map(sheets::quit_confirmation),
         failure_alert: state.presented.as_ref().map(sheets::failure_alert),
         machine: machine::machine(&seen),
+        account_windows: windows::account_windows(&seen),
     }
 }
 

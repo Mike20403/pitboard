@@ -33,8 +33,10 @@
 use super::advice::{Advice, Told, rename_told};
 use super::machine::{LOG_LIMIT, MachineState, Scheduled};
 use super::preferences::Preferences;
+use super::windows::Windows;
 use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, RestartNeeded};
 use super::{RunOutNotice, RunningSignIn, Sheet, WindowRequest};
+use crate::account_windows::records::{Entry, Loaded};
 use crate::{
     Abandoned, Account, Adoption, Change, Check, Enrolled, EnrolledAs, FoundCommandLine,
     OwnCommandLine, PitboardError, Renewed, Schedule, Status, Switch, Switched, Tool, Usage,
@@ -70,6 +72,10 @@ pub(crate) struct Cadence {
     /// minute, which is as often as any of them changes, as the Swift app's
     /// `TimelineView(.everyMinute)` drew its bars.
     pub(crate) tick_every: Duration,
+    /// How long a link waits, once the accounts to choose from appear, before the account
+    /// picker's Open answers: long enough that a Return typed for another app as the picker
+    /// came forward opens nothing, as AccountPicker.swift's `armingDelay` waited.
+    pub(crate) arming: Duration,
 }
 
 impl Cadence {
@@ -81,6 +87,7 @@ impl Cadence {
         quit_within: Duration::from_secs(30),
         quit_checked_every: Duration::from_millis(200),
         tick_every: Duration::from_secs(60),
+        arming: Duration::from_millis(750),
     };
 }
 
@@ -185,6 +192,12 @@ pub(crate) enum Job {
     KeepTold { told: Told },
     /// Keep the app's preferences, the whole of them.
     KeepPreferences { preferences: Preferences },
+    /// Keep this directory's account window records, the whole of them, as the `write`th
+    /// write asked for.
+    KeepWindows { entry: Entry, write: u64 },
+    /// Ask the account windows' records which of `stores` another Pitboard directory that is
+    /// still there recorded too.
+    CheckShared { stores: Vec<String> },
     /// Post a notification through the app's own system.
     Post { notice: RunOutNotice },
     /// Point a renewal schedule an app up to 0.3.0 wrote, which runs that app and renews
@@ -336,10 +349,23 @@ pub(crate) enum Answer {
     /// or it could not be read, and the app's preferences, with whether they came from their
     /// file, as `Preferences::kept` reads them: from the file where it was there, and
     /// otherwise as the app's earlier store held them. `None` where the file is there and
-    /// could not be read, which is not the same as no file.
+    /// could not be read, which is not the same as no file. The account windows' records
+    /// likewise, this directory's, `None` where their file is there and could not be read as
+    /// records or the app keeps them nowhere.
     Kept {
         told: Told,
         preferences: Option<(Preferences, bool)>,
+        windows: Option<Loaded>,
+    },
+    /// The account windows' records were written, or could not be, as the `write`th write.
+    WindowsKept {
+        write: u64,
+    },
+    /// Which of `stores` another Pitboard directory that is still there recorded too, or
+    /// `None` where the records could not be read to say.
+    SharedChecked {
+        stores: Vec<String>,
+        shared: Option<Vec<String>>,
     },
     /// What was kept was written, or could not be, which nothing here can mend: told again,
     /// a run-out is told once more after a relaunch, and nothing worse.
@@ -705,6 +731,8 @@ pub(crate) struct State {
     standing_in: bool,
     /// What the model knows of this machine rather than its accounts.
     pub(crate) machine: MachineState,
+    /// The account windows' bookkeeping.
+    pub(crate) windows: Windows,
 }
 
 impl State {
@@ -751,6 +779,7 @@ impl State {
             loading_kept: false,
             standing_in: false,
             machine: MachineState::default(),
+            windows: Windows::new(cadence.arming),
         }
     }
 
@@ -764,7 +793,20 @@ impl State {
             Msg::Tick | Msg::Stop => {}
         }
         self.go_off(now, &mut jobs);
+        self.follow_windows(now, &mut jobs);
         jobs
+    }
+
+    /// The account windows follow what is known now: each window that can open opens, and
+    /// the wait before a link can be opened starts again where what the picker offers moved.
+    fn follow_windows(&mut self, now: Now, jobs: &mut Vec<Job>) {
+        self.windows.open_what_can(self.status.as_ref(), jobs);
+        let problem = self
+            .failure
+            .as_ref()
+            .map(|failure| failure.message.as_str());
+        self.windows
+            .rearm(self.status.as_ref(), problem, now.running);
     }
 
     /// When the next timer is due, since the model started, if any is set.
@@ -775,6 +817,7 @@ impl State {
                 Timer::Due(at) => Some(at),
                 Timer::Off | Timer::Running => None,
             })
+            .chain(self.windows.next_due())
             .min()
     }
 
@@ -926,6 +969,27 @@ impl State {
                 }
             }
             Intent::LookForCommandLine => jobs.push(Job::FindCommandLine),
+            Intent::WindowOpened { store } => self.windows.opened(&store),
+            Intent::WindowClosed { store } => self.windows.closed(&store),
+            Intent::PageShown { store, url } => {
+                self.windows
+                    .page_shown(&store, url, self.status.as_ref(), jobs);
+            }
+            Intent::WebsiteDataRemoved { store } => self.windows.data_removed(&store, jobs),
+            Intent::StoreDeleted { store } => self.windows.store_deleted(&store, jobs),
+            Intent::StoreHeld { store } => self.windows.store_held(&store),
+            Intent::LinkArrived { text } => self.windows.link_arrived(&text),
+            Intent::OpenLink { arrival, store } => {
+                self.windows
+                    .open_link(arrival, &store, self.status.as_ref());
+            }
+            Intent::DismissLink { arrival } => self.windows.dismiss_link(arrival),
+            Intent::DownloadStarted { id, store, name } => {
+                self.windows.download_started(id, &store, name);
+            }
+            Intent::DownloadSaving { id, file } => self.windows.download_saving(&id, file),
+            Intent::DownloadEnded { id, end } => self.windows.download_ended(&id, end),
+            Intent::ClearDownloads { store } => self.windows.clear_downloads(&store),
         }
     }
 
@@ -1087,6 +1151,7 @@ impl State {
     }
 
     fn go_off(&mut self, now: Now, jobs: &mut Vec<Job>) {
+        self.windows.go_off(now.running);
         // Nothing to do but be shown again, at the time it is now.
         if matches!(self.tick, Timer::Due(at) if at <= now.running) {
             self.tick = Timer::Due(now.running + self.cadence.tick_every);
@@ -1128,7 +1193,14 @@ impl State {
     /// once. The first time the app has ever been opened, the window opens, once. Where they
     /// could not be read, `None`, nothing is kept in place of what may be there, then or
     /// later, and the window does not open as though for the first time.
-    fn kept(&mut self, told: Told, preferences: Option<(Preferences, bool)>, jobs: &mut Vec<Job>) {
+    fn kept(
+        &mut self,
+        told: Told,
+        preferences: Option<(Preferences, bool)>,
+        windows: Option<Loaded>,
+        jobs: &mut Vec<Job>,
+    ) {
+        self.windows.loaded(windows, jobs);
         for (key, at) in told {
             self.told.entry(key).or_insert(at);
         }
@@ -1294,7 +1366,15 @@ impl State {
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
             Answer::Opened | Answer::Pasted | Answer::Stopped | Answer::Saved | Answer::Posted => {}
-            Answer::Kept { told, preferences } => self.kept(told, preferences, jobs),
+            Answer::Kept {
+                told,
+                preferences,
+                windows,
+            } => self.kept(told, preferences, windows, jobs),
+            Answer::WindowsKept { write } => self.windows.written(write),
+            Answer::SharedChecked { stores, shared } => {
+                self.windows.shared(stores, shared, jobs);
+            }
             Answer::Enrolled {
                 provider,
                 from,
@@ -1412,9 +1492,15 @@ impl State {
                     self.renamed(&renaming, Err(None), now, jobs);
                 }
                 Job::Forget { qualified } => self.forgot(&qualified, Err(None), now, jobs),
-                // Nothing kept could be read: nothing was told before, as far as anyone knows.
-                Job::LoadKept => self.kept(Told::new(), None, jobs),
+                // Nothing kept could be read: nothing was told before, as far as anyone knows,
+                // and the windows' records are held for this launch, never written.
+                Job::LoadKept => self.kept(Told::new(), None, None, jobs),
                 Job::KeepTold { .. } | Job::KeepPreferences { .. } | Job::Post { .. } => {}
+                // What it wrote is not known: a window waiting for it opens all the same, and
+                // the next write writes the records whole.
+                Job::KeepWindows { write, .. } => self.windows.written(write),
+                // Nobody could say: none is deleted, and the next read asks again.
+                Job::CheckShared { stores } => self.windows.shared(stores, None, jobs),
                 // The schedule is as it was, as a repair that failed leaves it.
                 Job::RepairSchedule => {}
                 Job::ReadSchedule { after_change } => {
@@ -1604,6 +1690,7 @@ impl State {
                 self.forget_switches_undone(&read);
                 self.warnings = read.warnings.clone();
                 self.advise(&read, jobs);
+                self.windows.read_enrolled(&read, jobs);
                 self.status = Some(read);
                 self.standing_in = false;
                 self.failure = None;
@@ -1673,6 +1760,10 @@ impl State {
                     }
                     self.forget_switches_undone(&read);
                     self.advise(&read, jobs);
+                    // What the account index says now, whether or not reads that ask a
+                    // service fail meanwhile: `pitboard forget` in a terminal closes the
+                    // account's window and deletes its store on a Mac that cannot reach one.
+                    self.windows.read_enrolled(&read, jobs);
                     self.status = Some(read);
                     self.standing_in = false;
                     self.readings_at = Some(measured);

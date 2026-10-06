@@ -12,7 +12,10 @@
 //! names a Swift file the app no longer has, such as `AppModel.swift`, `MachineModel.swift`
 //! or `Notifier.swift`, or a test in `AppModelTests.swift`, `PresentationTests.swift` or
 //! `MenuTests.swift`, it means that file as it was before the app ran on the model, at
-//! commit 277539b. The `AppModelTests.swift` the app's package has since is another.
+//! commit 277539b. The `AppModelTests.swift` the app's package has since is another. The
+//! account windows' bookkeeping moved later, and a comment that names its Swift, such as
+//! `LinkInbox.swift`, `StoreJanitor.swift`'s sweep or `AccountPickerTests.swift`, means it as
+//! it was at commit a3e5ce0, where the comment says so.
 
 use pitboard_core::app::AppContext;
 use pitboard_core::context::{Context, Environment};
@@ -34,9 +37,10 @@ pub use sites::{
 
 mod model;
 pub use model::{
-    AppControl, AppLaunch, EarlierPreferences, Failure, Intent, LastSwitch, LocalTime,
-    ModelListener, Notifications, Pane, PitboardModel, PlatformError, QuitQuestion, ReadFailure,
-    RestartNeeded, RunOutNotice, RunningSignIn, Sheet, Snapshot, WindowRequest,
+    AppControl, AppLaunch, DownloadEnd, EarlierPreferences, EarlierWindowRecords, Failure, Intent,
+    LastSwitch, LocalTime, ModelListener, Notifications, Pane, PitboardModel, PlatformError,
+    QuitQuestion, ReadFailure, RestartNeeded, RunOutNotice, RunningSignIn, Sheet, Snapshot,
+    WindowRequest, WindowsLaunch,
 };
 
 // The fixtures, which the `fixture` feature compiles; what is exported of them is the same
@@ -46,10 +50,12 @@ pub use fixture::{FixtureError, fixture_names, fixture_page};
 
 mod present;
 pub use present::{
-    AccountItem, AccountSection, AccountsShown, ActivityLine, ActivityShown, CheckLine,
-    ChecksShown, Choice, CommandLineShown, EmptyList, Footing, ItemAction, LimitRow, MachineShown,
-    MenuBarText, MenuEntry, MenuNotices, NoticeAction, PanelNotice, Question, RenewalShown,
-    ScheduleShown, SetupStep, Severity, SheetText, SheetTool, SigningInText, name_to_save,
+    AccountItem, AccountSection, AccountWindowsShown, AccountsShown, ActivityLine, ActivityShown,
+    CheckLine, ChecksShown, Choice, CommandLineShown, DownloadShown, DownloadState, EmptyList,
+    Footing, ItemAction, LimitRow, LinkPicker, MachineShown, MenuBarText, MenuEntry, MenuNotices,
+    NoticeAction, OpenWindow, PageLoad, PanelNotice, PickerAccount, PickerShown, Question,
+    RenewalShown, ScheduleShown, SetupStep, Severity, SheetText, SheetTool, SigningInText,
+    StoreDeletion, WaitingShown, WindowWaiting, downloads_quit_question, name_to_save,
 };
 
 mod account_windows;

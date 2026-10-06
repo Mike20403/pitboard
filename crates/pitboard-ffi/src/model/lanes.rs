@@ -8,7 +8,10 @@
 //! nothing else, and asks the app's own code about other apps, waiting while one is given its
 //! time to quit. `discovery` asks which tools are installed, which can wait on the person's
 //! login shell, and is needed before the first read can say anything useful about it, so it
-//! waits behind nothing. A lane ends once the actor has gone and its last job is done.
+//! waits behind nothing. `kept` reads and writes what the model keeps: in Pitboard's
+//! directory, and the account windows' records in the app's own, read again as each write
+//! is made, so another copy of the app's records stay as it wrote them. A lane ends once the
+//! actor has gone and its last job is done.
 //!
 //! Each sign-in has a thread of its own, as the Swift model's SignInCalls made one for each
 //! call that waits on a person in a browser: it starts the tool's sign-in, hands on what the
@@ -22,11 +25,16 @@ use super::advice::Told;
 use super::machine::Scheduled;
 use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, QuitOutcome, split};
-use super::{AppControl, EarlierPreferences, ModelListener, Notifications, QuitQuestion, Snapshot};
+use super::{
+    AppControl, EarlierPreferences, ModelListener, Notifications, QuitQuestion, Snapshot,
+    WindowsLaunch,
+};
+use crate::account_windows::records::{self, Records};
 use crate::{Holding, Pitboard, Remedy, SignIn};
 use pitboard_core::app::AppFile;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -43,7 +51,8 @@ pub(crate) enum Lane {
     SignIn,
     /// Typing a code back to a sign-in and stopping one.
     SignInCalls,
-    /// What the model keeps of its own in Pitboard's directory, read and written.
+    /// What the model keeps of its own, read and written: in Pitboard's directory, and the
+    /// account windows' records in the app's own.
     Kept,
     /// Posting through the app's system's notifications.
     Notify,
@@ -76,7 +85,11 @@ impl Job {
             Job::AskInstalled | Job::FindCommandLine => Lane::Discovery,
             Job::SignIn { .. } | Job::SignInOver { .. } => Lane::SignIn,
             Job::PasteCode { .. } | Job::StopSignIn { .. } => Lane::SignInCalls,
-            Job::LoadKept | Job::KeepTold { .. } | Job::KeepPreferences { .. } => Lane::Kept,
+            Job::LoadKept
+            | Job::KeepTold { .. }
+            | Job::KeepPreferences { .. }
+            | Job::KeepWindows { .. }
+            | Job::CheckShared { .. } => Lane::Kept,
             Job::Post { .. } => Lane::Notify,
         }
     }
@@ -104,14 +117,47 @@ impl Lanes {
     }
 }
 
+/// What the model keeps that the app handed it or named: its preferences as its earlier
+/// store held them, and where the account windows' records are.
+pub(crate) struct Keeping {
+    pub(crate) earlier: Option<EarlierPreferences>,
+    pub(crate) windows: Option<RecordsFile>,
+}
+
+/// The account windows' records: `windows.json` in the directory the app named, the key this
+/// launch's are kept under in it, and what the app's earlier store held of them, the file's
+/// stand-in until the file is there.
+pub(crate) struct RecordsFile {
+    pub(crate) path: PathBuf,
+    pub(crate) key: String,
+    pub(crate) earlier: Option<Records>,
+}
+
+impl RecordsFile {
+    pub(crate) fn of(launch: WindowsLaunch) -> RecordsFile {
+        RecordsFile {
+            path: Path::new(&launch.directory).join(records::FILE),
+            key: launch.key,
+            earlier: launch.earlier.as_ref().map(Records::earlier),
+        }
+    }
+
+    /// The file as it is now: its text, `None` where it is not there, and an error where it
+    /// is there and cannot be read.
+    fn read(&self) -> std::io::Result<Option<String>> {
+        pitboard_core::app::read_file(&self.path)
+    }
+}
+
 impl Lanes {
     /// Starts the lanes over `core`, `apps` and `notifications`, answering to `answers`,
-    /// giving an app as long to quit as `cadence` says.
+    /// giving an app as long to quit as `cadence` says, with what the model keeps as
+    /// `keeping` says.
     pub(crate) fn open(
         core: Arc<Pitboard>,
         apps: Arc<dyn AppControl>,
         notifications: Arc<dyn Notifications>,
-        earlier: Option<EarlierPreferences>,
+        keeping: Keeping,
         cadence: Cadence,
         answers: &Sender<Msg>,
     ) -> Lanes {
@@ -119,7 +165,8 @@ impl Lanes {
             core,
             apps,
             notifications,
-            earlier,
+            earlier: keeping.earlier,
+            windows: keeping.windows,
             quit_within: cadence.quit_within,
             quit_checked_every: cadence.quit_checked_every,
             sign_ins: Arc::default(),
@@ -433,6 +480,7 @@ pub(crate) struct Worker {
     pub(crate) apps: Arc<dyn AppControl>,
     pub(crate) notifications: Arc<dyn Notifications>,
     pub(crate) earlier: Option<EarlierPreferences>,
+    pub(crate) windows: Option<RecordsFile>,
     pub(crate) quit_within: Duration,
     pub(crate) quit_checked_every: Duration,
     pub(crate) sign_ins: Arc<SignIns>,
@@ -532,6 +580,8 @@ impl Worker {
             // whole the next time something is told, over one that could not be read too: at
             // worst a run-out is notified once more. Preferences that are there and cannot be
             // read are not none: they are left as they are, and never written over unread.
+            // Nor are the account windows' records that are there and cannot be read as
+            // records, whatever reads them.
             Job::LoadKept => Answer::Kept {
                 told: core
                     .app_file(AppFile::Told)
@@ -543,6 +593,34 @@ impl Worker {
                     .app_file(AppFile::Preferences)
                     .ok()
                     .map(|text| Preferences::kept(text.as_deref(), self.earlier.as_ref())),
+                windows: self
+                    .windows
+                    .as_ref()
+                    .and_then(|file| records::load(&file.read(), &file.key, file.earlier.as_ref())),
+            },
+            // Read again as it is written, so what another copy of the app wrote of its own
+            // directory's since is kept, and never written over where it cannot be read as
+            // records.
+            Job::KeepWindows { entry, write } => {
+                if let Some(file) = &self.windows
+                    && let Some(text) =
+                        records::kept(&file.read(), &file.key, file.earlier.as_ref(), &entry)
+                {
+                    let _ = pitboard_core::app::write_file(&file.path, &text);
+                }
+                Answer::WindowsKept { write }
+            }
+            Job::CheckShared { stores } => Answer::SharedChecked {
+                shared: self.windows.as_ref().and_then(|file| {
+                    records::shared(
+                        &file.read(),
+                        &file.key,
+                        file.earlier.as_ref(),
+                        &stores,
+                        |directory| Path::new(directory).exists(),
+                    )
+                }),
+                stores,
             },
             Job::KeepPreferences { preferences } => {
                 if let Some(body) = preferences.text() {
@@ -734,6 +812,7 @@ mod tests {
             apps,
             notifications: Arc::new(Posted::default()),
             earlier: None,
+            windows: None,
             quit_within: Duration::from_millis(50),
             quit_checked_every: Duration::from_millis(5),
             sign_ins: Arc::default(),
@@ -1108,7 +1187,10 @@ mod tests {
             world.core(),
             StandInApps::new(&[], true),
             Arc::new(Posted::default()),
-            None,
+            Keeping {
+                earlier: None,
+                windows: None,
+            },
             Cadence::APP,
             &answers,
         );

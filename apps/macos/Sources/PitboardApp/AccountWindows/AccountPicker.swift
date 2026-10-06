@@ -5,37 +5,25 @@ import SwiftUI
 /// Choose Library: a list, Cancel, and a default button named for what it does.
 ///
 /// Every link from outside waits here until somebody chooses, even with one account, so no
-/// page can open an account's window by sharing a link with Pitboard.
+/// page can open an account's window by sharing a link with Pitboard. What it shows, which
+/// account is chosen first and when Open answers are the model's, in
+/// `AccountWindowsShown.picker`.
 struct AccountPicker: View {
     /// The scene's id, named once so the scene and the code that opens it cannot drift apart.
     static let id = "open-link"
 
     let windows: AccountWindows
+    /// The account somebody chose in the list, until another link arrives.
     @State private var chosen: UUID?
-    /// Whether Open answers yet. Each link waits a moment before it can be opened, so a Return
-    /// typed for another app as the picker came forward opens nothing.
-    @State private var armed = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
-    /// What the picker shows for the link waiting, if one is.
-    private var state: PickerState? {
-        windows.inbox.arrival.map { arrival in
-            PickerState(
-                arrival.link, status: windows.model.status, problem: windows.model.problem,
-                lastChosen: windows.inbox.lastChosen)
-        }
-    }
+    private var picker: LinkPicker? { windows.model.accountWindows.picker }
 
     var body: some View {
-        let state = state
-        let choosing: Bool = {
-            if case .choose? = state { return true }
-            return false
-        }()
         VStack(alignment: .leading, spacing: 12) {
-            if let state {
-                content(state)
+            if let picker {
+                content(picker)
             } else {
                 ContentUnavailableView(
                     "No Link to Open", systemImage: Symbol.site,
@@ -54,14 +42,7 @@ struct AccountPicker: View {
         .appWindow(windows.presence)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("account-picker")
-        // Armed from when the accounts to choose from appear, whether the link has just
-        // arrived or the accounts were read only now.
-        .task(id: Arming(arrival: windows.inbox.arrival?.id, choosing: choosing)) {
-            armed = false
-            try? await Task.sleep(for: Self.armingDelay)
-            armed = !Task.isCancelled
-        }
-        .onChange(of: windows.inbox.arrival?.id) { before, now in
+        .onChange(of: picker?.arrival) { before, now in
             if now == nil, before != nil {
                 dismissWindow()
             } else if now != nil {
@@ -71,79 +52,76 @@ struct AccountPicker: View {
                 windows.presence.comeForward()
             }
         }
-        .onDisappear { windows.inbox.dismiss() }
+        .onDisappear { dismiss() }
     }
 
-    @ViewBuilder private func content(_ state: PickerState) -> some View {
-        switch state {
-        case .reading:
-            ProgressView("Reading accounts…")
+    @ViewBuilder private func content(_ picker: LinkPicker) -> some View {
+        switch picker.shown {
+        case .reading(let title):
+            ProgressView(title)
                 .frame(maxWidth: .infinity)
             buttons { cancelButton }
-        case .readFailed(let problem):
-            Text("Couldn’t Read Accounts").font(.headline)
-            Text(problem).explanatory()
+        case .readFailed(let title, let detail, let retry):
+            Text(title).font(.headline)
+            Text(detail).explanatory()
             buttons {
                 cancelButton
-                Button("Try Again") { windows.model.send(.refresh(asked: true)) }
+                Button(retry.title) { windows.model.send(retry.intent) }
                     .keyboardShortcut(.defaultAction)
             }
-        case .refused(let reason):
-            Text("Can’t Open This Link").font(.headline)
+        case .refused(let title, let reason):
+            Text(title).font(.headline)
             Text(reason).explanatory()
             buttons {
-                Button("OK") { windows.inbox.dismiss() }
+                Button("OK") { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
-        case .noAccount(let link):
-            Text("No \(link.site.name) Account").font(.headline)
-            LinkLine(link: link)
-            Text(
-                "None of the accounts Pitboard has opens \(link.site.name). Add one, and this "
-                    + "link waits here until you choose it."
-            )
-            .explanatory()
+        case .noAccount(let title, let link, let linkText, let detail, let inBrowser, let add):
+            Text(title).font(.headline)
+            LinkLine(text: linkText, url: link.url)
+            Text(detail).explanatory()
             HStack {
-                Button("Open in Browser") {
+                Button(inBrowser) {
                     if let url = URL(string: link.url) { NSWorkspace.shared.open(url) }
-                    windows.inbox.dismiss()
+                    dismiss()
                 }
                 Spacer()
                 cancelButton
-                Button("Add Account…") {
-                    windows.model.send(.presentSheet(sheet: .add(provider: link.site.provider)))
-                }
-                .keyboardShortcut(.defaultAction)
+                Button(add.title) { windows.model.send(add.intent) }
+                    .keyboardShortcut(.defaultAction)
             }
-        case .choose(let link, let accounts, let preferred):
-            Text("Open this \(link.site.name) link as:").font(.headline)
-            LinkLine(link: link)
+        case .choose(let title, let link, let linkText, let accounts, let preferred, let open):
+            Text(title).font(.headline)
+            LinkLine(text: linkText, url: link.url)
+            let first = UUID(uuidString: preferred)
             let selection = Binding {
-                chosen ?? preferred
+                chosen ?? first
             } set: {
                 chosen = $0
             }
             List(accounts, selection: selection) { account in
-                AccountChoice(account: account, open: windows.sessions[account.id] != nil)
+                AccountChoice(account: account)
                     .tag(account.id)
             }
             .frame(minHeight: 96, idealHeight: 160, maxHeight: 360)
             .contextMenu(forSelectionType: UUID.self) { _ in
             } primaryAction: { stores in
-                if armed, let store = stores.first { open(link, as: store, from: accounts) }
+                if picker.armed, let store = stores.first { openLink(picker, as: store) }
             }
             .accessibilityIdentifier("picker.accounts")
             buttons {
                 cancelButton
-                Button("Open") { open(link, as: chosen ?? preferred, from: accounts) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!armed)
+                Button(open) {
+                    if let store = chosen ?? first { openLink(picker, as: store) }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!picker.armed)
             }
         }
     }
 
     private var cancelButton: some View {
-        Button("Cancel", role: .cancel) { windows.inbox.dismiss() }
+        Button("Cancel", role: .cancel) { dismiss() }
             .keyboardShortcut(.cancelAction)
     }
 
@@ -154,31 +132,30 @@ struct AccountPicker: View {
         }
     }
 
-    /// How long a link waits before it can be opened.
-    static let armingDelay = Duration.milliseconds(750)
-
-    /// What restarts the wait: a link arriving, and the accounts to choose from appearing.
-    private struct Arming: Equatable {
-        let arrival: UUID?
-        let choosing: Bool
+    /// The picker closed on the link waiting without a choice.
+    private func dismiss() {
+        if let arrival = picker?.arrival { windows.model.send(.dismissLink(arrival: arrival)) }
     }
 
-    private func open(_ link: SiteLink, as store: UUID, from accounts: [WindowAccount]) {
-        guard let account = accounts.first(where: { $0.id == store }) else { return }
-        windows.open(link, as: account)
-        windows.inbox.chose(account)
+    /// Opens the link `picker` shows as the account whose window keeps `store`: the model
+    /// makes the link that window's page, and its window opens.
+    private func openLink(_ picker: LinkPicker, as store: UUID) {
+        guard case .choose(_, _, _, let accounts, _, _) = picker.shown,
+            accounts.contains(where: { $0.id == store })
+        else { return }
+        windows.model.send(.openLink(arrival: picker.arrival, store: store.uuidString))
         windows.presence.activate()
-        openWindow(id: AccountWindowScene.id, value: account.id)
+        openWindow(id: AccountWindowScene.id, value: store)
     }
 }
 
 /// The link waiting, on one line without its scheme, the whole of it in its help.
 private struct LinkLine: View {
-    let link: SiteLink
+    let text: String
+    let url: String
 
     var body: some View {
-        let url = link.url
-        Text(url.hasPrefix("https://") ? String(url.dropFirst("https://".count)) : url)
+        Text(text)
             .font(.callout.monospaced())
             .lineLimit(1)
             .truncationMode(.middle)
@@ -189,21 +166,20 @@ private struct LinkLine: View {
     }
 }
 
-/// An account the link can open as: its label and email, and whether its window is open,
-/// where the link replaces what the window shows.
+/// An account the link can open as: its label, and its email and whether its window is
+/// open, where the link replaces what the window shows.
 private struct AccountChoice: View {
-    let account: WindowAccount
-    let open: Bool
+    let account: PickerAccount
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(account.label)
-            Text(open ? "\(account.email), window open" : account.email)
+            Text(account.window.label)
+            Text(account.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("picker.account.\(account.label)")
+        .accessibilityIdentifier("picker.account.\(account.window.label)")
     }
 }
