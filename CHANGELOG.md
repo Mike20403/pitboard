@@ -84,6 +84,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   after a hand edit, the app deletes no window's data and never writes over the file. Each
   window then opens at its site's home with the sign-in note at each launch, and keeps its
   data.
+- Building Pitboard on Windows, as `cargo install pitboard` does there, stops with
+  `Pitboard for Windows is not released yet.` It said that Pitboard runs on macOS and
+  Linux, and that another system needs a host of its own. Pitboard still does not build on
+  Windows.
+- Pitboard's facts about Claude Code and Codex say, for each of macOS, Linux and Windows,
+  whether they were read there and from which build. Read from the Windows builds, x64 and
+  ARM64, seven of Claude Code's 17 facts hold on 2.1.289, and nine of Codex's 16 on
+  0.160.0. Three of Claude Code's are not read on Windows: two are about the keychain, and
+  the Windows build's Credential Manager store calls the `Bun.secrets` the third rules out.
+  Seven of each tool's facts wait on the Windows work. Where Claude Code finds its config
+  file was read again, from 2.1.289 on every system. The conformance check reads both
+  tools' Windows builds, and Codex's macOS build as well as its Linux one. What Pitboard
+  does is unchanged.
+- In `pitboard-core`, `assumptions::Platform` gains `Windows`, and `Platform::ALL`, which
+  meant macOS and Linux, is gone. `assumptions::read_on` returns a `Vec<Platform>` in place
+  of a `&'static [Platform]`, and `assumptions::verified_against` takes the system as well
+  as the tool. `assumptions::OnSystem`, `PerSystem`, `per_system`, `on`, `verified_on` and
+  `pending` are new. These change the crate's public API.
 
 ### Fixed
 
