@@ -65,14 +65,16 @@ pages load, as a browser would.
     find the program daily renewal runs.
   - `app.rs`: what an app finds for itself that a command typed at a prompt is given: each
     tool's program, on the login shell's `PATH` and then where the tool's installers put
-    it, and the `pitboard` a terminal would run. And the files an app keeps of its own in
-    Pitboard's directory, `told.json` and `app.json`, written as the core writes its own and
-    read by nothing of the core.
+    it, and the `pitboard` a terminal would run, there and then where each way of installing
+    Pitboard puts it, under the app's home and where the system's package managers put
+    programs. And the files an app keeps of its own in Pitboard's directory, `told.json` and
+    `app.json`, written as the core writes its own and read by nothing of the core.
   - `api.rs`: the requests to Anthropic. The requests to OpenAI are in
     `provider/codex/api.rs`.
   - `status.rs`, `doctor.rs`, `statusline.rs` and `schedule.rs` serve the commands of the
-    same names. `schedule.rs` decides what daily renewal runs and whose it is; the host's
-    scheduler writes it.
+    same names. `schedule.rs` decides what daily renewal runs and whose it is, and refuses a
+    program in the temporary copy macOS runs an app from, by `in_a_temporary_copy`, which an
+    app asks of the command line inside it too; the host's scheduler writes it.
   - `words.rs`: the sentences and column words Pitboard says in more than one place, each
     a function of typed values: spans of time, a limit's names, when it resets, how long an
     account lasts, a parked login's life, a renewal run and doctor's summary. It also holds
@@ -101,33 +103,41 @@ pages load, as a browser would.
     numbered `Snapshot`; its `AppControl` quits and opens other apps, and its
     `Notifications` posts what has run out. `state.rs` holds what the model knows and
     decides what follows each message, `advice.rs` which account to offer once the one in
-    use has run out, and `preferences.rs` what the app's own preferences are; `lanes.rs`
-    runs what it decides, on a lane of reads, a lane of changes, one at a time, a lane that
-    lists processes and asks the app's `AppControl` about other apps, a lane that asks what
-    is installed, a thread of its own for each sign-in, a lane that types a code back to one
-    or stops it, a lane that reads and writes what the model keeps in Pitboard's directory
-    and one that posts through the app's `Notifications`, and tells the listener on a thread
-    of its own; `mod.rs` holds the exported types and the actor thread that owns the state.
-    So far the model reads the accounts, looks every two seconds for a change made
-    elsewhere, asks which tools are installed, switches, quits the app holding a tool's
-    login when the person lets it, gives up on a stuck switch, keeps what each tool's last
-    switch said, runs each tool's own sign-in, enrols the login signed in now, renames and
-    forgets, keeps the sheet over the main window, says which account to switch to once the
-    one in use has run out, notified once for each reset, and keeps the app's own
-    preferences. Its tests are files of their own there: `reading.rs`, `switching.rs`,
-    `signing.rs`, `changing.rs`, `advising.rs`, `keeping.rs`, `presenting.rs` and
-    `cadence.rs` drive the state by hand, `lanes.rs` has the lanes' own, and `threaded.rs`
-    drives the model through its threads over the real core.
+    use has run out, `preferences.rs` what the app's own preferences are, and `machine.rs`
+    what the model knows of this machine rather than its accounts; `lanes.rs` runs what it
+    decides, on a lane of reads, which reads the schedule, doctor's checks and the log too, a
+    lane of changes, one at a time, which also repairs and changes the schedule and renews,
+    a lane that lists processes and asks the app's `AppControl` about other apps, a lane
+    that asks what is installed and looks for the `pitboard` a terminal runs, a thread of
+    its own for each sign-in, a lane that types a code back to one or stops it, a lane that
+    reads and writes what the model keeps in Pitboard's directory and one that posts through
+    the app's `Notifications`, and tells the listener on a thread of its own; `mod.rs` holds
+    the exported types and the actor thread that owns the state. So far the model reads the
+    accounts, looks every two seconds for a change made elsewhere, asks which tools are
+    installed, switches, quits the app holding a tool's login when the person lets it, gives
+    up on a stuck switch, keeps what each tool's last switch said, runs each tool's own
+    sign-in, enrols the login signed in now, renames and forgets, keeps the sheet over the
+    main window, says which account to switch to once the one in use has run out, notified
+    once for each reset, keeps the app's own preferences, and keeps the daily renewal
+    schedule, renews now, makes doctor's checks, reads the activity log and finds the
+    `pitboard` a terminal runs. Its tests are files of their own there: `reading.rs`,
+    `switching.rs`, `signing.rs`, `changing.rs`, `advising.rs`, `keeping.rs`,
+    `maintaining.rs`, `presenting.rs` and `cadence.rs` drive the state by hand, `lanes.rs`
+    has the lanes' own, and `threaded.rs` drives the model through its threads over the
+    real core.
   - `present/` makes each `Snapshot` from the model's state: `present` takes the state and
     the moment, and builds every sentence and row the menu bar, the menu and the window
     show, so a view decides nothing. `accounts.rs` is the menu bar's words and the
     accounts' sections and rows with their limits, `notices.rs` the notices, their order
     and what the menu says of them, `setup.rs` the footing, the step it asks for and what
     stands in for an empty list, `sheets.rs` the sheets, the quit question and a failure's
-    alert, with `name_to_save`, the rule a sheet's Save and the model both save by, and
+    alert, with `name_to_save`, the rule a sheet's Save and the model both save by,
+    `machine.rs` what the settings and the window's other panes show of this machine, daily
+    renewal, Renew Now, doctor's checks, the activity log and the command line, and
     `words.rs` the sentences both apps say and the command line does not, each a function
     of typed values. What the command line says too is `pitboard_core::words`', called from
-    there. A clock time is the person's to read, so it is asked of the app's `LocalTime`.
+    there, such as a renewal's note and doctor's summary. A clock time, and a change's date
+    and time, are the person's to read, so they are asked of the app's `LocalTime`.
     A button the snapshot offers comes with its words beside the intent it sends, so a view
     never words an intent; a control each app always has, such as its toolbar's "Add
     Account…" or "Quit Pitboard", and what is about the app's own system stay the app's.
@@ -258,12 +268,13 @@ pages load, as a browser would.
   path, so the app makes it off the main thread.
 - What a snapshot says is made by `present`, which reads the state and the moment and asks
   nothing of anyone but the app's `LocalTime`, for each clock time and whether a moment is
-  on another day than now. Where that cannot say, the time is said in UTC and named so,
-  from the moments alone, so the machine's own time zone is read by the app's `LocalTime`
-  and nothing else. The actor makes it before it takes the lock `snapshot` takes,
-  so a `LocalTime` may call the model back. Text that depends on the time alone is made
-  again on the minute tick, once started, and a countdown is the app's own, from
-  `PanelNotice::until`.
+  on another day than now, and for each date and time of the activity log. Where that cannot
+  say, a clock time is said in UTC and named so, from the moments alone, and a change's time
+  as the log keeps it, as `pitboard log` prints it, so the machine's own time zone is read by
+  the app's `LocalTime` and nothing else. The actor makes it before it takes the lock
+  `snapshot` takes, so a `LocalTime` may call the model back. Text that depends on the time
+  alone is made again on the minute tick, once started, and a countdown is the app's own,
+  from `PanelNotice::until`.
 - A run-out is notified once for each reset of its limit, by the core's rule for one reset,
   across launches: what was notified is kept in `told.json` in Pitboard's directory, read
   as the model starts. Nothing is advised on until it is in, and what was read meanwhile is
@@ -330,6 +341,21 @@ pages load, as a browser would.
   would leave the tool running with nothing on screen to finish or stop it. What goes wrong
   is said in that sheet, or in the window where the sheet has gone, and the sheet closes once
   the sign-in has finished.
+- One change to the daily renewal schedule runs at a time, claimed inside `State::apply` as
+  its intent is taken, and the settings' switch shows what it asked for until the schedule
+  has been read back after it; a second press meanwhile does nothing. Turning renewal on is
+  refused before the scheduler is asked, and nothing is read, where the command line inside
+  this copy of the app is not one a schedule would keep reaching: none inside it, one in the
+  temporary copy macOS runs an app from, by the core's own rule in `schedule.rs`, or one
+  nobody may run. Turning it off never is. Whether that command line lasts is read from its
+  file on the lanes, with the schedule, a change to it, the repair and the command line
+  found, never as a snapshot is made. A schedule an older app wrote is repaired once a
+  launch, as the model starts, and read again only where it was. Renew Now runs one renewal
+  at a time, and is over once the read after it, asking every service, is. Doctor's checks
+  and the activity log are read each time their pane is shown, the checks counted while they
+  run, as reads are. Opening at login and linking the command line onto the `PATH` with an
+  administrator's password are each app's own, and once an app has linked it, it sends
+  `Intent::LookForCommandLine` for the model to look for the command line again.
 - `AppControl` names an app by one string, the id the core's holder detection gives it,
   which on macOS is its bundle id, in `provider/codex/holders.rs`. What names an app on
   Windows, and so what the core's holder detection gives there, is a question still open
@@ -350,12 +376,17 @@ pages load, as a browser would.
   and its `Notifications` keeps what it is given and posts nothing. A test that signs in
   runs a stand-in for `claude`, a shell script of its own in its scratch home, and plants
   the login it would have stored in `MemoryHost`'s keychain: never a real `claude` or
-  `codex`.
+  `codex`. A test that schedules renewal does it through `MemoryHost`'s pretend scheduler,
+  which writes its job into the scratch home and asks no service manager, and a test that
+  looks for the `pitboard` a terminal runs finds one in its scratch home before it would
+  reach any place of this machine's.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
-  the core. The account windows key their records by Pitboard's directory standardised as
-  Foundation standardises a file URL, as they did before the core said where it is, in
-  `WebEnvironment.recordKey` alone.
+  the core. Whether the copy of the app runs from a temporary place is the core's rule too,
+  `schedule::in_a_temporary_copy`, which the model asks, but the macOS app still decides it
+  for itself, in `CommandLineTool.swift`, until it runs on the model. The account windows
+  key their records by Pitboard's directory standardised as Foundation standardises a file
+  URL, as they did before the core said where it is, in `WebEnvironment.recordKey` alone.
 - On macOS, only `/usr/bin/security` reads or writes Claude Code's keychain item and
   Pitboard's parked items. No keychain item is touched through the Security framework. The
   reason is under [macOS](#macos) in Measured facts.
@@ -1076,6 +1107,10 @@ Nothing here ran on Windows.
   `string?`.
 - A record holds a list as an array, and a C# record compares arrays by reference, so two
   snapshots read alike are not equal. `ModelTests.ASnapshotCarriesWhatWasRead` measures it.
+  Two records C# makes with an empty collection expression, `[]`, for each list do compare
+  equal: the compiler gives them one empty array, so an app's own test of that kind proves
+  nothing about lists. `ModelTests.ASnapshotSaysWhatIsKnownOfTheMachine` measures it, and
+  measured it with the .NET SDK 10.0.401 on 6 October 2026.
 - A call's checksum is taken over what UniFFI records of it: its module, object and name,
   its arguments, the types it takes, gives and throws, and its doc comment. A record type is
   recorded by its module and name alone, so no checksum covers a record's fields. Read in

@@ -9,8 +9,9 @@ use super::preferences::Preferences;
 use super::state::{Answer, Cadence, Job, Msg, Now, State};
 use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
 use crate::{
-    Abandoned, Account, Adoption, Enrolled, EnrolledAs, Holding, Limit, Made, Pitboard,
-    PitboardError, Remedy, Source, Status, Switch, Switched, Tool, Usage, Warning,
+    Abandoned, Account, Adoption, Change, Check, Enrolled, EnrolledAs, FoundCommandLine, Holding,
+    Level, Limit, Made, OwnCommandLine, Pitboard, PitboardError, Remedy, Renewed, Schedule, Source,
+    Status, Switch, Switched, Tool, Usage, Warning,
 };
 use pitboard_core::context::Context;
 use pitboard_core::provider::ProviderId;
@@ -459,6 +460,33 @@ pub(super) struct Machine {
     pub earlier: Option<EarlierPreferences>,
     /// Every set of preferences the model kept, in order.
     pub kept_preferences: Vec<Preferences>,
+    /// What the scheduler has.
+    pub scheduled: Schedule,
+    /// How many times the schedule was read.
+    pub schedule_reads: usize,
+    /// How many times the scheduler was asked to take the schedule, and to take it away.
+    pub installs: usize,
+    pub uninstalls: usize,
+    /// What the scheduler refuses each change with, while it does.
+    pub refusing: Option<Refusal>,
+    /// What repairing a schedule an older app wrote gives.
+    pub repairs: Result<bool, Refusal>,
+    pub repair_asks: usize,
+    /// The command line inside this copy of the app: none, unless a test says.
+    pub own: OwnCommandLine,
+    /// What renewing gives.
+    pub renewals: Vec<Renewed>,
+    pub renew_asks: usize,
+    /// Doctor's checks.
+    pub checks: Vec<Check>,
+    pub doctor_asks: usize,
+    /// What Pitboard has changed, oldest first, as the core's log keeps it.
+    pub history: Vec<Change>,
+    /// How many changes each read of the log asked for, in order.
+    pub log_limits: Vec<u32>,
+    /// The `pitboard` a terminal would run.
+    pub command_line: FoundCommandLine,
+    pub command_line_asks: usize,
 }
 
 impl Machine {
@@ -493,7 +521,34 @@ impl Machine {
             preferences_unreadable: false,
             earlier: None,
             kept_preferences: Vec::new(),
+            scheduled: Schedule::Absent,
+            schedule_reads: 0,
+            installs: 0,
+            uninstalls: 0,
+            refusing: None,
+            repairs: Ok(false),
+            repair_asks: 0,
+            own: OwnCommandLine::default(),
+            renewals: Vec::new(),
+            renew_asks: 0,
+            checks: Vec::new(),
+            doctor_asks: 0,
+            history: Vec::new(),
+            log_limits: Vec::new(),
+            command_line: FoundCommandLine::Nowhere,
+            command_line_asks: 0,
         }
+    }
+
+    /// A copy of the app with a command line inside it that a schedule and a link would keep
+    /// reaching.
+    pub(super) fn with_a_command_line_inside(mut self) -> Machine {
+        self.own = OwnCommandLine {
+            inside: true,
+            temporary: false,
+            runs: true,
+        };
+        self
     }
 
     /// What the core answers `job` with.
@@ -640,7 +695,108 @@ impl Machine {
                     Answer::Stopped
                 }
             }
+            Job::RepairSchedule => {
+                self.repair_asks += 1;
+                Answer::Repaired {
+                    repaired: self.repairs.clone().map_err(|refused| refused.error()),
+                    own: self.own,
+                }
+            }
+            Job::ReadSchedule { after_change } => {
+                self.schedule_reads += 1;
+                Answer::ScheduleRead {
+                    schedule: self.scheduled.clone(),
+                    own: self.own,
+                    after_change,
+                }
+            }
+            // By the lane's own rule, over a scheduler that writes nothing anywhere.
+            Job::SetSchedule { on } => Answer::ScheduleSet {
+                own: self.own,
+                outcome: lanes::set_schedule(on, self.own, |on| {
+                    if on {
+                        self.installs += 1;
+                    } else {
+                        self.uninstalls += 1;
+                    }
+                    if let Some(refused) = &self.refusing {
+                        return Err(refused.error());
+                    }
+                    self.scheduled = if on {
+                        Schedule::Installed {
+                            path: PLIST.into(),
+                            every_seconds: 86_400,
+                        }
+                    } else {
+                        Schedule::Absent
+                    };
+                    Ok(())
+                }),
+            },
+            Job::Renew => {
+                self.renew_asks += 1;
+                Answer::Renewed {
+                    renewals: self.renewals.clone(),
+                }
+            }
+            Job::Check => {
+                self.doctor_asks += 1;
+                Answer::Checked {
+                    checks: self.checks.clone(),
+                }
+            }
+            Job::ReadLog { limit } => {
+                self.log_limits.push(limit);
+                let newest = self
+                    .history
+                    .len()
+                    .saturating_sub(usize::try_from(limit).unwrap_or(usize::MAX));
+                Answer::Logged {
+                    changes: self.history[newest..].to_vec(),
+                }
+            }
+            Job::FindCommandLine => {
+                self.command_line_asks += 1;
+                Answer::CommandLineFound {
+                    found: self.command_line.clone(),
+                    own: self.own,
+                }
+            }
         }
+    }
+}
+
+/// Where a scheduler keeps the renewal job, as the core names it on a Mac. Never written.
+pub(super) const PLIST: &str = "/Users/x/Library/LaunchAgents/com.usepitboard.renew.plist";
+
+/// A check as doctor reports one.
+pub(super) fn check(code: &str, name: &str, level: Level, detail: &str, advice: &str) -> Check {
+    Check {
+        code: code.into(),
+        name: name.into(),
+        level,
+        detail: detail.into(),
+        advice: advice.into(),
+    }
+}
+
+/// A change as the core's log keeps one.
+pub(super) fn change(at: &str, caller: &str, verb: &str, subject: &str, outcome: &str) -> Change {
+    Change {
+        at: at.into(),
+        caller: caller.into(),
+        verb: verb.into(),
+        subject: subject.into(),
+        outcome: outcome.into(),
+    }
+}
+
+/// A parked login renewed or not, as the core reports it.
+pub(super) fn renewed(label: &str, provider: &str, outcome: &str) -> Renewed {
+    Renewed {
+        label: label.into(),
+        provider: provider.into(),
+        outcome: outcome.into(),
     }
 }
 
@@ -804,6 +960,13 @@ pub(super) struct World {
     pub host: Arc<MemoryHost>,
     pub api: Arc<ScriptedApi>,
     ctx: Context,
+    /// The command line inside the app, where a test gives it one.
+    helper: Option<PathBuf>,
+    /// Where the app looks for the `pitboard` a terminal would run: the test's own places
+    /// alone, never this machine's.
+    places: Vec<PathBuf>,
+    /// The login shell's `PATH`, as the app looked in it, where a test says one.
+    search_path: Option<String>,
 }
 
 impl World {
@@ -830,6 +993,9 @@ impl World {
             host,
             api,
             ctx,
+            helper: None,
+            places: Vec::new(),
+            search_path: None,
         }
     }
 
@@ -837,18 +1003,62 @@ impl World {
     /// program found.
     pub(super) fn core(&self) -> Arc<Pitboard> {
         let ctx = self.ctx.clone();
+        let (helper, places, search_path) = (
+            self.helper.clone(),
+            self.places.clone(),
+            self.search_path.clone(),
+        );
         Arc::new(Pitboard::asking(
             move || {
                 let made = Made {
                     core: service::Pitboard::new(ctx.clone()),
                     found: vec![ProviderId::Claude],
-                    search_path: None,
-                    schedules_a_command_line: false,
+                    search_path: search_path.clone(),
+                    helper: helper.clone(),
+                    command_line_places: places.clone(),
                 };
                 (made, false)
             },
             crate::ASK_AGAIN_AFTER,
         ))
+    }
+
+    /// An app on this machine with a command line inside it, in the scratch home, which a
+    /// schedule runs and a link would reach, as `build-app.sh` puts one in a copy of the app.
+    /// Where it is.
+    #[cfg(unix)]
+    pub(super) fn app_with_a_command_line(&mut self) -> PathBuf {
+        self.app_with_a_command_line_in("")
+    }
+
+    /// The same, with the app in `dir` of the scratch home: under `AppTranslocation/…`, the
+    /// temporary copy macOS runs an app from where it was downloaded.
+    #[cfg(unix)]
+    pub(super) fn app_with_a_command_line_in(&mut self, dir: &str) -> PathBuf {
+        let helper = self
+            .root
+            .join(dir)
+            .join("Pitboard.app/Contents/Helpers/pitboard");
+        a_program_at(&helper, 0o755);
+        self.ctx = self.ctx.clone().with_schedule_program(helper.clone());
+        self.helper = Some(helper.clone());
+        helper
+    }
+
+    /// Where the app looks for the `pitboard` a terminal would run, after the login shell's
+    /// `PATH`: `places`, and nothing of this machine's.
+    pub(super) fn looks_for_pitboard_in(
+        &mut self,
+        places: Vec<PathBuf>,
+        search_path: Option<String>,
+    ) {
+        self.places = places;
+        self.search_path = search_path;
+    }
+
+    /// A directory of the scratch home.
+    pub(super) fn dir(&self, name: &str) -> PathBuf {
+        self.root.join(name)
     }
 
     /// Another front end on the same machine, as the command line in a terminal is.
@@ -1141,6 +1351,17 @@ impl Drop for World {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+/// A program at `path`, made with `mode`, with the directories it needs.
+#[cfg(unix)]
+pub(super) fn a_program_at(path: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = path.parent().expect("a program's directory");
+    std::fs::create_dir_all(dir).expect("a scratch directory");
+    std::fs::write(path, "#!/bin/sh\n").expect("a program");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .expect("a program's mode");
 }
 
 fn epoch_now() -> i64 {
