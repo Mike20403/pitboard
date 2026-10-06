@@ -1131,6 +1131,9 @@ mod tests {
         let session = core
             .sign_in("claude/travel".into())
             .expect("the stand-in starts");
+        // Once it has written its process id, so that it stopping below is not taken from
+        // one stopped before it wrote it.
+        assert!(claude.is_running(), "the stand-in started");
         assert!(sign_ins.started(2, &session));
         assert!(sign_ins.session(2).is_some());
         sign_ins.quiet(2);

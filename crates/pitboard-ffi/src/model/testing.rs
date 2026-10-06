@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The ChatGPT app's bundle id, which is how the core's holder detection names it.
 pub(super) const CHATGPT: &str = "com.openai.codex";
@@ -1213,9 +1213,15 @@ impl World {
     /// browser, then reads each line typed back as the register's `sign_in_output` and
     /// `sign_in_takes_another_code` hold: one that is not `<code>#<state>` with both halves it
     /// refuses on stderr and reads on, and the first that is it takes, and ends signed in. It
-    /// stores no login: `signed_in_privately` plants the one it would have. Only the shell's
-    /// own commands run in it, so nothing it starts outlives it holding its output open. A
-    /// shell script, so it runs only where `/bin/sh` does, and so do the tests that use it.
+    /// stores no login: `signed_in_privately` plants the one it would have. A shell script, so
+    /// it runs only where `/bin/sh` does, and so do the tests that use it.
+    ///
+    /// It writes down its process id before it says anything, and every line typed back to
+    /// it, each file whole: under a name of its own, then moved into place, so a test reading
+    /// one as it is written never finds it half there. Written in place, its process id was
+    /// read empty, as CI met on Linux (run 37437853042). Moving is the one command it starts,
+    /// `/bin/mv` by its path, since the core runs it with this machine's empty search path, and
+    /// with none of its output, so nothing it starts outlives it holding its output open.
     #[cfg(unix)]
     pub(super) fn claude_stand_in(&mut self) -> StandIn {
         self.a_claude_stand_in(false)
@@ -1243,13 +1249,13 @@ impl World {
             holding: self.root.join("holding"),
         };
         // A shell of its own that holds the output it was started with for as long as
-        // `holding` is there, and writes down its process id. Only the first run starts one,
-        // so each test has one to let go of.
+        // `holding` is there, and writes down its process id whole. Only the first run starts
+        // one, so each test has one to let go of.
         let holder = if holding {
             format!(
                 "[ -e '{holder}' ] || {{ : > '{flag}'; \
                  ( while [ -e '{flag}' ]; do /bin/sleep 0.05; done ) & \
-                 echo $! > '{holder}'; }}\n",
+                 echo $! > '{holder}.part' && whole '{holder}'; }}\n",
                 holder = stand_in.holder.display(),
                 flag = stand_in.holding.display(),
             )
@@ -1257,35 +1263,40 @@ impl World {
             String::new()
         };
         let program = bin.join("claude");
-        std::fs::write(
-            &program,
-            format!(
-                "#!/bin/sh\n\
-                 [ \"$1 $2\" = \"auth login\" ] || exit 64\n\
-                 echo $$ > '{pid}'\n\
-                 {holder}\
-                 printf 'Opening browser to sign in\u{2026}\\n'\n\
-                 printf \"If the browser didn't open, visit: \
-                 https://claude.com/cai/oauth/authorize?code=true&state=s\\n\"\n\
-                 printf 'Paste code here if prompted > '\n\
-                 while IFS= read -r line; do\n\
-                 \x20 printf '%s\\n' \"$line\" >> '{typed}'\n\
-                 \x20 case \"$line\" in\n\
-                 \x20   ?*'#'?*) printf 'Login successful.\\n'; exit 0 ;;\n\
-                 \x20   *) printf 'Invalid code. Please make sure the full code was copied.\\n' >&2 ;;\n\
-                 \x20 esac\n\
-                 done\n\
-                 exit 1\n",
-                pid = stand_in.pid.display(),
-                typed = stand_in.typed.display(),
-            ),
-        )
-        .expect("the stand-in");
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
-                .expect("a stand-in that runs");
-        }
+        let script = format!(
+            "#!/bin/sh\n\
+             [ \"$1 $2\" = \"auth login\" ] || exit 64\n\
+             whole() {{ /bin/mv -f \"$1.part\" \"$1\" </dev/null >/dev/null 2>&1; }}\n\
+             echo $$ > '{pid}.part' && whole '{pid}'\n\
+             {holder}\
+             printf 'Opening browser to sign in\u{2026}\\n'\n\
+             printf \"If the browser didn't open, visit: \
+             https://claude.com/cai/oauth/authorize?code=true&state=s\\n\"\n\
+             printf 'Paste code here if prompted > '\n\
+             typed=''\n\
+             while IFS= read -r line; do\n\
+             \x20 typed=\"$typed$line\n\"\n\
+             \x20 printf '%s' \"$typed\" > '{typed}.part' && whole '{typed}'\n\
+             \x20 case \"$line\" in\n\
+             \x20   ?*'#'?*) printf 'Login successful.\\n'; exit 0 ;;\n\
+             \x20   *) printf 'Invalid code. Please make sure the full code was copied.\\n' >&2 ;;\n\
+             \x20 esac\n\
+             done\n\
+             exit 1\n",
+            pid = stand_in.pid.display(),
+            typed = stand_in.typed.display(),
+        );
+        // Written by another process, so this one never holds it open for writing while a
+        // test on another thread starts a program: on Linux that child would hold a copy, and
+        // starting the stand-in would fail with ETXTBSY, as CI met it on Linux in the command
+        // line's tests (run 36457687750), whose `write_program` writes theirs the same way.
+        let written = std::process::Command::new("/bin/sh")
+            .args(["-c", "printf %s \"$2\" > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&program)
+            .arg(script)
+            .status()
+            .expect("sh runs");
+        assert!(written.success(), "the stand-in could not be written");
         self.ctx = self.ctx.clone().with_claude_program(program);
         stand_in
     }
@@ -1440,7 +1451,9 @@ impl World {
     }
 }
 
-/// What a test's stand-in for `claude` left: its process id, and every line typed back to it.
+/// What a test's stand-in for `claude` left: its process id, every line typed back to it,
+/// and, where it holds its output open, the process id of what holds it and the file it holds
+/// it for.
 #[cfg(unix)]
 pub(super) struct StandIn {
     pid: PathBuf,
@@ -1451,28 +1464,37 @@ pub(super) struct StandIn {
 
 #[cfg(unix)]
 impl StandIn {
-    /// Every line typed back to it, in order.
+    /// Every line typed back to it, in order, as it last wrote them down whole.
     pub(super) fn typed(&self) -> Vec<String> {
         std::fs::read_to_string(&self.typed)
             .map(|typed| typed.lines().map(str::to_owned).collect())
             .unwrap_or_default()
     }
 
-    /// Whether the last one started is still running, as the shell's own `kill -0` says of
-    /// the process id it wrote, which is never this test's or anybody else's to stop.
-    pub(super) fn is_running(&self) -> bool {
-        running(&self.pid)
+    /// The process id the last one to write one wrote, waited for until one has: a test
+    /// asking before the stand-in has written it would otherwise take a stand-in that has not
+    /// started yet for one that has stopped. A test that starts it again waits for the new
+    /// one to say something, which it does only once it has written its own.
+    fn pid(&self) -> u32 {
+        written_pid(&self.pid)
     }
 
     /// Whether the program its first run started still holds its output open, as the shell's
-    /// own `kill -0` says.
+    /// own `kill -0` says. Waits for its process id to have been written.
     pub(super) fn holds_output(&self) -> bool {
-        running(&self.holder)
+        running(written_pid(&self.holder))
     }
 
     /// Lets the program its first run started end, and its output close with it.
     pub(super) fn let_go_of_output(&self) {
         let _ = std::fs::remove_file(&self.holding);
+    }
+
+    /// Whether the last one to start is still running, as the shell's own `kill -0` says of
+    /// the process id it wrote, which is never this test's or anybody else's to stop. Waits
+    /// for that process id to have been written.
+    pub(super) fn is_running(&self) -> bool {
+        running(self.pid())
     }
 }
 
@@ -1484,18 +1506,34 @@ impl Drop for StandIn {
     }
 }
 
-/// Whether the process whose id a stand-in wrote at `path` runs, as the shell's own `kill -0`
-/// says.
+/// The process id a stand-in wrote whole at `path`, waited for until it has: a test asking
+/// before would otherwise take a process that has not started yet for one that has stopped.
 #[cfg(unix)]
-fn running(path: &std::path::Path) -> bool {
-    let Ok(pid) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    let pid = pid.trim();
-    assert!(
-        !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()),
-        "{pid:?}"
-    );
+fn written_pid(path: &std::path::Path) -> u32 {
+    let asked = Instant::now();
+    loop {
+        match std::fs::read_to_string(path) {
+            Ok(pid) => {
+                return pid
+                    .trim()
+                    .parse()
+                    .unwrap_or_else(|_| panic!("a process id written whole: {pid:?}"));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                assert!(
+                    asked.elapsed() < Duration::from_secs(20),
+                    "the stand-in never wrote its process id"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("its process id unread: {error}"),
+        }
+    }
+}
+
+/// Whether the process `pid` runs, as the shell's own `kill -0` says.
+#[cfg(unix)]
+fn running(pid: u32) -> bool {
     std::process::Command::new("/bin/sh")
         .args(["-c", &format!("kill -0 {pid} 2>/dev/null")])
         .status()
@@ -1515,6 +1553,30 @@ impl Drop for World {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+/// Asked whether it runs before it has written its process id, the stand-in is waited for,
+/// and not taken for one that has stopped: this process stands in for it here, and writes
+/// its own id the way the stand-in does, whole, a moment after the question.
+#[test]
+#[cfg(unix)]
+fn whether_the_stand_in_runs_is_answered_once_it_has_written_its_process_id() {
+    let world = World::new("stand-in-pid");
+    let stand_in = StandIn {
+        pid: world.root.join("claude.pid"),
+        typed: world.root.join("claude.typed"),
+        holder: world.root.join("holder.pid"),
+        holding: world.root.join("holding"),
+    };
+    let pid = stand_in.pid.clone();
+    let writing = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        let part = pid.with_extension("pid.part");
+        std::fs::write(&part, format!("{}\n", std::process::id())).expect("written");
+        std::fs::rename(&part, &pid).expect("moved into place");
+    });
+    assert!(stand_in.is_running(), "this process, once its id is there");
+    writing.join().expect("the writer");
 }
 
 /// A program at `path`, made with `mode`, with the directories it needs.
