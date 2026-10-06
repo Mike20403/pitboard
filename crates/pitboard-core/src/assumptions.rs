@@ -17,6 +17,12 @@
 //!
 //! This is a register, not a check. Naming a fact does not verify it, and the list says so
 //! by dating every entry.
+//!
+//! Beside its facts, each register keeps a table, [`PerSystem`], that says of every fact on
+//! every system whether it was read there and from which build, why it is not read there,
+//! or which pull request of the Windows work reads it there. A fact that behaves
+//! differently on one system is a fact of its own for that system, never a second reading
+//! under the same name.
 
 use crate::provider::ProviderId;
 
@@ -25,23 +31,70 @@ use crate::provider::ProviderId;
 /// A tool's builds for different systems do not carry the same code. Claude Code's Linux
 /// build has no keychain code at all, so a fact about the macOS keychain, read from it,
 /// reports the keychain gone. Measured on 2.1.278, 2.1.281 and 2.1.284, where 1,462 string
-/// literals are in the macOS build only and 85 in the Linux build only.
+/// literals are in the macOS build only and 85 in the Linux build only. Its Windows build of
+/// 2.1.289 is built from the same commit as the other two and has no keychain backend
+/// either, though it keeps the keychain code the builds share, and a Credential Manager
+/// store of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Platform {
     MacOs,
     Linux,
+    Windows,
 }
 
 impl Platform {
-    /// Both, for a fact that holds the same on either.
-    pub const ALL: &'static [Platform] = &[Platform::MacOs, Platform::Linux];
+    /// Every system, in the order a report lists them. Kept private: a fact's systems are
+    /// the ones its line in [`PerSystem`] reads it on, and no list of systems stands in for
+    /// that.
+    const EACH: [Platform; 3] = [Platform::MacOs, Platform::Linux, Platform::Windows];
 
     /// Stable, lower case, as a report names it.
     pub fn code(self) -> &'static str {
         match self {
             Platform::MacOs => "macos",
             Platform::Linux => "linux",
+            Platform::Windows => "windows",
+        }
+    }
+}
+
+/// What a register says of one fact on one system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnSystem {
+    /// Read from this build of the tool for that system. A conformance run reads the fact
+    /// from that system's builds, and only from those.
+    Read(&'static str),
+    /// Not read there, and why: the system has nothing the fact is about, or its build
+    /// carries what the fact rules out for another reason.
+    NotRead(&'static str),
+    /// Not read there yet. `by` names the pull requests of the Windows work that read it,
+    /// `W2` to `W27`, and `reads` what each reads, which is a fact of its own wherever the
+    /// tool behaves differently there.
+    Pending {
+        by: &'static [&'static str],
+        reads: &'static str,
+    },
+}
+
+/// One fact's line in the table beside its register: what the register says of it on each
+/// system. A field for each system, so no fact can be left out on one or said twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PerSystem {
+    /// The fact's name in the register.
+    pub name: &'static str,
+    pub macos: OnSystem,
+    pub linux: OnSystem,
+    pub windows: OnSystem,
+}
+
+impl PerSystem {
+    /// What this line says on one system.
+    pub fn on(&self, platform: Platform) -> OnSystem {
+        match platform {
+            Platform::MacOs => self.macos,
+            Platform::Linux => self.linux,
+            Platform::Windows => self.windows,
         }
     }
 }
@@ -55,7 +108,9 @@ pub struct Assumption {
     pub fact: &'static str,
     /// Where in Claude Code it was read, so it can be read again.
     pub read_from: &'static str,
-    /// The build it was last verified against.
+    /// The build its macOS and Linux readings name. A fact read on Windows may be read there
+    /// from a later build, which the register's table names, so [`verified_on`] is the build
+    /// for any one system.
     pub verified_against: &'static str,
     /// What in this crate stops being true if it moves.
     pub depends: &'static str,
@@ -90,23 +145,76 @@ pub fn of(provider: ProviderId) -> &'static [Assumption] {
     }
 }
 
-/// The systems whose builds one of a provider's facts is read from.
+/// The table beside one provider's register, a line for each of its facts.
 ///
 /// Each register says this beside its facts rather than in them: `Assumption` can be
 /// written as a literal outside this crate, and a field added to it would break every such
 /// literal.
-pub fn read_on(provider: ProviderId, name: &str) -> &'static [Platform] {
+pub fn per_system(provider: ProviderId) -> &'static [PerSystem] {
     match provider {
-        ProviderId::Claude => crate::provider::claude::assumptions::read_on(name),
-        ProviderId::Codex => Platform::ALL,
+        ProviderId::Claude => crate::provider::claude::assumptions::PER_SYSTEM,
+        ProviderId::Codex => crate::provider::codex::assumptions::PER_SYSTEM,
     }
 }
 
-/// The build one provider's register was read from.
-pub fn verified_against(provider: ProviderId) -> &'static str {
-    match provider {
-        ProviderId::Claude => crate::provider::claude::assumptions::VERIFIED_AGAINST,
-        ProviderId::Codex => crate::provider::codex::assumptions::VERIFIED_AGAINST,
+/// What a provider's register says of one of its facts on one system, or nothing for a
+/// name it does not hold.
+pub fn on(provider: ProviderId, name: &str, platform: Platform) -> Option<OnSystem> {
+    per_system(provider)
+        .iter()
+        .find(|line| line.name == name)
+        .map(|line| line.on(platform))
+}
+
+/// The systems whose builds one of a provider's facts is read from.
+pub fn read_on(provider: ProviderId, name: &str) -> Vec<Platform> {
+    Platform::EACH
+        .into_iter()
+        .filter(|&platform| verified_on(provider, name, platform).is_some())
+        .collect()
+}
+
+/// The build one of a provider's facts was read from on one system, or nothing where it is
+/// not read there.
+///
+/// `Assumption::verified_against` is the build its macOS and Linux readings name, and one
+/// field could not also say that the same fact was read on Windows from a later build.
+pub fn verified_on(provider: ProviderId, name: &str, platform: Platform) -> Option<&'static str> {
+    match on(provider, name, platform)? {
+        OnSystem::Read(build) => Some(build),
+        OnSystem::NotRead(_) | OnSystem::Pending { .. } => None,
+    }
+}
+
+/// Every fact whose reading on a system waits on a pull request still to come, with that
+/// system. The Windows work is done when this is empty.
+pub fn pending() -> Vec<(ProviderId, &'static str, Platform)> {
+    ProviderId::ALL
+        .iter()
+        .flat_map(|&provider| {
+            per_system(provider).iter().flat_map(move |line| {
+                Platform::EACH
+                    .into_iter()
+                    .filter(|&platform| matches!(line.on(platform), OnSystem::Pending { .. }))
+                    .map(move |platform| (provider, line.name, platform))
+            })
+        })
+        .collect()
+}
+
+/// The build one provider's register was read from on one system, unless an entry names
+/// its own.
+pub fn verified_against(provider: ProviderId, platform: Platform) -> &'static str {
+    use crate::provider::{claude, codex};
+    match (provider, platform) {
+        (ProviderId::Claude, Platform::MacOs | Platform::Linux) => {
+            claude::assumptions::VERIFIED_AGAINST
+        }
+        (ProviderId::Claude, Platform::Windows) => claude::assumptions::WINDOWS_VERIFIED_AGAINST,
+        (ProviderId::Codex, Platform::MacOs | Platform::Linux) => {
+            codex::assumptions::VERIFIED_AGAINST
+        }
+        (ProviderId::Codex, Platform::Windows) => codex::assumptions::WINDOWS_VERIFIED_AGAINST,
     }
 }
 
@@ -258,14 +366,161 @@ mod tests {
         for name in ["keychain_write_route", "keychain_absence_codes"] {
             assert_eq!(
                 read_on(ProviderId::Claude, name),
-                &[Platform::MacOs],
+                [Platform::MacOs],
                 "{name}"
             );
         }
         assert_eq!(
             read_on(ProviderId::Claude, "no_keyring_off_macos"),
-            &[Platform::Linux]
+            [Platform::Linux]
         );
+    }
+
+    /// Each register's table has a line for every fact it holds and for nothing else, and
+    /// a line says one thing on each system. A fact with no line would be read nowhere and
+    /// nothing would say so; a line naming no fact would be a reading of nothing.
+    #[test]
+    fn every_fact_has_one_line_and_every_line_is_a_fact() {
+        for &provider in ProviderId::ALL {
+            let mut facts: Vec<&str> = of(provider).iter().map(|a| a.name).collect();
+            let mut lines: Vec<&str> = per_system(provider).iter().map(|l| l.name).collect();
+            facts.sort_unstable();
+            lines.sort_unstable();
+            let before = lines.len();
+            lines.dedup();
+            assert_eq!(lines.len(), before, "{provider:?}: a fact has two lines");
+            assert_eq!(lines, facts, "{provider:?}");
+            for a in of(provider) {
+                for platform in Platform::EACH {
+                    assert!(on(provider, a.name, platform).is_some(), "{}", a.name);
+                }
+            }
+        }
+    }
+
+    /// Claude Code's Credential Manager store calls `Bun.secrets`, so the Windows build
+    /// carries it 25 times in 2.1.289, x64 and arm64 both. A fact that rules it out, read
+    /// there, would report a keyring arrived on every build.
+    #[test]
+    fn no_fact_ruling_out_bun_secrets_is_read_on_windows() {
+        for &provider in ProviderId::ALL {
+            for a in of(provider) {
+                if a.absent.contains(&"Bun.secrets") {
+                    assert_eq!(
+                        verified_on(provider, a.name, Platform::Windows),
+                        None,
+                        "{}",
+                        a.name
+                    );
+                    assert!(
+                        matches!(
+                            on(provider, a.name, Platform::Windows),
+                            Some(OnSystem::NotRead(_))
+                        ),
+                        "{} must say why it is not read on Windows",
+                        a.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// A reading still to come names the pull request of the Windows work that takes it,
+    /// `W2` to `W27`, and says what that reads. Nothing on macOS or Linux waits on one.
+    #[test]
+    fn every_pending_reading_names_a_pull_request_of_the_windows_work() {
+        for &provider in ProviderId::ALL {
+            for line in per_system(provider) {
+                for platform in Platform::EACH {
+                    let OnSystem::Pending { by, reads } = line.on(platform) else {
+                        continue;
+                    };
+                    assert_eq!(platform, Platform::Windows, "{}", line.name);
+                    assert!(!by.is_empty(), "{} waits on nothing", line.name);
+                    assert!(
+                        !reads.is_empty(),
+                        "{} says nothing of what is read",
+                        line.name
+                    );
+                    for pr in by {
+                        let number = pr.strip_prefix('W').and_then(|n| n.parse::<u32>().ok());
+                        assert!(
+                            matches!(number, Some(2..=27)),
+                            "{}: `{pr}` is not a pull request of the Windows work",
+                            line.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The readings still to come are listed in one place, so the last pull request of the
+    /// Windows work can require the list to be empty. Today it is the seven facts of each
+    /// tool that Windows reads differently or later.
+    #[test]
+    fn the_readings_still_to_come_are_listed() {
+        let waiting = pending();
+        assert!(waiting.iter().all(|&(_, _, p)| p == Platform::Windows));
+        for provider in [ProviderId::Claude, ProviderId::Codex] {
+            let names: Vec<&str> = waiting
+                .iter()
+                .filter(|&&(p, _, _)| p == provider)
+                .map(|&(_, name, _)| name)
+                .collect();
+            assert_eq!(names.len(), 7, "{provider:?}: {names:?}");
+            for name in names {
+                assert!(matches!(
+                    on(provider, name, Platform::Windows),
+                    Some(OnSystem::Pending { .. })
+                ));
+            }
+        }
+    }
+
+    /// `verified_against` is the build a fact's macOS and Linux readings name, so a report
+    /// of either system and the fact itself cannot disagree.
+    #[test]
+    fn the_field_names_the_build_of_the_macos_and_linux_readings() {
+        for &provider in ProviderId::ALL {
+            for a in of(provider) {
+                for platform in [Platform::MacOs, Platform::Linux] {
+                    if let Some(build) = verified_on(provider, a.name, platform) {
+                        assert_eq!(
+                            build,
+                            a.verified_against,
+                            "{} on {}",
+                            a.name,
+                            platform.code()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A reading names a version, and a fact not read somewhere says why.
+    #[test]
+    fn every_line_says_a_build_or_a_reason() {
+        for &provider in ProviderId::ALL {
+            for line in per_system(provider) {
+                for platform in Platform::EACH {
+                    match line.on(platform) {
+                        OnSystem::Read(build) => assert_eq!(
+                            build.split('.').count(),
+                            3,
+                            "{} on {}: `{build}` is not a version",
+                            line.name,
+                            platform.code()
+                        ),
+                        OnSystem::NotRead(why) => {
+                            assert!(!why.is_empty(), "{} on {}", line.name, platform.code());
+                        }
+                        OnSystem::Pending { .. } => {}
+                    }
+                }
+            }
+        }
     }
 
     /// `secret-tool` and `kwallet-query` are both in a shipping build already, in the list

@@ -10,34 +10,150 @@
 //!
 //! See [`crate::assumptions`] for what an entry means and how a probe reads one.
 
-use crate::assumptions::{Assumption, Platform};
+use crate::assumptions::OnSystem::{NotRead, Pending, Read};
+use crate::assumptions::{Assumption, OnSystem, PerSystem};
 
-/// The build every entry below was read from, unless it says otherwise.
+/// The build every entry below was read from on macOS and Linux, unless it says otherwise.
 pub const VERIFIED_AGAINST: &str = "2.1.284";
 
-/// Facts about the keychain, which only the macOS build has code for. The Linux build has
-/// none, so read from it they report the keychain gone, on every build from 2.1.278 on.
-const MACOS_ONLY: &[&str] = &[
-    "credential_service_name",
-    "keychain_account_name",
-    "keychain_write_route",
-    "keychain_absence_codes",
-];
+/// The build the facts read on Windows were read from: `@anthropic-ai/claude-code-win32-x64`
+/// and `-win32-arm64` 2.1.289, both built from commit 736d26e, as that version's macOS and
+/// Linux builds are. Read as bytes on a Mac on 2026-10-06, and never run.
+pub const WINDOWS_VERIFIED_AGAINST: &str = "2.1.289";
 
-/// Facts about Linux, read from the Linux build.
-const LINUX_ONLY: &[&str] = &["no_keyring_off_macos"];
+/// The Linux build has no keychain backend, so a keychain fact read from it reports the
+/// keychain gone, as it did on every build from 2.1.278 on.
+const NO_KEYCHAIN_ON_LINUX: OnSystem =
+    NotRead("Linux has no keychain, and Claude Code's Linux build has no keychain backend");
 
-/// The systems whose builds a fact is read from: its own system's for the facts named
-/// above, both for the rest.
-pub fn read_on(name: &str) -> &'static [Platform] {
-    if MACOS_ONLY.contains(&name) {
-        &[Platform::MacOs]
-    } else if LINUX_ONLY.contains(&name) {
-        &[Platform::Linux]
-    } else {
-        Platform::ALL
+/// Nor has the Windows build. Both Windows builds of 2.1.289 keep code they share with the
+/// macOS one: the fallback wrapper's `keychain_locked_skip_fallback` and
+/// `primary_transient_skip_fallback`, and a device key store that names
+/// `find-generic-password`. What they lack is the backend itself: none holds `exceeds
+/// security -i stdin limit; using argv`, `show-keychain-info` or `[keychain] readAsync
+/// failed`, which the macOS build holds twice each.
+const NO_KEYCHAIN_ON_WINDOWS: OnSystem =
+    NotRead("Windows has no keychain, and Claude Code's Windows build has no keychain backend");
+
+/// A fact read on macOS and Linux from the build its entry names, and on Windows from
+/// [`WINDOWS_VERIFIED_AGAINST`].
+const fn everywhere(name: &'static str, build: &'static str) -> PerSystem {
+    PerSystem {
+        name,
+        macos: Read(build),
+        linux: Read(build),
+        windows: Read(WINDOWS_VERIFIED_AGAINST),
     }
 }
+
+/// A fact read on macOS and Linux from the build its entry names, whose Windows reading
+/// waits on the Windows work.
+const fn later_on_windows(
+    name: &'static str,
+    build: &'static str,
+    by: &'static [&'static str],
+    reads: &'static str,
+) -> PerSystem {
+    PerSystem {
+        name,
+        macos: Read(build),
+        linux: Read(build),
+        windows: Pending { by, reads },
+    }
+}
+
+/// What each fact below is on each system. The Windows readings are a reading of the
+/// Windows builds' code for each fact, and of every literal its entry probes for, which
+/// both Windows builds hold. Where Claude Code does something else on Windows, that is a
+/// fact of its own, read by the pull request named.
+pub const PER_SYSTEM: &[PerSystem] = &[
+    PerSystem {
+        name: "credential_service_name",
+        macos: Read(VERIFIED_AGAINST),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: Pending {
+            by: &["W23"],
+            reads: "credman_target: the Credential Manager target Claude Code keeps the login \
+                    under on Windows, once it uses that store",
+        },
+    },
+    PerSystem {
+        name: "keychain_account_name",
+        macos: Read(VERIFIED_AGAINST),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: Pending {
+            by: &["W22"],
+            reads: "credman_account_name: the user name on Claude Code's Credential Manager \
+                    item",
+        },
+    },
+    later_on_windows(
+        "live_chain_order",
+        VERIFIED_AGAINST,
+        &["W22", "W23"],
+        "windows_backend_choice (W22): which store Claude Code keeps the login in on Windows, \
+         and credman_migration (W23): how it moves the login into Credential Manager",
+    ),
+    PerSystem {
+        name: "keychain_write_route",
+        macos: Read(VERIFIED_AGAINST),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: NO_KEYCHAIN_ON_WINDOWS,
+    },
+    PerSystem {
+        name: "keychain_absence_codes",
+        macos: Read(VERIFIED_AGAINST),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: NO_KEYCHAIN_ON_WINDOWS,
+    },
+    everywhere("write_lock", VERIFIED_AGAINST),
+    everywhere("logout_skips_the_lock", VERIFIED_AGAINST),
+    everywhere("account_scoped_keys", VERIFIED_AGAINST),
+    later_on_windows(
+        "credential_cache",
+        "2.1.278",
+        &["W22", "W23"],
+        "windows_file_adoption (W22): how soon a running session takes a new \
+         `.credentials.json` on Windows, and windows_credman_cache (W23): how long it keeps a \
+         login read from Credential Manager",
+    ),
+    everywhere("config_file_location", "2.1.289"),
+    everywhere("oauth_client", VERIFIED_AGAINST),
+    later_on_windows(
+        "supervisor_daemon",
+        VERIFIED_AGAINST,
+        &["W18"],
+        "windows_daemon_identity: how the supervisor daemon is told apart from other \
+         processes on Windows",
+    ),
+    PerSystem {
+        name: "no_keyring_off_macos",
+        macos: NotRead(
+            "this is about the systems without a keychain, and macOS keeps the login in one",
+        ),
+        linux: Read(VERIFIED_AGAINST),
+        windows: NotRead(
+            "Claude Code's Credential Manager store on Windows calls `Bun.secrets`, which this \
+             fact rules out, so read from the Windows build it reports a keyring arrived",
+        ),
+    },
+    everywhere("sign_in_output", "2.1.289"),
+    everywhere("sign_in_takes_another_code", "2.1.289"),
+    later_on_windows(
+        "install_places",
+        "2.1.289",
+        &["W17"],
+        "windows_install_layout: where the native installer and npm put `claude.exe` on \
+         Windows",
+    ),
+    later_on_windows(
+        "plaintext_credential_mode",
+        VERIFIED_AGAINST,
+        &["W22"],
+        "windows_plaintext_write: how Claude Code writes `.credentials.json` on Windows, and \
+         what keeps others out of it there",
+    ),
+];
 
 pub const ASSUMPTIONS: &[Assumption] = &[
     Assumption {
@@ -175,9 +291,17 @@ pub const ASSUMPTIONS: &[Assumption] = &[
     Assumption {
         name: "config_file_location",
         fact: "a legacy `<config dir>/.config.json` wins when present; otherwise \
-               `<$CLAUDE_CONFIG_DIR or $HOME>/.claude<suffix>.json`",
-        read_from: "the config path resolution",
-        verified_against: VERIFIED_AGAINST,
+               `<$CLAUDE_CONFIG_DIR or the home folder>/.claude<suffix>.json`. The two read \
+               `CLAUDE_CONFIG_DIR` differently: the file's base is `CLAUDE_CONFIG_DIR || \
+               homedir()`, so an empty value is the home folder, while the config dir is \
+               `(CLAUDE_CONFIG_DIR ?? join(homedir(), \".claude\")).normalize(\"NFC\")`, so an \
+               empty value makes it the empty path and `.config.json` is looked for in the \
+               working directory",
+        read_from: "the config path resolution, and the config dir the secure storage module \
+                    shares",
+        // Read on 2026-10-06 from the macOS, Linux and Windows builds of 2.1.289, x64 and
+        // arm64, whose code for both paths is the same.
+        verified_against: "2.1.289",
         depends: "claude::config_file",
         probe: &[".config.json", "CLAUDE_CONFIG_DIR"],
         absent: &[],
@@ -347,16 +471,37 @@ pub const ASSUMPTIONS: &[Assumption] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assumptions::Platform;
 
-    /// A name in either list that is not a fact would leave the fact it meant read from
-    /// both systems, and the Linux build would report it gone.
+    /// The facts the Windows builds of 2.1.289 were read for, and those they were not, by
+    /// name. Read on Windows, the keychain facts would report the keychain gone, and
+    /// `no_keyring_off_macos` a keyring arrived.
     #[test]
-    fn every_fact_named_for_one_system_is_in_the_register() {
-        for name in MACOS_ONLY.iter().chain(LINUX_ONLY) {
-            assert!(
-                ASSUMPTIONS.iter().any(|a| a.name == *name),
-                "{name} is not a fact"
-            );
+    fn windows_reads_the_facts_its_build_was_read_for() {
+        let read: Vec<&str> = PER_SYSTEM
+            .iter()
+            .filter(|line| matches!(line.on(Platform::Windows), Read(_)))
+            .map(|line| line.name)
+            .collect();
+        assert_eq!(
+            read,
+            [
+                "write_lock",
+                "logout_skips_the_lock",
+                "account_scoped_keys",
+                "config_file_location",
+                "oauth_client",
+                "sign_in_output",
+                "sign_in_takes_another_code",
+            ]
+        );
+        for name in [
+            "keychain_write_route",
+            "keychain_absence_codes",
+            "no_keyring_off_macos",
+        ] {
+            let line = PER_SYSTEM.iter().find(|l| l.name == name).unwrap();
+            assert!(matches!(line.on(Platform::Windows), NotRead(_)), "{name}");
         }
     }
 }

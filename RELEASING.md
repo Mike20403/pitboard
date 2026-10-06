@@ -11,6 +11,15 @@ no section in [CHANGELOG.md](CHANGELOG.md).
 
 ## Prepare a release
 
+Pick the version first. While Pitboard is at 0.x, a release that removes or renames
+anything public in `pitboard-core` is a new minor version, as Cargo reads one: 0.8.0 after
+0.7.0, not 0.7.1. CI's `semver` job reports such a change against the version on crates.io.
+
+- The first release after 0.7.0 is a new minor version at least.
+  `pitboard_core::assumptions::Platform::ALL`, which meant macOS and Linux, is gone, and
+  `assumptions::read_on` and `assumptions::verified_against` changed shape, now that each
+  tool's register says which systems each fact was read on, Windows among them.
+
 1. In CHANGELOG.md, add `## [<version>] - YYYY-MM-DD` directly under `## [Unreleased]`, so
    the entries there fall under the version. The guard looks for a line that starts
    `## [<version>]`.

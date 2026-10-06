@@ -7,10 +7,111 @@
 //!
 //! See [`crate::assumptions`] for what an entry means and how a probe reads one.
 
-use crate::assumptions::Assumption;
+use crate::assumptions::OnSystem::{Pending, Read};
+use crate::assumptions::{Assumption, PerSystem};
 
-/// The build every entry below was read from, unless it names its own.
+/// The build every entry below was read from on macOS and Linux, unless it names its own.
 pub const VERIFIED_AGAINST: &str = "0.154.0";
+
+/// The build the facts read on Windows were read from: `@openai/codex@0.160.0-win32-x64` and
+/// `0.160.0-win32-arm64`, read as bytes on a Mac, the x64 one on 2026-10-04 and the arm64
+/// one on 2026-10-06, and never run, with the source at tag `rust-v0.160.0`.
+pub const WINDOWS_VERIFIED_AGAINST: &str = "0.160.0";
+
+/// A fact read on macOS and Linux from the build its entry names, and on Windows from
+/// [`WINDOWS_VERIFIED_AGAINST`]: the code each is about has no part that differs on
+/// Windows at that tag, outside its tests, and both Windows builds hold every literal the
+/// entry probes for.
+const fn everywhere(name: &'static str, build: &'static str) -> PerSystem {
+    PerSystem {
+        name,
+        macos: Read(build),
+        linux: Read(build),
+        windows: Read(WINDOWS_VERIFIED_AGAINST),
+    }
+}
+
+/// A fact read on macOS and Linux from the build its entry names, whose Windows reading
+/// waits on the Windows work.
+const fn later_on_windows(
+    name: &'static str,
+    build: &'static str,
+    by: &'static [&'static str],
+    reads: &'static str,
+) -> PerSystem {
+    PerSystem {
+        name,
+        macos: Read(build),
+        linux: Read(build),
+        windows: Pending { by, reads },
+    }
+}
+
+/// What each fact below is on each system. On macOS and Linux every fact is read, from the
+/// build its entry names, as this register said of every fact before it had a table. The
+/// macOS readings are of the codex installed on a Mac, or of the builds an entry names, and
+/// the conformance run reads the facts from the macOS, Linux and Windows builds alike.
+///
+/// Three facts were read on a Mac alone: the ChatGPT app's codex, the app server's parent
+/// and the keychain stores. They stay read on Linux, since the code that stands on them,
+/// `holders` and the refusal of a keychain store, runs there as it does on macOS. A Linux
+/// reading of each of its own is no part of the Windows work.
+pub const PER_SYSTEM: &[PerSystem] = &[
+    later_on_windows(
+        "codex_login_location",
+        VERIFIED_AGAINST,
+        &["W21"],
+        "codex_windows_login_location: where the login is on Windows, and which store \
+         Codex's configuration layers pick there",
+    ),
+    everywhere("codex_login_shape", VERIFIED_AGAINST),
+    everywhere("codex_identity_is_local", VERIFIED_AGAINST),
+    everywhere("codex_renewal", VERIFIED_AGAINST),
+    everywhere("codex_usage_endpoint", VERIFIED_AGAINST),
+    everywhere("codex_revokes_on_its_own_sign_out", VERIFIED_AGAINST),
+    everywhere("codex_never_follows_a_switch", VERIFIED_AGAINST),
+    later_on_windows(
+        "codex_runs_inside_the_chatgpt_app",
+        "26.928.31416",
+        &["W18"],
+        "codex_windows_app_identity: how the ChatGPT app for Windows runs its own codex, and \
+         how that codex is told apart",
+    ),
+    later_on_windows(
+        "codex_app_server_daemon",
+        "0.159.3",
+        &["W18"],
+        "where the background app server runs from on Windows, and what starts it",
+    ),
+    later_on_windows(
+        "codex_home_isolates_a_sign_in",
+        VERIFIED_AGAINST,
+        &["W14"],
+        "codex_windows_home: Codex's home on Windows, and what moves it",
+    ),
+    later_on_windows(
+        "codex_keychain_stores_are_its_own",
+        VERIFIED_AGAINST,
+        &["W21"],
+        "codex_windows_stores: what Codex's `keyring`, `auto` and secret stores keep on \
+         Windows, and where",
+    ),
+    everywhere("codex_identity_is_the_person", VERIFIED_AGAINST),
+    everywhere("codex_refusal_is_invalid_grant", VERIFIED_AGAINST),
+    later_on_windows(
+        "codex_install_places",
+        "0.159.2",
+        &["W17"],
+        "where Codex's installers put `codex.exe` on Windows",
+    ),
+    later_on_windows(
+        "codex_login_is_driveable",
+        VERIFIED_AGAINST,
+        &["W19"],
+        "whether `codex login` runs piped, with no console window, from a program on Windows",
+    ),
+    everywhere("codex_login_prints_its_address", "0.160.0"),
+];
 
 pub const ASSUMPTIONS: &[Assumption] = &[
     Assumption {
@@ -240,3 +341,51 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         absent: &[],
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assumptions::Platform;
+
+    /// The facts the Windows builds of 0.160.0 were read for, by name. The rest are about
+    /// where Codex keeps things, what runs it and how it is installed, which the Windows
+    /// work reads for Windows on its own.
+    #[test]
+    fn windows_reads_the_facts_its_build_was_read_for() {
+        let read: Vec<&str> = PER_SYSTEM
+            .iter()
+            .filter(|line| matches!(line.on(Platform::Windows), Read(_)))
+            .map(|line| line.name)
+            .collect();
+        assert_eq!(
+            read,
+            [
+                "codex_login_shape",
+                "codex_identity_is_local",
+                "codex_renewal",
+                "codex_usage_endpoint",
+                "codex_revokes_on_its_own_sign_out",
+                "codex_never_follows_a_switch",
+                "codex_identity_is_the_person",
+                "codex_refusal_is_invalid_grant",
+                "codex_login_prints_its_address",
+            ]
+        );
+    }
+
+    /// Every fact is read on macOS and on Linux, as the register said of each before it had
+    /// a table, and the conformance run checks a build of each for them.
+    #[test]
+    fn macos_and_linux_read_every_fact() {
+        for line in PER_SYSTEM {
+            for platform in [Platform::MacOs, Platform::Linux] {
+                assert!(
+                    matches!(line.on(platform), Read(_)),
+                    "{} on {}",
+                    line.name,
+                    platform.code()
+                );
+            }
+        }
+    }
+}

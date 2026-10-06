@@ -133,7 +133,9 @@ impl<K: Into<OsString>, V: Into<OsString>> FromIterator<(K, V)> for Environment 
 pub struct Context {
     pub(crate) home: PathBuf,
     pub(crate) pitboard_home: PathBuf,
-    /// `CLAUDE_CONFIG_DIR`, which Claude Code reads with `||`: empty means unset.
+    /// `CLAUDE_CONFIG_DIR`, held only when it is set and not empty. Claude Code reads an
+    /// empty value as unset for its config file and its credential slot's name, but not for
+    /// its config dir, as the register's `config_file_location` says.
     pub(crate) claude_config_dir: Option<String>,
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR`, which Claude Code reads with `!== undefined`:
     /// empty is set, and pins the default credential slot.
@@ -270,7 +272,9 @@ impl Context {
         self
     }
 
-    /// Empty means unset, as Claude Code reads `CLAUDE_CONFIG_DIR`.
+    /// Empty means unset, as Claude Code reads `CLAUDE_CONFIG_DIR` for its config file and
+    /// its credential slot's name. Its config dir reads an empty value as the empty path, as
+    /// the register's `config_file_location` says.
     pub fn with_claude_config_dir(mut self, dir: String) -> Context {
         self.claude_config_dir = Some(dir).filter(|d| !d.is_empty());
         self

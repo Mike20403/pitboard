@@ -36,7 +36,8 @@ pages load, as a browser would.
     `Provider` trait in `provider/mod.rs`. The trait covers where the tool keeps its login,
     whose it is, how to renew it, what it has left and what its sign-in prints, which
     `provider::sign_in_view` reads for both apps. Each module's `assumptions.rs` is
-    that tool's register of facts. `provider/codex/holders.rs` names where a running
+    that tool's register of facts, with a table saying what each fact is on macOS, Linux
+    and Windows. `provider/codex/holders.rs` names where a running
     `codex` can be, and what makes each take a switch. `provider/printed.rs` reads what a
     tool printed as a terminal does: the text it shows, and where each hyperlink goes.
   - `holder.rs`: what keeps a tool's login in memory while it runs, told apart by where
@@ -220,7 +221,8 @@ pages load, as a browser would.
   Every type the core's bindings export is declared in `pitboard-ffi`, because the C#
   generator cannot use a type from another crate. `pitboard-share-ffi`, which only Swift
   reads, declares its own.
-- `crates/pitboard-conformance`: checks a tool's register against a build of that tool.
+- `crates/pitboard-conformance`: checks a tool's register against a build of that tool, for
+  macOS, Linux or Windows.
 - `apps/`: the native apps, one directory for each system.
 - `apps/windows/`: the Windows app. `Pitboard.Core` is the core's C# bindings as an
   assembly of their own, generated into `Generated/` and not committed, and
@@ -272,7 +274,8 @@ pages load, as a browser would.
 - `.github/`:
   - `workflows/ci.yml` checks every push to `main` and every pull request, and
     `workflows/release.yml` turns a `v` tag into a release.
-  - `workflows/conformance.yml` checks each tool's newest build against its register.
+  - `workflows/conformance.yml` checks each tool's newest builds, one for each system,
+    against its register.
   - `workflows/sparkle.yml` opens an issue when Sparkle has a release newer than the one
     `apps/macos/project.yml` pins, because Dependabot cannot read that pin.
   - `actions/xcodegen` puts the pinned XcodeGen on `PATH` for every job that builds the
@@ -569,8 +572,8 @@ pages load, as a browser would.
   Renaming or removing one is. While Pitboard is at 0.x, a breaking change gets a new minor
   version, as in 0.3.0, and after 1.0 a new major version.
 - Pitboard and each tool meet at the tool's register. What Pitboard relies on about a tool
-  is written there, and the conformance run checks it against the tool's newest build twice
-  a week.
+  is written there, with the systems each fact was read on, and the conformance run checks
+  it against the tool's newest builds twice a week.
 - Pitboard and each service meet at a few requests. The list, with what each request
   carries, is in
   [What leaves your machine](https://docs.usepitboard.com/security#what-leaves-your-machine).
@@ -613,12 +616,30 @@ keeps its facts in a register, `crates/pitboard-core/src/provider/<tool>/assumpt
 dated with the build they were read from.
 
 A fact names literals a build must contain (`probe`), or literals whose arrival would
-disprove it (`absent`). Beside the facts, the register names those that only one system's
-build can be read for (`read_on`). A fact about behaviour, such as the 30 second cache,
-names no literals. `pitboard-conformance`
-tells a macOS build from a Linux one by its header, and reports which facts can still be
-read from it, which have moved, which name nothing to look for, and which it skipped as
-read from the other system's builds.
+disprove it (`absent`). A fact about behaviour, such as the 30 second cache, names no
+literals.
+
+A tool's builds for different systems carry different code, so beside its facts each
+register keeps a table, `PER_SYSTEM`. It has one line for each fact, and the line says what
+the fact is on macOS, on Linux and on Windows (`assumptions::OnSystem`):
+
+- `Read(build)`: read from that system's build of that version. A fact's own
+  `verified_against` is the build its macOS and Linux readings name, and
+  `assumptions::verified_on` gives the build for any one system.
+- `NotRead(reason)`: not read there, and why. Claude Code's Linux and Windows builds have no
+  keychain backend, so its keychain facts are read from its macOS build alone.
+- `Pending { by, reads }`: to be read there by a later pull request of the Windows work,
+  `W2` to `W27`, which says what that pull request reads. `assumptions::pending` lists
+  these, and the Windows work is not done while the list has anything in it.
+
+Where a tool does something else on Windows, the Windows behaviour is a fact of its own,
+such as `credman_target` beside the keychain's `credential_service_name`. It is never a
+second reading under the first fact's name.
+
+`pitboard-conformance` tells a build's system by its header: ELF for Linux, Mach-O for
+macOS, and PE for Windows, for x64 and ARM64 only. It refuses any other file. It reports
+which facts can still be read from the build, which have moved, which name nothing to look
+for, which it skipped and why, and which wait on the Windows work.
 
 The check is shallow on purpose. A literal being present does not prove the behaviour around
 it is unchanged. A literal disappearing, or a ruled-out one appearing, does prove something
@@ -632,15 +653,34 @@ read again from the macOS and Linux builds of 2.1.278, 2.1.281 and 2.1.284: ever
 holds on 2.1.281 and 2.1.284, and on 2.1.278 the three that describe the 2.1.281 change are
 reported moved, as they should be.
 
-`.github/workflows/conformance.yml` checks the newest build of each tool against its
-register on Mondays and Thursdays, or a version given by hand: Claude Code's macOS and
-Linux builds, and Codex's Linux build. Its most recent run says
-which facts can still be read from the build it checked, and which have moved.
+On 6 October 2026 both registers were read for Windows, from bytes on a Mac, and no
+Windows build was run:
 
-Adding a tool takes three things: a register read out of a named build, a module under
-`provider/` implementing `Provider`, and a conformance job. `ProviderId`, `ProviderId::ALL`
-and the matches in `provider::of` and `assumptions::of` name every tool. The compiler and
-the tests then point at what an added tool has to fill in.
+- Claude Code 2.1.289's `win32-x64` and `win32-arm64` builds. Both are built from commit
+  736d26e, as that version's macOS and Linux builds are. Seven of its 17 facts hold there:
+  the write lock, the unlocked logout, the account's keys, the config file, the OAuth client
+  and both sign-in facts. The two keychain facts are not read on Windows, and nor is
+  `no_keyring_off_macos`, because the Windows build's Credential Manager store calls the
+  `Bun.secrets` it rules out. The other seven wait on the Windows work.
+- Codex 0.160.0's `win32-x64` and `win32-arm64` builds, with its source at tag
+  `rust-v0.160.0`. Nine of its 16 facts hold there: the login's shape, the two facts on
+  whose it is, its renewal and how a spent one is refused, the usage request, the revoke on
+  Codex's own sign-out, a running Codex keeping its login, and the sign-in's address. The
+  other seven wait on the Windows work.
+- The same run read the macOS and Linux builds of both versions, and every fact read there
+  still holds. Claude Code 2.1.110 and Codex 0.99.0 still go red.
+
+`.github/workflows/conformance.yml` checks the newest builds of each tool against its
+register on Mondays and Thursdays, or a version given by hand. It reads four builds of each
+tool, `linux-x64`, `darwin-arm64`, `win32-x64` and `win32-arm64`, all on Linux. Its most
+recent run says which facts can still be read from each build it checked, and which have
+moved.
+
+Adding a tool takes three things: a register read out of a named build, with its table, a
+module under `provider/` implementing `Provider`, and a conformance job. `ProviderId`,
+`ProviderId::ALL` and the matches in `provider::of`, `assumptions::of` and
+`assumptions::per_system` name every tool. The compiler and the tests then point at what an
+added tool has to fill in.
 
 How to run the checker and add a fact is in
 [Tool registers in CONTRIBUTING.md](CONTRIBUTING.md#tool-registers).
@@ -1069,6 +1109,16 @@ treated, and only the macOS build shows it. The run reads both builds since.
   Homebrew cask's by a path through a Homebrew `Caskroom`. So an app with no shell's `PATH`
   looks in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, after the login
   shell's.
+- Read on 6 October 2026 from the macOS, Linux and Windows builds of 2.1.289, whose code
+  here is the same: the config dir is `CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")`,
+  normalised to NFC, and the config file's base is `CLAUDE_CONFIG_DIR || homedir()`. So an
+  empty `CLAUDE_CONFIG_DIR` leaves `.claude.json` in the home folder, but makes the config
+  dir the empty path. A legacy `.config.json` is then looked for in the working directory,
+  and so is `.credentials.json`, which is kept in the config dir unless
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` is set. With that unset, the credential slot's name
+  tests `!CLAUDE_CONFIG_DIR`, so an empty value names the default slot. Pitboard reads an
+  empty value as unset for all of them, which is right for the file and the slot, and not
+  for the directory.
 
 ### Codex
 

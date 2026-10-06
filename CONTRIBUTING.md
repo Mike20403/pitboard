@@ -278,12 +278,13 @@ literal it needs is gone, or one it rules out has turned up. It exits 2 when it 
 sense of its arguments or read the binary.
 
 Point it at the tool's native binary, not the npm wrapper, which carries no binary. The
-checker reads the binary's header to tell a macOS build from a Linux one, and reads each
-fact only from the builds the register's `read_on` names for it: Claude Code's Linux build
-has no keychain code, so the keychain facts are read from its macOS build.
-`.github/workflows/conformance.yml` takes Claude Code's builds from the packages
-`@anthropic-ai/claude-code-linux-x64` and `@anthropic-ai/claude-code-darwin-arm64`. It takes
-Codex's from `vendor/` in `@openai/codex@<version>-linux-x64`.
+checker reads the binary's header to tell a macOS, Linux or Windows build apart, and reads
+each fact only from the systems its line in the register's `PER_SYSTEM` table reads it on.
+Claude Code's Linux and Windows builds have no keychain backend, so the keychain facts are
+read from its macOS build alone. `.github/workflows/conformance.yml` takes Claude Code's
+builds from the packages `@anthropic-ai/claude-code-<system>`, and Codex's from `vendor/`
+in `@openai/codex@<version>-<system>`, for `linux-x64`, `darwin-arm64`, `win32-x64` and
+`win32-arm64`.
 
 To add a fact, add an `Assumption` to the tool's register:
 
@@ -297,9 +298,14 @@ To add a fact, add an `Assumption` to the tool's register:
 | `probe` | Literals that must be in a build for the fact to still be readable there |
 | `absent` | Literals whose arrival would disprove the fact |
 
-A fact that only one system's build can be read for, such as one about the macOS keychain,
-goes in that register's `MACOS_ONLY` or `LINUX_ONLY` list; every other fact is read from
-both.
+Then give it a line in the register's `PER_SYSTEM` table. The line says one of these for
+each of macOS, Linux and Windows:
+
+| On a system | When |
+| --- | --- |
+| `Read("<version>")` | You read the fact from that system's build of that version. The macOS and Linux readings name the build in `verified_against` |
+| `NotRead("<why>")` | The system has nothing the fact is about, such as a keychain, or its build carries a literal the fact rules out for another reason |
+| `Pending { by: &["W<n>"], reads: "<what>" }` | A later pull request of the Windows work reads it there. Say what that pull request reads |
 
 Pick literals specific to the fact. A literal already in the build for another reason
 proves nothing. A fact about behaviour has no literal to find. It gets an empty `probe`,
@@ -310,6 +316,30 @@ older build that predates the fact too, and watch it go red.
 
 `cargo test` checks the registers themselves. Every name must be unique and snake_case.
 Every fact must say what it is, where it was read, which version and what depends on it.
+Every fact must have one line in its table, and a reading on macOS or Linux must name the
+build in `verified_against`. A pending reading must name a pull request from `W2` to `W27`.
+No fact that rules out `Bun.secrets` may be read on Windows.
+
+### Read a fact on Windows
+
+Read a Windows build as bytes, on a Mac or on Linux, as the checker does. Never run
+`claude.exe` or `codex.exe` to read one. Fetch the package with `npm pack`, as
+`conformance.yml` does, and find `claude.exe`, or `codex.exe` under `vendor/`. Claude
+Code's code is plain JavaScript inside its binary. Codex's is Rust, in its public source at
+the tag `rust-v<version>`; look there for code behind `cfg(windows)`.
+
+Read the code the fact is about, not only its literals, then run the checker on the
+Windows build. Then record what you found:
+
+- If the Windows build does what the fact says, mark the fact `Read` on Windows, with the
+  Windows build's version.
+- If it does something else, write the Windows behaviour as a fact of its own, named for
+  Windows, such as `credman_target`, and mark it `NotRead` on macOS and Linux. Mark the
+  first fact `NotRead` on Windows, and name the new fact in the reason. Never add a second
+  reading of the same fact.
+- If the fact can only be seen by running the tool, measure it on a Windows machine kept
+  for that, with throwaway accounts and scratch homes. Name the build and the date in the
+  fact.
 
 ## Documentation
 
