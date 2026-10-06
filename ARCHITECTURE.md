@@ -192,8 +192,8 @@ pages load, as a browser would.
     where ChatGPT runs Codex's login and quits when asked, and its notifications, which post
     nothing; `pages.rs` the stand-in pages an account window loads on `pitboard-fixture://`,
     from the site table. `mod.rs` holds what every build exports of them, the same in each:
-    `PitboardModel::fixture`, `fixture_names` and `fixture_page`, which without the feature
-    refuse, naming it, or name none. `tests.rs` is the macOS app's former
+    `PitboardModel::fixture`, `PitboardModel::fixture_in`, `fixture_names` and
+    `fixture_page`, which without the feature refuse, naming it, or name none. `tests.rs` is the macOS app's former
     `FixtureTests.swift` ported, and what each UI test reads in its world.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
@@ -367,8 +367,8 @@ pages load, as a browser would.
   `pitboard_directory`, which read the environment they are given and, without `HOME`, this
   account's passwd entry; and `fixture_names` and `fixture_page`, which read only what they
   are given. `find_command_line` looks along a search path, so a caller makes it off the main
-  thread. `PitboardModel::fixture` makes the fixture's world in its folder before it
-  answers, files in a temporary directory and nothing slower.
+  thread. `PitboardModel::fixture` and `PitboardModel::fixture_in` make the fixture's world
+  in its folder before they answer, files in a temporary directory and nothing slower.
 - What a snapshot says is made by `present`, which reads the state and the moment and asks
   nothing of anyone but the app's `LocalTime`, for each clock time and whether a moment is
   on another day than now, and for each date and time of the activity log. Where that cannot
@@ -423,6 +423,18 @@ pages load, as a browser would.
   app may close the question with `Intent::KeepAppOpen` before or after it sends the answer:
   a question closed unanswered is kept until another switch is asked for, and an answer is
   taken once.
+- Every other change this app makes to the account index holds it as a switch does, and the
+  poll leaves the index alone meanwhile: naming the login signed in now, a sign-in's
+  enrolment, a rename, forgetting, giving up on an interrupted switch and renewing parked
+  logins. Each holds the index inside `State::apply` from the
+  moment its intent is taken, a sign-in's from the moment its thread is told to enrol, until
+  the read after it is over, landed, dropped or failed, or until the change itself has
+  failed, so a change made elsewhere is noticed by the next look once none is under way. A
+  look can find the index as such a change wrote it and land after the change has answered,
+  before the read the change asked for: taken for a change made elsewhere, it dropped that
+  read as one that started before a change, and a look that landed while a rename was made
+  put away what the account's last switch said
+  ([A look and the app's own changes](#a-look-and-the-apps-own-changes)).
 - What a tool's last switch said is kept apart from the read's warnings, one per tool, until
   that tool no longer has the account it switched to signed in or the person puts it away:
   a Codex switch's warning that open sessions still use the account it parked, and must not
@@ -480,11 +492,17 @@ pages load, as a browser would.
   Windows, and so what the core's holder detection gives there, is a question still open
   for the owner; the trait takes one string so that a Windows id fits it unchanged.
 - One thread tells a `ModelListener`, so snapshots arrive in revision order, and a snapshot
-  is told only where it differs from the last. The model never holds a lock while it calls
-  out, so a listener may call `snapshot`, `send` and `shutdown`. Dropping a `PitboardModel`
-  waits on no thread, since .NET can free it from its finalizer thread
-  ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor and the sign-ins
-  under way, neither of which waits on the listener.
+  is told only where it differs from the last, and of several waiting only the newest. So a
+  test waits for what a snapshot says once something is over, never to be told one in
+  between, such as one saying a read is under way, which can go untold. Nor is `snapshot`
+  enough to see one in between: the actor hands an intent's jobs to their lanes before it
+  publishes, so a lane can have started, even asked a service, while `snapshot` still gives
+  the one from before. A test that must tell a read's end from its start holds the read, as
+  the threaded tests hold one with the lock usage readings are written under. The model
+  never holds a lock while it calls out, so a listener may call `snapshot`, `send` and
+  `shutdown`. Dropping a `PitboardModel` waits on no thread, since .NET can free it from its
+  finalizer thread ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor and
+  the sign-ins under way, neither of which waits on the listener.
 - No test makes the app model over the machine's own environment. Its Rust tests run the
   real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in a
   scratch directory, and so does a fixture. The C# tests make one only as `ModelTests.cs`
@@ -1030,6 +1048,41 @@ which is `flock`.
   tool, it asked in 6.8 to 9.7 ms on macOS and 1.4 to 1.9 ms on Linux, 20 runs each, with
   that output still open.
 
+### A look and the app's own changes
+
+Measured on 6 October 2026 on macOS 27.0 (arm64), with Rust 1.98.1 and `pitboard-ffi`'s
+tests, and read in the macOS app's Swift at 0.7.0 (277539b).
+
+- A look reads when the account index was last written on the lane of reads, while a change
+  the app makes writes it on the lane of changes, or a sign-in's enrolment on that sign-in's
+  own thread, and their answers reach the model in the order they are sent. A look that read
+  the index after a change wrote it, and whose answer came after the change's, was compared
+  once the change had taken the ticket of the read it asked for: it counted a change made
+  elsewhere, and that read was dropped. The fixture's
+  `accounts_are_added_through_each_tools_sign_in`, which signs a Codex account in and
+  cancels nothing, met it in 2 of 140 runs of the whole suite, with nothing said of when the
+  accounts were read.
+- With looks back to back, each asked for as the last one answered, a rename, a forget,
+  naming the login in use and a sign-in met it in none of 10 runs: the core writes its log
+  of changes after the index and before the change answers, so the first look to read the
+  change's write answered first. Held behind a read on the lane of reads instead, which
+  waits for the lock usage readings are written under while the test holds it, a look reads
+  the index after the change and answers after it every time. Against the model before it
+  held the index for every change of its own,
+  `a_rename_is_read_after_it_whatever_the_poll_finds_meanwhile`,
+  `naming_the_login_in_use_is_read_after_it_whatever_the_poll_finds_meanwhile` and
+  `a_sign_in_is_read_after_it_enrols_whatever_the_poll_finds_meanwhile` failed in 10 of 10
+  runs, each with nothing read after the change; after, in none of 50.
+- The Swift model at 0.7.0 had the same race. PitboardService.swift asked `changedAt` on its
+  queue of reads, and enrolled, renamed, forgot, renewed and gave up on an interrupted switch
+  on its queue of changes. AppModel.swift's `enrol`, `rename`, `forget`,
+  `abandonStuckSwitch` and a sign-in's `watch` counted the change in `changesSeen` and then
+  read, the read keeping the count it started with, and `noticeOtherChanges` counted any move
+  of the index's time as a change made elsewhere unless `switching` was set. So a look whose
+  `changedAt` came back after the change's write, and whose comparison ran once the read had
+  taken its count, dropped the read and left `updatedAt` nil; one whose read of what is known
+  landed before a rename's own code ran put away what the switch to that account had said.
+
 ### Claude Code
 
 Read against Claude Code 2.1.284's own storage layer, macOS and Linux builds alike, on 29
@@ -1549,7 +1602,7 @@ Measured on 6 October 2026 on macOS 27.0, with `pitboard-ffi` built for
   `uniffi-bindgen-swift` generated from each release static library, `PitboardBindings.swift`,
   `PitboardFFI.h` and `module.modulemap`, and the C# that uniffi-bindgen-cs v0.11.0+v0.31.0
   generated, `pitboard_ffi.cs`, had the same SHA-256 each, and the C# generated from each
-  debug library did too. The feature changes what the fixture's three exports do, never
+  debug library did too. The feature changes what the fixture's four exports do, never
   their names, arguments, types or doc comments, which are all a checksum covers
   ([The C# bindings](#the-c-bindings)). So one set of bindings links against either library.
 - A library built without the feature holds none of a fixture's text: `grep -a -c` for a

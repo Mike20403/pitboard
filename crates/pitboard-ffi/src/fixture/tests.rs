@@ -1171,12 +1171,17 @@ fn a_machine_with_nothing_on_it_says_what_to_do_first() {
                 shown.accounts_shown
             ),
         }
-        assert_eq!(
-            shown.window_request.serial > 0,
-            world == World::FirstLaunch,
-            "{}",
-            world.name()
-        );
+        // The window is asked for once the preferences say the app has never been seen, and
+        // they are read on a lane of their own, so the accounts can be read first: in 2 of
+        // 800 copies of this test run 16 at a time on Linux, firstLaunch's had not yet asked.
+        // A machine whose app has been seen never asks, which `keeping.rs` holds.
+        if world == World::FirstLaunch {
+            told.until("the window asked for", |snapshot| {
+                read_in(snapshot) && snapshot.window_request.serial > 0
+            });
+        } else {
+            assert_eq!(shown.window_request.serial, 0, "{}", world.name());
+        }
         model.shutdown();
     }
 }
@@ -1969,15 +1974,10 @@ fn every_other_host_has_its_own_stand_in() {
 
 // What every build exports.
 
-/// One exported fixture at a time: they share their folder.
-static EXPORTED: Mutex<()> = Mutex::new(());
-
-/// A fixture's name that is none of them is refused, naming every one there is.
+/// A fixture's name that is none of them is refused, naming every one there is, before the
+/// folder an app's fixture is kept in is touched.
 #[test]
 fn an_unknown_fixture_is_refused_naming_every_one() {
-    let _one = EXPORTED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let refused =
         PitboardModel::fixture("twoTool".into(), Arc::new(Told::default()), Arc::new(Utc));
     match refused {
@@ -1990,7 +1990,7 @@ fn an_unknown_fixture_is_refused_naming_every_one() {
 }
 
 /// Forgets the launches into the folder an app's fixture is kept in once a test is done with
-/// it, however the test ends, as FixtureTests.swift's forgetLaunches does.
+/// it, however the test ends.
 struct ForgetsTheLaunches;
 
 impl Drop for ForgetsTheLaunches {
@@ -1999,16 +1999,71 @@ impl Drop for ForgetsTheLaunches {
     }
 }
 
+/// Set in the environment of the child the test of the exported constructor runs itself in,
+/// which is how the child knows it is the one to make the fixture.
+const EXPORTED_CHILD: &str = "PITBOARD_TEST_EXPORTED_FIXTURE_CHILD";
+
 /// The exported constructor makes a fixture in the folder an app's fixture is kept in,
-/// emptying what the last launch left there, and its model, once started, reads its accounts
-/// and tells the app's listener. Like the Swift tests that launch into a fixture, it empties
-/// that folder and then removes it, so a debug build launched into a fixture meanwhile loses
-/// its world.
+/// `pitboard-fixture` in the temporary directory, emptying what the last launch left there,
+/// and its model, once started, reads its accounts and tells the app's listener.
+///
+/// That folder is one for every process with the same temporary directory, which is how a
+/// debug build launched into a fixture and its UI tests share it. Made there, this test
+/// emptied the world of another copy of the suite running on the same machine, as in a
+/// stress run of several at once, or of a debug build launched into a fixture meanwhile. So
+/// it runs again in a child given a temporary directory of its own, `TMPDIR` as the core and
+/// the macOS app both find it, and the child makes the fixture through the constructor an
+/// app calls, in the folder it finds there. Setting `TMPDIR` in this process would change
+/// the environment while the harness's other threads may read it.
 #[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the child is told it is the child through its environment"
+)]
 fn an_exported_fixture_is_started_and_reads_its_accounts() {
-    let _one = EXPORTED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if std::env::var_os(EXPORTED_CHILD).is_some() {
+        an_exported_fixture_is_made_in_the_temporary_directory();
+    } else {
+        in_a_child_with_a_temporary_directory_of_its_own();
+    }
+}
+
+/// Runs the test of the exported constructor again, alone, in a child whose temporary
+/// directory is a folder of this test's own, which goes once the child is done.
+fn in_a_child_with_a_temporary_directory_of_its_own() {
+    let own = Folder::own("exported").expect("a folder");
+    let out = std::process::Command::new(std::env::current_exe().expect("this test's program"))
+        .args([
+            "fixture::tests::an_exported_fixture_is_started_and_reads_its_accounts",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(EXPORTED_CHILD, "1")
+        .env("TMPDIR", own.path())
+        .env("TMP", own.path())
+        .env("TEMP", own.path())
+        .output()
+        .expect("this test's program runs");
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.status.success(),
+        "the child failed, {}:\n{said}",
+        out.status
+    );
+    assert!(said.contains("1 passed"), "the child ran no test:\n{said}");
+    assert!(
+        !own.path().join("pitboard-fixture").exists(),
+        "the child forgot its launch:\n{said}"
+    );
+}
+
+/// The test itself, in a process whose temporary directory is its own.
+fn an_exported_fixture_is_made_in_the_temporary_directory() {
     let _forgets = ForgetsTheLaunches;
     let shared = std::env::temp_dir().join("pitboard-fixture");
     let told = shared.join("home/.pitboard/told.json");
@@ -2031,4 +2086,38 @@ fn an_exported_fixture_is_started_and_reads_its_accounts() {
         ["claude/work, in use", "claude/personal"]
     );
     model.shutdown();
+}
+
+/// The exported constructor given a temporary directory makes its fixture in the folder
+/// `pitboard-fixture` there, emptying what the last launch left there, as `fixture` does in
+/// the process's own, and its model, once started, reads its accounts and tells the app's
+/// listener. The C# and Swift tests of the bindings launch with it into a directory of their
+/// own, so that neither empties the world of a debug build launched into a fixture, or of
+/// another run of the same tests, as they did launching with `fixture`.
+#[test]
+fn an_exported_fixture_in_a_directory_of_its_own_is_made_there() {
+    let own = Folder::own("exported-in").expect("a folder");
+    let made = own.path().join("pitboard-fixture");
+    let told = made.join("home/.pitboard/told.json");
+    std::fs::create_dir_all(told.parent().expect("a folder")).expect("a folder");
+    std::fs::write(&told, r#"{"claude/work/session/":7200}"#).expect("left behind");
+
+    let listener = Arc::new(Told::default());
+    let model = PitboardModel::fixture_in(
+        "oneTool".into(),
+        own.path().to_string_lossy().into_owned(),
+        Arc::clone(&listener) as Arc<dyn ModelListener>,
+        Arc::new(Utc),
+    )
+    .expect("a fixture");
+    assert!(made.join("home/.pitboard").is_dir());
+    assert!(!told.exists(), "what the last launch told is gone");
+    model.send(Intent::Start);
+    let shown = listener.until("the accounts read", read_in);
+    assert_eq!(
+        described(shown.status.as_ref().expect("read")),
+        ["claude/work, in use", "claude/personal"]
+    );
+    model.shutdown();
+    assert!(made.is_dir(), "left there, as an app's is");
 }

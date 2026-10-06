@@ -203,8 +203,12 @@ same either way. A debug build linked against a library without it stops at laun
 how to build one with it. `build-app.sh` never passes it, and fails a build whose library
 or app holds a fixture.
 
-The tests that launch into that folder, in Rust, C# and Swift alike, empty it and remove it,
-so a debug build launched into a fixture while they run loses what it keeps there.
+Only the UI tests launch into that folder. The unit tests leave it alone: the C# and Swift
+tests of the bindings launch with `PitboardModel::fixture_in` into a temporary directory of
+their own, which they remove, and the Rust test of `PitboardModel::fixture` runs again in a
+child given one, and launches into the folder there. So a debug build launched into a
+fixture keeps its world while `cargo test`, `swift test` or `dotnet test` runs, and several
+runs of each can go at once.
 
 In a fixture, an account's window loads a stand-in page for its site, such as
 `pitboard-fixture://claude.ai`, and each sign-in host has a stand-in on the same scheme. Its

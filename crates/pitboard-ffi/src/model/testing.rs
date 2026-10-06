@@ -1023,6 +1023,16 @@ pub(super) fn installed_ask(job: &Job) -> bool {
     matches!(job, Job::AskInstalled)
 }
 
+pub(super) fn a_look(job: &Job) -> bool {
+    matches!(job, Job::Look)
+}
+
+/// A look for changes or a read of either kind: what a test leaves waiting while it answers
+/// a change, to answer them in an order of its own.
+pub(super) fn a_look_or_a_read(job: &Job) -> bool {
+    matches!(job, Job::Look | Job::Read { .. } | Job::ReadOffline { .. })
+}
+
 pub(super) fn a_switch(job: &Job) -> bool {
     matches!(job, Job::Switch { .. })
 }
@@ -1437,6 +1447,38 @@ impl World {
     /// kept to the second, so a write within the same second as the last one looks like
     /// none; a test says it came later rather than waiting a second.
     pub(super) fn index_written_later(&self, seconds: u64) {
+        self.index_written(|written| written + Duration::from_secs(seconds));
+    }
+
+    /// Anthropic answers that `who`'s five-hour window is `percent` used from now on, measured
+    /// now: a newer reading than the last, which the next read records.
+    pub(super) fn measures(&self, who: &str, percent: f64) {
+        let _ = self.claude_login(who, percent);
+    }
+
+    /// Holds the lock usage readings are written under, as a session's status line holds it
+    /// while it records, until what this returns is dropped. A read with a newer reading to
+    /// record waits for it, and the lane of reads with it.
+    pub(super) fn recording(&self) -> std::fs::File {
+        let dir = self.pitboard_dir();
+        std::fs::create_dir_all(&dir).expect("Pitboard's directory");
+        let lock = std::fs::File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join("usage.lock"))
+            .expect("the readings' lock");
+        lock.lock().expect("held");
+        lock
+    }
+
+    /// Says the account index was written `seconds` earlier than it was, so that the next
+    /// write moves its time, in whatever second it is made.
+    pub(super) fn index_written_earlier(&self, seconds: u64) {
+        self.index_written(|written| written - Duration::from_secs(seconds));
+    }
+
+    fn index_written(&self, when: impl FnOnce(std::time::SystemTime) -> std::time::SystemTime) {
         let index = self.root.join(".pitboard").join("state.json");
         let file = std::fs::File::options()
             .write(true)
@@ -1446,8 +1488,7 @@ impl World {
             .metadata()
             .and_then(|meta| meta.modified())
             .expect("when it was written");
-        file.set_modified(written + Duration::from_secs(seconds))
-            .expect("a later time");
+        file.set_modified(when(written)).expect("another time");
     }
 }
 
