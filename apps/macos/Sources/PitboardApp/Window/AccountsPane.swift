@@ -4,21 +4,22 @@ import SwiftUI
 
 /// Every account, a section per tool, with what Pitboard has to say above them.
 struct AccountsPane: View {
-    @Bindable var model: AppModel
+    let model: AppModel
     let windows: AccountWindows
     @State private var selection: String?
-    @State private var forgetting: Account?
-    @State private var givingUp = false
+    /// A question the model asks before something that cannot be undone, and what to send
+    /// once it is answered.
+    @State private var asking: Asking?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         content
             .navigationTitle("Accounts")
-            .navigationSubtitle(updated)
+            .navigationSubtitle(model.updatedWindow)
             .toolbar {
                 ToolbarItemGroup {
                     Button {
-                        Task { await model.refresh(asked: true) }
+                        model.send(.refresh(asked: true))
                     } label: {
                         Label("Refresh", systemImage: Symbol.refresh)
                     }
@@ -26,7 +27,7 @@ struct AccountsPane: View {
                     .disabled(model.reading)
                     // Command-N is the window's own command, so it works from every pane.
                     Button {
-                        model.present(.add(provider: nil))
+                        model.send(.presentSheet(sheet: .add(provider: nil)))
                     } label: {
                         Label("Add Account", systemImage: Symbol.add)
                     }
@@ -36,146 +37,126 @@ struct AccountsPane: View {
             .focusedSceneValue(
                 \.refresh,
                 RefreshCommand(title: "Refresh", disabled: model.reading) {
-                    Task { await model.refresh(asked: true) }
+                    model.send(.refresh(asked: true))
                 }
             )
-            .task { await model.refresh(ifOlderThan: AppModel.staleAfter) }
+            .task { model.send(.paneShown(pane: .accounts)) }
             .alert(
-                "Forget “\(forgetting.map(model.name(of:)) ?? "")”?",
+                asking?.question.title ?? "",
                 isPresented: Binding(
-                    get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
-                presenting: forgetting
-            ) { account in
-                Button("Forget", role: .destructive) { forget(account) }
+                    get: { asking != nil }, set: { if !$0 { asking = nil } }),
+                presenting: asking
+            ) { asked in
+                Button(asked.question.confirm, role: .destructive) { model.send(asked.intent) }
                 Button("Cancel", role: .cancel) {}
-            } message: { account in
-                Text(forgetMessage(account: account, accounts: model.status?.accounts ?? []))
-            }
-            .alert("Give up on the interrupted switch?", isPresented: $givingUp) {
-                Button("Give Up", role: .destructive) {
-                    Task { model.present(await model.abandonStuckSwitch()) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(
-                    "Every login is kept, and nothing is deleted. Pitboard stops trying to finish it."
-                )
+            } message: { asked in
+                Text(asked.question.message)
             }
     }
 
     @ViewBuilder private var content: some View {
-        switch model.footing {
-        case .noClaudeCode:
+        switch model.accountsShown {
+        case .noTool(let title, let detail, let linkTitle, let link):
             ContentUnavailableView {
-                Label("Claude Code Isn’t Installed", systemImage: Symbol.terminal)
+                Label(title, systemImage: Symbol.terminal)
             } description: {
-                Text(
-                    "Pitboard switches the logins of Claude Code and Codex, so there is "
-                        + "nothing for it to do until one of them is installed and signed in "
-                        + "once.")
+                Text(detail)
             } actions: {
-                Link("How to Install Claude Code", destination: Links.installClaudeCode)
-                    .buttonStyle(.borderedProminent)
+                if let link = URL(string: link) {
+                    Link(linkTitle, destination: link)
+                        .buttonStyle(.borderedProminent)
+                }
             }
-        case _ where model.problem != nil && model.status?.accounts.isEmpty != false:
+        case .readFailed(let title, let detail, let retry):
             // Nothing to list, and the read said why: that is the thing to say, in full,
             // with a way to try again, and not a spinner that never stops.
             ContentUnavailableView {
-                Label("Couldn’t Read Accounts", systemImage: Notice.Severity.error.symbol)
+                Label(title, systemImage: Severity.error.symbol)
             } description: {
-                Text(model.problem ?? "")
+                Text(detail)
             } actions: {
-                Button("Try Again") { Task { await model.refresh(asked: true) } }
+                Button(retry.title) { model.send(retry.intent) }
                     .disabled(model.reading)
             }
-        case .noOneSignedIn:
+        case .noAccounts(let title, let detail, let add):
             ContentUnavailableView {
-                Label("No Accounts", systemImage: Symbol.accounts)
+                Label(title, systemImage: Symbol.accounts)
             } description: {
-                Text(
-                    "Sign in once here and Pitboard parks that login, so signing in to "
-                        + "another account doesn’t cost you the first.")
+                Text(detail)
             } actions: {
-                Button("Add Account…") { model.present(.add(provider: nil)) }
+                Button(add.title) { model.send(add.intent) }
                     .buttonStyle(.borderedProminent)
             }
-        default:
-            if model.status == nil {
-                ProgressView("Reading accounts…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                list
-            }
+        case .reading(let title):
+            ProgressView(title)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .list:
+            list
         }
     }
 
     private var list: some View {
         List(selection: $selection) {
-            ForEach(model.notices()) { notice in
-                NoticeRow(
-                    notice: notice, switching: model.switchUnderWay != nil, perform: perform
-                )
-                .selectionDisabled()
+            ForEach(model.notices, id: \.id) { notice in
+                NoticeRow(notice: notice, perform: perform)
+                    .selectionDisabled()
             }
-            SetupTip(model: model)
-            ForEach(model.groups) { group in
+            if let step = model.setup {
+                SetupTip(step: step, footing: model.footing) { model.send($0) }
+            }
+            ForEach(model.sections, id: \.id) { section in
                 // A heading per tool once there is more than one, and no section at all
                 // before: a section with no heading still takes a heading's room.
-                if let name = group.name {
-                    Section(name) { rows(of: group) }
+                if let heading = section.heading {
+                    Section(heading) { rows(of: section) }
                 } else {
-                    rows(of: group)
+                    rows(of: section)
                 }
             }
         }
         .listStyle(.inset)
         .contextMenu(forSelectionType: String.self) { ids in
-            if let account = account(ids.first) {
-                menu(for: account)
+            if let item = ids.first.flatMap(model.item) {
+                menu(for: item)
             }
         } primaryAction: { ids in
-            if let account = account(ids.first) {
-                perform(description(of: account).action)
+            if let action = ids.first.flatMap(model.item)?.action {
+                model.send(action.intent)
             }
         }
         .onDeleteCommand {
-            if let account = account(selection), canForget(account) {
-                forgetting = account
-            }
+            if let item = selection.flatMap(model.item) { forget(item) }
         }
     }
 
-    private func rows(of group: AccountGroup) -> some View {
-        ForEach(group.accounts, id: \.id) { account in
-            AccountRow(
-                account: account, description: description(of: account),
-                spokenName: model.name(of: account), perform: perform
-            )
-            .tag(account.id)
+    private func rows(of section: AccountSection) -> some View {
+        ForEach(section.accounts, id: \.id) { item in
+            AccountRow(item: item) { model.send($0) }
+                .tag(item.id)
         }
     }
 
     // MARK: - What can be done to an account
 
-    @ViewBuilder private func menu(for account: Account) -> some View {
-        let said = description(of: account)
-        if case .use = said.action {
-            Button("Use \(account.label ?? "")") { perform(said.action) }
+    @ViewBuilder private func menu(for item: AccountItem) -> some View {
+        let account = model.account(item.id)
+        if let action = item.action, action.offeredInItsMenu {
+            Button(action.menuTitle) { model.send(action.intent) }
         }
-        if case .name = said.action {
-            Button("Name…") { perform(said.action) }
-        }
-        if let label = account.label, !account.unplaced {
+        if item.renamable, let label = account?.label {
             Button("Sign In Again…") {
-                model.present(.signInAgain(provider: account.provider, label: label))
+                model.send(
+                    .presentSheet(sheet: .signInAgain(provider: item.provider, label: label)))
             }
-            .disabled(model.signingIn != nil)
+            .disabled(item.busy)
             Button("Rename…") {
-                model.present(.rename(provider: account.provider, label: label))
+                model.send(.presentSheet(sheet: .rename(provider: item.provider, label: label)))
             }
         }
-        let sites = windowsOf(account: account, accounts: model.status?.accounts ?? [])
-        if !sites.isEmpty {
+        let sites = account.map {
+            windowsOf(account: $0, accounts: model.status?.accounts ?? [])
+        }
+        if let sites, !sites.isEmpty {
             Divider()
             ForEach(sites) { window in
                 Button("Open \(window.site.name)") {
@@ -184,127 +165,61 @@ struct AccountsPane: View {
                 }
             }
         }
-        if !account.email.isEmpty {
+        if !item.email.isEmpty {
             Divider()
             Button("Copy Email Address") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(account.email, forType: .string)
+                NSPasteboard.general.setString(item.email, forType: .string)
             }
         }
-        if canForget(account) {
+        if item.canForget {
             Divider()
-            Button("Forget…", role: .destructive) { forgetting = account }
+            Button("Forget…", role: .destructive) { forget(item) }
         }
     }
 
-    private func perform(_ action: AccountAction) {
-        switch action {
-        case .use(let qualified):
-            Task { await model.switchAsked(to: qualified) }
-        case .signInAgain(let provider, let label):
-            model.present(.signInAgain(provider: provider, label: label))
-        case .name(let provider, let email):
-            model.present(.name(provider: provider, email: email))
-        case .none:
-            break
+    /// Asks the question the model puts before an account is forgotten. Only an enrolled
+    /// account that is not the one in use may be: forgetting that one would throw away the
+    /// only record of who is signed in, and the core refuses it.
+    private func forget(_ item: AccountItem) {
+        guard item.canForget, let question = item.forgetQuestion,
+            let qualified = item.qualified
+        else { return }
+        asking = Asking(question: question, intent: .forget(qualified: qualified))
+    }
+
+    private func perform(_ action: NoticeAction) {
+        if let question = action.confirm {
+            asking = Asking(question: question, intent: action.intent)
+        } else {
+            model.send(action.intent)
         }
-    }
-
-    private func perform(_ action: Notice.Action) {
-        switch action {
-        case .use(let qualified, _):
-            Task { await model.switchAsked(to: qualified) }
-        case .dismissSwitch(let provider):
-            model.forgetSwitch(of: provider)
-        case .giveUp:
-            givingUp = true
-        case .dismissAbandoned:
-            model.forgetAbandoned()
-        }
-    }
-
-    /// Only an enrolled account that is not the one in use: forgetting that one would throw
-    /// away the only record of who is signed in, and the core refuses it.
-    private func canForget(_ account: Account) -> Bool {
-        account.label != nil && !account.signedIn
-    }
-
-    private func forget(_ account: Account) {
-        guard let qualified = account.qualified else { return }
-        Task { model.present(await model.forget(qualified)) }
-    }
-
-    private func account(_ id: String?) -> Account? {
-        guard let id else { return nil }
-        return model.status?.accounts.first { $0.id == id }
-    }
-
-    private func description(of account: Account) -> AccountDescription {
-        AccountDescription(
-            account, switching: model.switchUnderWay, busy: model.signingIn != nil)
-    }
-
-    private var updated: String {
-        if model.reading { return "Reading…" }
-        guard let at = model.updatedAt else { return "" }
-        return "Updated \(clockTime(at))"
     }
 }
 
-/// The one next thing to do on a machine that is not set up yet, above its accounts.
-///
-/// Somebody who opens the app has usually never run a command and may never want to. The
-/// nudge to add a second account is true but not urgent: somebody may keep one account on
-/// purpose and watch its limits, so it can be declined, for its tool alone.
+/// A question asked first, and what answering yes sends.
+private struct Asking: Equatable {
+    let question: Question
+    let intent: Intent
+}
+
+extension ItemAction {
+    /// Whether an account's own menu offers it as an item of its own: switching to it and
+    /// naming it. Signing in again is an item the menu has for every enrolled account.
+    fileprivate var offeredInItsMenu: Bool {
+        switch intent {
+        case .switchTo, .presentSheet(.name): true
+        default: false
+        }
+    }
+}
+
+/// The one next thing to do on a machine that is not set up yet, above its accounts, with
+/// its symbol: a name for an account that has none, or a second account to switch to.
 private struct SetupTip: View {
-    let model: AppModel
-
-    var body: some View {
-        switch model.footing {
-        case .unnamed(let provider, let email):
-            Tip(
-                symbol: "tag",
-                title: "Give this account a name",
-                detail: "\(email) is signed in\(to(provider)). Pitboard parks logins "
-                    + "under a name you choose, and can’t park this one until it has one."
-            ) {
-                Button("Name…") { model.present(.name(provider: provider, email: email)) }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .onlyOne(let provider, let label):
-            Tip(
-                symbol: Symbol.switchAccount,
-                title: "Add a second \(tool(provider))account",
-                detail: "\(label) is the only \(tool(provider))account Pitboard knows, so "
-                    + "there’s nothing to switch to. Adding another signs in to it and "
-                    + "parks its login beside this one."
-            ) {
-                Button("Add Account…") { model.present(.add(provider: provider)) }
-                    .buttonStyle(.borderedProminent)
-                Button("Not Now") { model.declineSecondAccount(for: provider) }
-            }
-        default:
-            EmptyView()
-        }
-    }
-
-    /// " to Codex", once accounts of more than one tool are shown, and nothing before.
-    private func to(_ provider: String) -> String {
-        model.showsTools ? " to \(model.tool(provider)?.name ?? provider)" : ""
-    }
-
-    /// "Codex ", once accounts of more than one tool are shown, and nothing before.
-    private func tool(_ provider: String) -> String {
-        model.showsTools ? "\(model.tool(provider)?.name ?? provider) " : ""
-    }
-}
-
-/// One step, said once: a symbol, a line, the reason, and what to press.
-private struct Tip<Actions: View>: View {
-    let symbol: String
-    let title: String
-    let detail: String
-    @ViewBuilder let actions: Actions
+    let step: SetupStep
+    let footing: Footing
+    let perform: (Intent) -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Design.iconSpacing) {
@@ -312,13 +227,27 @@ private struct Tip<Actions: View>: View {
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Design.rowSpacing) {
-                Text(title).fontWeight(.medium)
-                Text(detail).explanatory()
-                HStack { actions }
+                Text(step.title).fontWeight(.medium)
+                Text(step.detail).explanatory()
+                HStack {
+                    ForEach(Array(step.actions.enumerated()), id: \.offset) { index, choice in
+                        if index == 0 {
+                            Button(choice.title) { perform(choice.intent) }
+                                .buttonStyle(.borderedProminent)
+                        } else {
+                            Button(choice.title) { perform(choice.intent) }
+                        }
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
         .selectionDisabled()
+    }
+
+    private var symbol: String {
+        if case .unnamed = footing { return "tag" }
+        return Symbol.switchAccount
     }
 }

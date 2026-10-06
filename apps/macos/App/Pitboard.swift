@@ -11,6 +11,6 @@ struct Pitboard: App {
     @State private var updater = SparkleUpdater()
 
     var body: some Scene {
-        PitboardScenes(model: delegate.model, windows: delegate.windows, updates: updater)
+        PitboardScenes(delegate: delegate, updates: updater)
     }
 }

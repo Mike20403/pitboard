@@ -39,29 +39,25 @@ private struct Scratch {
     func remove() { try? FileManager.default.removeItem(at: root) }
 }
 
-/// A link is offered only to an app with a command line inside it that stays where it is.
-/// macOS runs an app opened where it was downloaded from a temporary copy, and a link into
-/// that stops working once the app quits. The app is a stand-in the test makes, so the answer
+/// A link is made only to the command line inside an app, where the core says an app keeps
+/// it, and only where it is there. Whether the app stays where it is, rather than running
+/// from the temporary copy macOS makes of one opened where it was downloaded, is the model's
+/// to say before it offers the link. The app is a stand-in the test makes, so the answer
 /// does not depend on whether the Mac running the tests has Pitboard installed.
-@Test func aLinkIsOfferedOnlyToAnAppThatStaysWhereItIs() throws {
+@Test func onlyTheCommandLineInsideAnAppIsLinked() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
     let installed = CommandLineTool(bundle: scratch.app)
     #expect(installed.helper == scratch.helper.path)
     #expect(installed.linkable)
-    #expect(!installed.translocated)
 
-    let downloaded = CommandLineTool(
-        bundle: URL(
-            fileURLWithPath:
-                "/private/var/folders/xy/abc/T/AppTranslocation/0A1B2C/d/Pitboard.app"))
-    #expect(downloaded.translocated)
-    #expect(!downloaded.linkable)
+    let gone = CommandLineTool(bundle: URL(fileURLWithPath: "/nowhere/at/all/Pitboard.app"))
+    #expect(gone.helper == "/nowhere/at/all/Pitboard.app/Contents/Helpers/pitboard")
+    #expect(!gone.linkable, "nothing is there")
 
     let built = CommandLineTool(bundle: URL(fileURLWithPath: "/Users/x/apple/.build/debug"))
     #expect(built.helper == nil)
     #expect(!built.linkable)
-    #expect(!built.translocated)
 }
 
 /// A link is offered only to a command line this user may run, as the core judges a program
@@ -126,17 +122,9 @@ private struct Scratch {
                 == scratch.helper.path)
     }
     try run()
-    // Looking only where the link is, and not where this Mac's own installs are.
-    let tool = CommandLineTool(
-        helper: CommandLineTool(bundle: scratch.app).helper, installPlaces: [], link: link,
-        execute: { _ in nil })
-    #expect(tool.find(onPath: "\(hostile)/bin") == .bundled(link))
-
     try FileManager.default.removeItem(atPath: link)
     try scratch.link(link, to: "/Applications/Moved.app/Contents/Helpers/pitboard")
-    #expect(tool.find(onPath: "\(hostile)/bin") == .nowhere)
     try run()
-    #expect(tool.find(onPath: "\(hostile)/bin") == .bundled(link))
 }
 
 /// Anything where the link goes that is not a link is somebody's own, such as a Pitboard
@@ -171,13 +159,11 @@ private struct Scratch {
     let script = CommandLineTool.script(linking: scratch.helper.path, at: link)
     #expect(scripts.ran == [script, script, script])
 
-    let downloaded = CommandLineTool(
-        bundle: URL(
-            fileURLWithPath:
-                "/private/var/folders/xy/abc/T/AppTranslocation/0A1B2C/d/Pitboard.app"),
-        link: link, execute: scripts.run)
+    let gone = CommandLineTool(
+        bundle: URL(fileURLWithPath: "/nowhere/at/all/Pitboard.app"), link: link,
+        execute: scripts.run)
     #expect(
-        await downloaded.install()
+        await gone.install()
             == .failed("This copy of Pitboard cannot link the command line inside it."))
     #expect(scripts.ran.count == 3)
 }

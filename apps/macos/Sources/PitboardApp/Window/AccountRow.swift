@@ -2,15 +2,10 @@ import PitboardKit
 import SwiftUI
 
 /// One account in the window: its name and address, whether it is in use, each of its
-/// limits drawn out, and what is worth knowing about it.
+/// limits drawn out, and what is worth knowing about it, as the model describes it.
 struct AccountRow: View {
-    let account: Account
-    let description: AccountDescription
-    /// Its name as said where nothing around it says which tool it is for: VoiceOver reads a
-    /// row apart from the heading above it, and Voice Control's "Use work" has to name one
-    /// account when two tools each have a `work`.
-    let spokenName: String
-    let perform: (AccountAction) -> Void
+    let item: AccountItem
+    let perform: (Intent) -> Void
     @ScaledMetric(relativeTo: .title2) private var symbolWidth: CGFloat = 26
 
     var body: some View {
@@ -20,16 +15,16 @@ struct AccountRow: View {
                 Image(systemName: symbol)
                     .font(.title2)
                     .foregroundStyle(
-                        description.inUse ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)
+                        item.inUse ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)
                     )
                     .frame(width: symbolWidth)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: Design.lineSpacing) {
-                    Text(description.title)
+                    Text(item.title)
                         .fontWeight(.medium)
                         .lineLimit(1)
-                    if !description.email.isEmpty, description.email != description.title {
-                        Text(description.email)
+                    if !item.email.isEmpty, item.email != item.title {
+                        Text(item.email)
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -40,8 +35,8 @@ struct AccountRow: View {
                 trailing
             }
             VStack(alignment: .leading, spacing: Design.rowSpacing) {
-                if !description.limits.isEmpty {
-                    UsageBars(limits: description.limits)
+                if !item.limits.isEmpty {
+                    UsageBars(limits: item.limits)
                 }
                 ForEach(notes, id: \.self) { note in
                     Text(note).explanatory()
@@ -57,53 +52,34 @@ struct AccountRow: View {
         // One account, read as one thing with its controls in it, rather than a stop for
         // every line on the way past.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(spokenLabel)
-        .accessibilityIdentifier("account.\(account.qualified ?? account.id)")
+        .accessibilityLabel(item.spoken)
+        .accessibilityIdentifier("account.\(item.qualified ?? item.id)")
     }
 
     private var symbol: String {
-        if account.unplaced { return "exclamationmark.triangle" }
-        if description.needsSignIn { return Symbol.signIn }
-        return description.inUse ? "person.crop.circle.fill" : Symbol.account
+        if item.unplaced { return "exclamationmark.triangle" }
+        if item.needsSignIn { return Symbol.signIn }
+        return item.inUse ? "person.crop.circle.fill" : Symbol.account
     }
 
     /// What is worth knowing beyond the limits: why it cannot be used, why its numbers are
     /// not new, how long the account in use lasts at this rate, and how long a parked login
     /// stays usable.
     private var notes: [String] {
-        [description.problem, description.staleNote, description.pace, description.parkedNote]
-            .compactMap { $0 }
+        [item.problem, item.staleNote, item.pace, item.parkedNote].compactMap { $0 }
     }
 
     @ViewBuilder private var trailing: some View {
-        if description.switching {
+        if item.switching {
             ProgressView().controlSize(.small)
                 .accessibilityLabel("Switching")
-        } else if description.inUse {
+        } else if item.inUse {
             Label("In Use", systemImage: "checkmark")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        } else {
-            switch description.action {
-            case .use:
-                Button("Use") { perform(description.action) }
-                    .accessibilityLabel("Use \(spokenName)")
-            case .signInAgain:
-                Button("Sign In Again…") { perform(description.action) }
-                    .accessibilityLabel("Sign In to \(spokenName) Again…")
-            case .name:
-                Button("Name…") { perform(description.action) }
-                    .accessibilityLabel("Name \(spokenName)…")
-            case .none:
-                EmptyView()
-            }
+        } else if let action = item.action {
+            Button(action.title) { perform(action.intent) }
+                .accessibilityLabel(action.spoken)
         }
-    }
-
-    private var spokenLabel: String {
-        var parts = [spokenName]
-        if description.inUse { parts.append("in use") }
-        if description.needsSignIn { parts.append("needs signing in again") }
-        return parts.joined(separator: ", ")
     }
 }

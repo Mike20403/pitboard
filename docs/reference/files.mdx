@@ -31,6 +31,8 @@ Pitboard refuses a directory whose path contains `Dropbox`, `Google Drive`, `One
 | `backups/` | Copies of Claude Code's config from before each switch rewrote it. Each is named after the time it was made, in seconds since 1 January 1970, such as `claude.json.1790000000`. The 10 newest are kept. They hold no login, but do hold your email address, your Anthropic account and organisation identifiers, and the path of each project Claude Code has opened. Each keeps the mode of Claude Code's file. | A Claude Code switch |
 | `audit.log` | One tab-separated line per change or renewal: the time, `cli` or `app` for where it was made, the verb such as `use`, the subject and the outcome. It holds no email address, and holds an account id only in a `reclaim` line with the outcome `discarded`, whose subject is a parked login's name. [`pitboard log`](/reference/maintenance-commands#log) prints it. | Every change Pitboard makes, and renewals |
 | `audit.log.1` | The previous `audit.log`, moved aside once it passed 256 KiB | Every change Pitboard makes, and renewals |
+| `app.json` | The app's own preferences: the tools for which you clicked **Not Now** when the **Accounts** pane suggested a second account, and whether the app has opened its window at first launch | The app |
+| `told.json` | Each limit the app has notified you ran out, by tool, account and limit, with the time it resets, so the app notifies each run-out once | The app |
 
 Only files in `vault/` and `signin/` can hold a login. To delete the directory, see [Remove Pitboard](/install/remove#delete-parked-logins-and-pitboards-files).
 
@@ -85,8 +87,6 @@ The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.pli
 
 | Key | Holds |
 | --- | --- |
-| `hasBeenSeen` | Whether the app has opened its window at first launch |
-| `secondAccountDeclined` | The tools for which you clicked **Not Now** when the **Accounts** pane suggested a second account |
 | `menuBarShows` | **Menu bar shows**: `nameAndUsage`, `usage` or `icon` |
 | `settingsTab` | The Settings tab shown last: `general`, `commandLine` or `updates` |
 | `webStores` | The [account windows'](#account-windows) data folders the app made, listed under the path of the Pitboard directory it made them for. The app deletes only these. |
@@ -94,6 +94,8 @@ The app stores these keys in `~/Library/Preferences/com.usepitboard.Pitboard.pli
 | Keys of Sparkle, the app's updater | Its update settings and when it last checked |
 
 macOS keeps **Open Pitboard at login** as a login item, outside this file.
+
+Earlier versions of the app kept `hasBeenSeen` and `secondAccountDeclined` in this file, and before them `hideSecondAccountNudge`. The app takes what they held into `app.json` the first time it opens a Pitboard directory without one, and removes them from this file once `app.json` is there.
 
 The app's files can also be in `~/Library/Application Support`, `~/Library/Caches`, `~/Library/HTTPStorages` and `~/Library/Saved Application State`, named after `com.usepitboard.Pitboard`. In `Saved Application State`, macOS keeps the windows that were open, to restore them. To remove these files, see [Remove Pitboard](/install/remove#remove-pitboard-itself).
 

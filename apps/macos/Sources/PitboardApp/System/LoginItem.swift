@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import ServiceManagement
 
 /// Whether Pitboard opens when its person logs in.
@@ -39,4 +40,47 @@ public final class MainAppLoginItem: LoginItem {
     public func register() throws { try SMAppService.mainApp.register() }
     public func unregister() throws { try SMAppService.mainApp.unregister() }
     public func openSystemSettings() { SMAppService.openSystemSettingsLoginItems() }
+}
+
+/// The settings' Open Pitboard at login: what macOS has, and why a change it refused did not
+/// happen. macOS's own, never the model's: the login item belongs to this app's bundle.
+@MainActor
+@Observable
+public final class OpenAtLogin {
+    @ObservationIgnored private let item: any LoginItem
+    /// Whether Pitboard opens at login, as macOS last said.
+    private(set) var state: LoginItemState
+    /// Why opening at login could not be changed.
+    private(set) var failed: String?
+
+    init(_ item: any LoginItem) {
+        self.item = item
+        state = item.state
+    }
+
+    /// Asks macOS again, since the person can change it in System Settings at any time.
+    func read() {
+        state = item.state
+    }
+
+    /// Registers or unregisters this app as a login item. A registration macOS wants
+    /// approved stays waiting until the person allows it in System Settings, which the
+    /// settings then offer to open.
+    func set(_ wanted: Bool) {
+        failed = nil
+        do {
+            if wanted {
+                try item.register()
+            } else {
+                try item.unregister()
+            }
+        } catch {
+            failed = error.localizedDescription
+        }
+        state = item.state
+    }
+
+    func openSystemSettings() {
+        item.openSystemSettings()
+    }
 }

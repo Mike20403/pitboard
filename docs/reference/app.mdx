@@ -132,7 +132,7 @@ The **Activity** pane lists the last 500 changes Pitboard made, newest first, fr
 | Column | Shows |
 | --- | --- |
 | **Date** | When the change was made. |
-| **Change** | What was done, such as **Use** for a switch, **Enrol**, **Rename**, **Forget** or **Renew**. |
+| **Change** | What was done, such as **Switch**, **Enrol**, **Rename**, **Forget** or **Renew**. |
 | **Account** | What the change was about, as [`pitboard log`](/reference/maintenance-commands#log) records it. For most changes it is a label, such as `work` or `codex/work`. |
 | **Result** | **Done**, or the outcome's code written out in words, such as **Renewed** or **Parked login refused**. |
 | **Asked By** | **Pitboard app**, **Command line**, or **Unknown** for a change logged before Pitboard recorded who asked. |
@@ -163,7 +163,7 @@ Double-clicking a row, or selecting it and pressing Return, does what its button
 | --- | --- | --- |
 | **Add Account** | **Add Account** in the menu, the toolbar or a tip; Command-N | A **Tool** pop-up menu when more than one tool is offered, a **Name** field and **Sign In**. Under the form, a line names a tool that is not offered, such as **Codex is not offered: Pitboard did not find codex on this Mac.** |
 | **Sign In to work Again** | **Sign In Again** in a row or a shortcut menu, or an account in the menu marked **Needs signing in again** | The account's label and **Sign In** |
-| **Signing In to Claude Code**, **Signing In to Codex** | **Sign In** in **Add Account** or **Sign In to work Again**. The same dialog takes this title. | **Waiting for your browser** while you sign in there. **Browser didn't open?** with **Open Sign-In Page**, when the tool gives its sign-in address. For Claude Code, a **Code** field and **Submit Code** from the start, for the code shown after you sign in. Claude Code takes it whether or not your browser came back to it. The dialog closes when the sign-in finishes. **Cancel** stops the sign-in and adds nothing. |
+| **Signing In to Claude Code**, **Signing In to Codex** | **Sign In** in **Add Account** or **Sign In to work Again**. The same dialog takes this title. | **Waiting for your browser** while you sign in there. **Browser didn't open?** with **Open Sign-In Page**, when the tool gives its sign-in address. For Claude Code, a **Code** field and **Submit Code** from the start, for the code shown after you sign in. Claude Code takes it whether or not your browser came back to it. If Claude Code does not take the code, the dialog says **Claude Code didn't take that code. Copy the whole code your browser shows, and paste it again.** and shows the **Code** field again for the same sign-in. The dialog closes when the sign-in finishes. **Cancel** stops the sign-in and adds nothing. |
 | **Name This Account** | **Name** in a tip or a shortcut menu, a double-click or Return on the account's row, or an account in the menu marked **Not named yet** | A **Name** field and **Save** |
 | **Rename "work"** | **Rename** in a shortcut menu | A **Name** field holding the label, and **Rename** |
 

@@ -2,19 +2,16 @@ import AppKit
 import Foundation
 import PitboardKit
 
-/// The `pitboard` a terminal runs, and a way to put this app's own there.
+/// Putting this app's own `pitboard` where a terminal finds it.
 ///
 /// The app carries the command line inside it, and the cask for the app links that onto the
 /// `PATH`. A copy downloaded from a release has nothing to do that, so the settings offer
 /// to, the way editors on macOS put their own command there: one link in `/usr/local/bin`,
-/// made after macOS asks for an administrator's password.
+/// made after macOS asks for an administrator's password. Which `pitboard` a terminal runs,
+/// and whether this copy is one a link would keep reaching, are the model's to say.
 struct CommandLineTool: Sendable {
     /// This app's own command line, or nil when the app is not running from its bundle.
     let helper: String?
-    /// Where each way of installing Pitboard puts it, looked in after the login shell's
-    /// `PATH`, as the core says: cargo, a copy from a release, Homebrew on either kind of
-    /// Mac, and the link made here.
-    let installPlaces: [String]
     /// Where the link goes: `/usr/local/bin/pitboard` unless a test says otherwise, on the
     /// `PATH` macOS gives every shell and in a directory only an administrator can write to.
     let link: String
@@ -24,33 +21,19 @@ struct CommandLineTool: Sendable {
     /// Runs an AppleScript and hands back the error it raised, or nil.
     typealias Runner = @Sendable (String) -> NSDictionary?
 
-    init(helper: String?, installPlaces: [String], link: String, execute: @escaping Runner) {
+    init(helper: String?, link: String, execute: @escaping Runner) {
         self.helper = helper
-        self.installPlaces = installPlaces
         self.link = link
         self.execute = execute
     }
 
-    /// This app's, looking where a person's installs go under `home`, which is the home the
-    /// core reads from this app's environment unless a test says otherwise.
+    /// This app's, as the core says where the command line inside an app is.
     init(
         bundle: URL = Bundle.main.bundleURL,
-        home: String = homeDirectory(environment: ProcessInfo.processInfo.environment),
         link: String = "/usr/local/bin/pitboard",
         execute: @escaping Runner = CommandLineTool.execute(script:)
     ) {
-        self.init(
-            helper: Settings.bundledCommandLine(in: bundle),
-            installPlaces: commandLinePlaces(home: home), link: link, execute: execute)
-    }
-
-    /// The first `pitboard` found.
-    enum Found: Equatable, Sendable {
-        /// This app's own, at this path or linked to from it.
-        case bundled(String)
-        /// Another install, at this path.
-        case another(String)
-        case nowhere
+        self.init(helper: appCommandLine(app: bundle.path), link: link, execute: execute)
     }
 
     /// What linking came to.
@@ -61,28 +44,13 @@ struct CommandLineTool: Sendable {
         case failed(String)
     }
 
-    /// The `pitboard` a terminal would run, found where it would find one: on the login
-    /// shell's `PATH`, nil when the shell could not be asked, and then where each way of
-    /// installing Pitboard puts it; and whether it is this app's own once every link on the
-    /// way to it is followed. The core looks, on the file system, so not on the main thread.
-    func find(onPath path: String?) -> Found {
-        switch findCommandLine(searchPath: path, places: installPlaces, helper: helper) {
-        case .bundled(let found): .bundled(found)
-        case .another(let found): .another(found)
-        case .nowhere: .nowhere
-        }
-    }
-
-    /// macOS runs an app opened where it was downloaded from a temporary copy until it is
-    /// moved, and a link into that copy stops working once the app quits.
-    var translocated: Bool { helper?.contains("/AppTranslocation/") ?? false }
-
-    /// Whether there is a command line in this app that a link would keep reaching. A build
-    /// run from Xcode has no command line inside it, and a link to where one would be would
-    /// cost an administrator's password for a link that runs nothing. Whether the one inside
-    /// can run is the core's to say, as it says of every program it finds.
+    /// Whether there is a command line in this app to link to. A build run from Xcode has
+    /// none inside it, and a link to where one would be would cost an administrator's
+    /// password for a link that runs nothing. Whether the one inside can run is the core's to
+    /// say, as it says of every program it finds; whether this copy stays where it is, the
+    /// model says before it offers the link.
     var linkable: Bool {
-        guard let helper, !translocated else { return false }
+        guard let helper else { return false }
         return canRun(path: helper)
     }
 
@@ -143,5 +111,39 @@ struct CommandLineTool: Sendable {
         if error[NSAppleScript.errorNumber] as? Int == userCanceledErr { return .cancelled }
         return .failed(
             error[NSAppleScript.errorMessage] as? String ?? "The link could not be made.")
+    }
+}
+
+/// The settings' Install Command Line Tool…: what linking is doing and why it could not, said
+/// beside the button, never as a failure in the window. Once a link is made, or not, the
+/// model looks for the `pitboard` a terminal runs again.
+@MainActor
+@Observable
+public final class CommandLineLink {
+    @ObservationIgnored private let tool: CommandLineTool
+    @ObservationIgnored private let model: AppModel
+    /// Whether macOS's password prompt is up.
+    private(set) var linking = false
+    /// Why the link could not be made, until the next try.
+    private(set) var failed: String?
+
+    init(_ tool: CommandLineTool, model: AppModel) {
+        self.tool = tool
+        self.model = model
+    }
+
+    /// Where the link goes.
+    var target: String { tool.link }
+
+    /// Links this app's command line onto the `PATH`, once macOS has asked for an
+    /// administrator's password.
+    func install() async {
+        linking = true
+        defer { linking = false }
+        failed = nil
+        if case .failed(let why) = await tool.install() {
+            failed = why
+        }
+        model.send(.lookForCommandLine)
     }
 }

@@ -5,55 +5,57 @@ import SwiftUI
 /// something is wrong at machine level and a failed switch's one line is not enough to act
 /// on.
 struct MachinePane: View {
-    let machine: MachineModel
+    let model: AppModel
 
     var body: some View {
+        let checks = model.machine.checks
         Form {
             Section {
-                ForEach(machine.checks, id: \.code) { check in
-                    CheckRow(check: check)
+                // By its place: doctor gives every account's parked login one code.
+                ForEach(checks.lines, id: \.id) { line in
+                    CheckRow(line: line)
                 }
             } header: {
-                summary
+                summary(checks)
             }
         }
         .formStyle(.grouped)
         .overlay {
-            if machine.checks.isEmpty {
-                ProgressView("Checking this Mac…")
+            if let waiting = checks.waiting {
+                ProgressView(waiting)
             }
         }
         .navigationTitle("This Mac")
         .toolbar {
             Button {
-                Task { await machine.diagnose() }
+                model.send(.paneShown(pane: .machine))
             } label: {
                 Label("Check Again", systemImage: Symbol.refresh)
             }
             .help("Make every check again")
-            .disabled(machine.checking)
+            .disabled(checks.checking)
         }
         .focusedSceneValue(
             \.refresh,
-            RefreshCommand(title: "Check Again", disabled: machine.checking) {
-                Task { await machine.diagnose() }
+            RefreshCommand(title: "Check Again", disabled: checks.checking) {
+                model.send(.paneShown(pane: .machine))
             }
         )
         // Every visit: a menu bar app runs for days, and a check fixed in a terminal since
         // would otherwise still read as failing. What was found stays up meanwhile.
-        .task { await machine.diagnose() }
+        .task { model.send(.paneShown(pane: .machine)) }
     }
 
-    @ViewBuilder private var summary: some View {
-        if !machine.checks.isEmpty {
+    @ViewBuilder private func summary(_ checks: ChecksShown) -> some View {
+        if let summary = checks.summary {
             HStack(alignment: .firstTextBaseline) {
                 // The last line of `pitboard doctor`, so the two never disagree.
-                Text(doctorSummary(checks: machine.checks))
+                Text(summary)
                 Spacer()
-                if machine.checking {
+                if checks.checking {
                     ProgressView().controlSize(.small)
-                } else if let at = machine.checkedAt {
-                    Text("Checked at \(clockTime(at))")
+                } else if let checked = checks.checked {
+                    Text(checked)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fontWeight(.regular)
@@ -65,23 +67,23 @@ struct MachinePane: View {
 
 /// One check: whether it passed, what it looked at, and what to do when it did not.
 private struct CheckRow: View {
-    let check: Check
+    let line: CheckLine
 
     var body: some View {
         LabeledContent {
-            Text(check.detail)
+            Text(line.detail)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: Design.iconSpacing) {
-                Image(systemName: check.level.symbol)
-                    .foregroundStyle(check.level.tint)
-                    .accessibilityLabel(check.level.spoken)
+                Image(systemName: line.level.symbol)
+                    .foregroundStyle(line.level.tint)
+                    .accessibilityLabel(line.spokenLevel)
                 VStack(alignment: .leading, spacing: Design.lineSpacing) {
-                    Text(check.name)
-                    if check.level != .ok, !check.advice.isEmpty {
-                        Text(check.advice).explanatory()
+                    Text(line.name)
+                    if let advice = line.advice {
+                        Text(advice).explanatory()
                     }
                 }
             }

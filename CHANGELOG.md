@@ -55,9 +55,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - A host written partly in full-width letters and partly in escapes, such as
     `ｃ%EF%BD%8Caude.ai`, is claude.ai, as the WHATWG URL standard maps it. Pitboard said
     it was another site.
+- The app keeps its own preferences, the tools you said **Not Now** to a second account for
+  and whether it has opened its window on a first launch, in `app.json` in Pitboard's
+  directory, so they follow `PITBOARD_HOME` as your accounts do. It kept one set in its
+  macOS preferences for every Pitboard directory, so a **Not Now** said with one
+  `PITBOARD_HOME` held with another. The first time it opens a directory with no `app.json`,
+  it takes what its macOS preferences held, once.
+- A notification that an account in use has run out is posted once for each reset of that
+  limit, however often the app is quit and opened again meanwhile: what was posted is kept
+  in `told.json` in Pitboard's directory. The app posted it again after every relaunch. The
+  window still says it after a relaunch, as before.
+- What the app says that depends only on the time, such as **used up until 14:05** in the
+  menu, is worked out once a minute, so a menu opened between two minutes can say it for up
+  to a minute after that time, as its bars already could. It was worked out as the menu
+  opened.
+- The **Activity** list names a switch **Switch**, from either front end. It named one
+  **Use**, after `pitboard use`, the command the log records a switch by.
+- The settings learn whether this copy of the app can turn on daily renewal, or link its
+  command line, when they read the schedule or look for the command line, which they do
+  each time they are shown. They asked the file system again each time they drew, so a copy
+  moved meanwhile showed the new answer at once.
 
 ### Fixed
 
+- After Claude Code refuses a code you paste, the sign-in sheet says **Claude Code didn’t
+  take that code. Copy the whole code your browser shows, and paste it again.** and offers
+  the code field again, and the same sign-in takes the next code. The sheet asked for a code
+  once, so a refused one left a sign-in that only **Cancel** could end.
+- A sign-in that fails after its sheet has closed is said in the window. It was said
+  nowhere.
+- A name the **Name** or **Rename** sheet could not save, once the sheet had closed or
+  another had taken its place, is said in the window. It was said nowhere.
+- Quitting Pitboard stops a sign-in under way, and the tool's own sign-in with it, before the
+  app goes. Pitboard left a `claude` or `codex` that was signing in running after it quit.
+- Two warnings with the same words are two notices in the window. They shared one id, which
+  a SwiftUI list does not allow, so what the window drew of them was not defined.
+- **This Mac** lists the check of each account's parked login as a row of its own. Every
+  Claude Code account's check shared one id, and so did every Codex account's, which a
+  SwiftUI list does not allow, so what the pane drew of them was not defined.
+- **This Mac** says it is checking until the last check asked for is in. With two under
+  way, after you left **This Mac** and came back while a check ran, it showed **Checked
+  at** once the first was in, beside checks still to come.
 - After an interrupted switch Pitboard cannot finish, the app shows **An interrupted switch
   is waiting**, with its **Give Up** button, each time it reads your accounts, and
   `pitboard status` warns with `recovery_undetermined` in the words a change stops with.

@@ -1,3 +1,4 @@
+import PitboardKit
 import SwiftUI
 
 /// Every scene the app has, for the app target's `App` to return: the menu bar item, the
@@ -8,33 +9,41 @@ import SwiftUI
 public struct PitboardScenes: Scene {
     let model: AppModel
     let windows: AccountWindows
+    let requests: WindowRequests
+    let openAtLogin: OpenAtLogin
+    let commandLineLink: CommandLineLink
+    let defaults: UserDefaults
     let updates: any Updates
 
-    public init(model: AppModel, windows: AccountWindows, updates: any Updates) {
-        self.model = model
-        self.windows = windows
+    public init(delegate: AppDelegate, updates: any Updates) {
+        model = delegate.model
+        windows = delegate.windows
+        requests = delegate.windowRequests
+        openAtLogin = delegate.openAtLogin
+        commandLineLink = delegate.commandLineLink
+        defaults = delegate.defaults
         self.updates = updates
     }
 
     public var body: some Scene {
         MenuBarExtra {
             MenuBarContent(model: model, windows: windows, updates: updates)
-                .defaultAppStorage(model.defaults)
+                .defaultAppStorage(defaults)
         } label: {
-            MenuBarLabel(model: model, windows: windows)
-                .defaultAppStorage(model.defaults)
+            MenuBarLabel(model: model, windows: windows, requests: requests)
+                .defaultAppStorage(defaults)
         }
         .menuBarExtraStyle(.menu)
 
         Window("Pitboard", id: MainWindow.id) {
-            MainWindow(model: model, windows: windows)
-                .defaultAppStorage(model.defaults)
+            MainWindow(model: model, windows: windows, requests: requests)
+                .defaultAppStorage(defaults)
         }
         .defaultSize(width: 760, height: 560)
         .commands {
             // Nothing here makes a document: what is new here is an account, from any pane.
             CommandGroup(replacing: .newItem) {
-                Button("Add Account…") { model.present(.add(provider: nil)) }
+                Button("Add Account…") { model.send(.presentSheet(sheet: .add(provider: nil))) }
                     .keyboardShortcut("n")
             }
             AccountWindowCommands(windows: windows)
@@ -45,14 +54,14 @@ public struct PitboardScenes: Scene {
             }
         }
 
-        AccountWindowScene(windows: windows)
+        AccountWindowScene(windows: windows, defaults: defaults)
 
         // A link the Share extension hands over, as a Pitboard link, comes here whatever
         // else is open, and only here: no other scene makes a window for one.
         Window("Open Link", id: AccountPicker.id) {
             AccountPicker(windows: windows)
                 .onOpenURL { windows.inbox.receive($0) }
-                .defaultAppStorage(model.defaults)
+                .defaultAppStorage(defaults)
         }
         .handlesExternalEvents(matching: ["*"])
         .windowResizability(.contentSize)
@@ -60,8 +69,11 @@ public struct PitboardScenes: Scene {
         .commandsRemoved()
 
         Settings {
-            SettingsView(model: model, presence: windows.presence, updates: updates)
-                .defaultAppStorage(model.defaults)
+            SettingsView(
+                model: model, openAtLogin: openAtLogin, commandLineLink: commandLineLink,
+                presence: windows.presence, updates: updates
+            )
+            .defaultAppStorage(defaults)
         }
     }
 }

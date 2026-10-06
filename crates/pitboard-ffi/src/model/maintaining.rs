@@ -559,6 +559,7 @@ fn doctors_checks_are_shown_with_when_they_were_made() {
         checks.lines,
         [
             CheckLine {
+                id: 0,
                 code: "keychain".into(),
                 name: "Keychain".into(),
                 level: Level::Ok,
@@ -567,6 +568,7 @@ fn doctors_checks_are_shown_with_when_they_were_made() {
                 advice: None,
             },
             CheckLine {
+                id: 1,
                 code: "schedule".into(),
                 name: "Daily renewal".into(),
                 level: Level::Warn,
@@ -614,6 +616,57 @@ fn doctors_checks_are_shown_with_when_they_were_made() {
     );
     assert_eq!(checks.checked.as_deref(), Some("Checked at 08:05"));
     assert_eq!(machine.doctor_asks, 2);
+}
+
+/// Each check is a line of its own, though doctor names several by one code: it makes one
+/// check of each enrolled account's parked login, and every one of a tool's is
+/// `parked_login`. MachinePane.swift listed them by their code, so two accounts' checks were
+/// two rows of one identity, which a SwiftUI list does not allow.
+#[test]
+fn each_check_is_a_line_of_its_own_though_two_share_a_code() {
+    let mut model = Hand::new();
+    let mut machine = machine();
+    machine.checks = vec![
+        check(
+            "parked_login",
+            "account work",
+            Level::Ok,
+            "lasts 9 days",
+            "",
+        ),
+        check(
+            "parked_login",
+            "account personal",
+            Level::Warn,
+            "its parked login expires in 2 days",
+            "Run `pitboard renew`.",
+        ),
+        check(
+            "codex_parked_login",
+            "account codex/main",
+            Level::Ok,
+            "kept",
+            "",
+        ),
+    ];
+    model.send(Intent::PaneShown {
+        pane: Pane::Machine,
+    });
+    model.run(&mut machine);
+    let lines = shown(&model).checks.lines;
+    let ids: Vec<(u64, &str)> = lines
+        .iter()
+        .map(|line| (line.id, line.name.as_str()))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            (0, "account work"),
+            (1, "account personal"),
+            (2, "account codex/main")
+        ]
+    );
+    assert_eq!(lines[0].code, lines[1].code, "as doctor names them");
 }
 
 /// What to do about a check is said only of one that did not pass, and only where doctor

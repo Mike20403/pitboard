@@ -1,21 +1,22 @@
 import Accessibility
+import PitboardKit
 import SwiftUI
 
-/// The sheet `sheet` asks for.
+/// The sheet `sheet` asks for, in the words the model says it in.
 struct AccountSheetView: View {
     let model: AppModel
-    let sheet: AccountSheet
+    let sheet: Sheet
 
     var body: some View {
         switch sheet {
-        case .add(let provider):
-            SignInSheet(model: model, provider: provider, again: nil)
-        case .signInAgain(let provider, let label):
-            SignInSheet(model: model, provider: provider, again: label)
-        case .name(let provider, let email):
-            NameSheet(model: model, provider: provider, email: email)
+        case .add, .signInAgain:
+            SignInSheet(model: model, sheet: sheet)
+        case .name(let provider, _):
+            NameSheet(model: model, sheet: sheet) { .enrol(provider: provider, name: $0) }
         case .rename(let provider, let label):
-            RenameSheet(model: model, provider: provider, label: label)
+            NameSheet(model: model, sheet: sheet) {
+                .rename(provider: provider, label: label, to: $0)
+            }
         }
     }
 }
@@ -54,7 +55,7 @@ struct SheetLayout<Content: View, Buttons: View>: View {
 /// A failure said inside the sheet that met it, where the name typed is still there to
 /// correct.
 struct SheetFailure: View {
-    let failure: ActionFailure
+    let failure: Failure
 
     var body: some View {
         Section {
@@ -67,8 +68,8 @@ struct SheetFailure: View {
                     }
                 }
             } icon: {
-                Image(systemName: Notice.Severity.error.symbol)
-                    .foregroundStyle(Notice.Severity.error.tint)
+                Image(systemName: Severity.error.symbol)
+                    .foregroundStyle(Severity.error.tint)
             }
         }
         // It appears where nobody's focus is, after the button that was pressed, and
@@ -80,9 +81,4 @@ struct SheetFailure: View {
     private func announce() {
         AccessibilityNotification.Announcement("\(failure.title). \(failure.message)").post()
     }
-}
-
-/// A name as it will be enrolled: what was typed, without the spaces around it.
-func trimmed(_ typed: String) -> String {
-    typed.trimmingCharacters(in: .whitespacesAndNewlines)
 }

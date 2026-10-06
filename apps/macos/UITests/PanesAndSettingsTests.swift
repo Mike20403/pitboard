@@ -20,13 +20,14 @@ final class PanesAndSettingsTests: XCTestCase {
         XCTAssertLessThan(switched.frame.minY, enrolled.frame.minY, "newest first")
     }
 
-    /// This Mac shows every check and says what is worth looking at.
+    /// This Mac shows every check and says what is worth looking at: in this fixture, the
+    /// parked login of personal, which lapses soon.
     @MainActor
     func testThisMacShowsTheChecks() {
         let app = XCUIApplication.launched(.oneTool)
         app.openWindow()
         app.descendants(matching: .any)["sidebar.machine"].click()
-        XCTAssertTrue(app.staticTexts["Keychain"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["account personal"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["One thing is worth looking at."].exists)
     }
 

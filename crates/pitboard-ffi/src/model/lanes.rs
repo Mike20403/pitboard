@@ -15,7 +15,8 @@
 //! tool says until it stops, and then enrols what it signed in to, or lets it go, as it is
 //! told. Typing a code back and stopping a sign-in run on `sign_in_calls`, apart from the
 //! thread reading, which they would otherwise wait behind until the browser came back. Once
-//! the actor has gone, that lane stops every sign-in still under way, so each thread ends.
+//! the actor has gone, that lane stops every sign-in still under way, so each thread ends,
+//! and `PitboardModel::shutdown` waits until it has.
 
 use super::advice::Told;
 use super::machine::Scheduled;
@@ -28,7 +29,7 @@ use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// Which lane a job runs on.
@@ -96,6 +97,14 @@ pub(crate) struct Lanes {
 }
 
 impl Lanes {
+    /// The sign-ins under way, for the model to wait for as it shuts down: apart from the
+    /// worker, which holds the core, so that the model holding them holds nothing else.
+    pub(crate) fn sign_ins(&self) -> Arc<SignIns> {
+        Arc::clone(&self.worker.sign_ins)
+    }
+}
+
+impl Lanes {
     /// Starts the lanes over `core`, `apps` and `notifications`, answering to `answers`,
     /// giving an app as long to quit as `cadence` says.
     pub(crate) fn open(
@@ -113,7 +122,7 @@ impl Lanes {
             earlier,
             quit_within: cadence.quit_within,
             quit_checked_every: cadence.quit_checked_every,
-            sign_ins: SignIns::default(),
+            sign_ins: Arc::default(),
         });
         Lanes {
             reads: lane("pitboard-reads", &worker, answers, |_| {}),
@@ -286,6 +295,8 @@ fn signing_in(
 #[derive(Default)]
 pub(crate) struct SignIns {
     held: Mutex<Held>,
+    /// Told each time a sign-in is stopped from here or its thread ends.
+    changed: Condvar,
 }
 
 #[derive(Default)]
@@ -298,6 +309,9 @@ struct Held {
 struct Running {
     session: Option<Arc<SignIn>>,
     over: Option<Sender<bool>>,
+    /// Its tool has been stopped and waited for from here, so nothing of it is left running
+    /// but its thread, which may still be reading what the tool's output was held open by.
+    stopped: bool,
 }
 
 impl SignIns {
@@ -315,6 +329,7 @@ impl SignIns {
             Running {
                 session: None,
                 over: Some(over),
+                stopped: false,
             },
         );
     }
@@ -367,25 +382,48 @@ impl SignIns {
     /// The thread of the sign-in `id` has ended.
     pub(crate) fn end(&self, id: u64) {
         self.held().running.remove(&id);
+        self.changed.notify_all();
     }
 
     /// The model has gone: every sign-in still under way is stopped, and every thread
-    /// waiting to be told whether to enrol is told not to, by its word going.
+    /// waiting to be told whether to enrol is told not to, by its word going. Returns once
+    /// each tool it stops has stopped and been waited for, and says so of each.
     pub(crate) fn close(&self) {
-        let stopping: Vec<Arc<SignIn>> = {
+        let stopping: Vec<(u64, Arc<SignIn>)> = {
             let mut held = self.held();
             held.closed = true;
             held.running
-                .values_mut()
-                .filter_map(|running| {
+                .iter_mut()
+                .filter_map(|(&id, running)| {
                     running.over = None;
-                    running.session.take()
+                    running.session.take().map(|session| (id, session))
                 })
                 .collect()
         };
-        for session in stopping {
+        for (id, session) in stopping {
             session.cancel();
+            if let Some(running) = self.held().running.get_mut(&id) {
+                running.stopped = true;
+            }
+            self.changed.notify_all();
         }
+    }
+
+    /// Waits, once closed, for no longer than `within`, until nothing a sign-in started may
+    /// still be running: each sign-in's tool has been stopped from here, or its thread has
+    /// ended. That covers one still starting, which stops its tool as it starts, one whose
+    /// thread was waiting to be told whether to enrol, which stops its tool once told not
+    /// to, and one enrolling what it signed in to. Whether every one did.
+    pub(crate) fn stopped_within(&self, within: Duration) -> bool {
+        let held = self.held();
+        let (held, waited) = self
+            .changed
+            .wait_timeout_while(held, within, |held| {
+                held.running.values().any(|running| !running.stopped)
+            })
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        drop(held);
+        !waited.timed_out()
     }
 }
 
@@ -397,7 +435,7 @@ pub(crate) struct Worker {
     pub(crate) earlier: Option<EarlierPreferences>,
     pub(crate) quit_within: Duration,
     pub(crate) quit_checked_every: Duration,
-    pub(crate) sign_ins: SignIns,
+    pub(crate) sign_ins: Arc<SignIns>,
 }
 
 impl Worker {
@@ -698,7 +736,7 @@ mod tests {
             earlier: None,
             quit_within: Duration::from_millis(50),
             quit_checked_every: Duration::from_millis(5),
-            sign_ins: SignIns::default(),
+            sign_ins: Arc::default(),
         }
     }
 
@@ -1015,6 +1053,47 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// Closing stops each sign-in whose tool has started, and has stopped it and waited for
+    /// it by the time it returns. The sign-ins have stopped once every one's tool has been
+    /// stopped from here or its thread has ended: one still starting holds them up until its
+    /// thread ends, for no longer than asked, and one whose tool was stopped does not, though
+    /// its thread may still be reading what the tool said.
+    #[test]
+    #[cfg(unix)]
+    fn the_sign_ins_have_stopped_once_each_tool_has_or_its_thread_has_ended() {
+        let sign_ins = Arc::new(SignIns::default());
+        let mut world = World::new("stopped-within");
+        let claude = world.claude_stand_in();
+        let core = world.core();
+        let (tell, _told) = channel();
+        sign_ins.begin(1, tell);
+        let session = core
+            .sign_in("claude/travel".into())
+            .expect("the stand-in starts");
+        assert!(sign_ins.started(1, &session));
+        let (tell, _told_starting) = channel();
+        sign_ins.begin(2, tell);
+        // It writes its process id before it says anything.
+        assert!(session.next_line().is_some(), "the stand-in says something");
+        assert!(claude.is_running());
+
+        sign_ins.close();
+        assert!(!claude.is_running(), "stopped and waited for as it closes");
+        assert!(
+            !sign_ins.stopped_within(Duration::from_millis(50)),
+            "one still starting"
+        );
+        let ending = {
+            let sign_ins = Arc::clone(&sign_ins);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                sign_ins.end(2);
+            })
+        };
+        assert!(sign_ins.stopped_within(Duration::from_secs(20)));
+        ending.join().expect("the thread that ends it");
     }
 
     /// A sign-in whose thread the system cannot start comes to nothing, as one whose thread

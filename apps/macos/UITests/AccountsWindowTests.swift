@@ -7,7 +7,8 @@ final class AccountsWindowTests: XCTestCase {
     }
 
     /// A new Claude Code account: its sign-in asks for the code from the browser, and once it
-    /// is pasted the account is listed and the sheet closes.
+    /// is pasted the account is listed and the sheet closes. The fixture's Claude Code takes a
+    /// code as the real one does, `<code>#<state>`.
     @MainActor
     func testAddingAClaudeCodeAccount() {
         let app = XCUIApplication.launched(.oneTool)
@@ -22,7 +23,7 @@ final class AccountsWindowTests: XCTestCase {
         XCTAssertTrue(code.waitForExistence(timeout: 10))
         XCTAssertTrue(app.links["Open Sign-In Page"].exists)
         code.click()
-        code.typeText("fixture-code")
+        code.typeText("fixture-code#state")
         app.buttons["Submit Code"].click()
         XCTAssertTrue(app.accountRow("claude/third").waitForExistence(timeout: 10))
         XCTAssertFalse(app.sheets.firstMatch.exists)
@@ -73,7 +74,7 @@ final class AccountsWindowTests: XCTestCase {
         let code = app.textFields["sheet.code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
         code.click()
-        code.typeText("fixture-code")
+        code.typeText("fixture-code#state")
         app.buttons["Submit Code"].click()
         XCTAssertTrue(app.accountRow("claude/third").waitForExistence(timeout: 10))
     }

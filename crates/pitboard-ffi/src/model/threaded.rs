@@ -878,17 +878,25 @@ fn cancelling_a_sign_in_stops_its_tool() {
     });
 }
 
-/// Shutting the model down stops a sign-in under way: nothing is left to say it is over, so
-/// its tool is stopped and its thread ends, letting go of the core. Without it the thread
-/// waited on the tool, and the tool on a browser, for ever.
+/// Shutting the model down stops a sign-in under way, and has stopped it by the time it
+/// returns: nothing is left to say it is over, so its tool is stopped and its thread ends,
+/// letting go of the core. Without the stop the thread waited on the tool, and the tool on a
+/// browser, for ever. An app shuts the model down as it quits, and its process ends once that
+/// returns, which ends no tool it started: a stop still under way then never comes.
 #[test]
 #[cfg(unix)]
 fn shutting_down_stops_a_sign_in_under_way() {
     let at = signing_in_world("shutdown-signing-in");
     at.model.send(sign_in("travel"));
     at.told.until("a code asked for", signing(|s| s.wants_code));
+    let private = at.world.pitboard_dir().join("signin");
+    assert!(at.claude.is_running() && private.exists());
     at.model.shutdown();
-    eventually("the tool stopped", || !at.claude.is_running());
+    // The directory the tool signed in to goes as the sign-in is stopped, once its tool has
+    // been stopped and waited for; looking for it takes no time to speak of, where asking
+    // whether the tool runs starts a shell, long enough for a stop made elsewhere to land.
+    assert!(!private.exists(), "stopped before shutdown returned");
+    assert!(!at.claude.is_running());
     eventually("every thread let go of the core", || {
         Arc::strong_count(&at.core) == 1
     });

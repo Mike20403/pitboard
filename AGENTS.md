@@ -45,10 +45,11 @@ cargo test --locked -- --skip writing_preserves_attributes
 cargo deny check
 ```
 
-For the app, build the core's bindings once, then run its unit tests:
+For the app, build the core's bindings once, with the fixtures its debug build, its UI tests
+and one of its unit tests launch into, then run its unit tests:
 
 ```sh
-./apps/macos/scripts/build-xcframework.sh
+./apps/macos/scripts/build-xcframework.sh --fixture
 swift test --package-path apps/macos
 ```
 
