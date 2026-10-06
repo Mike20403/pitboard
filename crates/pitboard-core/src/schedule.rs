@@ -23,6 +23,7 @@
 use crate::context::Context;
 use crate::error::{Error, Result};
 use crate::host::Scheduler;
+use crate::service::Permit;
 use std::path::{Path, PathBuf};
 
 /// Once a day. A refresh token's life is measured in weeks and Pitboard starts renewing
@@ -122,9 +123,9 @@ pub fn installed_program(ctx: &Context) -> Option<PathBuf> {
 }
 
 /// Install it, and ask the system to start it. Returns where it went.
-pub fn install(ctx: &Context) -> Result<PathBuf> {
-    let path = put(ctx, &program(ctx)?)?;
-    crate::audit::record(ctx, "schedule", "install", "ok");
+pub fn install(ctx: &Context, permit: Permit) -> Result<PathBuf> {
+    let path = put(ctx, permit, &program(ctx)?)?;
+    crate::audit::record(ctx, permit, "schedule", "install", "ok");
     Ok(path)
 }
 
@@ -140,7 +141,7 @@ pub fn install(ctx: &Context) -> Result<PathBuf> {
 /// Nothing changes from inside the schedule's own run either: launchd stops a job's process
 /// when it unloads the job, which a repair does before loading it again, so nothing would be
 /// left to load it back.
-pub fn repair(ctx: &Context) -> Result<bool> {
+pub fn repair(ctx: &Context, permit: Permit) -> Result<bool> {
     let Some(scheduler) = scheduler(ctx) else {
         return Ok(false);
     };
@@ -156,9 +157,10 @@ pub fn repair(ctx: &Context) -> Result<bool> {
     {
         return Ok(false);
     }
-    let repaired = put(ctx, named);
+    let repaired = put(ctx, permit, named);
     crate::audit::record(
         ctx,
+        permit,
         "schedule",
         "repair",
         match &repaired {
@@ -180,23 +182,23 @@ pub(crate) fn an_apps_own_program(program: &Path) -> bool {
 }
 
 /// Schedule `program`, and ask the system to start it.
-fn put(ctx: &Context, program: &Path) -> Result<PathBuf> {
+fn put(ctx: &Context, permit: Permit, program: &Path) -> Result<PathBuf> {
     let Some(scheduler) = scheduler(ctx) else {
         return Err(Error::ScheduleUnsupported);
     };
-    scheduler.put(ctx, program)?;
+    scheduler.put(ctx, permit, program)?;
     Ok(scheduler.location(ctx))
 }
 
 /// Take it away. `false` when there was nothing installed.
-pub fn uninstall(ctx: &Context) -> Result<bool> {
+pub fn uninstall(ctx: &Context, permit: Permit) -> Result<bool> {
     let Some(scheduler) = scheduler(ctx) else {
         return Err(Error::ScheduleUnsupported);
     };
-    if !scheduler.remove(ctx)? {
+    if !scheduler.remove(ctx, permit)? {
         return Ok(false);
     }
-    crate::audit::record(ctx, "schedule", "uninstall", "ok");
+    crate::audit::record(ctx, permit, "schedule", "uninstall", "ok");
     Ok(true)
 }
 
@@ -248,7 +250,7 @@ mod tests {
         let ctx = home.ctx().with_schedule_program(program);
 
         home.1.refuse_next_start();
-        let refused = install(&ctx).expect_err("refused");
+        let refused = install(&ctx, Permit::for_a_test()).expect_err("refused");
 
         assert_eq!(refused.code(), "schedule_refused");
         assert_eq!(status(&ctx), Installed::No);
@@ -270,10 +272,18 @@ mod tests {
         a_program_at(&app);
         a_program_at(&bundled);
         let ctx = home.ctx();
-        install(&ctx.clone().with_schedule_program(app.clone())).expect("0.3.0's schedule");
+        install(
+            &ctx.clone().with_schedule_program(app.clone()),
+            Permit::for_a_test(),
+        )
+        .expect("0.3.0's schedule");
 
         home.1.refuse_next_start();
-        let refused = repair(&ctx.clone().with_schedule_program(bundled)).expect_err("refused");
+        let refused = repair(
+            &ctx.clone().with_schedule_program(bundled),
+            Permit::for_a_test(),
+        )
+        .expect_err("refused");
 
         assert_eq!(refused.code(), "schedule_refused");
         assert!(matches!(status(&ctx), Installed::Yes { .. }));
@@ -299,14 +309,18 @@ mod tests {
         assert_eq!(status(&ctx), Installed::Unsupported);
         assert_eq!(path(&ctx), None);
         assert_eq!(
-            install(&ctx).expect_err("nowhere").code(),
+            install(&ctx, Permit::for_a_test())
+                .expect_err("nowhere")
+                .code(),
             "schedule_unsupported"
         );
         assert_eq!(
-            uninstall(&ctx).expect_err("nowhere").code(),
+            uninstall(&ctx, Permit::for_a_test())
+                .expect_err("nowhere")
+                .code(),
             "schedule_unsupported"
         );
-        assert!(!repair(&ctx).expect("nothing to do"));
+        assert!(!repair(&ctx, Permit::for_a_test()).expect("nothing to do"));
     }
 
     #[test]
@@ -341,8 +355,11 @@ mod tests {
         let ctx = home.ctx();
 
         let missing = home.0.join("Pitboard.app/Contents/Helpers/pitboard");
-        let refused = install(&ctx.clone().with_schedule_program(missing.clone()))
-            .expect_err("nothing there to run");
+        let refused = install(
+            &ctx.clone().with_schedule_program(missing.clone()),
+            Permit::for_a_test(),
+        )
+        .expect_err("nothing there to run");
         assert_eq!(refused.code(), "schedule_program_missing");
         assert!(
             refused.to_string().contains(&missing.display().to_string()),
@@ -353,8 +370,11 @@ mod tests {
             .0
             .join("AppTranslocation/6A1C/d/Pitboard.app/Contents/Helpers/pitboard");
         a_program_at(&temporary);
-        let refused = install(&ctx.clone().with_schedule_program(temporary.clone()))
-            .expect_err("a copy that goes away");
+        let refused = install(
+            &ctx.clone().with_schedule_program(temporary.clone()),
+            Permit::for_a_test(),
+        )
+        .expect_err("a copy that goes away");
         assert_eq!(refused.code(), "schedule_program_temporary");
         assert!(
             refused
@@ -406,14 +426,14 @@ mod tests {
         a_program_at(&bundled);
         let ctx = home.ctx().with_schedule_program(bundled.clone());
 
-        install(&ctx).expect("installed");
+        install(&ctx, Permit::for_a_test()).expect("installed");
         assert!(matches!(status(&ctx), Installed::Yes { .. }));
         assert_eq!(installed_program(&ctx), Some(bundled));
 
-        assert!(uninstall(&ctx).expect("taken away"));
+        assert!(uninstall(&ctx, Permit::for_a_test()).expect("taken away"));
         assert_eq!(status(&ctx), Installed::No);
         assert_eq!(installed_program(&ctx), None);
-        assert!(!uninstall(&ctx).expect("nothing there"));
+        assert!(!uninstall(&ctx, Permit::for_a_test()).expect("nothing there"));
     }
 
     /// An app up to 0.3.0 scheduled itself, and launchd has started a second menu bar app
@@ -435,28 +455,39 @@ mod tests {
         let the_app = ctx.clone().with_schedule_program(bundled.clone());
 
         assert!(
-            !repair(&the_app).expect("nothing to do"),
+            !repair(&the_app, Permit::for_a_test()).expect("nothing to do"),
             "nothing installed"
         );
 
-        install(&ctx.clone().with_schedule_program(app.clone())).expect("0.3.0's schedule");
+        install(
+            &ctx.clone().with_schedule_program(app.clone()),
+            Permit::for_a_test(),
+        )
+        .expect("0.3.0's schedule");
         assert!(
-            !repair(&ctx).expect("nothing to do"),
+            !repair(&ctx, Permit::for_a_test()).expect("nothing to do"),
             "no command line named"
         );
         let gone = home.0.join("Old.app/Contents/Helpers/pitboard");
         assert!(
-            !repair(&ctx.clone().with_schedule_program(gone)).expect("nothing to do"),
+            !repair(
+                &ctx.clone().with_schedule_program(gone),
+                Permit::for_a_test()
+            )
+            .expect("nothing to do"),
             "a command line that is not there"
         );
         assert!(
-            !repair(&the_app.clone().with_pitboard_home(home.0.join("elsewhere")))
-                .expect("nothing to do"),
+            !repair(
+                &the_app.clone().with_pitboard_home(home.0.join("elsewhere")),
+                Permit::for_a_test()
+            )
+            .expect("nothing to do"),
             "a schedule another home's Pitboard looks after"
         );
         assert_eq!(installed_program(&ctx), Some(app.clone()));
 
-        assert!(repair(&the_app).expect("repaired"));
+        assert!(repair(&the_app, Permit::for_a_test()).expect("repaired"));
         assert_eq!(installed_program(&ctx), Some(bundled));
         let logged = crate::audit::read(&ctx, 1);
         assert_eq!(
@@ -468,16 +499,24 @@ mod tests {
         );
 
         assert!(
-            !repair(&the_app).expect("nothing to do"),
+            !repair(&the_app, Permit::for_a_test()).expect("nothing to do"),
             "a schedule that runs a command line already"
         );
-        install(&ctx.clone().with_schedule_program(app.clone())).expect("the app again");
+        install(
+            &ctx.clone().with_schedule_program(app.clone()),
+            Permit::for_a_test(),
+        )
+        .expect("the app again");
         let temporary = home
             .0
             .join("AppTranslocation/6A1C/d/Pitboard.app/Contents/Helpers/pitboard");
         a_program_at(&temporary);
         assert!(
-            !repair(&ctx.clone().with_schedule_program(temporary)).expect("nothing to do"),
+            !repair(
+                &ctx.clone().with_schedule_program(temporary),
+                Permit::for_a_test()
+            )
+            .expect("nothing to do"),
             "a command line that is gone once the app quits"
         );
         assert_eq!(installed_program(&ctx), Some(app));
@@ -498,13 +537,17 @@ mod tests {
         a_program_at(&app);
         a_program_at(&bundled);
         let ctx = home.ctx();
-        install(&ctx.clone().with_schedule_program(app)).expect("0.3.0's schedule");
+        install(
+            &ctx.clone().with_schedule_program(app),
+            Permit::for_a_test(),
+        )
+        .expect("0.3.0's schedule");
 
         let opened = ctx
             .clone()
             .with_schedule_program(bundled.clone())
             .with_scheduled_job("application.com.datlechin.pitboard.1.2".into());
-        assert!(repair(&opened).expect("repaired"));
+        assert!(repair(&opened, Permit::for_a_test()).expect("repaired"));
         assert_eq!(installed_program(&ctx), Some(bundled));
     }
 
@@ -557,7 +600,8 @@ mod tests {
         let program = root.join("bin/pitboard");
         a_program_at(&program);
         let ctx = Context::new(root.clone()).with_schedule_program(program);
-        let refused = install(&ctx).expect_err("refused before it reaches the system");
+        let refused =
+            install(&ctx, Permit::for_a_test()).expect_err("refused before it reaches the system");
         assert_eq!(refused.code(), "schedule_refused");
         assert_eq!(status(&ctx), Installed::No, "and nothing is left written");
         let _ = std::fs::remove_dir_all(&root);

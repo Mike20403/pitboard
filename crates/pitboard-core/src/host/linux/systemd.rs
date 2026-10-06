@@ -5,6 +5,7 @@ use crate::context::Context;
 use crate::error::Result;
 use crate::host::Scheduler;
 use crate::schedule::EVERY_SECONDS;
+use crate::service::Permit;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,41 +48,43 @@ impl Scheduler for Systemd {
             .map(PathBuf::from)
     }
 
-    fn put(&self, ctx: &Context, program: &Path) -> Result<()> {
+    fn put(&self, ctx: &Context, permit: Permit, program: &Path) -> Result<()> {
         let unit = Self::units(ctx).join(SERVICE);
         let timer_path = self.location(ctx);
         let before = (
             std::fs::read_to_string(&unit).ok(),
             std::fs::read_to_string(&timer_path).ok(),
         );
-        service::write(&unit, &unit_file(program, ctx.argv_fallback()))?;
-        service::write(&timer_path, &timer())?;
+        service::write(permit, &unit, &unit_file(program, ctx.argv_fallback()))?;
+        service::write(permit, &timer_path, &timer())?;
         let reload = ["--user", "daemon-reload"];
-        let _ = self.control.run(SYSTEMCTL, &reload);
+        let _ = self.control.run(permit, SYSTEMCTL, &reload);
         let start = ["--user", "enable", "--now", TIMER];
-        if let Err(refused) = self.control.start(SYSTEMCTL, &start) {
-            service::restore(&unit, before.0.as_deref());
-            service::restore(&timer_path, before.1.as_deref());
-            let _ = self.control.run(SYSTEMCTL, &reload);
+        if let Err(refused) = self.control.start(permit, SYSTEMCTL, &start) {
+            service::restore(permit, &unit, before.0.as_deref());
+            service::restore(permit, &timer_path, before.1.as_deref());
+            let _ = self.control.run(permit, SYSTEMCTL, &reload);
             if before.1.is_some() {
-                let _ = self.control.start(SYSTEMCTL, &start);
+                let _ = self.control.start(permit, SYSTEMCTL, &start);
             }
             return Err(refused);
         }
         Ok(())
     }
 
-    fn remove(&self, ctx: &Context) -> Result<bool> {
+    fn remove(&self, ctx: &Context, permit: Permit) -> Result<bool> {
         let timer_path = self.location(ctx);
         if !timer_path.is_file() {
             return Ok(false);
         }
         let _ = self
             .control
-            .run(SYSTEMCTL, &["--user", "disable", "--now", TIMER]);
-        service::remove(&timer_path)?;
-        service::remove(&Self::units(ctx).join(SERVICE))?;
-        let _ = self.control.run(SYSTEMCTL, &["--user", "daemon-reload"]);
+            .run(permit, SYSTEMCTL, &["--user", "disable", "--now", TIMER]);
+        service::remove(permit, &timer_path)?;
+        service::remove(permit, &Self::units(ctx).join(SERVICE))?;
+        let _ = self
+            .control
+            .run(permit, SYSTEMCTL, &["--user", "daemon-reload"]);
         Ok(true)
     }
 

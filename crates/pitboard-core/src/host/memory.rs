@@ -5,8 +5,9 @@
 //! no test ever ran Claude Code's own slot hashing on the sign-in path: the double answered
 //! the question the code was supposed to answer.
 
-use super::{Host, Process, Scheduler};
+use super::{Elevation, Host, Process, Scheduler};
 use crate::context::Context;
+use crate::service::Permit;
 use crate::store::memory::MemoryStore;
 use crate::store::{Backend, Cost, Error, RawStore};
 use std::collections::HashMap;
@@ -35,7 +36,7 @@ impl RawStore for Vault {
         RawStore::read(&self.store, service)
     }
 
-    fn write(&self, service: &str, contents: &str) -> Result<(), Error> {
+    fn write(&self, permit: Permit, service: &str, contents: &str) -> Result<(), Error> {
         if let Some(cost) = self.cost(service, contents)
             && cost.refused()
         {
@@ -44,11 +45,11 @@ impl RawStore for Vault {
                 cost.needs, cost.limit
             )));
         }
-        RawStore::write(&self.store, service, contents)
+        RawStore::write(&self.store, permit, service, contents)
     }
 
-    fn delete(&self, service: &str) -> Result<(), Error> {
-        RawStore::delete(&self.store, service)
+    fn delete(&self, permit: Permit, service: &str) -> Result<(), Error> {
+        RawStore::delete(&self.store, permit, service)
     }
 
     fn list(&self) -> Result<Option<Vec<String>>, Error> {
@@ -80,6 +81,8 @@ pub struct MemoryHost {
     refuse_start: Arc<AtomicBool>,
     /// Whether this machine has no scheduler at all.
     unscheduled: AtomicBool,
+    /// Whether this process runs as the person, as this machine says it does.
+    elevation: Mutex<Elevation>,
 }
 
 impl Default for MemoryHost {
@@ -95,6 +98,7 @@ impl Default for MemoryHost {
             scheduler: super::os::pretend_scheduler(Arc::clone(&refuse_start)),
             refuse_start,
             unscheduled: AtomicBool::new(false),
+            elevation: Mutex::new(Elevation::Normal),
         }
     }
 }
@@ -161,6 +165,16 @@ impl MemoryHost {
     pub fn without_a_scheduler(&self) {
         self.unscheduled.store(true, Ordering::SeqCst);
     }
+
+    /// From now on this machine says this process runs with `elevation`: as root, under
+    /// sudo, or with rights it cannot tell, on whatever system the tests run on. It runs as
+    /// the person until a test says otherwise.
+    pub fn runs_with(&self, elevation: Elevation) {
+        *self
+            .elevation
+            .lock()
+            .expect("a poisoned test host is a failed test") = elevation;
+    }
 }
 
 impl Host for MemoryHost {
@@ -197,5 +211,13 @@ impl Host for MemoryHost {
 
     fn scheduler(&self) -> Option<&dyn Scheduler> {
         (!self.unscheduled.load(Ordering::SeqCst)).then_some(self.scheduler.as_ref())
+    }
+
+    /// What a test said, and nothing about the process running the tests.
+    fn elevation(&self, _ctx: &Context) -> Elevation {
+        *self
+            .elevation
+            .lock()
+            .expect("a poisoned test host is a failed test")
     }
 }

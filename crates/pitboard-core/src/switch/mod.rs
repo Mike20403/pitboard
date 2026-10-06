@@ -43,7 +43,7 @@ pub use uninstall::{Removed, uninstall};
 
 use crate::context::Context;
 use crate::error::{Error, Result};
-use crate::service::Warning;
+use crate::service::{Permit, Warning};
 use crate::state::{Account, Key, Park, State};
 use crate::{api, fault, holder, home, lock, park, pending, state, store};
 use journal::{Journal, clear_journal, reconcile, write_journal};
@@ -74,11 +74,13 @@ pub enum Outcome {
 }
 
 /// Pitboard's state, held exclusively, with any interrupted switch already finished. Every
-/// command that changes state starts from one, so none acts on what a crash left behind.
+/// command that changes state starts from one, so none acts on what a crash left behind,
+/// and it carries the [`Permit`] it was settled with, which is what lets the change write.
 pub struct Settled {
     _exclusive: std::fs::File,
     state: State,
     ctx: Context,
+    permit: Permit,
 }
 
 /// Throws away a record of an interrupted switch that cannot be finished, keeping every
@@ -88,11 +90,11 @@ pub struct Settled {
 /// that tool settles one there, and refuses a Claude Code switch, which is settled nowhere.
 /// It refused every switch there, so a Codex switch that read as stuck could be neither
 /// finished nor given up on.
-pub fn abandon(ctx: &Context) -> Result<Option<Abandoned>> {
+pub fn abandon(ctx: &Context, permit: Permit) -> Result<Option<Abandoned>> {
     refuse_custom_oauth(ctx, journal::interrupted_tool(ctx))?;
-    let _exclusive = exclusive(ctx)?;
+    let _exclusive = exclusive(ctx, permit)?;
     let mut state = state::load(ctx)?;
-    journal::abandon(ctx, &mut state)
+    journal::abandon(ctx, permit, &mut state)
 }
 
 /// Under a custom OAuth endpoint Claude Code's live login is in "Claude Code-custom-oauth-
@@ -116,20 +118,25 @@ fn refuse_custom_oauth(ctx: &Context, tool: Option<ProviderId>) -> Result<()> {
 /// or not the command that follows succeeds.
 ///
 /// `tool` is the tool the change that follows is about, where it is about one.
-pub fn settle(ctx: &Context, tool: Option<ProviderId>) -> Result<(Settled, Option<Recovered>)> {
+pub fn settle(
+    ctx: &Context,
+    permit: Permit,
+    tool: Option<ProviderId>,
+) -> Result<(Settled, Option<Recovered>)> {
     refuse_custom_oauth(ctx, tool)?;
-    let exclusive = exclusive(ctx)?;
+    let exclusive = exclusive(ctx, permit)?;
     let mut state = state::load(ctx)?;
-    let recovered = reconcile(ctx, &mut state)?;
+    let recovered = reconcile(ctx, permit, &mut state)?;
     // After the journal has had its say, so a switch's own park is already accounted for.
-    pending::sweep(ctx, &mut state)?;
-    drop_live_twins(ctx, &mut state)?;
-    purge(ctx, &mut state);
+    pending::sweep(ctx, permit, &mut state)?;
+    drop_live_twins(ctx, permit, &mut state)?;
+    purge(ctx, permit, &mut state);
     Ok((
         Settled {
             _exclusive: exclusive,
             state,
             ctx: ctx.clone(),
+            permit,
         },
         recovered,
     ))
@@ -165,9 +172,10 @@ pub fn repair(settled: Settled) -> Result<pending::Reclaimed> {
         _exclusive,
         mut state,
         ctx,
+        permit,
     } = settled;
-    let reclaimed = pending::reclaim(&ctx, &mut state)?;
-    purge(&ctx, &mut state);
+    let reclaimed = pending::reclaim(&ctx, permit, &mut state)?;
+    purge(&ctx, permit, &mut state);
     Ok(reclaimed)
 }
 
@@ -175,7 +183,7 @@ pub fn repair(settled: Settled) -> Result<pending::Reclaimed> {
 /// state before anything deletes it. The journal records the one copy a switch makes on
 /// purpose; this finds the one nothing records, which a new login leaves when it was put in
 /// use and could not be read back, and was parked as well.
-fn drop_live_twins(ctx: &Context, state: &mut State) -> Result<()> {
+fn drop_live_twins(ctx: &Context, permit: Permit, state: &mut State) -> Result<()> {
     let twins = park::live_twins(ctx, state);
     if twins.is_empty() {
         return Ok(());
@@ -183,16 +191,16 @@ fn drop_live_twins(ctx: &Context, state: &mut State) -> Result<()> {
     for service in &twins {
         state.discard(service);
     }
-    state::save(ctx, state)
+    state::save(ctx, permit, state)
 }
 
 /// Delete what no account refers to any more. A failed save only leaves deleted names
 /// listed, and deleting a missing item succeeds, so a later run clears them.
-fn purge(ctx: &Context, state: &mut State) -> usize {
+fn purge(ctx: &Context, permit: Permit, state: &mut State) -> usize {
     let listed = state.discarded.len();
-    let remaining = park::purge(ctx, state);
+    let remaining = park::purge(ctx, permit, state);
     if remaining != listed {
-        let _ = state::save(ctx, state);
+        let _ = state::save(ctx, permit, state);
     }
     remaining
 }
@@ -200,28 +208,29 @@ fn purge(ctx: &Context, state: &mut State) -> usize {
 /// Makes Pitboard runs exclusive of each other. A kernel lock, unlike the directory lock
 /// Claude Code's protocol requires around its own writes: the operating system releases it
 /// when a process ends, so there is no staleness rule for two runs to both satisfy.
-fn exclusive(ctx: &Context) -> Result<std::fs::File> {
-    let (file, path) = lock_file(ctx)?;
+fn exclusive(ctx: &Context, permit: Permit) -> Result<std::fs::File> {
+    let (file, path) = lock_file(ctx, permit)?;
     file.lock()
         .map_err(|source| Error::HomeUnwritable { path, source })?;
     Ok(file)
 }
 
 /// `exclusive` without waiting: `None` while another Pitboard run holds it.
-fn try_exclusive(ctx: &Context) -> Option<std::fs::File> {
-    let (file, _) = lock_file(ctx).ok()?;
+fn try_exclusive(ctx: &Context, permit: Permit) -> Option<std::fs::File> {
+    let (file, _) = lock_file(ctx, permit).ok()?;
     file.try_lock().ok()?;
     Some(file)
 }
 
-fn lock_file(ctx: &Context) -> Result<(std::fs::File, PathBuf)> {
+fn lock_file(ctx: &Context, permit: Permit) -> Result<(std::fs::File, PathBuf)> {
     let path = home::dir(ctx).join("state.lock");
     let fail = |source| Error::HomeUnwritable {
         path: path.clone(),
         source,
     };
-    home::ensure(ctx).map_err(fail)?;
+    home::ensure(ctx, permit).map_err(fail)?;
     let file = crate::host::fs::private(
+        permit,
         std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -305,6 +314,7 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         _exclusive,
         mut state,
         ctx,
+        permit,
     } = settled;
     let ctx = &ctx;
     let label = &key.label;
@@ -327,7 +337,7 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         if state.active_for(key.provider) != Some(label.as_str()) {
             state.set_active(key.provider, Some(label.to_string()));
             state.used(key, ctx.now());
-            state::save(ctx, &state)?;
+            state::save(ctx, permit, &state)?;
         }
         return Ok((
             Outcome::AlreadyActive {
@@ -354,10 +364,10 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     let incoming = park::load(ctx, key, &held)?;
     // Asked before the tool's lock is taken, like the outgoing question, so the round trip
     // does not hold up its writes.
-    let (held, incoming) = prove_incoming(ctx, &mut state, key, &target, held, incoming)?;
+    let (held, incoming) = prove_incoming(ctx, permit, &mut state, key, &target, held, incoming)?;
 
+    let guard = write_lock(ctx, permit, key.provider)?;
     let Readied {
-        guard,
         before_raw,
         before,
         next,
@@ -383,9 +393,10 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         &park::service_name(&outgoing.account_uuid, ctx.now_millis()),
         &tool.slice(&before).map_err(|e| shape(key.provider, e))?,
     )?;
-    let park_service = park::reserve(ctx, &outgoing.account_uuid)?;
+    let park_service = park::reserve(ctx, permit, &outgoing.account_uuid)?;
     write_journal(
         ctx,
+        permit,
         &Journal {
             provider: key.provider,
             started_at: ctx.now(),
@@ -407,18 +418,18 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     // a failure here takes the record of intent away with it. A copy that was written but
     // could not be recorded is deleted: nothing that survives would name it.
     let slice = tool.slice(&before).map_err(|e| shape(key.provider, e))?;
-    let parked = match park::store_at(ctx, key.provider, &park_service, &slice) {
+    let parked = match park::store_at(ctx, permit, key.provider, &park_service, &slice) {
         Ok(parked) => parked,
         Err(e) => {
-            clear_journal(ctx);
+            clear_journal(ctx, permit);
             return Err(e);
         }
     };
     fault::point("switch.park_stored");
     state.park(&outgoing_key, parked.clone());
-    if let Err(e) = state::save(ctx, &state) {
-        let _ = store::vault_delete(ctx, &parked.service);
-        clear_journal(ctx);
+    if let Err(e) = state::save(ctx, permit, &state) {
+        let _ = store::vault_delete(ctx, permit, &parked.service);
+        clear_journal(ctx, permit);
         return Err(e);
     }
     fault::point("switch.park_recorded");
@@ -431,8 +442,8 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         && store::vault_read(ctx, &parked.service)?.is_none()
     {
         state.release(&parked.service);
-        state::save(ctx, &state)?;
-        clear_journal(ctx);
+        state::save(ctx, permit, &state)?;
+        clear_journal(ctx, permit);
         return Err(Error::ParkedCredentialMissing { label: from });
     }
 
@@ -455,15 +466,15 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         if still_outgoing {
             state.discard(&parked.service);
         }
-        state::save(ctx, &state)?;
-        clear_journal(ctx);
-        purge(ctx, &mut state);
+        state::save(ctx, permit, &state)?;
+        clear_journal(ctx, permit);
+        purge(ctx, permit, &mut state);
         return Err(Error::SignedInAccountChanged);
     }
 
     if let Err(e) = install_with(
         key.provider,
-        |body| store::write_raw(&live.chain, &live.service, body),
+        |body| store::write_raw(&live.chain, permit, &live.service, body),
         || store::read_raw(&live.chain, &live.service),
         &next,
         &before_raw,
@@ -480,9 +491,9 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         if !only_copy_left(&e) {
             state.discard(&parked.service);
         }
-        state::save(ctx, &state)?;
-        clear_journal(ctx);
-        purge(ctx, &mut state);
+        state::save(ctx, permit, &state)?;
+        clear_journal(ctx, permit);
+        purge(ctx, permit, &mut state);
         return Err(e);
     }
     fault::point("switch.installed");
@@ -499,7 +510,7 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     match holds(key.provider, &live) {
         Ok(true) => {}
         Ok(false) => {
-            clear_journal(ctx);
+            clear_journal(ctx, permit);
             return Err(Error::SwitchDidNotHold {
                 tool: key.provider,
                 from,
@@ -519,7 +530,7 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     state.discard(&held.service);
     state.set_active(key.provider, Some(label.to_string()));
     state.used(key, ctx.now());
-    state::save(ctx, &state)?;
+    state::save(ctx, permit, &state)?;
     fault::point("switch.recorded");
     drop(guard);
 
@@ -531,12 +542,12 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
         group: Some(outgoing.organization_uuid.clone()).filter(|g| !g.is_empty()),
     };
     let cache_warning = tool
-        .after_switch(ctx, &target, &outgoing_identity)
+        .after_switch(ctx, permit, &target, &outgoing_identity)
         .err()
         .map(Warning::ConfigNotUpdated);
     fault::point("switch.config_updated");
-    let parks_pending = purge(ctx, &mut state);
-    clear_journal(ctx);
+    let parks_pending = purge(ctx, permit, &mut state);
+    clear_journal(ctx, permit);
 
     // A tool that never follows a switch on its own goes on using the outgoing account in
     // everything of it already running. Said with what is running, because "restart it"
@@ -569,8 +580,6 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
 
 /// A write to a tool's live login, made ready under the tool's own lock.
 struct Readied {
-    /// The tool's write lock, held until the caller has recorded what it wrote.
-    guard: Option<lock::Guard>,
     /// The login there now, byte for byte and as a document.
     before_raw: String,
     before: Value,
@@ -579,8 +588,19 @@ struct Readied {
     on_the_command_line: Option<Warning>,
 }
 
-/// Takes the tool's write lock and readies `incoming` to go in place of the login read
-/// earlier as `first`, which was `signed_in`'s. `label` is the account `incoming` is.
+/// The lock `which`'s tool takes around its own writes to its live login, taken the way it
+/// takes it, where it takes one. The caller holds it from before it readies a write until it
+/// has recorded what it wrote.
+fn write_lock(ctx: &Context, permit: Permit, which: ProviderId) -> Result<Option<lock::Guard>> {
+    Ok(provider::of(which)
+        .write_lock(ctx)
+        .map(|dir| lock::acquire(permit, &dir))
+        .transpose()?)
+}
+
+/// Readies `incoming` to go in place of the login read earlier as `first`, which was
+/// `signed_in`'s, with the tool's write lock already held. `label` is the account
+/// `incoming` is.
 ///
 /// Refuses, having written nothing, when somebody else is signed in by now, or when what
 /// would be written could never be.
@@ -594,10 +614,6 @@ fn ready(
     label: &str,
 ) -> Result<Readied> {
     let tool = provider::of(which);
-    let guard = tool
-        .write_lock(ctx)
-        .map(|dir| lock::acquire(&dir))
-        .transpose()?;
     let (before_raw, before) = read_live(ctx, which, live)?;
     // A refresh keeps the account, so an unchanged share of the document needs no second
     // question. A sign-in between the two reads would not keep it.
@@ -636,7 +652,6 @@ fn ready(
                 limit: p.limit,
             });
     Ok(Readied {
-        guard,
         before_raw,
         before,
         next,
@@ -680,6 +695,7 @@ pub(crate) fn still_holding(ctx: &Context, which: ProviderId) -> Option<Vec<hold
 /// still where they were.
 fn prove_incoming(
     ctx: &Context,
+    permit: Permit,
     state: &mut State,
     key: &Key,
     target: &Account,
@@ -714,7 +730,7 @@ fn prove_incoming(
     }
 
     // Lapsed, or refused as lapsed. Renew it and switch to what comes back.
-    let Some(fresh) = renew::renew_one(ctx, state, key, &held)? else {
+    let Some(fresh) = renew::renew_one(ctx, permit, state, key, &held)? else {
         return Err(Error::IdentityUnverifiable {
             tool: key.provider,
             cause: crate::error::Cause::Unreachable,

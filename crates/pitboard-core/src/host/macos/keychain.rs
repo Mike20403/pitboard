@@ -8,6 +8,7 @@
 
 use crate::context::Context;
 use crate::host::SECURITY;
+use crate::service::Permit;
 use crate::store::{Backend, Cost, Error, RawStore};
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -174,7 +175,7 @@ impl RawStore for Keychain {
     /// `-X` takes hex so the value survives any byte; `-i` keeps it out of argv, where `ps`
     /// would expose it. Both names are quoted because `security -i` splits on whitespace
     /// and every real service name contains a space.
-    fn write(&self, service: &str, contents: &str) -> Result<(), Error> {
+    fn write(&self, _: Permit, service: &str, contents: &str) -> Result<(), Error> {
         let account = self.account.as_str();
         if account.contains('"') || service.contains('"') {
             return Err(Error::Write(
@@ -229,7 +230,7 @@ impl RawStore for Keychain {
         }
     }
 
-    fn delete(&self, service: &str) -> Result<(), Error> {
+    fn delete(&self, _: Permit, service: &str) -> Result<(), Error> {
         let account = self.account.as_str();
         match run(
             &["delete-generic-password", "-a", account, "-s", service],

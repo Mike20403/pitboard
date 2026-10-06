@@ -6,11 +6,51 @@ use crate::context::Context;
 use crate::doctor::{self, Diagnosis};
 use crate::error::{Error, Result};
 use crate::holder::{self, capitalised};
+use crate::host::Elevation;
 use crate::provider::ProviderId;
 use crate::state::{self, Account, Key};
 use crate::switch::{self, Enrolled, Outcome, Recovered, Renewal, Settled, SignIn};
 use crate::{audit, readings, schedule, status, statusline};
 use std::fmt;
+
+/// Proof that this process may change something on this machine, which only the one gate
+/// every change passes makes ([`Pitboard::permit`]).
+///
+/// Everything that changes anything takes one as an argument: the durable write of a file,
+/// every private file or directory made and every one removed, a write to or a delete from
+/// any store of logins, the keychain among them, a change to the system's scheduler, a
+/// tool's sign-in started, and the token exchange that renews a parked login. So a change
+/// that did not ask the gate does not compile, and nothing rotates a refresh token it could
+/// not then write down.
+#[derive(Debug, Clone, Copy)]
+pub struct Permit {
+    _only_the_gate_makes_one: (),
+}
+
+#[cfg(test)]
+impl Permit {
+    /// One for a unit test of what takes it, below the gate. A test of the gate itself, or
+    /// of a change through [`Pitboard`], asks the gate.
+    pub(crate) fn for_a_test() -> Permit {
+        Permit {
+            _only_the_gate_makes_one: (),
+        }
+    }
+}
+
+/// The one gate every change passes: whether this process may change anything here, as the
+/// host says. A process that runs as root or under sudo changes nothing, and nor does one
+/// the host cannot place: a file it wrote would be root's, and a keychain item might be,
+/// where the person's own runs might never read, replace or remove it again.
+pub(crate) fn gate(ctx: &Context) -> Result<Permit> {
+    match ctx.host().elevation(ctx) {
+        Elevation::Normal => Ok(Permit {
+            _only_the_gate_makes_one: (),
+        }),
+        Elevation::Elevated { why } => Err(Error::Elevated { why: Some(why) }),
+        Elevation::Unknown => Err(Error::Elevated { why: None }),
+    }
+}
 
 /// Something to know about that did not stop the operation.
 #[derive(Debug)]
@@ -69,6 +109,13 @@ pub enum Warning {
     /// stops at it until it can be finished or is given up on. The refusal that change would
     /// make, said by a read so that nobody has to make a change to find out.
     SwitchStuck(Error),
+    /// This process may change nothing, because it runs as root or under sudo, or nobody
+    /// could tell whether it does, so a read answers from what Pitboard last measured: it
+    /// renews nothing, asks nobody and writes nothing. `why` is how it runs, as the host
+    /// said it, and `None` where the host could not say.
+    ReadOnly {
+        why: Option<&'static str>,
+    },
 }
 
 impl Warning {
@@ -87,6 +134,7 @@ impl Warning {
             Warning::SessionsStillRunning { .. } => "sessions_still_running",
             Warning::SessionsKeepTheOldLogin { .. } => "sessions_keep_old_login",
             Warning::SignInParkedNotInUse { .. } => "sign_in_parked_not_in_use",
+            Warning::ReadOnly { .. } => "read_only",
         }
     }
 }
@@ -172,6 +220,15 @@ impl fmt::Display for Warning {
                 tool.name(),
                 tool.login_command()
             ),
+            Warning::ReadOnly { why } => write!(
+                f,
+                "{}, so it changes nothing: these are the numbers it last measured, and it \
+                 renews no parked login and asks nobody. Run it as yourself to ask again.",
+                match why {
+                    Some(why) => format!("Pitboard runs {why}"),
+                    None => "Pitboard cannot tell whether it runs as root or with sudo".into(),
+                }
+            ),
         }
     }
 }
@@ -201,6 +258,25 @@ impl Pitboard {
         Pitboard { ctx }
     }
 
+    /// Whether this process may change anything here, as the one gate every change passes
+    /// says, with the proof it hands out where it may. Every change below asks it first,
+    /// before it reads, locks or records anything, so a change refused here leaves the
+    /// Pitboard directory, the stores of logins and the scheduler exactly as they were, the
+    /// audit log included. A front end asks it too before it writes a file of its own
+    /// through [`crate::app::write_file`], or before it asks a question whose answer could
+    /// only be refused.
+    pub fn permit(&self) -> Result<Permit> {
+        gate(&self.ctx)
+    }
+
+    /// The gate's answer as the refusal of a change, which has found nothing on the way.
+    fn permitted(&self) -> std::result::Result<Permit, Failed> {
+        self.permit().map_err(|error| Failed {
+            error,
+            warnings: Vec::new(),
+        })
+    }
+
     /// Who is signed in and what every account has left. Parked logins whose access has
     /// lapsed are renewed first, so every account is asked live.
     ///
@@ -216,8 +292,23 @@ impl Pitboard {
     /// itself is not said. Nobody has anything to do about it: the rows already say who is
     /// signed in from each tool's login rather than from Pitboard's record, and the change
     /// that finishes it says what it found.
+    ///
+    /// Where this process may change nothing, it answers what [`status_offline`] answers,
+    /// with a `read_only` warning that says why: renewing a parked login rotates its refresh
+    /// token, a live read records what it measured, and neither may happen then.
+    ///
+    /// [`status_offline`]: Pitboard::status_offline
     pub fn status(&self, fresh: bool) -> Result<Done<status::Report>> {
-        let renewed = switch::renew_parked(&self.ctx);
+        let permit = match self.permit() {
+            Ok(permit) => permit,
+            Err(Error::Elevated { why }) => {
+                let mut read = self.status_offline()?;
+                read.warnings.push(Warning::ReadOnly { why });
+                return Ok(read);
+            }
+            Err(other) => return Err(other),
+        };
+        let renewed = switch::renew_parked(&self.ctx, permit);
         // Unreadable is not the same as empty: reporting it as empty would say the enrolled
         // logins are gone.
         let state = state::load(&self.ctx)?;
@@ -226,12 +317,12 @@ impl Pitboard {
         // not answer held the read for its timeout twice.
         let (stuck, report) = std::thread::scope(|scope| {
             let stuck = scope.spawn(|| switch::stuck(&self.ctx, &state, switch::Asking::Service));
-            let report = status::gather(&self.ctx, &state, fresh);
+            let report = status::gather(&self.ctx, permit, &state, fresh);
             (stuck.join().ok().flatten(), report)
         });
         let mut warnings: Vec<Warning> = stuck.map(Warning::SwitchStuck).into_iter().collect();
         for (key, outcome) in renewed {
-            audit::record(&self.ctx, "renew", &key.typed(), outcome.code());
+            audit::record(&self.ctx, permit, "renew", &key.typed(), outcome.code());
             match outcome {
                 Renewal::Refused => warnings.push(Warning::ParkedLoginRefused {
                     tool: key.provider,
@@ -277,9 +368,11 @@ impl Pitboard {
 
     /// The status line for Claude Code's session JSON. Reads only files, and writes only
     /// Pitboard's own: what the session passed, for its next run to compare with, and the
-    /// usage readings, which keep what moved since its last run where it is newer.
+    /// usage readings, which keep what moved since its last run where it is newer. Where
+    /// this process may change nothing it writes neither, and draws the line from the files
+    /// as they are.
     pub fn statusline(&self, session: &str) -> statusline::StatusLine {
-        statusline::read(&self.ctx, session)
+        statusline::read(&self.ctx, self.permit().ok(), session)
     }
 
     /// The enrolled account under `typed`, if any, read without taking the lock.
@@ -289,8 +382,9 @@ impl Pitboard {
     }
 
     pub fn switch_to(&self, typed: &str) -> Changing<Outcome> {
-        let key = self.named("use", typed)?;
-        self.changing("use", &key.typed(), Some(key.provider), |settled| {
+        let permit = self.permitted()?;
+        let key = self.named(permit, "use", typed)?;
+        self.changing(permit, "use", &key.typed(), Some(key.provider), |settled| {
             switch::switch(settled, &key)
         })
     }
@@ -300,22 +394,27 @@ impl Pitboard {
     /// Resolving here rather than deeper down means every command takes `codex/work` and
     /// a bare `work` on the same terms, and the one place that decides what an ambiguous
     /// bare label does is the one place that knows every provider's accounts.
-    fn named(&self, verb: &str, typed: &str) -> std::result::Result<Key, Failed> {
+    fn named(&self, permit: Permit, verb: &str, typed: &str) -> std::result::Result<Key, Failed> {
         let state = state::load(&self.ctx).map_err(|error| Failed {
             error,
             warnings: Vec::new(),
         })?;
         crate::label::resolve(&state, typed)
             .map(Account::key)
-            .map_err(|error| self.refused(verb, typed, error.code(), error))
+            .map_err(|error| self.refused(permit, verb, typed, error.code(), error))
     }
 
     /// `typed` may name a tool, as in `claude/work`. A bare name means the default tool.
     pub fn enroll_current(&self, typed: &str) -> Changing<Enrolled> {
-        let key = self.chosen("enroll", typed)?;
-        self.changing("enroll", &key.typed(), Some(key.provider), |settled| {
-            switch::enroll(settled, &key, None)
-        })
+        let permit = self.permitted()?;
+        let key = self.chosen(permit, "enroll", typed)?;
+        self.changing(
+            permit,
+            "enroll",
+            &key.typed(),
+            Some(key.provider),
+            |settled| switch::enroll(settled, &key, None),
+        )
     }
 
     /// Which tool a new account is for, and what it is called there.
@@ -323,9 +422,9 @@ impl Pitboard {
     /// Split here rather than deeper down so nothing below ever sees a name with a tool
     /// still stuck to the front of it, which would enrol an account literally called
     /// `claude/work`.
-    fn chosen(&self, verb: &str, typed: &str) -> std::result::Result<Key, Failed> {
+    fn chosen(&self, permit: Permit, verb: &str, typed: &str) -> std::result::Result<Key, Failed> {
         self.enrolling(typed)
-            .map_err(|error| self.refused(verb, typed, "label_unusable", error))
+            .map_err(|error| self.refused(permit, verb, typed, "label_unusable", error))
     }
 
     /// A change refused over the name it was given, which happens before it settles.
@@ -337,9 +436,16 @@ impl Pitboard {
     /// endpoint allows or refuses exactly as it would a change to that tool, and reports what
     /// it found beside the refusal. Only as far as it can: a recovery that cannot finish is
     /// the next change's to report, and what this one reports is why it was refused.
-    fn refused(&self, verb: &str, subject: &str, code: &str, error: Error) -> Failed {
+    fn refused(
+        &self,
+        permit: Permit,
+        verb: &str,
+        subject: &str,
+        code: &str,
+        error: Error,
+    ) -> Failed {
         let recovered = if switch::interrupted(&self.ctx) {
-            switch::settle(&self.ctx, switch::interrupted_tool(&self.ctx))
+            switch::settle(&self.ctx, permit, switch::interrupted_tool(&self.ctx))
                 .ok()
                 .and_then(|(_, recovered)| recovered)
         } else {
@@ -347,10 +453,10 @@ impl Pitboard {
         };
         let mut warnings = Vec::new();
         if let Some(r) = recovered {
-            audit::record(&self.ctx, "recover", &r.to, r.code());
+            audit::record(&self.ctx, permit, "recover", &r.to, r.code());
             warnings.push(Warning::Recovered(r));
         }
-        audit::record(&self.ctx, verb, subject, code);
+        audit::record(&self.ctx, permit, verb, subject, code);
         Failed { error, warnings }
     }
 
@@ -392,8 +498,10 @@ impl Pitboard {
     /// no lock but its own, so a person taking their time in a browser never holds up a
     /// switch.
     pub fn sign_in(&self, typed: &str) -> std::result::Result<SignIn, Failed> {
-        let key = self.signing_in(typed)?;
-        switch::sign_in(&self.ctx, key.provider).map_err(|error| self.not_started(typed, error))
+        let permit = self.permitted()?;
+        let key = self.signing_in(permit, typed)?;
+        switch::sign_in(&self.ctx, permit, key.provider)
+            .map_err(|error| self.not_started(permit, typed, error))
     }
 
     /// The same sign-in with its output piped, for a front end that has no terminal to
@@ -402,8 +510,10 @@ impl Pitboard {
         &self,
         typed: &str,
     ) -> std::result::Result<switch::WatchedSignIn, Failed> {
-        let key = self.signing_in(typed)?;
-        switch::sign_in_watched_as(&self.ctx, &key).map_err(|error| self.not_started(typed, error))
+        let permit = self.permitted()?;
+        let key = self.signing_in(permit, typed)?;
+        switch::sign_in_watched_as(&self.ctx, permit, &key)
+            .map_err(|error| self.not_started(permit, typed, error))
     }
 
     /// Which account a sign-in is for, once everything that could refuse it has been asked.
@@ -411,16 +521,16 @@ impl Pitboard {
     /// A name no account could have is refused the way every change refuses one, settling
     /// an interrupted switch on the way; anything else refused here is recorded and nothing
     /// more, since nothing was about to change.
-    fn signing_in(&self, typed: &str) -> std::result::Result<Key, Failed> {
-        let key = self.chosen("enroll", typed)?;
+    fn signing_in(&self, permit: Permit, typed: &str) -> std::result::Result<Key, Failed> {
+        let key = self.chosen(permit, "enroll", typed)?;
         self.ready_to_sign_in(key.provider)
-            .map_err(|error| self.not_started(typed, error))?;
+            .map_err(|error| self.not_started(permit, typed, error))?;
         Ok(key)
     }
 
     /// A sign-in that did not start, or did not finish, for a reason other than its name.
-    fn not_started(&self, typed: &str, error: Error) -> Failed {
-        audit::record(&self.ctx, "enroll", typed, error.code());
+    fn not_started(&self, permit: Permit, typed: &str, error: Error) -> Failed {
+        audit::record(&self.ctx, permit, "enroll", typed, error.code());
         Failed {
             error,
             warnings: Vec::new(),
@@ -458,26 +568,38 @@ impl Pitboard {
     }
 
     pub fn enroll_signed_in(&self, typed: &str, login: SignIn) -> Changing<Enrolled> {
-        let key = self.chosen("enroll", typed)?;
-        self.changing("enroll", &key.typed(), Some(key.provider), |settled| {
-            switch::enroll(settled, &key, Some(login))
-        })
+        let permit = self.permitted()?;
+        let key = self.chosen(permit, "enroll", typed)?;
+        self.changing(
+            permit,
+            "enroll",
+            &key.typed(),
+            Some(key.provider),
+            |settled| switch::enroll(settled, &key, Some(login)),
+        )
     }
 
     /// Returns the account's email.
     pub fn forget(&self, typed: &str) -> Changing<String> {
-        let key = self.named("forget", typed)?;
-        self.changing("forget", &key.typed(), Some(key.provider), |settled| {
-            switch::forget(settled, &key)
-        })
+        let permit = self.permitted()?;
+        let key = self.named(permit, "forget", typed)?;
+        self.changing(
+            permit,
+            "forget",
+            &key.typed(),
+            Some(key.provider),
+            |settled| switch::forget(settled, &key),
+        )
     }
 
     /// Throws away a record of an interrupted switch that cannot be finished, keeping
     /// every login it names. The way out when recovery cannot reach Anthropic.
     pub fn abandon_recovery(&self) -> Result<Option<switch::Abandoned>> {
-        let outcome = switch::abandon(&self.ctx);
+        let permit = self.permit()?;
+        let outcome = switch::abandon(&self.ctx, permit);
         audit::record(
             &self.ctx,
+            permit,
             "abandon",
             "",
             match &outcome {
@@ -490,12 +612,17 @@ impl Pitboard {
 
     /// Renew every parked login that is due, and nothing else. No switch, no usage, and
     /// no request but the token exchange. This is what the schedule runs.
-    pub fn renew(&self) -> Vec<(Key, Renewal)> {
-        let outcomes = switch::renew_due(&self.ctx, switch::Due::ToStayAlive);
+    ///
+    /// Refused where this process may change nothing, as every change is, so a run that
+    /// renewed nothing for that reason says so rather than reading as one where nothing was
+    /// due.
+    pub fn renew(&self) -> Result<Vec<(Key, Renewal)>> {
+        let permit = self.permit()?;
+        let outcomes = switch::renew_due(&self.ctx, permit, switch::Due::ToStayAlive);
         for (key, outcome) in &outcomes {
-            audit::record(&self.ctx, "renew", &key.typed(), outcome.code());
+            audit::record(&self.ctx, permit, "renew", &key.typed(), outcome.code());
         }
-        outcomes
+        Ok(outcomes)
     }
 
     /// Whether anything is keeping parked logins alive on this machine without somebody
@@ -506,18 +633,18 @@ impl Pitboard {
 
     /// Ask the platform's own scheduler to run `renew` daily. Opt-in, and stays opt-in.
     pub fn schedule_install(&self) -> Result<std::path::PathBuf> {
-        schedule::install(&self.ctx)
+        schedule::install(&self.ctx, self.permit()?)
     }
 
     /// Take it away. `false` when there was nothing installed.
     pub fn schedule_uninstall(&self) -> Result<bool> {
-        schedule::uninstall(&self.ctx)
+        schedule::uninstall(&self.ctx, self.permit()?)
     }
 
     /// Point a schedule an app up to 0.3.0 wrote, which runs the app itself, at the command
     /// line this context names. `true` when it did; nothing changes otherwise.
     pub fn schedule_repair(&self) -> Result<bool> {
-        schedule::repair(&self.ctx)
+        schedule::repair(&self.ctx, self.permit()?)
     }
 
     /// Take over a Pitboard directory another machine wrote: keep the accounts, drop the
@@ -526,7 +653,7 @@ impl Pitboard {
     /// The one change that does not settle first, because a stamp from elsewhere is what
     /// stops settling. Everything after it settles normally.
     pub fn adopt(&self) -> Result<Option<switch::Adopted>> {
-        switch::adopt(&self.ctx)
+        switch::adopt(&self.ctx, self.permit()?)
     }
 
     /// Ask the credential store what parked logins are on this machine, and give back or
@@ -534,7 +661,8 @@ impl Pitboard {
     /// do: every change resolves the names it wrote down. This is for a machine whose state
     /// file was lost or restored from a backup, where the store is the only record left.
     pub fn repair(&self) -> Changing<switch::Reclaimed> {
-        self.changing("repair", "", None, |settled| {
+        let permit = self.permitted()?;
+        self.changing(permit, "repair", "", None, |settled| {
             switch::repair(settled).map(|r| (r, Vec::new()))
         })
     }
@@ -568,7 +696,7 @@ impl Pitboard {
     /// Keeps `body` in the app's `file` in Pitboard's directory, private and whole, as the
     /// core writes its own files.
     pub fn keep_app_file(&self, file: crate::app::AppFile, body: &str) -> Result<()> {
-        crate::app::write_app_file(&self.ctx, file, body)
+        crate::app::write_app_file(&self.ctx, self.permit()?, file, body)
     }
 
     /// The changes Pitboard has made, newest last.
@@ -580,7 +708,8 @@ impl Pitboard {
     /// wrote, and removes Pitboard's own directory. Each tool's login is left alone: whoever
     /// is signed in stays signed in.
     pub fn uninstall(&self) -> Changing<switch::Removed> {
-        self.changing("uninstall", "", None, |settled| {
+        let permit = self.permitted()?;
+        self.changing(permit, "uninstall", "", None, |settled| {
             switch::uninstall(settled).map(|r| (r, Vec::new()))
         })
     }
@@ -589,8 +718,9 @@ impl Pitboard {
     /// `from` may be qualified; `to` is a plain name, and stays inside whichever provider
     /// the account already belongs to. Renaming cannot move an account between tools.
     pub fn rename(&self, from: &str, to: &str) -> Changing<String> {
-        let from = self.named("rename", from)?;
-        let chosen = self.chosen("rename", to)?;
+        let permit = self.permitted()?;
+        let from = self.named(permit, "rename", from)?;
+        let chosen = self.chosen(permit, "rename", to)?;
         // Only a prefix somebody actually typed can disagree: a bare new name stays inside
         // the account's own tool whatever tool a bare name would mean for a new account.
         if to.contains(crate::label::SEPARATOR) && chosen.provider != from.provider {
@@ -599,10 +729,11 @@ impl Pitboard {
                  tool and enrol the account there instead.",
                 from.provider, chosen.provider
             ));
-            return Err(self.refused("rename", &from.typed(), error.code(), error));
+            return Err(self.refused(permit, "rename", &from.typed(), error.code(), error));
         }
         let to = chosen.label;
         self.changing(
+            permit,
             "rename",
             &format!("{from} -> {to}"),
             Some(from.provider),
@@ -617,13 +748,14 @@ impl Pitboard {
     /// refusal that is one tool's business does not stop a change to another's.
     fn changing<T: Audited>(
         &self,
+        permit: Permit,
         verb: &str,
         subject: &str,
         tool: Option<ProviderId>,
         run: impl FnOnce(Settled) -> Result<(T, Vec<Warning>)>,
     ) -> Changing<T> {
-        let (settled, recovered) = switch::settle(&self.ctx, tool).map_err(|error| {
-            audit::record(&self.ctx, verb, subject, error.code());
+        let (settled, recovered) = switch::settle(&self.ctx, permit, tool).map_err(|error| {
+            audit::record(&self.ctx, permit, verb, subject, error.code());
             Failed {
                 error,
                 warnings: Vec::new(),
@@ -639,17 +771,17 @@ impl Pitboard {
             }
         }
         if let Some(r) = recovered {
-            audit::record(&self.ctx, "recover", &r.to, r.code());
+            audit::record(&self.ctx, permit, "recover", &r.to, r.code());
             warnings.push(Warning::Recovered(r));
         }
         match run(settled) {
             Ok((value, more)) => {
-                audit::record(&self.ctx, verb, subject, value.audit_code());
+                audit::record(&self.ctx, permit, verb, subject, value.audit_code());
                 warnings.extend(more);
                 Ok(Done { value, warnings })
             }
             Err(mut error) => {
-                audit::record(&self.ctx, verb, subject, error.code());
+                audit::record(&self.ctx, permit, verb, subject, error.code());
                 warnings.extend(error.take_warnings());
                 Err(Failed { error, warnings })
             }
@@ -692,6 +824,7 @@ mod tests {
     use super::*;
     use crate::switch::harness::{Machine, codex_machine, hold, machine};
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     type Make = fn(&str) -> Machine;
 
@@ -737,7 +870,7 @@ mod tests {
     /// `there`, so its record is all that says it happened.
     fn interrupted(make: Make, name: &str) -> Machine {
         let m = make(name);
-        let settled = switch::settle(&m.ctx, None)
+        let settled = switch::settle(&m.ctx, Permit::for_a_test(), None)
             .expect("nothing to recover yet")
             .0;
         let died = crate::fault::killing("switch.park_recorded", || {
@@ -1172,5 +1305,342 @@ mod tests {
             switch::interrupted(&claude.ctx),
             "the record is kept for a run that can finish it"
         );
+    }
+
+    /// Every way the host can say this process may change nothing: as root, under sudo,
+    /// and with rights nobody could tell.
+    const REFUSED_AS: [Elevation; 3] = [
+        Elevation::Elevated { why: "as root" },
+        Elevation::Elevated { why: "with sudo" },
+        Elevation::Unknown,
+    ];
+
+    /// What one change came to, as a change refused at the gate is reported: its error,
+    /// and the warnings found on the way, of which there must be none.
+    fn failed<T>(outcome: Result<T>) -> Option<Failed> {
+        outcome.err().map(|error| Failed {
+            error,
+            warnings: Vec::new(),
+        })
+    }
+
+    type Change = fn(&Pitboard, &Machine) -> Option<Failed>;
+
+    /// Every change a front end can ask for, by its name. `enroll_signed_in` is asked apart,
+    /// since it takes a sign-in made before.
+    const CHANGES: [(&str, Change); 15] = [
+        ("switch_to", |p, m| {
+            p.switch_to(&m.key("there").typed()).err()
+        }),
+        ("enroll_current", |p, m| {
+            p.enroll_current(&m.key("here").typed()).err()
+        }),
+        ("sign_in", |p, m| p.sign_in(&m.key("new").typed()).err()),
+        ("sign_in_watched", |p, m| {
+            p.sign_in_watched(&m.key("new").typed()).err()
+        }),
+        ("forget", |p, m| p.forget(&m.key("there").typed()).err()),
+        ("rename", |p, m| {
+            p.rename(&m.key("there").typed(), "elsewhere").err()
+        }),
+        ("abandon_recovery", |p, _| failed(p.abandon_recovery())),
+        ("renew", |p, _| failed(p.renew())),
+        ("schedule_install", |p, _| failed(p.schedule_install())),
+        ("schedule_uninstall", |p, _| failed(p.schedule_uninstall())),
+        ("schedule_repair", |p, _| failed(p.schedule_repair())),
+        ("adopt", |p, _| failed(p.adopt())),
+        ("repair", |p, _| p.repair().err()),
+        ("keep_app_file", |p, _| {
+            failed(p.keep_app_file(crate::app::AppFile::Preferences, "{}"))
+        }),
+        ("uninstall", |p, _| p.uninstall().err()),
+    ];
+
+    /// Everything on a machine a change could leave different: every directory and file
+    /// under its home, the audit log among them and the scheduler's files with them, every
+    /// item in its keychain, every login parked and the one in use. The private directory
+    /// a sign-in made before is not counted: dropping that sign-in takes it away again.
+    type Everything = (
+        BTreeMap<String, Option<Vec<u8>>>,
+        Vec<(String, Option<String>)>,
+        Vec<(String, Option<String>)>,
+        Option<serde_json::Value>,
+    );
+
+    fn everything(m: &Machine) -> Everything {
+        fn walk(dir: &std::path::Path, into: &mut BTreeMap<String, Option<Vec<u8>>>) {
+            for entry in std::fs::read_dir(dir).expect("a directory to read") {
+                let path = entry.expect("an entry").path();
+                if path.ends_with(".pitboard/signin") {
+                    continue;
+                }
+                if path.is_dir() {
+                    into.insert(path.display().to_string(), None);
+                    walk(&path, into);
+                } else {
+                    let body = std::fs::read(&path).expect("a file to read");
+                    into.insert(path.display().to_string(), Some(body));
+                }
+            }
+        }
+        let mut files = BTreeMap::new();
+        walk(&m.ctx_home(), &mut files);
+        let items = |store: &crate::store::memory::MemoryStore| {
+            store
+                .services()
+                .into_iter()
+                .map(|service| {
+                    let held = store.peek(&service);
+                    (service, held)
+                })
+                .collect()
+        };
+        (files, items(m.mem.live()), items(m.mem.vault()), m.live())
+    }
+
+    /// Running as root or under sudo, Pitboard changed things as root: a state file, a
+    /// schedule or a lock it made was root's, and a park might be, where the person's own
+    /// runs might never read or replace it again. Every change is refused now, at one gate, before it
+    /// reads, locks or records anything, and leaves the machine byte for byte as it was,
+    /// the audit log included. The machine has an interrupted switch waiting, which every
+    /// change that settles would otherwise finish, and asks nobody.
+    #[test]
+    fn every_change_is_refused_where_pitboard_runs_as_root_or_with_sudo_and_changes_nothing() {
+        for (tool, make) in MACHINES {
+            for elevation in REFUSED_AS {
+                for (change, run) in CHANGES {
+                    let at = format!("{tool}, {change}, {elevation:?}");
+                    let m = interrupted(make, &format!("gate-{tool}-{change}"));
+                    m.mem.runs_with(elevation);
+                    let (before, asked) = (everything(&m), m.api.calls());
+
+                    let failed = run(&Pitboard::new(m.ctx.clone()), &m)
+                        .unwrap_or_else(|| panic!("{at}: refused"));
+
+                    assert_eq!(failed.error.code(), "elevated", "{at}: {}", failed.error);
+                    assert!(failed.warnings.is_empty(), "{at}: {:?}", failed.warnings);
+                    assert!(everything(&m) == before, "{at}: nothing changes");
+                    assert_eq!(m.api.calls(), asked, "{at}: nobody is asked");
+                }
+
+                let at = format!("{tool}, enroll_signed_in, {elevation:?}");
+                let m = interrupted(make, &format!("gate-{tool}-enroll-signed-in"));
+                let login = crate::switch::harness::signed_in(&m, "new", "new-refresh");
+                m.mem.runs_with(elevation);
+                let before = everything(&m);
+                let failed = Pitboard::new(m.ctx.clone())
+                    .enroll_signed_in(&m.key("new").typed(), login)
+                    .expect_err("refused");
+                assert_eq!(failed.error.code(), "elevated", "{at}");
+                assert!(everything(&m) == before, "{at}: nothing changes");
+            }
+        }
+    }
+
+    /// The gate's refusal says what to do, the same for root and for sudo, and says it
+    /// apart where nobody could tell.
+    #[test]
+    fn the_gate_says_why_it_refuses_and_lets_a_person_through() {
+        let m = machine("gate-words");
+        let pitboard = Pitboard::new(m.ctx.clone());
+        assert!(pitboard.permit().is_ok(), "as the person");
+        for elevation in REFUSED_AS {
+            m.mem.runs_with(elevation);
+            let refused = pitboard.permit().expect_err("refused");
+            assert_eq!(refused.code(), "elevated");
+            assert_eq!(refused.exit_code(), 1);
+            assert_eq!(
+                refused.to_string(),
+                match elevation {
+                    Elevation::Unknown => {
+                        "Pitboard changes nothing when it cannot tell whether it runs as root \
+                         or with sudo. Run it as yourself."
+                    }
+                    _ => {
+                        "Pitboard changes nothing when it runs as root or with sudo. Run it \
+                         as yourself."
+                    }
+                },
+            );
+        }
+    }
+
+    /// What a read says, account by account: enough to tell a live read from one of what
+    /// was last measured.
+    type Read = Vec<(
+        ProviderId,
+        Option<String>,
+        bool,
+        Option<crate::usage::Snapshot>,
+        Option<status::Stale>,
+    )>;
+
+    fn rows(report: &status::Report) -> Read {
+        report
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    row.provider,
+                    row.label.clone(),
+                    row.signed_in,
+                    row.usage.clone(),
+                    row.stale,
+                )
+            })
+            .collect()
+    }
+
+    /// A read renewed every parked login whose access had lapsed, asked each service about
+    /// every account and wrote what it measured down, as root too. Where this process may
+    /// change nothing it answers what the read that asks nobody answers, and says why: it
+    /// renews nothing, asks nobody and writes nothing. A park whose access has lapsed is
+    /// there to be renewed, so a read that renewed would show it.
+    #[test]
+    fn a_read_where_pitboard_may_change_nothing_asks_nobody_and_says_why() {
+        for (tool, make) in MACHINES {
+            for elevation in REFUSED_AS {
+                let at = format!("{tool}, {elevation:?}");
+                let m = make(&format!("gate-read-{tool}"));
+                let later = m
+                    .ctx
+                    .clone()
+                    .with_clock(Arc::new(crate::time::FixedClock::at(
+                        crate::switch::harness::NOW + 11 * 86_400,
+                    )));
+                let pitboard = Pitboard::new(later);
+                m.mem.runs_with(elevation);
+                let (before, asked) = (everything(&m), m.api.calls());
+
+                let read = pitboard.status(false).expect("a read");
+                let known = pitboard.status_offline().expect("a read");
+
+                assert!(everything(&m) == before, "{at}: nothing is written");
+                assert_eq!(m.api.calls(), asked, "{at}: nobody is asked");
+                assert_eq!(rows(&read.value), rows(&known.value), "{at}");
+                let codes: Vec<&str> = read.warnings.iter().map(Warning::code).collect();
+                assert_eq!(codes.last(), Some(&"read_only"), "{at}");
+                assert_eq!(read.warnings.len(), known.warnings.len() + 1, "{at}");
+                let said = read.warnings.last().expect("said").to_string();
+                match elevation {
+                    Elevation::Elevated { why } => assert!(
+                        said.starts_with(&format!("Pitboard runs {why}, so it changes nothing")),
+                        "{at}: {said}"
+                    ),
+                    _ => assert!(said.starts_with("Pitboard cannot tell"), "{at}: {said}"),
+                }
+
+                m.mem.runs_with(Elevation::Normal);
+                let live = pitboard.status(false).expect("a read");
+                assert!(m.api.calls() > asked, "{at}: as the person, it asks");
+                assert!(
+                    !live.warnings.iter().any(|w| w.code() == "read_only"),
+                    "{at}"
+                );
+            }
+        }
+    }
+
+    /// The status line kept what each session passed it and the readings it moved, as root
+    /// too. Where this process may change nothing it draws the same line from the files as
+    /// they are, and writes neither.
+    #[test]
+    fn the_status_line_where_pitboard_may_change_nothing_draws_the_same_line_and_writes_nothing() {
+        let session = serde_json::json!({
+            "session_id": "a-session",
+            "rate_limits": {
+                "five_hour": {"used_percentage": 40.0, "resets_at": crate::switch::harness::NOW + 3_600},
+                "seven_day": {"used_percentage": 20.0, "resets_at": crate::switch::harness::NOW + 86_400},
+            },
+        })
+        .to_string();
+        for elevation in REFUSED_AS {
+            let m = machine("gate-statusline");
+            let pitboard = Pitboard::new(m.ctx.clone());
+            m.mem.runs_with(elevation);
+            let before = everything(&m);
+
+            let refused = pitboard.statusline(&session);
+
+            assert!(
+                everything(&m) == before,
+                "{elevation:?}: nothing is written"
+            );
+            m.mem.runs_with(Elevation::Normal);
+            assert_eq!(pitboard.statusline(&session), refused, "{elevation:?}");
+            assert!(
+                crate::home::dir(&m.ctx).join("sessions.json").exists(),
+                "{elevation:?}: as the person, the session is kept"
+            );
+        }
+    }
+
+    /// `renew` returned an empty list when it renewed nothing, whatever the reason, so a
+    /// run that could not renew read as one where nothing was due. Refused, it says so, and
+    /// asks nobody, with a park that is due to be renewed.
+    #[test]
+    fn a_renewal_where_pitboard_may_change_nothing_is_refused_and_asks_nobody() {
+        for (tool, make) in MACHINES {
+            for elevation in REFUSED_AS {
+                let at = format!("{tool}, {elevation:?}");
+                let m = make(&format!("gate-renew-{tool}"));
+                crate::switch::harness::renews(&m, "there-refresh", "there-refresh-2");
+                let later = m
+                    .ctx
+                    .clone()
+                    .with_clock(Arc::new(crate::time::FixedClock::at(
+                        crate::switch::harness::NOW + 11 * 86_400,
+                    )));
+                let pitboard = Pitboard::new(later);
+                m.mem.runs_with(elevation);
+                let (before, asked) = (everything(&m), m.api.calls());
+
+                let refused = pitboard.renew().expect_err("refused");
+
+                assert_eq!(refused.code(), "elevated", "{at}");
+                assert!(everything(&m) == before, "{at}: nothing changes");
+                assert_eq!(m.api.calls(), asked, "{at}: nobody is asked");
+
+                m.mem.runs_with(Elevation::Normal);
+                let renewed = pitboard.renew().expect("as the person, it renews");
+                let codes: Vec<&str> = renewed.iter().map(|(_, r)| r.code()).collect();
+                assert_eq!(codes, ["renewed"], "{at}");
+            }
+        }
+    }
+
+    /// `doctor` says why every change is refused, first, as a check that fails, and says
+    /// nothing of it where Pitboard runs as the person.
+    #[test]
+    fn doctor_says_why_pitboard_changes_nothing() {
+        let m = machine("gate-doctor");
+        let pitboard = Pitboard::new(m.ctx.clone());
+        assert!(
+            !pitboard
+                .doctor()
+                .checks
+                .iter()
+                .any(|c| c.code == "elevated"),
+            "as the person"
+        );
+        for elevation in REFUSED_AS {
+            m.mem.runs_with(elevation);
+            let checks = pitboard.doctor().checks;
+            let check = checks.first().expect("checks");
+            assert_eq!(check.code, "elevated", "{elevation:?}");
+            assert_eq!(check.level, doctor::Level::Fail, "{elevation:?}");
+            assert_eq!(
+                check.detail,
+                match elevation {
+                    Elevation::Elevated { why } => format!("Pitboard runs {why}"),
+                    _ => "Pitboard cannot tell whether it runs as root or with sudo".into(),
+                }
+            );
+            assert!(
+                check.advice.ends_with("Run it as yourself."),
+                "{}",
+                check.advice
+            );
+        }
     }
 }

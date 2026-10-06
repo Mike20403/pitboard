@@ -12,6 +12,7 @@
 //! seen for a week is dropped.
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::{atomic, home};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -60,6 +61,13 @@ fn load(ctx: &Context) -> HashMap<String, Seen> {
         .unwrap_or_default()
 }
 
+/// Session `id`'s last run as recorded, or `None` when this session has not been seen
+/// before, for a status line that may record nothing: what [`exchange`] would return, with
+/// nothing written.
+pub(crate) fn last(ctx: &Context, id: &str) -> Option<Run> {
+    load(ctx).remove(id).map(|seen| seen.run)
+}
+
 /// Records `run` as session `id`'s latest and returns its run before this one, or `None`
 /// when this session has not been seen before.
 ///
@@ -67,7 +75,7 @@ fn load(ctx: &Context) -> HashMap<String, Seen> {
 /// once the lock is held, so two sessions running at once cannot each write back the
 /// other's older copy. A run that cannot be written is still compared, with nothing before
 /// it.
-pub(crate) fn exchange(ctx: &Context, id: &str, run: &Run) -> Option<Run> {
+pub(crate) fn exchange(ctx: &Context, permit: Permit, id: &str, run: &Run) -> Option<Run> {
     let now = ctx.now();
     if let Some(seen) = load(ctx).remove(id)
         && seen.run == *run
@@ -75,7 +83,7 @@ pub(crate) fn exchange(ctx: &Context, id: &str, run: &Run) -> Option<Run> {
     {
         return Some(seen.run);
     }
-    let _held = crate::readings::exclusive(ctx)?;
+    let _held = crate::readings::exclusive(ctx, permit)?;
     let mut all = load(ctx);
     let before = all.remove(id).map(|seen| seen.run);
     all.retain(|_, seen| now - seen.seen_at < FORGET_AFTER);
@@ -87,7 +95,7 @@ pub(crate) fn exchange(ctx: &Context, id: &str, run: &Run) -> Option<Run> {
         },
     );
     if let Ok(body) = serde_json::to_string(&all) {
-        let _ = atomic::write(&path(ctx), body.as_bytes(), atomic::Perms::Secret);
+        let _ = atomic::write(permit, &path(ctx), body.as_bytes(), atomic::Perms::Secret);
     }
     before
 }
@@ -115,7 +123,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&root);
         let ctx = Context::new(root.clone()).with_pitboard_home(root.clone());
-        home::ensure(&ctx).expect("a home");
+        home::ensure(&ctx, Permit::for_a_test()).expect("a home");
         (ctx, Scratch(root))
     }
 
@@ -141,18 +149,21 @@ mod tests {
     fn a_session_gets_back_what_it_passed_the_run_before() {
         let (ctx, _scratch) = machine("exchange");
         let ctx = at(&ctx, NOW);
-        assert_eq!(exchange(&ctx, "pane", &run("work", 20.0)), None);
         assert_eq!(
-            exchange(&ctx, "pane", &run("work", 22.0)),
+            exchange(&ctx, Permit::for_a_test(), "pane", &run("work", 20.0)),
+            None
+        );
+        assert_eq!(
+            exchange(&ctx, Permit::for_a_test(), "pane", &run("work", 22.0)),
             Some(run("work", 20.0))
         );
         assert_eq!(
-            exchange(&ctx, "other", &run("personal", 5.0)),
+            exchange(&ctx, Permit::for_a_test(), "other", &run("personal", 5.0)),
             None,
             "each session its own"
         );
         assert_eq!(
-            exchange(&ctx, "pane", &run("work", 22.0)),
+            exchange(&ctx, Permit::for_a_test(), "pane", &run("work", 22.0)),
             Some(run("work", 22.0))
         );
     }
@@ -162,11 +173,21 @@ mod tests {
     #[test]
     fn a_run_that_changes_nothing_leaves_the_file_alone() {
         let (ctx, _scratch) = machine("unchanged");
-        exchange(&at(&ctx, NOW), "pane", &run("work", 20.0));
+        exchange(
+            &at(&ctx, NOW),
+            Permit::for_a_test(),
+            "pane",
+            &run("work", 20.0),
+        );
         let written = std::fs::read_to_string(path(&ctx)).unwrap();
         std::fs::write(path(&ctx), format!("{written} ")).unwrap();
 
-        exchange(&at(&ctx, NOW + 3_600), "pane", &run("work", 20.0));
+        exchange(
+            &at(&ctx, NOW + 3_600),
+            Permit::for_a_test(),
+            "pane",
+            &run("work", 20.0),
+        );
         assert_eq!(
             std::fs::read_to_string(path(&ctx)).unwrap(),
             format!("{written} ")
@@ -178,10 +199,25 @@ mod tests {
     #[test]
     fn a_session_not_seen_for_a_week_is_dropped() {
         let (ctx, _scratch) = machine("pruned");
-        exchange(&at(&ctx, NOW), "gone", &run("work", 20.0));
-        exchange(&at(&ctx, NOW), "open", &run("work", 30.0));
+        exchange(
+            &at(&ctx, NOW),
+            Permit::for_a_test(),
+            "gone",
+            &run("work", 20.0),
+        );
+        exchange(
+            &at(&ctx, NOW),
+            Permit::for_a_test(),
+            "open",
+            &run("work", 30.0),
+        );
         for day in 1..=7 {
-            exchange(&at(&ctx, NOW + day * 86_400), "open", &run("work", 30.0));
+            exchange(
+                &at(&ctx, NOW + day * 86_400),
+                Permit::for_a_test(),
+                "open",
+                &run("work", 30.0),
+            );
         }
         let kept: Vec<String> = load(&ctx).into_keys().collect();
         assert_eq!(kept, ["open"]);

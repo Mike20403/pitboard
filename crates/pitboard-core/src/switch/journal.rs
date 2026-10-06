@@ -8,6 +8,7 @@
 use super::{Error, Result, identify_document};
 use crate::context::Context;
 use crate::provider::ProviderId;
+use crate::service::Permit;
 use crate::state::{Key, Park, State};
 use crate::{atomic, home, park, state, store};
 use serde_json::Value;
@@ -103,15 +104,15 @@ fn journal_path(ctx: &Context) -> PathBuf {
 
 /// Durable before the park it names is created: a record lost to a crash would leave a
 /// consumed login looking restorable.
-pub(super) fn write_journal(ctx: &Context, entry: &Journal) -> Result<()> {
+pub(super) fn write_journal(ctx: &Context, permit: Permit, entry: &Journal) -> Result<()> {
     let path = journal_path(ctx);
     let fail = |source| Error::RecoveryFailed {
         path: path.clone(),
         source,
     };
-    home::ensure(ctx).map_err(fail)?;
+    home::ensure(ctx, permit).map_err(fail)?;
     let body = serde_json::to_string(entry).expect("a journal entry is always serialisable");
-    atomic::write(&path, body.as_bytes(), atomic::Perms::Secret).map_err(fail)
+    atomic::write(permit, &path, body.as_bytes(), atomic::Perms::Secret).map_err(fail)
 }
 
 /// A switch was interrupted, and the next command that changes state will finish it.
@@ -128,8 +129,8 @@ pub(crate) fn interrupted_tool(ctx: &Context) -> Option<ProviderId> {
 }
 
 /// The switch reached a state the account index fully describes.
-pub(super) fn clear_journal(ctx: &Context) {
-    let _ = std::fs::remove_file(journal_path(ctx));
+pub(super) fn clear_journal(ctx: &Context, permit: Permit) {
+    let _ = crate::host::fs::remove_file(permit, &journal_path(ctx));
 }
 
 struct Found {
@@ -293,7 +294,11 @@ pub struct Abandoned {
 /// One exception, for a tool whose park may never be a copy: a park whose refresh token is
 /// the live login's own is a second copy for certain, whoever owns it, and is dropped
 /// rather than kept.
-pub(super) fn abandon(ctx: &Context, state: &mut State) -> Result<Option<Abandoned>> {
+pub(super) fn abandon(
+    ctx: &Context,
+    permit: Permit,
+    state: &mut State,
+) -> Result<Option<Abandoned>> {
     let path = journal_path(ctx);
     let raw = match std::fs::read_to_string(&path) {
         Ok(r) => r,
@@ -336,8 +341,8 @@ pub(super) fn abandon(ctx: &Context, state: &mut State) -> Result<Option<Abandon
     {
         kept += 1;
     }
-    state::save(ctx, state)?;
-    clear_journal(ctx);
+    state::save(ctx, permit, state)?;
+    clear_journal(ctx, permit);
     Ok(Some(Abandoned {
         from: state.typed(&journal.from()),
         to: state.typed(&journal.to()),
@@ -410,7 +415,11 @@ fn decide(
     })
 }
 
-pub(super) fn reconcile(ctx: &Context, state: &mut State) -> Result<Option<Recovered>> {
+pub(super) fn reconcile(
+    ctx: &Context,
+    permit: Permit,
+    state: &mut State,
+) -> Result<Option<Recovered>> {
     let Some(Waiting {
         journal,
         parked,
@@ -423,8 +432,8 @@ pub(super) fn reconcile(ctx: &Context, state: &mut State) -> Result<Option<Recov
     let repair = decide(state, &journal, parked, owner)?;
     let finished = repair.landed;
     apply(state, &journal, repair);
-    state::save(ctx, state)?;
-    clear_journal(ctx);
+    state::save(ctx, permit, state)?;
+    clear_journal(ctx, permit);
 
     Ok(Some(Recovered {
         from: state.typed(&journal.from()),

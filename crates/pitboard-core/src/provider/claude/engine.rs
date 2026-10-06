@@ -12,6 +12,7 @@ use crate::provider::{
     Adoption, Credential, Expiry, Identity, Isolation, LiveStore, ParkSemantics, Provider,
     ProviderError, ProviderId, SignInView,
 };
+use crate::service::Permit;
 use crate::switch;
 use crate::usage;
 use serde_json::Value;
@@ -79,7 +80,12 @@ impl Provider for Claude {
         api::usage(ctx, token).map_err(from_api)
     }
 
-    fn renew(&self, ctx: &Context, credential: &Credential) -> Result<Credential, ProviderError> {
+    fn renew(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        credential: &Credential,
+    ) -> Result<Credential, ProviderError> {
         let oauth = document::oauth_in(&credential.raw);
         let refresh = oauth["refreshToken"].as_str().unwrap_or_default();
         let mut scopes: Vec<String> = oauth["scopes"]
@@ -93,7 +99,7 @@ impl Provider for Claude {
             scopes = switch::renew::DEFAULT_SCOPES.map(str::to_owned).to_vec();
         }
         let client_id = oauth["clientId"].as_str();
-        let fresh = api::renew(ctx, refresh, &scopes, client_id).map_err(from_api)?;
+        let fresh = api::renew(ctx, permit, refresh, &scopes, client_id).map_err(from_api)?;
         // Anchored to the answer's own clock where it sent one, so a machine whose clock is
         // wrong does not write an expiry that is wrong with it.
         let at_millis = fresh.at.map_or_else(|| ctx.now_millis(), |at| at * 1000);
@@ -131,13 +137,14 @@ impl Provider for Claude {
     fn after_switch(
         &self,
         ctx: &Context,
+        permit: Permit,
         incoming: &crate::state::Account,
         outgoing: &Identity,
     ) -> Result<(), crate::error::Error> {
         let path = claude::config_file(ctx);
         let outgoing_group = outgoing.group.clone().unwrap_or_default();
-        configfile::backup(ctx, &path)?;
-        configfile::update(ctx, &path, |config| {
+        configfile::backup(ctx, permit, &path)?;
+        configfile::update(ctx, permit, &path, |config| {
             configfile::splice_identity(
                 config,
                 incoming.claude().map_or(&Value::Null, |c| c.oauth_account),
@@ -158,8 +165,13 @@ impl Provider for Claude {
     /// terminal: pipes are enough.
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` is taken away because it would pin the credential
     /// slot back to a real one whatever `CLAUDE_CONFIG_DIR` says.
-    fn sign_in(&self, ctx: &Context, dir: &std::path::Path) -> std::process::Command {
-        let mut command = crate::provider::command(ctx, ProviderId::Claude);
+    fn sign_in(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        dir: &std::path::Path,
+    ) -> std::process::Command {
+        let mut command = crate::provider::command(ctx, permit, ProviderId::Claude);
         command
             .args(["auth", "login"])
             .env("CLAUDE_CONFIG_DIR", dir)
@@ -177,8 +189,8 @@ impl Provider for Claude {
 
     /// The keychain item Claude Code made for the private directory, which outlives the
     /// directory unless it is deleted by name.
-    fn discard_signin(&self, ctx: &Context, dir: &std::path::Path) {
-        let _ = live::discard_signin(ctx, dir);
+    fn discard_signin(&self, ctx: &Context, permit: Permit, dir: &std::path::Path) {
+        let _ = live::discard_signin(ctx, permit, dir);
     }
 
     /// Read from 2.1.289. Before it opens the browser, `claude auth login` writes to stdout

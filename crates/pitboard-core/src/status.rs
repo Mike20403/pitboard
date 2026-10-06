@@ -617,7 +617,7 @@ fn settle(
     (live, learned)
 }
 
-pub fn gather(ctx: &Context, state: &State, fresh: bool) -> Report {
+pub fn gather(ctx: &Context, permit: crate::service::Permit, state: &State, fresh: bool) -> Report {
     let now = ctx.now();
     // Each tool's live login, whole, or why it could not be read. Not a token out of it:
     // what a usage call needs is not the same everywhere, and pulling one field out here
@@ -697,7 +697,7 @@ pub fn gather(ctx: &Context, state: &State, fresh: bool) -> Report {
                 .filter_map(|(_, learned)| learned.clone()),
         )
         .collect();
-    budget::record(ctx, &learned);
+    budget::record(ctx, permit, &learned);
 
     let signed_in_default = live
         .get(&crate::label::DEFAULT)
@@ -717,11 +717,12 @@ pub fn gather(ctx: &Context, state: &State, fresh: bool) -> Report {
     );
     for row in &rows {
         if let Some(live) = row.usage.as_ref().filter(|u| u.source == Source::Live) {
-            crate::history::record(ctx, &row.account_uuid, live);
+            crate::history::record(ctx, permit, &row.account_uuid, live);
         }
     }
     readings::remember(
         ctx,
+        permit,
         &rows
             .iter()
             .filter_map(|r| {
@@ -901,6 +902,7 @@ mod tests {
     use super::*;
     use crate::api::scripted::{Asked as Question, ScriptedApi, Trouble};
     use crate::host::memory::MemoryHost;
+    use crate::service::Permit;
     use crate::state::Account;
     use crate::store::memory::Fault;
     use crate::time::{Clock, FixedClock};
@@ -1633,7 +1635,7 @@ mod tests {
             a.parked = None;
         }
 
-        let report = gather(&ctx, &s, true);
+        let report = gather(&ctx, Permit::for_a_test(), &s, true);
         let alpha = report
             .rows
             .iter()
@@ -1729,7 +1731,11 @@ mod tests {
         let home = scratch("floor");
         let (ctx, _mem, api) = machine(&home.0, Some("acc-x"));
         api.token_trouble("access-x", Trouble::Offline);
-        budget::record(&ctx, &[("acc-x".into(), budget::Outcome::Answered)]);
+        budget::record(
+            &ctx,
+            Permit::for_a_test(),
+            &[("acc-x".into(), budget::Outcome::Answered)],
+        );
         let login = json!({"claudeAiOauth": {"accessToken": "access-x"}});
 
         let (live, learned) = ask_live(
@@ -1787,8 +1793,13 @@ mod tests {
             },
             "last_refresh": "2026-09-15T05:05:11Z",
         });
-        crate::store::write_raw(&codex.chain, &codex.service, &login.to_string())
-            .expect("a Codex login");
+        crate::store::write_raw(
+            &codex.chain,
+            Permit::for_a_test(),
+            &codex.service,
+            &login.to_string(),
+        )
+        .expect("a Codex login");
 
         let mut s = state(&["alpha", "beta"]);
         s.accounts.push(codex_account("work", "work-acc"));
@@ -1816,7 +1827,8 @@ mod tests {
         let codex = crate::provider::of(ProviderId::Codex)
             .live(ctx)
             .expect("Codex keeps its login in a file here");
-        crate::store::write_raw(&codex.chain, &codex.service, raw).expect("a Codex login");
+        crate::store::write_raw(&codex.chain, Permit::for_a_test(), &codex.service, raw)
+            .expect("a Codex login");
     }
 
     /// A Codex login whose ID token names `tokens_of` and whose account id names
@@ -1871,7 +1883,7 @@ mod tests {
         plant_codex(&ctx, &codex_login("acc-A", "acc-B"));
         let s = codex_a_parked_b_active();
 
-        let report = gather(&ctx, &s, true);
+        let report = gather(&ctx, Permit::for_a_test(), &s, true);
         let a = codex_row(&report, "a");
         assert!(a.signed_in, "the tokens are a's, as its own record says");
         assert_eq!(a.stale, Some(Stale::LoginUnusable));
@@ -1913,7 +1925,7 @@ mod tests {
         );
         let s = codex_a_parked_b_active();
 
-        let report = gather(&ctx, &s, true);
+        let report = gather(&ctx, Permit::for_a_test(), &s, true);
         assert!(
             report.rows.iter().all(|r| !r.signed_in),
             "no account is signed in"
@@ -1939,7 +1951,7 @@ mod tests {
         plant_codex(&ctx, &codex_login("acc-B", "acc-B"));
         let s = State::default();
 
-        let report = gather(&ctx, &s, true);
+        let report = gather(&ctx, Permit::for_a_test(), &s, true);
         assert!(
             report.rows.iter().all(|r| r.provider != ProviderId::Codex),
             "no Codex row for a machine that enrolled no Codex account"
@@ -1965,9 +1977,9 @@ mod tests {
         let whole = codex_login("acc-B", "acc-B");
         plant_codex(&ctx, &whole[..whole.len() / 2]);
         let s = codex_a_parked_b_active();
-        crate::state::save(&ctx, &s).expect("an account list");
+        crate::state::save(&ctx, Permit::for_a_test(), &s).expect("an account list");
 
-        let report = gather(&ctx, &s, true);
+        let report = gather(&ctx, Permit::for_a_test(), &s, true);
         let b = codex_row(&report, "b");
         assert!(b.signed_in, "the account Pitboard last switched to");
         assert_eq!(b.stale, Some(Stale::LoginUnreadable));
@@ -2087,7 +2099,7 @@ mod tests {
             .with_memory_stores(Arc::clone(&mem))
             .with_scripted_api(Arc::clone(&api))
             .with_clock(Arc::new(FixedClock::at(NOW)) as Arc<dyn Clock>);
-        crate::home::ensure(&ctx).expect("a Pitboard home");
+        crate::home::ensure(&ctx, Permit::for_a_test()).expect("a Pitboard home");
         if let Some(uuid) = recorded {
             std::fs::write(
                 root.join(".claude.json"),

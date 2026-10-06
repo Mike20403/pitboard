@@ -48,6 +48,7 @@ const READ: &[&str] = &[
     "CODEX_HOME",
     "NO_COLOR",
     "XPC_SERVICE_NAME",
+    "SUDO_UID",
 ];
 
 /// Every variable Pitboard reads from its environment, by name.
@@ -179,6 +180,10 @@ pub struct Context {
     /// The scheduler's job this process runs as, where a test says. `None` is whatever the
     /// scheduler said when it started this process.
     pub(crate) scheduled_job: Option<String>,
+    /// Whether this process was started under sudo, which sets `SUDO_UID`. Part of what the
+    /// host answers when the one gate every change passes asks whether this process runs as
+    /// the person themselves.
+    pub(crate) sudo: bool,
     /// Where the time comes from. The machine's clock in every real context; a test puts
     /// its own here to reach the judgements that only happen at a particular moment.
     pub(crate) clock: Arc<dyn Clock>,
@@ -248,6 +253,7 @@ impl Context {
             schedule_program: None,
             search_path: None,
             scheduled_job: None,
+            sudo: false,
             clock: Arc::new(SystemClock),
             host: crate::host::current(),
             api: Arc::new(Anthropic),
@@ -377,6 +383,11 @@ impl Context {
         self.scheduled_job.as_deref()
     }
 
+    /// Whether this process was started under sudo.
+    pub(crate) fn sudo(&self) -> bool {
+        self.sudo
+    }
+
     /// Say this process runs as the scheduler's job `label`, which no test does.
     #[cfg(test)]
     pub(crate) fn with_scheduled_job(mut self, label: String) -> Context {
@@ -461,6 +472,7 @@ impl Context {
             // Unset is nowhere, as it is to the shell: nothing is found on an empty `PATH`.
             search_path: Some(env.path("PATH").unwrap_or_default().to_os_string()),
             scheduled_job: None,
+            sudo: env.set("SUDO_UID"),
             clock: Arc::new(SystemClock),
             host: crate::host::current(),
             api: Arc::new(Anthropic),

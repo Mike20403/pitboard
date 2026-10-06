@@ -8,7 +8,7 @@ mod ps;
 pub(crate) use super::unix::{fs, proc, user};
 
 use super::unix::service;
-use super::{Host, LoginPath, Os, Process, Scheduler};
+use super::{Elevation, Host, LoginPath, Os, Process, Scheduler};
 use crate::context::{Context, Environment};
 use crate::store::{PlainFile, RawStore};
 use std::path::PathBuf;
@@ -69,6 +69,10 @@ impl Host for MacOs {
 
     fn scheduler(&self) -> Option<&dyn Scheduler> {
         Some(&self.scheduler)
+    }
+
+    fn elevation(&self, ctx: &Context) -> Elevation {
+        user::elevation(ctx.sudo())
     }
 }
 

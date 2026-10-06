@@ -12,6 +12,7 @@ use super::{Api, ApiError, Owner, Renewed};
 use crate::context::Context;
 use crate::provider::ProviderError;
 use crate::provider::codex::api::{Fresh, OpenAi};
+use crate::service::Permit;
 use crate::usage::Snapshot;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -193,6 +194,7 @@ impl Api for ScriptedApi {
     fn renew(
         &self,
         _ctx: &Context,
+        _: Permit,
         refresh_token: &str,
         _scopes: &[String],
         _client_id: Option<&str>,
@@ -244,7 +246,12 @@ impl OpenAi for ScriptedApi {
         }
     }
 
-    fn renew(&self, _ctx: &Context, refresh_token: &str) -> Result<Fresh, ProviderError> {
+    fn renew(
+        &self,
+        _ctx: &Context,
+        _: Permit,
+        refresh_token: &str,
+    ) -> Result<Fresh, ProviderError> {
         let service = crate::provider::ProviderId::Codex.service();
         let mut script = self.script();
         script.asked.push(Asked::Renew(refresh_token.into()));
@@ -300,7 +307,7 @@ mod tests {
             Err(ApiError::RateLimited { .. })
         ));
         assert!(matches!(
-            Api::renew(&*api, &ctx, "stale", &[], None),
+            Api::renew(&*api, &ctx, Permit::for_a_test(), "stale", &[], None),
             Err(ApiError::InvalidGrant)
         ));
     }

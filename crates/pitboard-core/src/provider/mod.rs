@@ -49,6 +49,7 @@ pub(crate) mod jwt;
 mod printed;
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::usage;
 use serde_json::Value;
 
@@ -402,7 +403,16 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     ///
     /// Only ever called on a park. Renewing what is signed in is the tool's own job, and
     /// racing it there is how a refresh chain gets spent twice.
-    fn renew(&self, ctx: &Context, credential: &Credential) -> Result<Credential, ProviderError>;
+    ///
+    /// The service spends the refresh token it is given as it answers, so this takes the
+    /// [`Permit`] only the one gate every change passes makes: nothing rotates a token that
+    /// could not then be written down.
+    fn renew(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        credential: &Credential,
+    ) -> Result<Credential, ProviderError>;
 
     /// A name for where this tool's live login is on this machine right now.
     ///
@@ -435,6 +445,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     fn after_switch(
         &self,
         ctx: &Context,
+        permit: Permit,
         incoming: &crate::state::Account,
         outgoing: &Identity,
     ) -> Result<(), crate::error::Error>;
@@ -450,7 +461,16 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// which is the only reason a second account can be signed in without signing the first
     /// one out. Whether that really isolates the live login is
     /// [`Provider::private_signin_isolation`]'s question, asked first.
-    fn sign_in(&self, ctx: &Context, dir: &std::path::Path) -> std::process::Command;
+    ///
+    /// Starting it changes things a run that may change nothing must not: `codex login`
+    /// revokes whatever login is in the home it is given before it signs in. So the command
+    /// is made only with the [`Permit`] only the one gate every change passes makes.
+    fn sign_in(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        dir: &std::path::Path,
+    ) -> std::process::Command;
 
     /// The login a sign-in left in `dir`, as the tool stored it.
     fn read_signin(
@@ -461,7 +481,7 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
 
     /// Take away whatever a sign-in into `dir` left outside it. The directory itself is the
     /// caller's to remove.
-    fn discard_signin(&self, ctx: &Context, dir: &std::path::Path);
+    fn discard_signin(&self, ctx: &Context, permit: Permit, dir: &std::path::Path);
 
     /// What the tool's own sign-in has printed so far, `said`, comes to: the address it gave
     /// for a browser that did not open by itself, and whether it waits for a code typed
@@ -601,7 +621,10 @@ pub(crate) fn program_of(ctx: &Context, tool: ProviderId) -> Option<std::path::P
 ///
 /// A program that was not found is left to the search path, where starting it fails the
 /// way a missing program does.
-pub(crate) fn command(ctx: &Context, tool: ProviderId) -> std::process::Command {
+///
+/// What it runs is a tool's sign-in, which changes what that tool keeps, so it is made only
+/// with the [`Permit`] the one gate every change passes makes.
+pub(crate) fn command(ctx: &Context, _: Permit, tool: ProviderId) -> std::process::Command {
     let search = ctx.search_path();
     let Some(program) = program_of(ctx, tool) else {
         let mut command = std::process::Command::new(ctx.program_for(tool));
@@ -829,7 +852,7 @@ mod tests {
             Context::new(std::path::PathBuf::from("/nowhere")).with_search_path(search.clone());
         let dir = std::path::Path::new("/tmp/pitboard-signin-scratch");
         for &tool in ProviderId::ALL {
-            let command = of(tool).sign_in(&ctx, dir);
+            let command = of(tool).sign_in(&ctx, Permit::for_a_test(), dir);
             let program = prefix.bin().join(tool.program());
             assert_eq!(command.get_program(), program.as_os_str(), "{tool}");
             assert_eq!(env_of(&command, "PATH"), Some(search.as_ref()), "{tool}");
@@ -850,7 +873,7 @@ mod tests {
             .with_search_path("/usr/bin:/bin".into());
         let dir = std::path::Path::new("/tmp/pitboard-signin-scratch");
         for &tool in ProviderId::ALL {
-            let command = of(tool).sign_in(&ctx, dir);
+            let command = of(tool).sign_in(&ctx, Permit::for_a_test(), dir);
             assert_eq!(
                 command.get_program(),
                 prefix.bin().join(tool.program()).as_os_str(),
@@ -865,7 +888,7 @@ mod tests {
         let on_it = format!("/usr/bin:{}/", prefix.bin().display());
         let ctx = ctx.with_search_path(on_it.clone());
         for &tool in ProviderId::ALL {
-            let command = of(tool).sign_in(&ctx, dir);
+            let command = of(tool).sign_in(&ctx, Permit::for_a_test(), dir);
             assert_eq!(env_of(&command, "PATH"), Some(on_it.as_ref()), "{tool}");
         }
     }
@@ -878,7 +901,7 @@ mod tests {
             .with_search_path("/nowhere/at/all".into());
         let dir = std::path::Path::new("/tmp/pitboard-signin-scratch");
         for &tool in ProviderId::ALL {
-            let command = of(tool).sign_in(&ctx, dir);
+            let command = of(tool).sign_in(&ctx, Permit::for_a_test(), dir);
             assert_eq!(command.get_program(), tool.program(), "{tool}");
             assert_eq!(
                 env_of(&command, "PATH"),

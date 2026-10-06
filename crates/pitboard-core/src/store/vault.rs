@@ -4,6 +4,7 @@
 use super::{Backend, Error, RawStore};
 use crate::atomic;
 use crate::context::Context;
+use crate::service::Permit;
 use std::path::PathBuf;
 
 pub(crate) struct FileVault {
@@ -80,10 +81,11 @@ impl RawStore for FileVault {
         }
     }
 
-    fn write(&self, service: &str, contents: &str) -> Result<(), Error> {
+    fn write(&self, permit: Permit, service: &str, contents: &str) -> Result<(), Error> {
         let path = self.path(service)?;
-        crate::host::fs::create_private_dir(&self.dir).map_err(|e| Error::Write(e.to_string()))?;
-        atomic::write(&path, contents.as_bytes(), atomic::Perms::Secret)
+        crate::host::fs::create_private_dir(permit, &self.dir)
+            .map_err(|e| Error::Write(e.to_string()))?;
+        atomic::write(permit, &path, contents.as_bytes(), atomic::Perms::Secret)
             .map_err(|e| Error::Write(format!("cannot write {}: {e}", path.display())))?;
         match self.read(service)? {
             Some(back) if back == contents => Ok(()),
@@ -94,9 +96,9 @@ impl RawStore for FileVault {
         }
     }
 
-    fn delete(&self, service: &str) -> Result<(), Error> {
+    fn delete(&self, permit: Permit, service: &str) -> Result<(), Error> {
         let path = self.path(service)?;
-        match std::fs::remove_file(&path) {
+        match crate::host::fs::remove_file(permit, &path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(Error::Write(e.to_string())),
@@ -154,7 +156,7 @@ mod tests {
         let vault = FileVault::new(&ctx);
         let name = "pitboard-park-1f0e2d3c-4b5a-4968-8776-a5b4c3d2e1f0-1789935600123";
         vault
-            .write(name, r#"{"claudeAiOauth":{}}"#)
+            .write(Permit::for_a_test(), name, r#"{"claudeAiOauth":{}}"#)
             .expect("a park");
 
         let shared = |p: &std::path::Path| crate::host::fs::access(p).expect("it exists").shared;

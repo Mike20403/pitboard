@@ -111,6 +111,48 @@ The Pitboard you ran is older than another using the same files. Update it: see 
 
 Pitboard refuses to keep its files, `~/.pitboard` or `PITBOARD_HOME`, in a folder that syncs to other machines, such as Dropbox or iCloud Drive. Parked logins belong to one machine. Set `PITBOARD_HOME` to a local folder. For the names Pitboard refuses, see [Files and environment variables](/reference/files#the-pitboard-directory).
 
+## Pitboard changes nothing as root
+
+Run as root or with `sudo`, Pitboard refuses every command that changes something, with the error `elevated`. This includes a container or a WSL distribution whose only user is root. A file Pitboard made as root would belong to root, and a keychain item might too, so your own runs might not read or replace it.
+
+`pitboard status` and the status line still answer, from what Pitboard last measured, and renew and write nothing. `pitboard doctor` fails its `elevated` check. Run Pitboard as yourself, without `sudo`.
+
+### `SUDO_UID` is set in your own shell
+
+Pitboard takes a run as one with `sudo` when `SUDO_UID` is set and not empty, as `sudo` sets it. A shell started with `sudo -iu` and your own name passes `SUDO_UID` to everything started from it, such as a tmux server or an editor's server. Pitboard run from there refuses, though it runs as you.
+
+If `id -un` prints your own name, run the command without `SUDO_UID`:
+
+```sh
+env -u SUDO_UID pitboard use work
+```
+
+To stop it for good, start the shell, tmux or the editor again without `sudo`.
+
+### Remove what Pitboard made as root
+
+Pitboard 0.7.0 and earlier ran as root and with `sudo`. `pitboard schedule uninstall` and `pitboard uninstall` refuse to remove what it made that way, so remove it by hand from a root shell: as root, or after `sudo -i`.
+
+On Linux, turn off the daily renewal schedule, delete its files, then delete Pitboard's directory:
+
+```sh
+systemctl --user disable --now pitboard-renew.timer
+rm ~/.config/systemd/user/pitboard-renew.service ~/.config/systemd/user/pitboard-renew.timer
+rm -r ~/.pitboard
+```
+
+On macOS:
+
+```sh
+launchctl bootout gui/$(id -u)/com.datlechin.pitboard.renew
+rm ~/Library/LaunchAgents/com.datlechin.pitboard.renew.plist
+rm -r ~/.pitboard
+```
+
+Where no schedule runs, `systemctl` or `launchctl` says so; go on to the next command. If `PITBOARD_HOME` named another directory, delete that one. Deleting the directory deletes the parked logins kept in it, except on macOS, where they are in the keychain, as [Remove Pitboard](/install/remove#delete-parked-logins-and-pitboards-files) says.
+
+In a root shell, `~` is root's home. Under `sudo`, Pitboard used the home `sudo` passed on, which can be yours. Pitboard has not measured which home that is, or which keychain `security` wrote to as root. Look in your own as well, writing your home by its path, such as `/Users/me`.
+
 ## Account windows
 
 These problems happen in an [account's window](/guides/account-windows), the claude.ai or chatgpt.com window the app opens for an account.

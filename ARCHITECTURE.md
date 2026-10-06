@@ -44,11 +44,13 @@ pages load, as a browser would.
     its program runs from. A switch's warning, `doctor` and the app's offer to quit an app
     all read it, so they cannot disagree.
   - `host/`: the machine, behind one seam. The `Host` trait is what a test replaces: the
-    system's store of secrets, files, the vault, this user's processes and the scheduler,
-    reached through `Context` and faked by `host/memory.rs`. `fs`, `proc` and `user` are
+    system's store of secrets, files, the vault, this user's processes, the scheduler and
+    whether this process runs as the person (`elevation`), reached through `Context` and
+    faked by `host/memory.rs`, which plays every answer. `fs`, `proc` and `user` are
     plain functions for what the system does whoever asks: private files and directories,
-    whether a process is alive, the login name, and the `PATH` the person's login shell
-    builds, which `unix/shell.rs` asks for. `program.rs` finds a program the way the
+    every other change to the disk, whether a process is alive, the login name, whether
+    this process runs as root, and the `PATH` the person's login shell builds, which
+    `unix/shell.rs` asks for. `program.rs` finds a program the way the
     system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
     through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
     `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`, such
@@ -321,6 +323,21 @@ pages load, as a browser would.
   stopped is one only Anthropic can name. While a switch is waiting, telling reads the
   tool's login and the copy the switch parked, which on macOS are keychain items; with no
   record there, the check is one look at whether the file is there.
+- Pitboard changes nothing where it runs as root or under sudo, or where the host cannot
+  say whether it does: a file it wrote would be root's, and a keychain item might be,
+  where the person's own runs might not read or replace it. One gate, `service::gate`,
+  asks the host's `elevation` and hands out a `service::Permit`, a value only it makes,
+  and everything that changes anything takes one as an argument: `atomic::write`, every
+  function in `host::fs` that makes, moves or removes a file or a directory,
+  `RawStore::write` and `delete` (the keychain among the stores), `Scheduler::put` and
+  `remove` and the service manager they ask, a tool's sign-in started, and the token
+  exchange, `Provider::renew` down to the request. So a change that skips the gate does
+  not compile, and nothing rotates a refresh token it could not then write down. Every
+  change asks the gate before it reads, locks or records anything, so a refused one leaves
+  even the audit log as it was. Where the gate refuses, `status` answers what
+  `status_offline` answers, with a `read_only` warning, the status line writes neither
+  sessions nor readings, `doctor` fails its `elevated` check, and an app writes no file of
+  its own, since `app::write_file` takes a permit too.
 - No test starts the person's own login shell. A test names a shell of its own in `SHELL`,
   one that is not there, or hands in what a shell said.
 - A test never reaches the system's own scheduler. A test context schedules through

@@ -239,7 +239,11 @@ fn session_snapshot(
 /// accounts a person actually works in stop reading as unknown without anyone running
 /// `pitboard` by hand, and every session and the menu bar show the newest numbers any of
 /// them has seen. It still asks nobody anything: no network, no credential.
-pub fn read(ctx: &Context, input: &str) -> StatusLine {
+///
+/// Without a `permit`, which a run as root or under sudo is not given, it writes nothing:
+/// the session's last run is read and this one is not kept, and the readings are offered
+/// nothing. The line is drawn the same way from the files as they are.
+pub fn read(ctx: &Context, permit: Option<crate::service::Permit>, input: &str) -> StatusLine {
     let input: Value = serde_json::from_str(input).unwrap_or(Value::Null);
     let state = crate::state::load(ctx).unwrap_or_default();
     // Claude Code's own record of who is signed in, which is its config: a file, and so
@@ -253,10 +257,15 @@ pub fn read(ctx: &Context, input: &str) -> StatusLine {
     let before = input
         .get("session_id")
         .and_then(Value::as_str)
-        .and_then(|id| crate::sessions::exchange(ctx, id, &run));
+        .and_then(|id| match permit {
+            Some(permit) => crate::sessions::exchange(ctx, permit, id, &run),
+            None => crate::sessions::last(ctx, id),
+        });
     let offered = session_snapshot(&run, before.as_ref(), &state, &remembered, now);
-    if let (Some(uuid), Some(offered)) = (signed_in.as_deref(), offered.as_ref()) {
-        crate::readings::remember(ctx, &[(uuid.to_string(), offered.clone())]);
+    if let (Some(permit), Some(uuid), Some(offered)) =
+        (permit, signed_in.as_deref(), offered.as_ref())
+    {
+        crate::readings::remember(ctx, permit, &[(uuid.to_string(), offered.clone())]);
     }
     line(
         &state,
@@ -270,6 +279,7 @@ pub fn read(ctx: &Context, input: &str) -> StatusLine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::Permit;
     use crate::state::Account;
     use crate::time::{Clock, FixedClock};
     use crate::usage::{Source, Window};
@@ -407,7 +417,7 @@ mod tests {
     fn run(ctx: &Context, id: &str, input: &Value) -> StatusLine {
         let mut input = input.clone();
         input["session_id"] = json!(id);
-        read(ctx, &input.to_string())
+        read(ctx, Some(Permit::for_a_test()), &input.to_string())
     }
 
     /// Session `id` starting: its status line runs before it has had a response, with no
@@ -553,6 +563,7 @@ mod tests {
         let (ctx, _scratch) = machine("records");
         crate::readings::remember(
             &ctx,
+            Permit::for_a_test(),
             &[("work-uuid".into(), reading(22.0, 6.0, NOW - 60, NOW + 600))],
         );
         run(&ctx, "busy", &session(22.0, 6.0, NOW + 600));
@@ -577,7 +588,11 @@ mod tests {
         let mut answered = reading(22.0, 6.0, NOW - 60, NOW + 600);
         answered.windows[0].severity = Some("normal".into());
         answered.windows[0].is_active = true;
-        crate::readings::remember(&ctx, &[("work-uuid".into(), answered)]);
+        crate::readings::remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work-uuid".into(), answered)],
+        );
 
         open(&ctx, "pane");
         run(&ctx, "pane", &session(25.0, 70.0, NOW + 600));
@@ -604,11 +619,15 @@ mod tests {
     #[test]
     fn a_session_holding_the_account_before_a_switch_is_not_recorded_as_the_one_after() {
         let (ctx, _scratch) = machine("switched");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         let work = |five: f64, weekly: f64, observed_at: i64| {
             timed((five, NOW + 2 * HOUR), (weekly, NOW + 3 * DAY), observed_at)
         };
-        crate::readings::remember(&ctx, &[("work-uuid".into(), work(10.0, 30.0, NOW - 60))]);
+        crate::readings::remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work-uuid".into(), work(10.0, 30.0, NOW - 60))],
+        );
         let personals = passed((95.0, NOW + 4 * HOUR), (60.0, NOW + 5 * DAY));
         sign_in(&ctx, "personal");
         open(&ctx, "pane");
@@ -628,7 +647,11 @@ mod tests {
 
         let mut answered = work(12.0, 31.0, NOW);
         answered.source = Source::Live;
-        crate::readings::remember(&ctx, &[("work-uuid".into(), answered)]);
+        crate::readings::remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work-uuid".into(), answered)],
+        );
         assert_eq!(
             shares_of(&recorded(&ctx), NOW),
             shares(12.0, 31.0),
@@ -643,7 +666,7 @@ mod tests {
     fn a_session_holding_a_forgotten_accounts_numbers_is_not_recorded_as_the_one_in_use() {
         let (ctx, _scratch) = machine("forgotten");
         let mut accounts = state();
-        crate::state::save(&ctx, &accounts).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &accounts).expect("an account index");
         let personals = passed((95.0, NOW + 4 * HOUR), (60.0, NOW + 5 * DAY));
         sign_in(&ctx, "personal");
         open(&ctx, "pane");
@@ -653,15 +676,15 @@ mod tests {
             (30.0, NOW + 3 * DAY),
             NOW - 2 * HOUR,
         );
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
 
         accounts.accounts[0].last_used_at = Some(NOW - HOUR);
-        crate::state::save(&ctx, &accounts).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &accounts).expect("an account index");
         sign_in(&ctx, "work");
         run(&ctx, "pane", &personals);
         accounts.accounts.retain(|a| a.label != "personal");
-        crate::state::save(&ctx, &accounts).expect("an account index");
-        crate::readings::forget(&ctx, "personal-uuid");
+        crate::state::save(&ctx, Permit::for_a_test(), &accounts).expect("an account index");
+        crate::readings::forget(&ctx, Permit::for_a_test(), "personal-uuid");
 
         let idle = run(&ctx, "pane", &personals);
         assert_eq!(
@@ -671,7 +694,11 @@ mod tests {
         );
         let mut answered = timed((12.0, NOW + 2 * HOUR), (31.0, NOW + 3 * DAY), NOW);
         answered.source = Source::Live;
-        crate::readings::remember(&ctx, &[("work-uuid".into(), answered)]);
+        crate::readings::remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work-uuid".into(), answered)],
+        );
         assert_eq!(shares_of(&recorded(&ctx), NOW), shares(12.0, 31.0));
     }
 
@@ -681,9 +708,9 @@ mod tests {
     #[test]
     fn a_session_holding_an_unenrolled_accounts_numbers_is_not_recorded_after_a_login() {
         let (ctx, _scratch) = machine("unenrolled");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         let works = timed((10.0, NOW + 2 * HOUR), (30.0, NOW + 3 * DAY), NOW - 60);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
         let guests = passed((97.0, NOW + 4 * HOUR), (80.0, NOW + 6 * DAY));
         sign_in(&ctx, "guest");
         open(&ctx, "pane");
@@ -707,9 +734,9 @@ mod tests {
     #[test]
     fn a_session_seen_for_the_first_time_offers_nothing_until_its_next_response() {
         let (ctx, _scratch) = machine("first");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         let works = timed((10.0, NOW + 2 * HOUR), (30.0, NOW + 3 * DAY), NOW - 60);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
 
         let first = run(
             &ctx,
@@ -739,9 +766,9 @@ mod tests {
     #[test]
     fn what_a_session_passes_as_the_account_named_changes_is_not_recorded() {
         let (ctx, _scratch) = machine("changed");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         let works = timed((10.0, NOW + 2 * HOUR), (30.0, NOW + 3 * DAY), NOW - 60);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
         sign_in(&ctx, "personal");
         open(&ctx, "pane");
         run(
@@ -772,9 +799,9 @@ mod tests {
         let (ctx, _scratch) = machine("adopting");
         let mut switched = state();
         switched.accounts[0].last_used_at = Some(NOW - 10);
-        crate::state::save(&ctx, &switched).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &switched).expect("an account index");
         let works = timed((10.0, NOW + 2 * HOUR), (30.0, NOW + 3 * DAY), NOW - 60);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
         open(&ctx, "pane");
 
         let unread = passed((95.0, NOW + 4 * HOUR), (60.0, NOW + 5 * DAY));
@@ -788,7 +815,7 @@ mod tests {
 
         switched.accounts[0].last_used_at =
             Some(NOW - i64::from(crate::switch::ADOPTION_CEILING_SECONDS));
-        crate::state::save(&ctx, &switched).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &switched).expect("an account index");
         run(
             &ctx,
             "pane",
@@ -808,15 +835,15 @@ mod tests {
     fn nothing_is_recorded_in_the_second_the_account_is_put_to_use() {
         let (ctx, _scratch) = machine("same-second");
         let mut switched = state();
-        crate::state::save(&ctx, &switched).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &switched).expect("an account index");
         let works = timed((10.0, NOW + 2 * HOUR), (30.0, NOW + 3 * DAY), NOW - 60);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
         let personals = passed((95.0, NOW + 4 * HOUR), (60.0, NOW + 5 * DAY));
         sign_in(&ctx, "personal");
         run(&at(&ctx, NOW - 60), "pane", &personals);
 
         switched.accounts[0].last_used_at = Some(NOW);
-        crate::state::save(&ctx, &switched).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &switched).expect("an account index");
         sign_in(&ctx, "work");
         run(&ctx, "pane", &personals);
         run(
@@ -834,9 +861,9 @@ mod tests {
     #[test]
     fn a_response_from_the_account_before_a_login_is_known_by_its_windows() {
         let (ctx, _scratch) = machine("login");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         let works = timed((10.0, NOW + 2 * HOUR), (30.0, NOW + 3 * DAY), NOW - 60);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
         sign_in(&ctx, "personal");
         open(&ctx, "pane");
         let personals = passed((95.0, NOW + 4 * HOUR), (60.0, NOW + 5 * DAY));
@@ -858,7 +885,7 @@ mod tests {
     #[test]
     fn a_window_past_its_reset_is_not_recorded() {
         let (ctx, _scratch) = machine("passed");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         open(&ctx, "pane");
         run(
             &ctx,
@@ -878,9 +905,9 @@ mod tests {
     #[test]
     fn a_window_that_resets_stays_in_the_reading_with_nothing_used() {
         let (ctx, _scratch) = machine("reset");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         let works = timed((40.0, NOW - 10), (30.0, NOW + 3 * DAY), NOW - HOUR);
-        crate::readings::remember(&ctx, &[("work-uuid".into(), works)]);
+        crate::readings::remember(&ctx, Permit::for_a_test(), &[("work-uuid".into(), works)]);
         let floor = crate::budget::floor_for(Some(&recorded(&ctx)));
         run(
             &at(&ctx, NOW - 60),
@@ -913,9 +940,10 @@ mod tests {
     #[test]
     fn a_session_still_records_its_own_accounts_next_window() {
         let (ctx, _scratch) = machine("next");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         crate::readings::remember(
             &ctx,
+            Permit::for_a_test(),
             &[
                 (
                     "work-uuid".into(),
@@ -946,9 +974,10 @@ mod tests {
     #[test]
     fn a_window_both_accounts_have_is_still_offered() {
         let (ctx, _scratch) = machine("coincident");
-        crate::state::save(&ctx, &state()).expect("an account index");
+        crate::state::save(&ctx, Permit::for_a_test(), &state()).expect("an account index");
         crate::readings::remember(
             &ctx,
+            Permit::for_a_test(),
             &[
                 (
                     "work-uuid".into(),

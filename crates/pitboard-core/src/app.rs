@@ -16,6 +16,7 @@ use crate::context::{Context, Environment};
 use crate::error::{Error, Result};
 use crate::host::{self, LoginPath, OS};
 use crate::provider::ProviderId;
+use crate::service::Permit;
 use crate::{atomic, home};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -238,24 +239,28 @@ pub fn read_file(path: &Path) -> std::io::Result<Option<String>> {
 /// file written whole or not at all, private to its owner. For what an app keeps of its own
 /// that is the app's whichever Pitboard directory it serves, such as the account windows'
 /// records, which belong with the app's web stores.
-pub fn write_file(path: &Path, body: &str) -> std::io::Result<()> {
+///
+/// It takes the [`Permit`] only the one gate every change passes makes, which an app asks for
+/// with [`crate::service::Pitboard::permit`], so an app writes nothing of its own either where
+/// it runs as root or under sudo.
+pub fn write_file(permit: Permit, path: &Path, body: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
-        host::fs::create_private_dir(dir)?;
+        host::fs::create_private_dir(permit, dir)?;
     }
-    atomic::write(path, body.as_bytes(), atomic::Perms::Secret)
+    atomic::write(permit, path, body.as_bytes(), atomic::Perms::Secret)
 }
 
 /// Keeps `body` in `file`, as the core writes its own: Pitboard's directory made private
 /// first where it is not there yet, and the file written whole or not at all, private to its
 /// owner.
-pub fn write_app_file(ctx: &Context, file: AppFile, body: &str) -> Result<()> {
+pub fn write_app_file(ctx: &Context, permit: Permit, file: AppFile, body: &str) -> Result<()> {
     let path = home::dir(ctx).join(file.name());
     let unwritable = |source| Error::HomeUnwritable {
         path: path.clone(),
         source,
     };
-    home::ensure(ctx).map_err(unwritable)?;
-    atomic::write(&path, body.as_bytes(), atomic::Perms::Secret).map_err(unwritable)
+    home::ensure(ctx, permit).map_err(unwritable)?;
+    atomic::write(permit, &path, body.as_bytes(), atomic::Perms::Secret).map_err(unwritable)
 }
 
 #[cfg(test)]
@@ -692,13 +697,19 @@ mod tests {
         let read = |file| read_app_file(&ctx, file).expect("read");
         assert_eq!(read(AppFile::Told), None);
 
-        write_app_file(&ctx, AppFile::Told, r#"{"claude/work/session/":7200}"#).expect("kept");
-        write_app_file(&ctx, AppFile::Preferences, "{}").expect("kept");
+        write_app_file(
+            &ctx,
+            Permit::for_a_test(),
+            AppFile::Told,
+            r#"{"claude/work/session/":7200}"#,
+        )
+        .expect("kept");
+        write_app_file(&ctx, Permit::for_a_test(), AppFile::Preferences, "{}").expect("kept");
         assert_eq!(
             read(AppFile::Told).as_deref(),
             Some(r#"{"claude/work/session/":7200}"#)
         );
-        write_app_file(&ctx, AppFile::Told, "{}").expect("kept again");
+        write_app_file(&ctx, Permit::for_a_test(), AppFile::Told, "{}").expect("kept again");
         assert_eq!(read(AppFile::Told).as_deref(), Some("{}"));
         assert_eq!(read(AppFile::Preferences).as_deref(), Some("{}"));
         #[cfg(unix)]
@@ -743,8 +754,8 @@ mod tests {
             .join("app")
             .join("windows.json");
         assert_eq!(read_file(&file).expect("read"), None);
-        write_file(&file, "{}").expect("kept");
-        write_file(&file, r#"{"stores":{}}"#).expect("kept again");
+        write_file(Permit::for_a_test(), &file, "{}").expect("kept");
+        write_file(Permit::for_a_test(), &file, r#"{"stores":{}}"#).expect("kept again");
         assert_eq!(
             read_file(&file).expect("read").as_deref(),
             Some(r#"{"stores":{}}"#)

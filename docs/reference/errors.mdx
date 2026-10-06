@@ -120,6 +120,12 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 | `schedule_program_temporary` | 1 | The app only: it runs from a temporary copy macOS made, which is gone once the app quits. | Move Pitboard to your Applications folder, open it from there, and turn on daily renewal again. |
 | `schedule_program_unnamed` | 1 | The app only: this copy has no command line inside it for the schedule to run. | Install the app with Homebrew or from a release download, as [Install Pitboard](/install) describes, then open that copy. |
 
+## Root and sudo
+
+| Code | Exit | Meaning | What to do |
+| --- | --- | --- | --- |
+| `elevated` | 1 | Pitboard runs as root or with `sudo`, which it tells by `SUDO_UID` being set, or cannot tell whether it does, so it changed nothing. A file it made as root would belong to root, and a keychain item might too. | Run the command as yourself, without `sudo`. See [Pitboard changes nothing as root](/troubleshooting#pitboard-changes-nothing-as-root). |
+
 ## Command output
 
 | Code | Exit | Meaning | What to do |
@@ -159,6 +165,7 @@ A warning does not stop the command. The Pitboard window shows it in the notice 
 | `written_on_the_command_line` | **A login was passed on the command line** | On macOS, a login too large for `security` to read from standard input went on its argument line. See [Large logins on macOS](/security#large-logins-on-macos). |
 | `sign_in_parked_not_in_use` | **The new login was parked, not put in use** | After you signed in again, Pitboard could not tell whose login the tool has in use, so it parked the new one. See [Sign in to an account again](/guides/sign-in-again#if-pitboard-cannot-tell-whose-login-is-in-use). |
 | `recovery_undetermined` | **An interrupted switch is waiting** | From `status`, from `status --offline` unless only Anthropic can tell, and in the app from each read: an earlier switch was interrupted, and every change stops at it with the same message until it can be finished. The read changes nothing. The notice has a **Give Up** button. See [Interrupted switches](#interrupted-switches). |
+| `read_only` | **Pitboard has a warning** | From `status`, and in the app from each read, where Pitboard runs as root or with `sudo`. The read shows what Pitboard last measured, as `status --offline` does, and renews and writes nothing. See [Root and sudo](#root-and-sudo). |
 | An error code, such as `config_write_failed` or `renewal_failed` | **Pitboard has a warning** | That error happened without stopping the command. See the code's row earlier. |
 
 `label_unusable` appears only in `pitboard log`, where it records a label refused with `usage`.

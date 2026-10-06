@@ -9,6 +9,7 @@ use crate::provider::{
     Adoption, Credential, Expiry, Identity, Isolation, LiveStore, ParkSemantics, Provider,
     ProviderError, ProviderId, SignInView, jwt,
 };
+use crate::service::Permit;
 use crate::store::{self, Live};
 use crate::usage::Snapshot;
 use serde_json::Value;
@@ -131,14 +132,19 @@ impl Provider for Codex {
     /// Codex matches on the field being present at all: without it, a login it would
     /// otherwise accept reads as "Token data is not available". It is an RFC 3339 string,
     /// not a number of milliseconds.
-    fn renew(&self, ctx: &Context, credential: &Credential) -> Result<Credential, ProviderError> {
+    fn renew(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        credential: &Credential,
+    ) -> Result<Credential, ProviderError> {
         let refresh = credential.raw["tokens"]["refresh_token"]
             .as_str()
             .ok_or_else(|| ProviderError::ShapeUnexpected {
                 provider: ProviderId::Codex,
                 detail: "it has no tokens.refresh_token".into(),
             })?;
-        let fresh = api::renew(ctx, refresh)?;
+        let fresh = api::renew(ctx, permit, refresh)?;
         let mut next = credential.raw.clone();
         let tokens =
             next["tokens"]
@@ -194,6 +200,7 @@ impl Provider for Codex {
     fn after_switch(
         &self,
         _ctx: &Context,
+        _: Permit,
         _incoming: &crate::state::Account,
         _outgoing: &Identity,
     ) -> Result<(), crate::error::Error> {
@@ -215,8 +222,13 @@ impl Provider for Codex {
     /// Started from inside the directory, because Codex also reads `.codex/config.toml`
     /// from a trusted project it is started in, and a project that set a keyring store
     /// would send the new login somewhere this could not read back.
-    fn sign_in(&self, ctx: &Context, dir: &std::path::Path) -> std::process::Command {
-        let mut command = crate::provider::command(ctx, ProviderId::Codex);
+    fn sign_in(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        dir: &std::path::Path,
+    ) -> std::process::Command {
+        let mut command = crate::provider::command(ctx, permit, ProviderId::Codex);
         command.arg("login").env("CODEX_HOME", dir).current_dir(dir);
         command
     }
@@ -233,7 +245,7 @@ impl Provider for Codex {
     }
 
     /// Everything a sign-in writes goes inside its home, so the directory is all there is.
-    fn discard_signin(&self, _ctx: &Context, _dir: &std::path::Path) {}
+    fn discard_signin(&self, _ctx: &Context, _: Permit, _dir: &std::path::Path) {}
 
     /// Read from 0.160.0. `codex login` prints to stderr where its loopback server listens,
     /// `http://localhost:<port>`, and then, bare on a line of its own, the `https` address
@@ -508,7 +520,7 @@ mod tests {
         let dir = std::path::Path::new("/tmp/pitboard-signin-scratch");
         let ctx = Context::new(std::path::PathBuf::from("/nowhere"))
             .with_codex_program(std::path::PathBuf::from("/opt/codex/bin/codex"));
-        let command = Codex.sign_in(&ctx, dir);
+        let command = Codex.sign_in(&ctx, Permit::for_a_test(), dir);
         assert_eq!(command.get_program(), "/opt/codex/bin/codex");
         assert_eq!(command.get_args().collect::<Vec<_>>(), ["login"]);
         assert_eq!(command.get_current_dir(), Some(dir));

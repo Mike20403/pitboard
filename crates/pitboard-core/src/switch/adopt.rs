@@ -22,6 +22,7 @@
 use super::{exclusive, purge};
 use crate::context::Context;
 use crate::error::Result;
+use crate::service::Permit;
 use crate::{audit, state};
 
 /// What taking over found.
@@ -36,8 +37,8 @@ pub struct Adopted {
 
 /// Take over this Pitboard directory. `None` when it was already this machine's, which is
 /// the ordinary case and not an error: running it when there is nothing to do says so.
-pub fn adopt(ctx: &Context) -> Result<Option<Adopted>> {
-    let _exclusive = exclusive(ctx)?;
+pub fn adopt(ctx: &Context, permit: Permit) -> Result<Option<Adopted>> {
+    let _exclusive = exclusive(ctx, permit)?;
     let (mut state, here) = state::load_any_machine(ctx)?;
     if here {
         return Ok(None);
@@ -62,10 +63,10 @@ pub fn adopt(ctx: &Context) -> Result<Option<Adopted>> {
     state.active.clear();
     state.slot.clear();
     state.machine = state::machine_id();
-    state::save(ctx, &state)?;
-    purge(ctx, &mut state);
+    state::save(ctx, permit, &state)?;
+    purge(ctx, permit, &mut state);
 
-    audit::record(ctx, "adopt", "", "ok");
+    audit::record(ctx, permit, "adopt", "", "ok");
     Ok(Some(Adopted {
         accounts,
         logins_dropped,
@@ -103,7 +104,7 @@ mod tests {
             .with_pitboard_home(root.clone())
             .with_memory_stores(Arc::clone(&mem))
             .with_clock(Arc::new(FixedClock::at(NOW)) as Arc<dyn Clock>);
-        crate::home::ensure(&ctx).expect("a home");
+        crate::home::ensure(&ctx, Permit::for_a_test()).expect("a home");
         (ctx, mem, Scratch(root))
     }
 
@@ -159,7 +160,7 @@ mod tests {
             "every other command still refuses it"
         );
 
-        let adopted = adopt(&ctx)
+        let adopted = adopt(&ctx, Permit::for_a_test())
             .expect("adopting")
             .expect("there was work to do");
         assert_eq!(adopted.accounts, vec!["work".to_string()]);
@@ -203,9 +204,9 @@ mod tests {
             },
             parked: None,
         });
-        state::save(&ctx, &state).expect("saved");
+        state::save(&ctx, Permit::for_a_test(), &state).expect("saved");
 
-        assert_eq!(adopt(&ctx).expect("adopting"), None);
+        assert_eq!(adopt(&ctx, Permit::for_a_test()).expect("adopting"), None);
         assert_eq!(
             state::load(&ctx).expect("still readable").accounts.len(),
             1,
@@ -216,6 +217,6 @@ mod tests {
     #[test]
     fn adopting_an_empty_home_is_not_an_error() {
         let (ctx, _mem, _scratch) = machine("empty");
-        assert_eq!(adopt(&ctx).expect("adopting"), None);
+        assert_eq!(adopt(&ctx, Permit::for_a_test()).expect("adopting"), None);
     }
 }

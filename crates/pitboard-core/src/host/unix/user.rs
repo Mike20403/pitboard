@@ -1,5 +1,6 @@
 //! The person signed in, the POSIX way.
 
+use crate::host::Elevation;
 use std::ffi::{CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -24,6 +25,26 @@ pub(crate) fn home() -> Option<PathBuf> {
 /// environment names none.
 pub(crate) fn login_shell() -> Option<PathBuf> {
     entry(|passwd| path(passwd, passwd.pw_shell))
+}
+
+/// Whether this process runs as the person themselves: not under sudo, which says so in
+/// `SUDO_UID` (`sudo`, as the context read it from the environment this process was
+/// started with), and not as root, an effective user id of 0. Under sudo first, since
+/// `sudo pitboard` is both and "with sudo" says what to stop doing. POSIX always answers
+/// both, so this is never unknown.
+pub(crate) fn elevation(sudo: bool) -> Elevation {
+    // SAFETY: `geteuid` cannot fail and touches no memory of this process.
+    let root = unsafe { libc::geteuid() } == 0;
+    elevation_of(sudo, root)
+}
+
+/// What [`elevation`] answers for each way this process can have been started.
+fn elevation_of(sudo: bool, root: bool) -> Elevation {
+    match (sudo, root) {
+        (true, _) => Elevation::Elevated { why: "with sudo" },
+        (false, true) => Elevation::Elevated { why: "as root" },
+        (false, false) => Elevation::Normal,
+    }
 }
 
 /// What `read` takes from this user's passwd entry, while the buffer its strings live in is
@@ -168,6 +189,45 @@ mod tests {
             "{:?}",
             home()
         );
+    }
+
+    /// Under sudo is said before root, since `sudo pitboard` is both and the way out is to
+    /// leave sudo off; root alone is said as root; and only neither is the person.
+    #[test]
+    fn sudo_is_said_before_root_and_only_neither_is_the_person() {
+        assert_eq!(
+            elevation_of(true, true),
+            Elevation::Elevated { why: "with sudo" }
+        );
+        assert_eq!(
+            elevation_of(true, false),
+            Elevation::Elevated { why: "with sudo" },
+            "sudo -u someone else"
+        );
+        assert_eq!(
+            elevation_of(false, true),
+            Elevation::Elevated { why: "as root" }
+        );
+        assert_eq!(elevation_of(false, false), Elevation::Normal);
+    }
+
+    /// Root is read from the effective user id, which is checked here against what the
+    /// system says another way: the owner of a file this process makes, which POSIX sets to
+    /// the effective user id. Run as root, as in a container whose only user is root, this
+    /// tells an `elevation` that reads the id from one that ignores it. The tests run as a
+    /// person, never as root, and there both say the person, so this cannot catch a read
+    /// that is missing; `sudo_is_said_before_root_and_only_neither_is_the_person` checks
+    /// what each answer says.
+    #[test]
+    fn root_is_read_from_the_effective_user_id() {
+        use std::os::unix::fs::MetadataExt;
+        let made = std::env::temp_dir().join(format!("pitboard-euid-{}", std::process::id()));
+        std::fs::write(&made, b"").expect("a file of this process's own");
+        let owner = std::fs::metadata(&made).map(|made| made.uid());
+        let _ = std::fs::remove_file(&made);
+        let root = owner.expect("the file this process made") == 0;
+        assert_eq!(elevation(false), elevation_of(false, root));
+        assert_eq!(elevation(true), Elevation::Elevated { why: "with sudo" });
     }
 
     /// And a shell named from the root, which is what is asked for `PATH` when the

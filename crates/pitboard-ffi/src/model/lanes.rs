@@ -617,8 +617,9 @@ impl Worker {
                 if let Some(file) = &self.windows
                     && let Some(text) =
                         records::kept(&file.read(), &file.key, file.earlier.as_ref(), &entry)
+                    && let Ok(permit) = core.permit()
                 {
-                    let _ = pitboard_core::app::write_file(&file.path, &text);
+                    let _ = pitboard_core::app::write_file(permit, &file.path, &text);
                 }
                 Answer::WindowsKept { write }
             }

@@ -94,6 +94,9 @@ pub struct Facts {
     pub claude_present: bool,
     /// The daily renewal schedule, where this home has one installed.
     pub schedule: Option<ScheduleFact>,
+    /// Whether this process runs as the person themselves, as the host says, which is what
+    /// the gate every change passes asks.
+    pub elevation: crate::host::Elevation,
     pub now: i64,
 }
 
@@ -292,6 +295,7 @@ pub fn gather(ctx: &Context) -> Facts {
         interrupted: switch::interrupted(ctx),
         service,
         schedule: schedule_fact(ctx),
+        elevation: ctx.host().elevation(ctx),
         now: ctx.now(),
     }
 }
@@ -497,6 +501,26 @@ fn running_codex(ctx: &Context) -> Option<Vec<crate::holder::Holding>> {
     }
 }
 
+/// The check that fails where this process runs as root or under sudo, or nobody could
+/// tell whether it does, since then Pitboard changes nothing: `None` where it runs as the
+/// person themselves.
+fn elevated(elevation: crate::host::Elevation) -> Option<Check> {
+    let detail = match elevation {
+        crate::host::Elevation::Normal => return None,
+        crate::host::Elevation::Elevated { why } => format!("Pitboard runs {why}"),
+        crate::host::Elevation::Unknown => {
+            "Pitboard cannot tell whether it runs as root or with sudo".to_string()
+        }
+    };
+    Some(fail(
+        "elevated",
+        "runs as",
+        detail,
+        "Pitboard changes nothing this way: it reads, and renews and writes nothing. Run it \
+         as yourself.",
+    ))
+}
+
 fn ok(code: &'static str, name: impl Into<String>, detail: impl Into<String>) -> Check {
     Check {
         code,
@@ -542,6 +566,12 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
     // that uses only Codex is not told to run a program it does not use.
     let codex_here = facts.codex.present || facts.codex.enrolled > 0;
     let claude_here = facts.claude_present || !codex_here;
+
+    // First, because it is why every change here is refused, whatever else holds. Said only
+    // where it fails: a person running Pitboard as themselves has nothing to read about it.
+    if let Some(check) = elevated(facts.elevation) {
+        checks.push(check);
+    }
 
     if let Some(tool) = facts.os.secrets_tool() {
         checks.push(match &facts.security_tool {
@@ -1647,6 +1677,7 @@ pub fn healthy(checks: &[Check]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::Permit;
 
     /// What a mode looks like as access, the way a Unix system describes one.
     fn mode(mode: u32) -> Access {
@@ -1703,6 +1734,7 @@ mod tests {
             codex: no_codex(),
             claude_present: true,
             schedule: None,
+            elevation: crate::host::Elevation::Normal,
             now: NOW,
         }
     }
@@ -1813,7 +1845,7 @@ mod tests {
 
         let ctx = Context::new(root.clone()).with_pitboard_home(root.join(".pitboard"));
         let vault = store::vault_dir(&ctx);
-        crate::host::fs::create_private_dir(&vault).expect("a vault");
+        crate::host::fs::create_private_dir(Permit::for_a_test(), &vault).expect("a vault");
         assert!(
             loose_logins(&ctx).is_empty(),
             "a private vault is not loose"
@@ -2205,7 +2237,7 @@ mod tests {
 
         std::fs::create_dir_all(root.join("bin")).expect("a bin");
         std::fs::write(&program, "").expect("a Pitboard");
-        crate::schedule::install(&ctx).expect("installed");
+        crate::schedule::install(&ctx, Permit::for_a_test()).expect("installed");
         let fact = schedule_fact(&ctx).expect("installed");
         assert_eq!(fact.program.as_deref(), Some(program.as_path()));
         assert!(fact.program_found);
@@ -2521,7 +2553,13 @@ mod tests {
                 "account_id": "work-acc",
             },
         });
-        store::write_raw(&live.chain, &live.service, &login.to_string()).expect("a login");
+        store::write_raw(
+            &live.chain,
+            Permit::for_a_test(),
+            &live.service,
+            &login.to_string(),
+        )
+        .expect("a login");
         assert_eq!(active(&park_facts(&ctx, &state)), ["alpha", "codex/work"]);
     }
 

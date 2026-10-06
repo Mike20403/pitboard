@@ -79,7 +79,7 @@ pub mod testing {
     pub use crate::provider::claude::paths::live_service;
     pub use crate::provider::claude::slot::{LIVE_SERVICE, dir_hash, service_for_dir};
     pub use crate::store::memory::{Fault, MemoryStore};
-    pub use crate::store::{vault_delete, vault_read, vault_write};
+    pub use crate::store::vault_read;
     pub use crate::switch::{ScriptedSignIn, SignInScript};
     pub use crate::time::{Clock, FixedClock};
 
@@ -89,15 +89,33 @@ pub mod testing {
         crate::context::variables()
     }
 
+    /// Parks `contents` under `service` in this context's vault, as a change does, once the
+    /// gate every change passes has let it: a test that runs as root is refused here too.
+    pub fn vault_write(
+        ctx: &crate::context::Context,
+        service: &str,
+        contents: &str,
+    ) -> crate::error::Result<()> {
+        let permit = crate::service::gate(ctx)?;
+        Ok(crate::store::vault_write(ctx, permit, service, contents)?)
+    }
+
+    /// Deletes what is parked under `service`, once the gate has let it.
+    pub fn vault_delete(ctx: &crate::context::Context, service: &str) -> crate::error::Result<()> {
+        let permit = crate::service::gate(ctx)?;
+        Ok(crate::store::vault_delete(ctx, permit, service)?)
+    }
+
     /// A sign-in to `which`'s tool that finished with `document`, the login the tool would
     /// have stored, as JSON, and never ran the tool: what enrolling a second account by
-    /// signing in privately needs, in a test that may run no tool.
+    /// signing in privately needs, in a test that may run no tool. Made once the gate has let
+    /// it, as every sign-in is.
     pub fn signed_in(
         ctx: &crate::context::Context,
         which: crate::provider::ProviderId,
         document: &str,
     ) -> crate::error::Result<crate::switch::SignIn> {
         let document = serde_json::from_str(document).expect("a login a test wrote as JSON");
-        crate::switch::planted(ctx, which, document)
+        crate::switch::planted(ctx, crate::service::gate(ctx)?, which, document)
     }
 }

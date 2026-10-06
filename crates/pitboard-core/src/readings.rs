@@ -12,6 +12,7 @@
 //! secret.
 
 use crate::context::Context;
+use crate::service::Permit;
 use crate::usage::{Snapshot, Source};
 use crate::{atomic, home};
 use std::collections::HashMap;
@@ -51,11 +52,11 @@ pub fn changed_at(ctx: &Context) -> i64 {
 
 /// Drop what was remembered for an account that is no longer enrolled. Nothing here is
 /// secret, but an account someone has dropped should leave no trace behind either.
-pub fn forget(ctx: &Context, account_uuid: &str) {
+pub fn forget(ctx: &Context, permit: Permit, account_uuid: &str) {
     if !load(ctx).contains_key(account_uuid) {
         return;
     }
-    let Some(_held) = exclusive(ctx) else {
+    let Some(_held) = exclusive(ctx, permit) else {
         return;
     };
     let mut all = load(ctx);
@@ -63,7 +64,7 @@ pub fn forget(ctx: &Context, account_uuid: &str) {
         return;
     }
     if let Ok(body) = serde_json::to_string(&all) {
-        let _ = atomic::write(&path(ctx), body.as_bytes(), atomic::Perms::Secret);
+        let _ = atomic::write(permit, &path(ctx), body.as_bytes(), atomic::Perms::Secret);
     }
 }
 
@@ -75,18 +76,18 @@ pub fn forget(ctx: &Context, account_uuid: &str) {
 /// often as every second, and mostly offers what is already here. A change is made under a
 /// lock, to what is here once the lock is held, so two front ends writing at once cannot
 /// each write back the other's older copy.
-pub fn remember(ctx: &Context, readings: &[(String, Snapshot)]) {
+pub fn remember(ctx: &Context, permit: Permit, readings: &[(String, Snapshot)]) {
     if readings.is_empty() || !fold(&mut load(ctx), readings, ctx.now()) {
         return;
     }
-    let Some(_held) = exclusive(ctx) else {
+    let Some(_held) = exclusive(ctx, permit) else {
         return;
     };
     let mut all = load(ctx);
     if fold(&mut all, readings, ctx.now())
         && let Ok(body) = serde_json::to_string(&all)
     {
-        let _ = atomic::write(&path(ctx), body.as_bytes(), atomic::Perms::Secret);
+        let _ = atomic::write(permit, &path(ctx), body.as_bytes(), atomic::Perms::Secret);
     }
 }
 
@@ -111,9 +112,10 @@ fn fold(all: &mut HashMap<String, Snapshot>, readings: &[(String, Snapshot)], no
 /// Held while a change is written, here or to what sessions passed their status line. A
 /// kernel lock, which the system lets go of when the process ends, and apart from the one
 /// around switches: a status line must never wait on a switch.
-pub(crate) fn exclusive(ctx: &Context) -> Option<std::fs::File> {
-    home::ensure(ctx).ok()?;
+pub(crate) fn exclusive(ctx: &Context, permit: Permit) -> Option<std::fs::File> {
+    home::ensure(ctx, permit).ok()?;
     let file = crate::host::fs::private(
+        permit,
         std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -152,7 +154,7 @@ mod tests {
         let ctx = Context::new(root.clone())
             .with_pitboard_home(root.clone())
             .with_clock(Arc::new(FixedClock::at(NOW)) as Arc<dyn Clock>);
-        home::ensure(&ctx).expect("a home");
+        home::ensure(&ctx, Permit::for_a_test()).expect("a home");
         (ctx, Scratch(root))
     }
 
@@ -194,13 +196,22 @@ mod tests {
         let (ctx, _scratch) = machine("backwards");
         remember(
             &ctx,
+            Permit::for_a_test(),
             &[("work".into(), reading("session", 22.0, Some(NOW - 60)))],
         );
-        remember(&ctx, &[("work".into(), reading("five_hour", 20.0, None))]);
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work".into(), reading("five_hour", 20.0, None))],
+        );
         assert_eq!(five_hour(&ctx, "work"), Some(22.0));
         assert_eq!(load(&ctx)["work"].observed_at, Some(NOW - 60));
 
-        remember(&ctx, &[("work".into(), reading("five_hour", 25.0, None))]);
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work".into(), reading("five_hour", 25.0, None))],
+        );
         assert_eq!(
             five_hour(&ctx, "work"),
             Some(25.0),
@@ -216,6 +227,7 @@ mod tests {
         let (ctx, _scratch) = machine("unchanged");
         remember(
             &ctx,
+            Permit::for_a_test(),
             &[
                 ("work".into(), reading("session", 22.0, Some(NOW - 60))),
                 ("personal".into(), reading("session", 3.0, Some(NOW - 60))),
@@ -223,8 +235,16 @@ mod tests {
         );
         let laid_out = laid_out(&ctx);
 
-        remember(&ctx, &[("work".into(), reading("five_hour", 20.0, None))]);
-        remember(&ctx, &[("work".into(), reading("five_hour", 22.0, None))]);
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work".into(), reading("five_hour", 20.0, None))],
+        );
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work".into(), reading("five_hour", 22.0, None))],
+        );
         assert_eq!(std::fs::read_to_string(path(&ctx)).unwrap(), laid_out);
     }
 
@@ -238,22 +258,32 @@ mod tests {
         let weekly = |ctx: &Context| load(ctx)["work"].windows[0].percent;
         remember(
             &ctx,
+            Permit::for_a_test(),
             &[(
                 "work".into(),
                 reading("weekly_all", 100.0, Some(NOW - 3_600)),
             )],
         );
 
-        remember(&ctx, &[("work".into(), reading("seven_day", 14.0, None))]);
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work".into(), reading("seven_day", 14.0, None))],
+        );
         assert_eq!(weekly(&ctx), 100.0, "a session says no time");
 
         remember(
             &ctx,
+            Permit::for_a_test(),
             &[("work".into(), reading("weekly_all", 14.0, Some(NOW)))],
         );
         assert_eq!(weekly(&ctx), 14.0);
 
-        remember(&ctx, &[("work".into(), reading("seven_day", 15.0, None))]);
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("work".into(), reading("seven_day", 15.0, None))],
+        );
         assert_eq!(weekly(&ctx), 15.0);
     }
 
@@ -265,15 +295,19 @@ mod tests {
         let (ctx, _scratch) = machine("reset");
         let mut full = reading("session", 100.0, Some(NOW - 7_200));
         full.windows[0].resets_at = Some(NOW - 3_600);
-        remember(&ctx, &[("parked".into(), full)]);
+        remember(&ctx, Permit::for_a_test(), &[("parked".into(), full)]);
 
         let mut idle = reading("session", 0.0, Some(NOW));
         idle.windows[0].resets_at = None;
-        remember(&ctx, &[("parked".into(), idle.clone())]);
+        remember(
+            &ctx,
+            Permit::for_a_test(),
+            &[("parked".into(), idle.clone())],
+        );
         assert_eq!(five_hour(&ctx, "parked"), Some(0.0));
 
         let laid_out = laid_out(&ctx);
-        remember(&ctx, &[("parked".into(), idle)]);
+        remember(&ctx, Permit::for_a_test(), &[("parked".into(), idle)]);
         assert_eq!(std::fs::read_to_string(path(&ctx)).unwrap(), laid_out);
     }
 }

@@ -4,6 +4,7 @@
 use crate::context::Context;
 use crate::error::{Error, Result};
 use crate::provider::ProviderId;
+use crate::service::Permit;
 use crate::state::{Key, Park, State};
 use crate::store;
 use serde_json::Value;
@@ -31,7 +32,7 @@ pub fn parts_of(service: &str) -> Option<(String, i64)> {
 
 /// Claim a free name before writing to it, so the caller can record it first and recovery
 /// can find a park left by a run that died. Reusing a name would destroy the park there.
-pub fn reserve(ctx: &Context, account_uuid: &str) -> Result<String> {
+pub fn reserve(ctx: &Context, permit: Permit, account_uuid: &str) -> Result<String> {
     let start = ctx.now_millis();
     for offset in 0..1_000 {
         let candidate = service_name(account_uuid, start + offset);
@@ -39,7 +40,7 @@ pub fn reserve(ctx: &Context, account_uuid: &str) -> Result<String> {
             // Written down before anything is written into it, so a run killed between the
             // two leaves a name the next command can resolve rather than a login nothing
             // on the machine can see.
-            crate::pending::reserve(ctx, &candidate)?;
+            crate::pending::reserve(ctx, permit, &candidate)?;
             return Ok(candidate);
         }
     }
@@ -84,6 +85,7 @@ pub fn price(
 /// Write a login into a reserved name and prove it reads back.
 pub fn store_at(
     ctx: &Context,
+    permit: Permit,
     provider: ProviderId,
     service: &str,
     document: &Value,
@@ -96,7 +98,7 @@ pub fn store_at(
         });
     }
     let body = serde_json::to_string(document).expect("a credential slice is always serialisable");
-    store::vault_write(ctx, service, &body)?;
+    store::vault_write(ctx, permit, service, &body)?;
     Ok(park)
 }
 
@@ -196,10 +198,10 @@ pub fn live_twins(ctx: &Context, state: &State) -> Vec<String> {
 
 /// Delete every discarded item, keeping listed only those that resisted. Returns how many
 /// remain.
-pub fn purge(ctx: &Context, state: &mut State) -> usize {
+pub fn purge(ctx: &Context, permit: Permit, state: &mut State) -> usize {
     state
         .discarded
-        .retain(|service| store::vault_delete(ctx, service).is_err());
+        .retain(|service| store::vault_delete(ctx, permit, service).is_err());
     state.discarded.len()
 }
 
@@ -257,8 +259,15 @@ mod tests {
     #[test]
     fn a_parked_login_reads_back_through_its_fingerprint() {
         let (ctx, mem, _scratch) = machine();
-        let name = reserve(&ctx, "acc").expect("a free name");
-        let park = store_at(&ctx, ProviderId::Claude, &name, &oauth("r")).expect("stored");
+        let name = reserve(&ctx, Permit::for_a_test(), "acc").expect("a free name");
+        let park = store_at(
+            &ctx,
+            Permit::for_a_test(),
+            ProviderId::Claude,
+            &name,
+            &oauth("r"),
+        )
+        .expect("stored");
 
         assert_eq!(mem.vault().services(), vec![name.clone()]);
         assert_eq!(load(&ctx, &work(), &park).expect("loads"), oauth("r"));
@@ -270,8 +279,15 @@ mod tests {
     #[test]
     fn a_park_that_vanished_and_one_that_cannot_be_read_are_different_answers() {
         let (ctx, mem, _scratch) = machine();
-        let name = reserve(&ctx, "acc").expect("a free name");
-        let park = store_at(&ctx, ProviderId::Claude, &name, &oauth("r")).expect("stored");
+        let name = reserve(&ctx, Permit::for_a_test(), "acc").expect("a free name");
+        let park = store_at(
+            &ctx,
+            Permit::for_a_test(),
+            ProviderId::Claude,
+            &name,
+            &oauth("r"),
+        )
+        .expect("stored");
 
         mem.vault().fault(&name, Fault::Vanish);
         assert!(matches!(
@@ -295,9 +311,9 @@ mod tests {
     #[test]
     fn a_reserved_name_steps_past_one_that_is_taken() {
         let (ctx, mem, _scratch) = machine();
-        let first = reserve(&ctx, "acc").expect("a free name");
+        let first = reserve(&ctx, Permit::for_a_test(), "acc").expect("a free name");
         mem.vault().plant(&first, "{}");
-        let second = reserve(&ctx, "acc").expect("another free name");
+        let second = reserve(&ctx, Permit::for_a_test(), "acc").expect("another free name");
         assert_ne!(first, second, "the clock has not moved, so the name must");
     }
 
@@ -306,10 +322,11 @@ mod tests {
     #[test]
     fn a_login_with_no_refresh_token_is_never_parked() {
         let (ctx, mem, _scratch) = machine();
-        let name = reserve(&ctx, "acc").expect("a free name");
+        let name = reserve(&ctx, Permit::for_a_test(), "acc").expect("a free name");
         assert!(matches!(
             store_at(
                 &ctx,
+                Permit::for_a_test(),
                 ProviderId::Claude,
                 &name,
                 &json!({"accessToken": "a"})
@@ -359,6 +376,7 @@ mod tests {
     fn a_credential_with_no_refresh_token_is_refused_rather_than_parked() {
         let refused = store_at(
             &Context::for_unit_test(),
+            Permit::for_a_test(),
             ProviderId::Claude,
             "pitboard-park-test-no-refresh",
             &serde_json::json!({"accessToken": "a"}),

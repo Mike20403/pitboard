@@ -28,8 +28,8 @@ pub(crate) struct MachineState {
     /// The command line inside this copy of the app, as last read with the schedule, a
     /// change to it, the repair at launch or the command line found.
     pub(crate) own: Option<OwnCommandLine>,
-    /// What the last renewal came to.
-    pub(crate) renewals: Option<Vec<Renewed>>,
+    /// What the last renewal came to, or why it was refused.
+    pub(crate) renewals: Option<Result<Vec<Renewed>, PitboardError>>,
     /// A renewal under way, from the moment it is asked for until the read after it is
     /// over, as MachineModel.swift's `renewing` stayed set until its `renewed` had read.
     pub(crate) renewing: bool,

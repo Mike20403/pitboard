@@ -3,6 +3,7 @@
 use super::{Result, Settled, purge};
 use crate::context::Context;
 use crate::error::Error;
+use crate::service::Permit;
 use crate::state::Account;
 use crate::{home, schedule, state};
 
@@ -42,8 +43,9 @@ pub fn uninstall(settled: Settled) -> Result<Removed> {
         _exclusive,
         mut state,
         ctx,
+        permit,
     } = settled;
-    let schedule_removed = remove_schedule(&ctx)?;
+    let schedule_removed = remove_schedule(&ctx, permit)?;
     let held = state.accounts.iter().filter_map(|a| a.parked.as_ref());
     let left = held
         .clone()
@@ -54,14 +56,14 @@ pub fn uninstall(settled: Settled) -> Result<Removed> {
         state.remove(&key);
     }
     state.active.clear();
-    state::save(&ctx, &state)?;
-    let pending = purge(&ctx, &mut state);
+    state::save(&ctx, permit, &state)?;
+    let pending = purge(&ctx, permit, &mut state);
     // The sweep in settle has already resolved every outstanding name, so what is left
     // refers to nothing. The home goes next, and an index of names with no home is noise.
     if pending == 0 {
-        crate::pending::clear(&ctx);
+        crate::pending::clear(&ctx, permit);
     }
-    let home_removed = pending == 0 && remove_home(&ctx);
+    let home_removed = pending == 0 && remove_home(&ctx, permit);
     Ok(Removed {
         parks: parks.saturating_sub(pending),
         pending,
@@ -73,11 +75,11 @@ pub fn uninstall(settled: Settled) -> Result<Removed> {
 
 /// The schedule, where it is this home's. One that renews another home is that home's to
 /// take away, and a machine with no scheduler has nothing to take.
-fn remove_schedule(ctx: &Context) -> Result<bool> {
+fn remove_schedule(ctx: &Context, permit: Permit) -> Result<bool> {
     if !schedule::serves(ctx) {
         return Ok(false);
     }
-    match schedule::uninstall(ctx) {
+    match schedule::uninstall(ctx, permit) {
         Err(Error::ScheduleUnsupported) => Ok(false),
         removed => removed,
     }
@@ -85,8 +87,8 @@ fn remove_schedule(ctx: &Context) -> Result<bool> {
 
 /// The lock file this run holds lives in here too; on macOS and Linux an open file goes on
 /// existing until the last handle closes, so removing the directory now is safe.
-fn remove_home(ctx: &Context) -> bool {
-    std::fs::remove_dir_all(home::dir(ctx)).is_ok()
+fn remove_home(ctx: &Context, permit: Permit) -> bool {
+    crate::host::fs::remove_dir_all(permit, &home::dir(ctx)).is_ok()
 }
 
 #[cfg(test)]
@@ -99,10 +101,14 @@ mod tests {
     fn uninstalling_takes_the_renewal_schedule_with_it() {
         for make in [machine, codex_machine] {
             let m = make("uninstall-schedule");
-            schedule::install(&m.ctx).expect("scheduled");
+            schedule::install(&m.ctx, Permit::for_a_test()).expect("scheduled");
 
-            let removed = uninstall(settle(&m.ctx, None).expect("nothing to recover").0)
-                .expect("uninstalled");
+            let removed = uninstall(
+                settle(&m.ctx, Permit::for_a_test(), None)
+                    .expect("nothing to recover")
+                    .0,
+            )
+            .expect("uninstalled");
 
             assert!(removed.schedule_removed);
             assert!(removed.home_removed);
@@ -117,12 +123,16 @@ mod tests {
         use crate::host::fs::testing;
         for make in [machine, codex_machine] {
             let m = make("uninstall-stuck");
-            schedule::install(&m.ctx).expect("scheduled");
+            schedule::install(&m.ctx, Permit::for_a_test()).expect("scheduled");
             let dir = schedule::path(&m.ctx)
                 .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
                 .expect("where the scheduler keeps it");
             testing::deny_changes(&dir);
-            let refused = uninstall(settle(&m.ctx, None).expect("nothing to recover").0);
+            let refused = uninstall(
+                settle(&m.ctx, Permit::for_a_test(), None)
+                    .expect("nothing to recover")
+                    .0,
+            );
             testing::allow_changes(&dir);
 
             let Err(error) = refused else {
@@ -145,8 +155,12 @@ mod tests {
     #[test]
     fn uninstalling_where_nothing_is_scheduled_is_not_a_failure() {
         let m = machine("uninstall-unscheduled");
-        let removed =
-            uninstall(settle(&m.ctx, None).expect("nothing to recover").0).expect("uninstalled");
+        let removed = uninstall(
+            settle(&m.ctx, Permit::for_a_test(), None)
+                .expect("nothing to recover")
+                .0,
+        )
+        .expect("uninstalled");
         assert!(!removed.schedule_removed);
         assert!(removed.home_removed);
     }
@@ -156,14 +170,18 @@ mod tests {
     #[test]
     fn uninstalling_another_home_leaves_the_schedule_alone() {
         let m = machine("uninstall-elsewhere");
-        schedule::install(&m.ctx).expect("scheduled");
+        schedule::install(&m.ctx, Permit::for_a_test()).expect("scheduled");
         let elsewhere = m
             .ctx
             .clone()
             .with_pitboard_home(m.ctx_home().join("elsewhere"));
 
-        let removed = uninstall(settle(&elsewhere, None).expect("nothing to recover").0)
-            .expect("uninstalled");
+        let removed = uninstall(
+            settle(&elsewhere, Permit::for_a_test(), None)
+                .expect("nothing to recover")
+                .0,
+        )
+        .expect("uninstalled");
 
         assert!(!removed.schedule_removed);
         assert!(matches!(

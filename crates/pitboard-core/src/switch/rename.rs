@@ -9,8 +9,9 @@ pub fn rename(settled: Settled, from: &Key, to: &str) -> Result<String> {
         _exclusive,
         mut state,
         ctx,
+        permit,
     } = settled;
     let email = state.relabel(from, to)?.email.clone();
-    state::save(&ctx, &state)?;
+    state::save(&ctx, permit, &state)?;
     Ok(email)
 }

@@ -5,6 +5,7 @@
 use super::{journal, purge, try_exclusive};
 use crate::context::Context;
 use crate::error::{Error, Result};
+use crate::service::Permit;
 use crate::state::{Key, Park, State};
 use crate::{park, state};
 use serde_json::Value;
@@ -77,13 +78,13 @@ impl Due {
 /// Renew every parked login whose access token has expired or is about to. Nothing is done
 /// while another Pitboard run holds the lock or a switch waits to be finished: a renewal
 /// replaces the refresh token, and nothing may install the old copy meanwhile.
-pub fn renew_parked(ctx: &Context) -> Vec<(Key, Renewal)> {
-    renew_due(ctx, Due::ToBeAsked)
+pub fn renew_parked(ctx: &Context, permit: Permit) -> Vec<(Key, Renewal)> {
+    renew_due(ctx, permit, Due::ToBeAsked)
 }
 
 /// The same, for whichever reason.
-pub fn renew_due(ctx: &Context, due: Due) -> Vec<(Key, Renewal)> {
-    let Some(_exclusive) = try_exclusive(ctx) else {
+pub fn renew_due(ctx: &Context, permit: Permit, due: Due) -> Vec<(Key, Renewal)> {
+    let Some(_exclusive) = try_exclusive(ctx, permit) else {
         return Vec::new();
     };
     if journal::pending(ctx) {
@@ -109,7 +110,7 @@ pub fn renew_due(ctx: &Context, due: Due) -> Vec<(Key, Renewal)> {
     // as the next change would drop it. Looked for only when something is due, because
     // finding one reads each tool's login.
     if !to_renew.is_empty() {
-        let _ = super::drop_live_twins(ctx, &mut state);
+        let _ = super::drop_live_twins(ctx, permit, &mut state);
         to_renew = covered(&state);
     }
     // Each renewal is a round trip that can take as long as the request timeout, so they
@@ -123,7 +124,7 @@ pub fn renew_due(ctx: &Context, due: Due) -> Vec<(Key, Renewal)> {
                 let handle = scope.spawn({
                     let key = key.clone();
                     let held = held.clone();
-                    move || ask(ctx, &key, &held)
+                    move || ask(ctx, permit, &key, &held)
                 });
                 (key, held, handle)
             })
@@ -146,11 +147,11 @@ pub fn renew_due(ctx: &Context, due: Due) -> Vec<(Key, Renewal)> {
         .into_iter()
         .map(|(key, held, answer)| {
             let outcome =
-                apply(ctx, &mut state, &key, &held, answer).unwrap_or_else(Renewal::Failed);
+                apply(ctx, permit, &mut state, &key, &held, answer).unwrap_or_else(Renewal::Failed);
             (key, outcome)
         })
         .collect();
-    purge(ctx, &mut state);
+    purge(ctx, permit, &mut state);
     outcomes
 }
 
@@ -165,7 +166,7 @@ struct Asked {
 
 /// The part of a renewal that talks to Anthropic. Touches no shared state, so several run
 /// at once.
-fn ask(ctx: &Context, key: &Key, held: &Park) -> Result<Asked> {
+fn ask(ctx: &Context, permit: Permit, key: &Key, held: &Park) -> Result<Asked> {
     let document = park::load(ctx, key, held)?;
     // The service spends the old refresh token as it answers, so an answer that could not
     // be written back would lose the login. Where it could not be, the service is not
@@ -174,7 +175,7 @@ fn ask(ctx: &Context, key: &Key, held: &Park) -> Result<Asked> {
     park::price(ctx, key.provider, &key.typed(), &held.service, &document)?;
     let tool = crate::provider::of(key.provider);
     let credential = crate::provider::Credential::new(key.provider, document);
-    match tool.renew(ctx, &credential) {
+    match tool.renew(ctx, permit, &credential) {
         Ok(fresh) => Ok(Asked {
             renewed: Some(fresh.raw),
             refused: false,
@@ -204,11 +205,12 @@ fn ask(ctx: &Context, key: &Key, held: &Park) -> Result<Asked> {
 /// reached or asked for less traffic, which is a reason to stop and not a reason to act.
 pub(super) fn renew_one(
     ctx: &Context,
+    permit: Permit,
     state: &mut State,
     key: &Key,
     held: &Park,
 ) -> Result<Option<Park>> {
-    match apply(ctx, state, key, held, ask(ctx, key, held))? {
+    match apply(ctx, permit, state, key, held, ask(ctx, permit, key, held))? {
         Renewal::Renewed => Ok(state.get(key).and_then(|a| a.parked.clone())),
         Renewal::Refused => Err(Error::ParkedLoginRefused {
             tool: key.provider,
@@ -222,6 +224,7 @@ pub(super) fn renew_one(
 /// The part that writes: one at a time, in the order the accounts are listed.
 fn apply(
     ctx: &Context,
+    permit: Permit,
     state: &mut State,
     key: &Key,
     held: &Park,
@@ -232,7 +235,7 @@ fn apply(
         // Refused, not spent: nothing was taken from it. One `repair` gave back is left for
         // the Pitboard that wrote it, which will be refused the same way.
         state.release(&held.service);
-        state::save(ctx, state)?;
+        state::save(ctx, permit, state)?;
         return Ok(Renewal::Refused);
     }
     let Some(next) = asked.renewed else {
@@ -246,7 +249,7 @@ fn apply(
     // that is the account's only working login now.
     if state.is_foreign(&held.service) {
         state.used_here(&held.service);
-        let _ = state::save(ctx, state);
+        let _ = state::save(ctx, permit, state);
     }
 
     // The old refresh token may already be spent, so the answer is written at once, and a
@@ -256,8 +259,8 @@ fn apply(
         .map(|a| a.account_uuid.clone())
         .unwrap_or_default();
     let store = || {
-        park::reserve(ctx, &uuid)
-            .and_then(|service| park::store_at(ctx, key.provider, &service, &next))
+        park::reserve(ctx, permit, &uuid)
+            .and_then(|service| park::store_at(ctx, permit, key.provider, &service, &next))
     };
     let parked = match store().or_else(|_| store()) {
         Ok(parked) => parked,
@@ -266,7 +269,7 @@ fn apply(
             // is dead whatever happens next. Dropping it now means status stops offering a
             // login that cannot work and says to sign in again instead.
             state.discard(&held.service);
-            let _ = state::save(ctx, state);
+            let _ = state::save(ctx, permit, state);
             return Err(Error::RenewalFailed {
                 label: state.typed(key),
                 // The service answered; it is this machine that could not keep the answer.
@@ -284,7 +287,7 @@ fn apply(
     // list of names it wrote, so the next command gives it back to the account in place of
     // the spent one. Deleting it here, as this once did, threw away the only login the
     // account had left: the service had already spent the one the record still names.
-    state::save(ctx, state)?;
+    state::save(ctx, permit, state)?;
     Ok(Renewal::Renewed)
 }
 
@@ -350,9 +353,10 @@ mod tests {
 
     /// One account holding one park, written the way a switch would have written it.
     fn with_park(m: &Machine, label: &str, refresh: &str, access_expires_at: i64) -> Park {
-        let service = park::reserve(&m.ctx, "acc").expect("a free name");
+        let service = park::reserve(&m.ctx, Permit::for_a_test(), "acc").expect("a free name");
         let park = park::store_at(
             &m.ctx,
+            Permit::for_a_test(),
             crate::provider::ProviderId::Claude,
             &service,
             &oauth(refresh, access_expires_at),
@@ -370,7 +374,7 @@ mod tests {
             },
             parked: Some(park.clone()),
         });
-        state::save(&m.ctx, &state).expect("saved");
+        state::save(&m.ctx, Permit::for_a_test(), &state).expect("saved");
         park
     }
 
@@ -414,7 +418,7 @@ mod tests {
             },
         );
 
-        renew_parked(&m.ctx);
+        renew_parked(&m.ctx, Permit::for_a_test());
 
         let park = state::load(&m.ctx)
             .expect("state")
@@ -439,7 +443,7 @@ mod tests {
         with_park(&m, "work", "old", NOW - 1);
         m.api.renews("old", fresh("new"));
 
-        renew_parked(&m.ctx);
+        renew_parked(&m.ctx, Permit::for_a_test());
 
         let park = state::load(&m.ctx)
             .expect("state")
@@ -458,7 +462,7 @@ mod tests {
         let m = machine("not-due");
         with_park(&m, "work", "r", NOW + 3600);
 
-        let outcomes = renew_parked(&m.ctx);
+        let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert!(outcomes.is_empty());
         assert_eq!(m.api.calls(), 0, "nothing was due, so nothing was asked");
@@ -470,7 +474,7 @@ mod tests {
         let before = with_park(&m, "work", "old", NOW - 1);
         m.api.renews("old", fresh("new"));
 
-        let outcomes = renew_parked(&m.ctx);
+        let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert_eq!(outcome(&outcomes, "work"), "renewed");
         assert_eq!(m.api.asked(), vec![Question::Renew("old".into())]);
@@ -497,7 +501,7 @@ mod tests {
         with_park(&m, "work", "old", NOW - 1);
         m.api.renew_trouble("old", Trouble::InvalidGrant);
 
-        let outcomes = renew_parked(&m.ctx);
+        let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert_eq!(outcome(&outcomes, "work"), "parked_login_refused");
         let state = state::load(&m.ctx).expect("state");
@@ -520,7 +524,7 @@ mod tests {
             let before = with_park(&m, "work", "old", NOW - 1);
             m.api.renew_trouble("old", trouble);
 
-            let outcomes = renew_parked(&m.ctx);
+            let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
             assert_eq!(outcome(&outcomes, "work"), "renewal_deferred");
             let state = state::load(&m.ctx).expect("state");
@@ -548,7 +552,7 @@ mod tests {
         m.mem.vault().takes_on_stdin(16);
         m.api.renews("old", fresh("new"));
 
-        let outcomes = renew_parked(&m.ctx);
+        let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert_eq!(outcome(&outcomes, "work"), "credential_too_large");
         assert_eq!(
@@ -575,7 +579,7 @@ mod tests {
         m.mem.vault().takes_on_stdin(16);
         m.api.renews("old", fresh("new"));
 
-        let outcomes = renew_parked(&m.ctx);
+        let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert_eq!(outcome(&outcomes, "work"), "renewed");
     }
@@ -593,7 +597,7 @@ mod tests {
             .vault()
             .fault_all(Fault::FailWrite("the keychain refused".into()));
 
-        let outcomes = renew_parked(&m.ctx);
+        let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert_eq!(outcome(&outcomes, "work"), "renewal_failed");
         let state = state::load(&m.ctx).expect("state");
