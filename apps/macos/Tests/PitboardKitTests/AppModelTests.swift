@@ -228,24 +228,25 @@ private final class Utc: LocalTime {
     func dateAndTime(epoch: Int64) throws -> String { "\(epoch)" }
 }
 
-/// The fixture's folder, as Rust's `std::env::temp_dir` finds it.
-private var fixtureFolder: URL {
-    (ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0) }
-        ?? FileManager.default.temporaryDirectory)
-        .appendingPathComponent("pitboard-fixture")
-}
-
 /// The bindings carry the model end to end: a fixture's model, the real core over a machine
 /// of its own that reaches nothing of this one, started from Swift, reads its accounts and
 /// tells a listener written in Swift, which hands them to the app's model on the main actor.
 /// Only a library built with `build-xcframework.sh --fixture` has fixtures, as CI builds it
 /// before these tests.
+///
+/// It launches into a temporary directory of its own, which it removes, rather than the one
+/// a debug build launched into a fixture keeps its world in, so it empties neither that
+/// world nor the one of another run of these tests.
 @MainActor
 @Test(.enabled(if: !fixtureNames().isEmpty, "the library was built without fixtures"))
 func aFixturesModelPublishesItsAccounts() async throws {
-    defer { try? FileManager.default.removeItem(at: fixtureFolder) }
+    let own = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pitboard-bindings-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: own) }
     let model = try AppModel.listening { listener in
-        try PitboardModel.fixture(name: "twoTools", listener: listener, localTime: Utc())
+        try PitboardModel.fixtureIn(
+            name: "twoTools", temporaryDirectory: own.path, listener: listener,
+            localTime: Utc())
     }
     #expect(model.status == nil, "nothing is read before it is started")
     model.send(.start)

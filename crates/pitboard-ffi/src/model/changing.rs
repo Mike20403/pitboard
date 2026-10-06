@@ -7,11 +7,13 @@ use super::advice::Told;
 use super::state::{Answer, Job};
 use super::switching::{a_read_that_started_before, switch};
 use super::testing::{
-    Hand, Machine, claude, codex_account, enrolled_as, refusal, status, switched, warning,
+    Hand, Machine, a_look, a_look_or_a_read, any_read, claude, codex_account, enrolled_as,
+    offline_read, refusal, status, still_running, switched, warning,
 };
 use super::{Intent, Sheet};
-use crate::EnrolledAs;
 use crate::present::testing::account;
+use crate::{Account, EnrolledAs};
+use std::time::Duration;
 
 fn enrol(provider: &str, name: &str) -> Intent {
     Intent::Enrol {
@@ -290,6 +292,270 @@ fn a_read_that_started_before_forgetting_is_dropped_when_it_lands() {
         model.send(forget("codex/spare"));
         model.run(machine);
     });
+}
+
+/// What `change` does while a look for changes made elsewhere is under way: the look finds
+/// the account index as the change wrote it, and lands once the change has answered, before
+/// the read the change asked for. `change` makes the change and answers it, leaving every
+/// look and read waiting; the accounts are `after` once it has.
+///
+/// The look cannot tell this app's change from one made elsewhere, and took it for one. The
+/// read after the change was then dropped as a read that started before a change, and what
+/// the change did was shown only from what is already known, with no time it was read,
+/// until something asked for another: the menu opening, the accounts pane shown, or the
+/// timer's read minutes later. The fixture's sign-in of a Codex account met it in 2 of 140
+/// runs of the whole suite. The poll leaves the account index alone until the read after the
+/// change has landed, as it does while a switch runs, and a change made elsewhere after that
+/// is noticed as before.
+pub(super) fn a_look_landing_after(
+    after: Vec<Account>,
+    change: impl FnOnce(&mut Hand, &mut Machine),
+) {
+    let after = status(after);
+    let elsewhere = status(vec![codex_account("personal", false)]);
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(status(vec![
+        codex_account("personal", true),
+        codex_account("spare", false),
+    ])));
+    model.refresh(&mut machine);
+    model.notice(&mut machine);
+    let read_at = model.shown().updated_at;
+
+    model.later(Duration::from_secs(3));
+    model.look();
+    machine.changed += 1;
+    machine.answer = Ok(after.clone());
+    machine.offline = Ok(after.clone());
+    let (reads, known) = (model.count(any_read), model.count(offline_read));
+    change(&mut model, &mut machine);
+    assert_eq!(
+        model.count(any_read),
+        reads + 1,
+        "the read after the change"
+    );
+    let look = model.take(a_look);
+    model.give(machine.answer(look));
+    model.run(&mut machine);
+
+    let shown = model.shown();
+    assert_eq!(shown.status, Some(after));
+    assert_ne!(shown.updated_at, read_at);
+    assert_eq!(
+        shown.updated_at,
+        Some(model.now.epoch()),
+        "the read after the change shown"
+    );
+    assert!(!shown.reading);
+    assert_eq!(
+        model.count(offline_read),
+        known,
+        "the change taken for its own"
+    );
+
+    model.later(Duration::from_secs(3));
+    machine.changed += 1;
+    machine.offline = Ok(elsewhere.clone());
+    model.notice(&mut machine);
+    assert_eq!(
+        model.shown().status,
+        Some(elsewhere),
+        "a change made elsewhere since is noticed"
+    );
+}
+
+#[test]
+fn a_look_landing_after_naming_an_account_leaves_the_read_after_it() {
+    let after = vec![
+        codex_account("personal", true),
+        codex_account("spare", false),
+        codex_account("job", false),
+    ];
+    a_look_landing_after(after, |model, machine| {
+        model.send(enrol("codex", "job"));
+        model.run_but(machine, a_look_or_a_read);
+    });
+}
+
+#[test]
+fn a_look_landing_after_a_rename_leaves_the_read_after_it() {
+    let after = vec![
+        codex_account("personal", true),
+        codex_account("home", false),
+    ];
+    a_look_landing_after(after, |model, machine| {
+        model.send(rename("codex", "spare", "home"));
+        model.run_but(machine, a_look_or_a_read);
+    });
+}
+
+#[test]
+fn a_look_landing_after_forgetting_leaves_the_read_after_it() {
+    a_look_landing_after(vec![codex_account("personal", true)], |model, machine| {
+        model.send(forget("codex/spare"));
+        model.run_but(machine, a_look_or_a_read);
+    });
+}
+
+/// However a change of this app's own ends, it gives the account index back to the poll, and
+/// a change made elsewhere after it is noticed: one that is refused or comes to nothing reads
+/// nothing after it, a read after one can fail, or be dropped behind a second change, and a
+/// sign-in's enrolment can fail. A change still holding the index once it was over would have
+/// left the menu bar blind to every switch typed in a terminal until the app quit.
+#[test]
+fn however_a_change_ends_it_gives_the_index_back_to_the_poll() {
+    let refused = || Err(refusal("refused", "it was refused", Vec::new()));
+    type Ending = Box<dyn Fn(&mut Hand, &mut Machine)>;
+    let cases: Vec<(&str, Ending)> = vec![
+        (
+            "a refused rename",
+            Box::new(move |model, machine| {
+                machine.renaming = refused();
+                model.send(rename("codex", "spare", "home"));
+                model.run(machine);
+            }),
+        ),
+        (
+            "a forget that came to nothing",
+            Box::new(|model, _| {
+                model.send(forget("codex/spare"));
+                let forgetting = model.next();
+                model.give(Answer::Lost(forgetting));
+            }),
+        ),
+        (
+            "a refused name",
+            Box::new(move |model, machine| {
+                machine.enrolling_current = Err(refusal("refused", "refused", Vec::new()));
+                model.send(enrol("codex", "job"));
+                model.run(machine);
+            }),
+        ),
+        (
+            "giving up refused",
+            Box::new(move |model, machine| {
+                machine.abandoned = Err(refusal("refused", "refused", Vec::new()));
+                model.send(Intent::AbandonStuckSwitch);
+                model.run(machine);
+            }),
+        ),
+        (
+            "a rename whose read fails",
+            Box::new(move |model, machine| {
+                machine.answer = Err(refusal("unreachable", "could not be reached", Vec::new()));
+                model.send(rename("codex", "spare", "home"));
+                model.run(machine);
+            }),
+        ),
+        (
+            "two changes, the first one's read dropped",
+            Box::new(|model, machine| {
+                model.send(rename("codex", "spare", "home"));
+                model.send(forget("codex/home"));
+                model.run(machine);
+            }),
+        ),
+        (
+            "a sign-in whose enrolment fails",
+            Box::new(move |model, machine| {
+                machine.enrolling = Err(refusal("refused", "refused", Vec::new()));
+                model.send(Intent::SignIn {
+                    provider: "codex".into(),
+                    name: "travel".into(),
+                });
+                model.run(machine);
+                let id = model.shown().signing_in.expect("a sign-in").id;
+                model.give(Answer::SignInQuiet { id });
+                model.run(machine);
+            }),
+        ),
+        (
+            "a sign-in whose enrolment came to nothing",
+            Box::new(|model, machine| {
+                model.send(Intent::SignIn {
+                    provider: "codex".into(),
+                    name: "travel".into(),
+                });
+                model.run(machine);
+                let id = model.shown().signing_in.expect("a sign-in").id;
+                model.give(Answer::SignInQuiet { id });
+                let over = model.next();
+                model.give(Answer::Lost(over));
+            }),
+        ),
+        (
+            "a renewal whose read fails",
+            Box::new(move |model, machine| {
+                machine.answer = Err(refusal("unreachable", "could not be reached", Vec::new()));
+                model.send(Intent::RenewNow);
+                model.run(machine);
+            }),
+        ),
+    ];
+    for (case, change) in cases {
+        let mut model = Hand::new();
+        let mut machine = Machine::reading(Ok(status(vec![
+            codex_account("personal", true),
+            codex_account("spare", false),
+        ])));
+        model.refresh(&mut machine);
+        model.notice(&mut machine);
+        change(&mut model, &mut machine);
+        assert_eq!(model.pending(), 0, "{case}: over");
+
+        let elsewhere = status(vec![codex_account("personal", false)]);
+        machine.changed += 1;
+        machine.offline = Ok(elsewhere.clone());
+        model.notice(&mut machine);
+        assert_eq!(model.shown().status, Some(elsewhere), "{case}");
+    }
+}
+
+/// A look that lands while a rename is being made finds the account under its new name before
+/// the rename has answered. Taken for a rename made elsewhere, it put away what the switch to
+/// that account had said, since no account of the old name was in use, and told again that
+/// the account had run out, as advice about an account it had not told of. The rename then
+/// carried nothing. The poll leaves the account index alone from the moment a change is asked
+/// for, as it does for a switch.
+#[test]
+fn a_look_while_a_rename_is_made_leaves_what_was_said_about_the_account() {
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(status(vec![
+        claude("work", true, 100.0),
+        claude("personal", false, 10.0),
+    ])));
+    machine.switched = switched("claude", "personal", "work", vec![still_running()]);
+    switch(&mut model, &mut machine, "claude/work");
+    model.notice(&mut machine);
+    assert_eq!(tos(&model), ["work"]);
+    assert_eq!(machine.posted.len(), 1, "told that work ran out");
+
+    let renamed = status(vec![
+        claude("office", true, 100.0),
+        claude("personal", false, 10.0),
+    ]);
+    model.send(rename("claude", "work", "office"));
+    let renaming = model.take(|job| matches!(job, Job::Rename { .. }));
+    machine.changed += 1;
+    machine.answer = Ok(renamed.clone());
+    machine.offline = Ok(renamed.clone());
+    model.notice(&mut machine);
+    model.give(machine.answer(renaming));
+    model.run(&mut machine);
+
+    let shown = model.shown();
+    assert_eq!(shown.status, Some(renamed));
+    assert_eq!(
+        tos(&model),
+        ["office"],
+        "what the switch said, under the new name"
+    );
+    assert_eq!(shown.last_switches[0].warnings, [still_running()]);
+    assert_eq!(machine.posted.len(), 1, "and not told again");
+    assert_eq!(
+        model.state.told,
+        Told::from([("claude/office/session/".to_owned(), 100)])
+    );
 }
 
 /// A rename changes what an account is called and nothing else about it. What its tool's

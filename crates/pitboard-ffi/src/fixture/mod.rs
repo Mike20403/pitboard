@@ -14,8 +14,9 @@
 //!
 //! What is exported is the same in every build, so one set of generated bindings serves a
 //! library built with the `fixture` feature and one built without: `PitboardModel::fixture`,
-//! `fixture_names` and `fixture_page`. Without the feature no world is compiled at all, and
-//! each refuses, naming the feature, or answers that there is none.
+//! `PitboardModel::fixture_in`, `fixture_names` and `fixture_page`. Without the feature no
+//! world is compiled at all, and each refuses, naming the feature, or answers that there is
+//! none.
 
 use crate::model::{LocalTime, ModelListener, PitboardModel};
 use std::sync::Arc;
@@ -95,8 +96,9 @@ impl PitboardModel {
     ///
     /// The machine is the folder `pitboard-fixture` in this process's temporary directory,
     /// where the macOS app's own fixture code keeps what it makes, so one fixture at a time:
-    /// a second made in the same process empties the first's. Refused, naming the feature, by
-    /// a library built without `fixture`, and for a name that is none of them.
+    /// a second made in the same process empties the first's, and so does one made by any
+    /// other process with the same temporary directory. Refused, naming the feature, by a
+    /// library built without `fixture`, and for a name that is none of them.
     #[uniffi::constructor]
     pub fn fixture(
         name: String,
@@ -112,6 +114,33 @@ impl PitboardModel {
         #[cfg(not(feature = "fixture"))]
         {
             let _ = (name, listener, local_time);
+            Err(unavailable())
+        }
+    }
+
+    /// The same model of the fixture called `name`, with its machine the folder
+    /// `pitboard-fixture` in `temporary_directory` in place of this process's temporary
+    /// directory, emptied and made again as `fixture` makes its own, and left there: for a
+    /// test of an app's bindings, which then empties no debug build's fixture, nor that of
+    /// another run of the same tests. An app launching into a fixture calls `fixture`, whose
+    /// folder its own fixture code finds. Refused as `fixture` is.
+    #[uniffi::constructor]
+    pub fn fixture_in(
+        name: String,
+        temporary_directory: String,
+        listener: Arc<dyn ModelListener>,
+        local_time: Arc<dyn LocalTime>,
+    ) -> Result<Arc<Self>, FixtureError> {
+        #[cfg(feature = "fixture")]
+        {
+            let world = worlds::World::named(&name)?;
+            let folder = worlds::Folder::within(std::path::Path::new(&temporary_directory))
+                .map_err(failed)?;
+            worlds::launch(world, folder, listener, local_time).map_err(failed)
+        }
+        #[cfg(not(feature = "fixture"))]
+        {
+            let _ = (name, temporary_directory, listener, local_time);
             Err(unavailable())
         }
     }
@@ -171,6 +200,20 @@ mod without {
             reason.contains("build-xcframework.sh --fixture"),
             "{reason}"
         );
+        let directory =
+            std::env::temp_dir().join(format!("pitboard-no-fixture-{}", std::process::id()));
+        let refused_in = PitboardModel::fixture_in(
+            "twoTools".into(),
+            directory.to_string_lossy().into_owned(),
+            Arc::new(Unheard),
+            Arc::new(crate::present::testing::Utc),
+        );
+        assert!(
+            matches!(refused_in, Err(FixtureError::Unavailable { .. })),
+            "{:?}",
+            refused_in.map(|_| ())
+        );
+        assert!(!directory.exists(), "nothing made where it was asked");
         assert_eq!(
             fixture_page("pitboard-fixture://claude.ai/".into()),
             Err(unavailable())

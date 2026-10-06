@@ -900,10 +900,11 @@ public sealed class ModelTests
     /// started, reads the accounts of its world on the real core, and tells a listener
     /// written here of them from another thread than the test's, and not one of .NET's thread
     /// pool: the call crosses from Rust into C# on a thread of the library's. It reads
-    /// nothing of this machine, so it may be started. The folder the library keeps an app's
-    /// fixture in is removed once it is done, as the Swift tests that launch one remove it.
-    /// Against a library built without the feature there is no fixture, and the test says so
-    /// rather than failing.
+    /// nothing of this machine, so it may be started. It launches into a temporary directory
+    /// of its own, which it removes once it is done, rather than the one an app's fixture is
+    /// kept in, so it empties neither the world of an app launched into a fixture nor that of
+    /// another run of these tests, as the Swift test of the same does. Against a library built
+    /// without the feature there is no fixture, and the test says so rather than failing.
     /// </summary>
     [TestMethod]
     public void AFixturesModelStartsAndTellsAListenerOfItsAccounts()
@@ -914,10 +915,11 @@ public sealed class ModelTests
         }
 
         var waiting = new Waiting();
+        var own = Path.Combine(Path.GetTempPath(), $"pitboard-bindings-{Guid.NewGuid():N}");
         Snapshot? read;
         try
         {
-            using var model = PitboardModel.Fixture("oneTool", waiting, new InUtc());
+            using var model = PitboardModel.FixtureIn("oneTool", own, waiting, new InUtc());
             model.Send(new Intent.Start());
             read = waiting.Until(
                 snapshot => snapshot is { Reading: false, UpdatedAt: not null, Status.Accounts.Length: > 0 },
@@ -926,10 +928,9 @@ public sealed class ModelTests
         }
         finally
         {
-            var kept = Path.Combine(Path.GetTempPath(), "pitboard-fixture");
-            if (Directory.Exists(kept))
+            if (Directory.Exists(own))
             {
-                Directory.Delete(kept, recursive: true);
+                Directory.Delete(own, recursive: true);
             }
         }
 

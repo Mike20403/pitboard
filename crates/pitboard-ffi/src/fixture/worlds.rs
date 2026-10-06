@@ -143,7 +143,13 @@ impl Folder {
     /// `pitboard-fixture` in this process's temporary directory, emptied: where an app's
     /// fixture is kept, one at a time.
     pub(crate) fn shared() -> std::io::Result<Folder> {
-        Folder::emptied(std::env::temp_dir().join("pitboard-fixture"), false)
+        Folder::within(&std::env::temp_dir())
+    }
+
+    /// `pitboard-fixture` in `directory`, emptied, as `shared` is in the temporary directory,
+    /// and left there as that one is.
+    pub(crate) fn within(directory: &Path) -> std::io::Result<Folder> {
+        Folder::emptied(directory.join("pitboard-fixture"), false)
     }
 
     /// A folder of a test's own, named `name`, which goes once the world is done with.

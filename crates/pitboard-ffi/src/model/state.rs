@@ -19,6 +19,12 @@
 //! landed, as the Swift model's `switching` stayed set until its read returned. Meanwhile the
 //! change poll leaves the account index alone: the change is the switch's own.
 //!
+//! Every other change this app makes to the account index holds it the same way, from the
+//! moment it is asked for, a sign-in's from the moment it is told to enrol, until the read
+//! after it is over or the change has failed. The Swift model held nothing for them, so a look
+//! that found the index as one had just written it, and was compared once that change had
+//! taken its read's ticket, counted the change as one made elsewhere and dropped that read.
+//!
 //! A sign-in is told apart by its id, where the Swift model compared objects with `===`. Its
 //! thread hands on what the tool says as it says it, and once the tool has stopped saying
 //! anything it waits to be told whether to enrol what it signed in to: only the sign-in still
@@ -236,6 +242,9 @@ pub(crate) struct Ticket {
     after_sign_in: Option<u64>,
     /// Whether it is the read after a renewal, whose landing ends the renewal.
     after_renewal: bool,
+    /// Whether it is the read after a change of this app's own to the account index other
+    /// than a switch, whose landing ends that change's hold on the index.
+    after_change: bool,
 }
 
 /// Why what is already known is read.
@@ -454,6 +463,9 @@ struct Asked {
     after_sign_in: Option<u64>,
     /// Whether a renewal asked, which is over once this read is.
     after_renewal: bool,
+    /// Whether a change of this app's own to the account index asked, other than a switch,
+    /// which holds the index until this read is over.
+    after_change: bool,
 }
 
 /// What a person asked for that did not happen, before it is numbered.
@@ -683,6 +695,14 @@ pub(crate) struct State {
     /// is asked for, through asking what holds its tool's login, quitting an app and the
     /// switch itself, until the read after it lands.
     switching: Option<String>,
+    /// How many of this app's other changes to the account index are under way: naming the
+    /// login signed in now, a sign-in's enrolment, a rename, forgetting, giving up on an
+    /// interrupted switch and renewing parked logins. Each holds the index from the moment it
+    /// is asked for, a sign-in's from the moment it is told to enrol, until the read after it
+    /// is over, or until it has failed. Meanwhile the change poll leaves the index alone, as
+    /// it does while a switch runs: what it finds there may be the change's own, which taken
+    /// for one made elsewhere dropped the read the change asked for.
+    changing: u32,
     /// A switch waiting for the person to let Pitboard quit an app first: the question last
     /// asked, while it is asked and after it is closed unanswered, until another switch is
     /// asked for.
@@ -772,6 +792,7 @@ impl State {
             look: Timer::Off,
             timed_read: Timer::Off,
             switching: None,
+            changing: 0,
             quitting: None,
             last_switches: Vec::new(),
             abandoned: None,
@@ -916,7 +937,7 @@ impl State {
                     });
                 }
             }
-            Intent::AbandonStuckSwitch => jobs.push(Job::Abandon),
+            Intent::AbandonStuckSwitch => self.change(Job::Abandon, jobs),
             Intent::DismissAbandoned => self.abandoned = None,
             Intent::SignIn { provider, name } => self.sign_in(provider, &name, jobs),
             Intent::PasteCode { code } => self.paste(&code, jobs),
@@ -943,11 +964,12 @@ impl State {
                 };
                 if let Some(name) = self.saved_from(kind, &name) {
                     let from = self.saving_from();
-                    jobs.push(Job::Enrol {
+                    let enrol = Job::Enrol {
                         provider,
                         name,
                         from,
-                    });
+                    };
+                    self.change(enrol, jobs);
                 }
             }
             Intent::Rename {
@@ -961,15 +983,16 @@ impl State {
                 };
                 if let Some(to) = self.saved_from(kind, &to) {
                     let from = self.saving_from();
-                    jobs.push(Job::Rename {
+                    let rename = Job::Rename {
                         provider,
                         label,
                         to,
                         from,
-                    });
+                    };
+                    self.change(rename, jobs);
                 }
             }
-            Intent::Forget { qualified } => jobs.push(Job::Forget { qualified }),
+            Intent::Forget { qualified } => self.change(Job::Forget { qualified }, jobs),
             Intent::PaneShown { pane } => self.pane_shown(pane, now, jobs),
             Intent::ReadSchedule => jobs.push(Job::ReadSchedule {
                 after_change: false,
@@ -983,7 +1006,7 @@ impl State {
             Intent::RenewNow => {
                 if !self.machine.renewing {
                     self.machine.renewing = true;
-                    jobs.push(Job::Renew);
+                    self.change(Job::Renew, jobs);
                 }
             }
             Intent::LookForCommandLine => jobs.push(Job::FindCommandLine),
@@ -1341,6 +1364,7 @@ impl State {
             after_switch: asked.after_switch,
             after_sign_in: asked.after_sign_in,
             after_renewal: asked.after_renewal,
+            after_change: asked.after_change,
         };
         if let Some(at) = self.updated_ms
             && now.epoch_ms.saturating_sub(at) < older_than
@@ -1368,12 +1392,16 @@ impl State {
         self.over(ticket, now);
     }
 
-    /// A read is over, or was not needed. The read after a switch ending ends the switch,
-    /// and what a sign-in warned about is said once the read after it is over, whatever it
-    /// came to, as the Swift model said it once its `refresh` had returned.
+    /// A read is over, or was not needed. The read after a switch ending ends the switch, the
+    /// read after any other change of this app's own ends that change, and what a sign-in
+    /// warned about is said once the read after it is over, whatever it came to, as the Swift
+    /// model said it once its `refresh` had returned.
     fn over(&mut self, ticket: Ticket, now: Now) {
         if ticket.after_switch {
             self.switching = None;
+        }
+        if ticket.after_change {
+            self.change_over();
         }
         if ticket.after_renewal {
             self.machine.renewing = false;
@@ -1473,10 +1501,15 @@ impl State {
             }
             // Only the sign-in still under way is enrolled. One cancelled since was stopped,
             // and what its stopped tool left is not something that went wrong.
-            Answer::SignInQuiet { id } => jobs.push(Job::SignInOver {
-                id,
-                enrol: self.signing_in.as_ref().is_some_and(|s| s.id == id),
-            }),
+            Answer::SignInQuiet { id } => {
+                let enrol = self.signing_in.as_ref().is_some_and(|s| s.id == id);
+                let over = Job::SignInOver { id, enrol };
+                if enrol {
+                    self.change(over, jobs);
+                } else {
+                    jobs.push(over);
+                }
+            }
             Answer::SignInFinished { id, done } => {
                 self.sign_in_finished(id, done.map_err(Some), now, jobs);
                 self.sign_in_let_go(id, jobs);
@@ -1594,6 +1627,7 @@ impl State {
             Asked {
                 fresh: true,
                 after_renewal: true,
+                after_change: true,
                 ..Asked::default()
             },
             now,
@@ -1641,11 +1675,17 @@ impl State {
         jobs: &mut Vec<Job>,
     ) {
         let signing = self.signing_in.take_if(|s| s.id == id);
+        if done.is_err() {
+            self.change_over();
+        }
         match (done, signing) {
             (Ok(done), signing) => {
                 self.changes_seen += 1;
                 self.updated_ms = None;
-                let mut asked = Asked::default();
+                let mut asked = Asked {
+                    after_change: true,
+                    ..Asked::default()
+                };
                 if let Some(signing) = signing {
                     // The sheet it was started from, if it is still up.
                     self.sheet = None;
@@ -1873,11 +1913,14 @@ impl State {
             return;
         };
         // A switch this app has under way is its own change and not somebody else's, and
-        // taking it for one put away what the switch had just said. What changed meanwhile
-        // stays unseen until it is shown: a switch that fails reads nothing after it, and
-        // one that failed after finishing an interrupted switch has still moved who is
-        // signed in.
-        if self.switching.is_some() {
+        // taking it for one put away what the switch had just said. So is any other change
+        // this app has under way, until the read after it has landed: the look may have
+        // found the index as the change wrote it, and taking that for a change made
+        // elsewhere dropped the read the change asked for, as one that started before a
+        // change. What changed meanwhile stays unseen until it is shown: a change that fails
+        // reads nothing after it, and a switch that failed after finishing an interrupted
+        // switch has still moved who is signed in.
+        if self.switching.is_some() || self.changing > 0 {
             self.look_over(now);
             return;
         }
@@ -2146,9 +2189,10 @@ impl State {
                     self.sheet_failure = None;
                 }
                 self.updated_ms = None;
-                self.refresh(Asked::default(), now, jobs);
+                self.read_after_change(now, jobs);
             }
             Err(error) => {
+                self.change_over();
                 let refused = match error {
                     Some(error) => Refused::of(COULD_NOT_NAME.into(), error),
                     None => Refused::lost(COULD_NOT_NAME.into()),
@@ -2191,9 +2235,10 @@ impl State {
                     self.sheet_failure = None;
                 }
                 self.updated_ms = None;
-                self.refresh(Asked::default(), now, jobs);
+                self.read_after_change(now, jobs);
             }
             Err(error) => {
+                self.change_over();
                 let title = could_not_rename(label);
                 let refused = match error {
                     Some(error) => Refused::of(title, error),
@@ -2249,9 +2294,10 @@ impl State {
             Ok(()) => {
                 self.changes_seen += 1;
                 self.updated_ms = None;
-                self.refresh(Asked::default(), now, jobs);
+                self.read_after_change(now, jobs);
             }
             Err(error) => {
+                self.change_over();
                 let title = could_not_forget(qualified);
                 self.present(match error {
                     Some(error) => Refused::of(title, error),
@@ -2277,15 +2323,46 @@ impl State {
                 self.refresh(
                     Asked {
                         fresh: true,
+                        after_change: true,
                         ..Asked::default()
                     },
                     now,
                     jobs,
                 );
             }
-            Err(Some(error)) => self.present(Refused::of(COULD_NOT_GIVE_UP.into(), error)),
-            Err(None) => self.present(Refused::lost(COULD_NOT_GIVE_UP.into())),
+            Err(error) => {
+                self.change_over();
+                self.present(match error {
+                    Some(error) => Refused::of(COULD_NOT_GIVE_UP.into(), error),
+                    None => Refused::lost(COULD_NOT_GIVE_UP.into()),
+                });
+            }
         }
+    }
+
+    /// Asks for `job`, a change of this app's own to the account index, which the change poll
+    /// leaves alone until the change is over: until the read after it is over, or it has
+    /// failed.
+    fn change(&mut self, job: Job, jobs: &mut Vec<Job>) {
+        self.changing += 1;
+        jobs.push(job);
+    }
+
+    /// One of this app's own changes to the account index is over, and no longer holds it.
+    fn change_over(&mut self) {
+        self.changing = self.changing.saturating_sub(1);
+    }
+
+    /// The read after one of this app's own changes, which ends that change once it is over.
+    fn read_after_change(&mut self, now: Now, jobs: &mut Vec<Job>) {
+        self.refresh(
+            Asked {
+                after_change: true,
+                ..Asked::default()
+            },
+            now,
+            jobs,
+        );
     }
 
     /// Says a failure in the window.

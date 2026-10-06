@@ -100,6 +100,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   cancelled has stopped. 0.7.0 stopped the cancelled sign-in in the background and started
   the new one at once, which could find the old one still holding the lock that allows one
   sign-in at a time.
+- After you add, name, rename or forget an account, give up on an interrupted switch or
+  press **Renew Now**, the app shows what it reads of your accounts right after. When its
+  look for changes made in a terminal found the account index just as the app had written
+  it, the app took its own change for one made elsewhere and threw that read away: in an
+  open window, an account just added showed no numbers, and nothing said when the accounts
+  were read, until you opened the menu or went back to **Accounts**, either of which reads
+  at once, or the read the app makes every five minutes came. 0.7.0 did the same. A look
+  that found a rename before the rename had finished also put away what that account's
+  last switch said, and could notify you again that the account had run out.
 - A sign-in that fails after its sheet has closed is said in the window. It was said
   nowhere.
 - A name the **Name** or **Rename** sheet could not save, once the sheet had closed or
