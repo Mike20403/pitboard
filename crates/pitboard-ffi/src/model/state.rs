@@ -163,8 +163,8 @@ pub(crate) enum Job {
     SignIn { id: u64, qualified: String },
     /// Type `code` back to the tool of the sign-in `id`.
     PasteCode { id: u64, code: String },
-    /// Stop the tool of the sign-in `id`. Once the tool has stopped saying anything this
-    /// stops nothing, since what it signed in to may be being enrolled.
+    /// Stop the tool of the sign-in `id`, and say whether it did. Once the tool has stopped
+    /// saying anything this stops nothing, since what it signed in to may be being enrolled.
     StopSignIn { id: u64 },
     /// The tool of the sign-in `id` has stopped saying anything: enrol what it signed in to,
     /// or let it go.
@@ -326,6 +326,14 @@ pub(crate) enum Answer {
         id: u64,
         done: Result<Enrolled, PitboardError>,
     },
+    /// The sign-in `id` was stopped rather than enrolled: its tool has been stopped and
+    /// waited for, and the core's one sign-in at a time let go of. Told by the stop on the
+    /// lane of sign-in calls where it stopped the tool, and by the sign-in's own thread once
+    /// the tool has stopped saying anything and the thread was told not to enrol, so twice of
+    /// one stopped from the lane.
+    SignInStopped {
+        id: u64,
+    },
     /// What enrolling the login signed in now came to.
     Enrolled {
         provider: String,
@@ -410,7 +418,8 @@ pub(crate) enum Answer {
     },
     /// A code was typed back, or could not be, which the tool says itself if it matters.
     Pasted,
-    /// A sign-in's tool was stopped, or had stopped already.
+    /// A stop that found no tool to stop: one that had not started, or had stopped saying
+    /// anything, or one a stop before had stopped.
     Stopped,
     /// The job stopped with a panic, or a sign-in's thread could not be started, and it came
     /// to nothing. The lane goes on, and the model goes on as though the job had answered
@@ -594,6 +603,9 @@ struct SigningIn {
     /// Whether the tool has started, so that a cancel has a tool to stop. One cancelled
     /// before is stopped as it starts.
     started: bool,
+    /// Whether its thread has been asked for. Not while a sign-in cancelled before it may
+    /// still hold the core's one sign-in at a time.
+    asked: bool,
 }
 
 impl SigningIn {
@@ -688,6 +700,11 @@ pub(crate) struct State {
     /// The sign-in under way, from the moment it is asked for until it has finished, failed
     /// or been cancelled.
     signing_in: Option<SigningIn>,
+    /// The sign-in that may still hold the core's one sign-in at a time, from when its thread
+    /// is asked for until it has let go of it: until then its tool may still run, so the next
+    /// sign-in waits. Cancelled, it is no longer the one under way, and still this until it
+    /// has been stopped.
+    sign_in_holding: Option<u64>,
     /// How many sign-ins have been asked for, which numbers the next.
     sign_ins: u64,
     /// What a finished sign-in warned about, said beside the read after it once that read has
@@ -765,6 +782,7 @@ impl State {
                 pane: None,
             },
             signing_in: None,
+            sign_in_holding: None,
             sign_ins: 0,
             said_after_read: Vec::new(),
             sheet: None,
@@ -1074,10 +1092,6 @@ impl State {
         // Started from the sheet that is up, which says nothing more of what went wrong the
         // last time.
         self.sheet_failure = None;
-        jobs.push(Job::SignIn {
-            id,
-            qualified: format!("{provider}{SEPARATOR}{name}"),
-        });
         self.signing_in = Some(SigningIn {
             id,
             provider,
@@ -1085,7 +1099,49 @@ impl State {
             said: String::new(),
             pasted_at: None,
             started: false,
+            asked: false,
         });
+        self.ask_for_sign_in(jobs);
+    }
+
+    /// Asks for the thread of the sign-in under way, once no sign-in before it may still hold
+    /// the core's one sign-in at a time.
+    ///
+    /// One cancelled is stopped on the lane of sign-in calls, or by its own thread as its tool
+    /// starts or goes quiet, and holds that lock until its tool has been stopped and waited
+    /// for. Asked for meanwhile, the new one started on a thread of its own at once and was
+    /// refused as a sign-in already waiting. It waits instead, shown as a sign-in whose tool
+    /// has not started yet, which is what it is.
+    fn ask_for_sign_in(&mut self, jobs: &mut Vec<Job>) {
+        if self.sign_in_holding.is_some() {
+            return;
+        }
+        let Some(signing) = self.signing_in.as_mut().filter(|signing| !signing.asked) else {
+            return;
+        };
+        signing.asked = true;
+        self.sign_in_holding = Some(signing.id);
+        jobs.push(Job::SignIn {
+            id: signing.id,
+            qualified: format!("{}{SEPARATOR}{}", signing.provider, signing.name),
+        });
+    }
+
+    /// The sign-in `id` has let go of the core's one sign-in at a time, and the sign-in asked
+    /// for since, if one is, starts now. Said once the stop on the lane of sign-in calls has
+    /// stopped its tool and waited for it, or once its thread has given its last answer: its
+    /// tool could not start, or finished, or was stopped and waited for, or what it did came
+    /// to nothing.
+    ///
+    /// The stop says so for itself because the thread's last answer comes only once the
+    /// tool's output has closed too, which a program the tool started can hold open for as
+    /// long as it runs, as `codex login` does once Codex's npm launcher is killed. Waiting for
+    /// it, every sign-in after a cancel showed as starting until that program ended.
+    fn sign_in_let_go(&mut self, id: u64, jobs: &mut Vec<Job>) {
+        if self.sign_in_holding == Some(id) {
+            self.sign_in_holding = None;
+        }
+        self.ask_for_sign_in(jobs);
     }
 
     /// Types `code` back to the sign-in under way, where its tool asks for one: which it does
@@ -1403,7 +1459,12 @@ impl State {
             }
             Answer::Abandoned(done) => self.abandon_over(done.map_err(Some), now, jobs),
             Answer::SignInStarted { id, started } => {
+                // A tool that could not start leaves its thread nothing more to do.
+                let over = started.is_err();
                 self.sign_in_started(id, started.map_err(Some), jobs);
+                if over {
+                    self.sign_in_let_go(id, jobs);
+                }
             }
             Answer::SignInSaid { id, text } => {
                 if let Some(signing) = self.signing_in.as_mut().filter(|s| s.id == id) {
@@ -1418,7 +1479,9 @@ impl State {
             }),
             Answer::SignInFinished { id, done } => {
                 self.sign_in_finished(id, done.map_err(Some), now, jobs);
+                self.sign_in_let_go(id, jobs);
             }
+            Answer::SignInStopped { id } => self.sign_in_let_go(id, jobs),
             Answer::Repaired { repaired, own } => {
                 self.machine.own = Some(own);
                 // Shown again only where it was repaired. Nothing repaired, or a repair that
@@ -1466,14 +1529,21 @@ impl State {
                 Job::Open { .. } => {}
                 Job::Abandon => self.abandon_over(Err(None), now, jobs),
                 // Its tool may or may not have started, and nothing can be said of what it
-                // did: the sign-in is over, said as a failure of its own.
-                Job::SignIn { id, .. } => self.sign_in_started(id, Err(None), jobs),
-                Job::SignInOver { id, enrol: true } => {
-                    self.sign_in_finished(id, Err(None), now, jobs);
+                // did: the sign-in is over, said as a failure of its own. Its thread has
+                // ended, or never started, and what it held was let go of as it unwound.
+                Job::SignIn { id, .. } => {
+                    self.sign_in_started(id, Err(None), jobs);
+                    self.sign_in_let_go(id, jobs);
                 }
-                Job::SignInOver { enrol: false, .. }
-                | Job::PasteCode { .. }
-                | Job::StopSignIn { .. } => {}
+                Job::SignInOver { id, enrol } => {
+                    if enrol {
+                        self.sign_in_finished(id, Err(None), now, jobs);
+                    }
+                    self.sign_in_let_go(id, jobs);
+                }
+                // A stop lost to a panic leaves it to the sign-in's own thread to say it has
+                // let go of the core's one sign-in at a time.
+                Job::PasteCode { .. } | Job::StopSignIn { .. } => {}
                 Job::Enrol { provider, from, .. } => {
                     self.enrolled_now(&provider, from.as_ref(), Err(None), now, jobs);
                 }

@@ -423,6 +423,18 @@ pages load, as a browser would.
   it returns and a tool the app started does not end with it; a sign-in still starting,
   which stops its tool as it starts, or enrolling what it signed in to, is waited for too,
   for no longer than ten seconds in all.
+- A sign-in asked for after a cancel waits for the one cancelled: its thread is asked for
+  only once that one has let go of the core's one sign-in at a time. The stop, which runs on
+  the lane of sign-in calls, says so where it stopped the tool, once it has waited for it.
+  Otherwise the cancelled sign-in's thread says so in its last answer, once its tool has
+  failed to start, finished, or been stopped and waited for, or what it was doing has come
+  to nothing. That answer also waits for the tool's output to close, which a program the
+  tool started can hold open for as long as it runs, so the stop does not leave it to the
+  thread. Meanwhile the new sign-in is shown as one whose tool has not started. Asked for at
+  once, it started on a thread of its own before the stop and was refused as one already
+  waiting. The core lets go of that lock by name as a sign-in is dropped, so
+  `WatchedSignIn::cancel` returns once it is free, whatever processes other threads are
+  starting ([One sign-in at a time](#one-sign-in-at-a-time)).
 - A sign-in under way keeps the sheet it was started from: putting up another while it runs
   would leave the tool running with nothing on screen to finish or stop it. What goes wrong
   is said in that sheet, or in the window where the sheet has gone, and the sheet closes once
@@ -928,6 +940,34 @@ which is `flock`.
   tool bare, with `PATH` set, only where it found none, in `provider::command`, and
   `ready_to_sign_in` refuses such a sign-in before it gets there, so that runs only for a
   program taken away between the two. It is left as it is.
+- Cancel and then Sign In at once, through the app's model over the real core, measured on
+  6 October 2026 on the same two systems with `pitboard-ffi`'s tests. Before the model
+  waited for the sign-in cancelled and the lock was let go of by name,
+  `a_sign_in_asked_for_at_once_after_a_cancel_starts_once_that_one_has_stopped`, with a
+  stand-in for `claude`, failed in 13 of 50 runs alone and in 30 of 40 runs of the whole
+  suite on macOS. On Linux it failed in 4 of 100 runs of the whole suite, and in 36 of 200
+  with four suites running at once, where the fixture's
+  `accounts_are_added_through_each_tools_sign_in` failed 5 times in all as CI met it (run
+  37437790666) and `a_sign_in_asked_for_at_once_after_a_cancel_asks_for_the_code` 11. Each
+  time the second sign-in was refused as `sign_in_in_progress`. After, none of them failed
+  that way: in 50 runs alone and 140 of the whole suite on macOS, and in 100 of the whole
+  suite and 200 with four at once on Linux. In 2 of the 140 on macOS the fixture's test
+  failed otherwise, in its Codex sign-in, which cancels nothing: a look for changes that
+  answered after the sign-in had finished took its enrolment for a change made elsewhere,
+  so the read after the sign-in was dropped, and nothing said when the accounts were read.
+- A program a tool started can hold the tool's output open once the tool has been stopped
+  and waited for. Read on 6 October 2026: `bin/codex.js` of @openai/codex 0.149.1, the
+  `codex` npm installs, starts the native `codex` with `stdio: "inherit"` and hands on only
+  `SIGINT`, `SIGTERM` and `SIGHUP`, so killing it leaves `codex login` running with its
+  output. Measured the same day on the same two systems with
+  `a_sign_in_after_a_cancel_waits_for_no_output_the_tool_stopped_left_open`, whose stand-in
+  for `claude` starts a shell that holds its output open until the test lets it go, then
+  Cancel and Sign In. While the model waited for the cancelled sign-in's thread, the second
+  sign-in asked for its code only once that output had closed: let go after 3 s, in 3.03 to
+  3.07 s on macOS and 3.02 to 3.07 s on Linux; after 6 s, in 6.05 to 6.06 s on macOS; never
+  let go, not within 20 s on either. Taking the stop's own word that it had stopped the
+  tool, it asked in 6.8 to 9.7 ms on macOS and 1.4 to 1.9 ms on Linux, 20 runs each, with
+  that output still open.
 
 ### Claude Code
 

@@ -321,13 +321,19 @@ impl SignInSession {
         )
     }
 
-    /// Stops it. Whatever it wrote is discarded.
-    pub(crate) fn cancel(&self) {
-        if let Ok(mut held) = self.watched.lock()
-            && let Some(watched) = held.take()
-        {
-            watched.cancel();
-        }
+    /// Stops it. Whatever it wrote is discarded. Whether this stopped it: true once its tool
+    /// has been stopped and waited for here and the core's one sign-in at a time let go of,
+    /// false where a finish or another stop had taken it already. Held meanwhile, so a finish
+    /// or a stop asked for at the same time returns only once this has.
+    pub(crate) fn cancel(&self) -> bool {
+        let Ok(mut held) = self.watched.lock() else {
+            return false;
+        };
+        let Some(watched) = held.take() else {
+            return false;
+        };
+        watched.cancel();
+        true
     }
 }
 

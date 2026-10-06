@@ -664,6 +664,9 @@ impl Machine {
                 self.pasted.push((id, code));
                 Answer::Pasted
             }
+            // Answered as a stop that found nothing to stop, which leaves the sign-in's thread
+            // to say it has let go of the core's one sign-in at a time. A test gives the
+            // lane's answer of a stop that stopped a tool still speaking itself.
             Job::StopSignIn { id } => {
                 self.stopped.push(id);
                 Answer::Stopped
@@ -765,7 +768,7 @@ impl Machine {
                         done: self.enrolling.clone().map_err(|refused| refused.error()),
                     }
                 } else {
-                    Answer::Stopped
+                    Answer::SignInStopped { id }
                 }
             }
             Job::RepairSchedule => {
@@ -1215,11 +1218,43 @@ impl World {
     /// shell script, so it runs only where `/bin/sh` does, and so do the tests that use it.
     #[cfg(unix)]
     pub(super) fn claude_stand_in(&mut self) -> StandIn {
+        self.a_claude_stand_in(false)
+    }
+
+    /// The same stand-in, whose first run starts a program of its own before it says
+    /// anything, which outlives it with its output held open until the test lets go of it,
+    /// as `codex login` does once Codex's npm launcher is killed: @openai/codex 0.149.1's
+    /// `bin/codex.js` starts the program with its own output and hands on only `SIGINT`,
+    /// `SIGTERM` and `SIGHUP`. Reading what the tool says then ends only once that program
+    /// has, long after the tool was stopped and waited for.
+    #[cfg(unix)]
+    pub(super) fn claude_stand_in_holding_its_output(&mut self) -> StandIn {
+        self.a_claude_stand_in(true)
+    }
+
+    #[cfg(unix)]
+    fn a_claude_stand_in(&mut self, holding: bool) -> StandIn {
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).expect("a scratch bin");
         let stand_in = StandIn {
             pid: self.root.join("claude.pid"),
             typed: self.root.join("claude.typed"),
+            holder: self.root.join("holder.pid"),
+            holding: self.root.join("holding"),
+        };
+        // A shell of its own that holds the output it was started with for as long as
+        // `holding` is there, and writes down its process id. Only the first run starts one,
+        // so each test has one to let go of.
+        let holder = if holding {
+            format!(
+                "[ -e '{holder}' ] || {{ : > '{flag}'; \
+                 ( while [ -e '{flag}' ]; do /bin/sleep 0.05; done ) & \
+                 echo $! > '{holder}'; }}\n",
+                holder = stand_in.holder.display(),
+                flag = stand_in.holding.display(),
+            )
+        } else {
+            String::new()
         };
         let program = bin.join("claude");
         std::fs::write(
@@ -1228,6 +1263,7 @@ impl World {
                 "#!/bin/sh\n\
                  [ \"$1 $2\" = \"auth login\" ] || exit 64\n\
                  echo $$ > '{pid}'\n\
+                 {holder}\
                  printf 'Opening browser to sign in\u{2026}\\n'\n\
                  printf \"If the browser didn't open, visit: \
                  https://claude.com/cai/oauth/authorize?code=true&state=s\\n\"\n\
@@ -1409,6 +1445,8 @@ impl World {
 pub(super) struct StandIn {
     pid: PathBuf,
     typed: PathBuf,
+    holder: PathBuf,
+    holding: PathBuf,
 }
 
 #[cfg(unix)]
@@ -1423,19 +1461,45 @@ impl StandIn {
     /// Whether the last one started is still running, as the shell's own `kill -0` says of
     /// the process id it wrote, which is never this test's or anybody else's to stop.
     pub(super) fn is_running(&self) -> bool {
-        let Ok(pid) = std::fs::read_to_string(&self.pid) else {
-            return false;
-        };
-        let pid = pid.trim();
-        assert!(
-            !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()),
-            "{pid:?}"
-        );
-        std::process::Command::new("/bin/sh")
-            .args(["-c", &format!("kill -0 {pid} 2>/dev/null")])
-            .status()
-            .is_ok_and(|status| status.success())
+        running(&self.pid)
     }
+
+    /// Whether the program its first run started still holds its output open, as the shell's
+    /// own `kill -0` says.
+    pub(super) fn holds_output(&self) -> bool {
+        running(&self.holder)
+    }
+
+    /// Lets the program its first run started end, and its output close with it.
+    pub(super) fn let_go_of_output(&self) {
+        let _ = std::fs::remove_file(&self.holding);
+    }
+}
+
+/// Nothing a stand-in started outlives its test holding its output open.
+#[cfg(unix)]
+impl Drop for StandIn {
+    fn drop(&mut self) {
+        self.let_go_of_output();
+    }
+}
+
+/// Whether the process whose id a stand-in wrote at `path` runs, as the shell's own `kill -0`
+/// says.
+#[cfg(unix)]
+fn running(path: &std::path::Path) -> bool {
+    let Ok(pid) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let pid = pid.trim();
+    assert!(
+        !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()),
+        "{pid:?}"
+    );
+    std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("kill -0 {pid} 2>/dev/null")])
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// Claude Code's write lock, held until this is dropped.

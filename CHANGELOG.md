@@ -95,6 +95,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   take that code. Copy the whole code your browser shows, and paste it again.** and offers
   the code field again, and the same sign-in takes the next code. The sheet asked for a code
   once, so a refused one left a sign-in that only **Cancel** could end.
+- In the app, **Sign In** pressed right after **Cancel** no longer says another
+  `pitboard enroll --sign-in` is already waiting: the new sign-in starts once the one
+  cancelled has stopped. 0.7.0 stopped the cancelled sign-in in the background and started
+  the new one at once, which could find the old one still holding the lock that allows one
+  sign-in at a time.
 - A sign-in that fails after its sheet has closed is said in the window. It was said
   nowhere.
 - A name the **Name** or **Rename** sheet could not save, once the sheet had closed or

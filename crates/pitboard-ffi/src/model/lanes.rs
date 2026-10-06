@@ -17,9 +17,13 @@
 //! call that waits on a person in a browser: it starts the tool's sign-in, hands on what the
 //! tool says until it stops, and then enrols what it signed in to, or lets it go, as it is
 //! told. Typing a code back and stopping a sign-in run on `sign_in_calls`, apart from the
-//! thread reading, which they would otherwise wait behind until the browser came back. Once
-//! the actor has gone, that lane stops every sign-in still under way, so each thread ends,
-//! and `PitboardModel::shutdown` waits until it has.
+//! thread reading, which they would otherwise wait behind until the browser came back. The
+//! model asks for the next sign-in's thread only once the one before has let go of the core's
+//! one sign-in at a time, which a stop that stopped its tool says, and its thread's last
+//! answer: that comes only once the tool's output has closed too, which a program the tool
+//! started can hold open long after it. Once the actor has gone, that lane stops every
+//! sign-in still under way, so each thread ends, and `PitboardModel::shutdown` waits until
+//! it has.
 
 use super::advice::Told;
 use super::machine::Scheduled;
@@ -281,6 +285,13 @@ fn lane(
 /// Once the tool has stopped saying anything, it waits to be told whether to enrol what the
 /// tool signed in to, which only the sign-in still under way is. A sign-in that is not is
 /// stopped, which reaps a tool that ended by itself and stops one the model has gone from.
+///
+/// Its last answer, whichever way it goes, comes once nothing of it holds the core's one
+/// sign-in at a time: its tool could not start, or has finished or been stopped and waited
+/// for, or what it was doing came to nothing. The model starts the next sign-in then, unless
+/// a stop from the lane of sign-in calls said so first: a tool stopped while reading what it
+/// says goes on being read until its output closes, which a program it started can put off
+/// for as long as that program runs.
 fn signing_in(
     worker: &Worker,
     answers: &Sender<Msg>,
@@ -330,8 +341,11 @@ fn signing_in(
         };
         tell(answer);
     } else {
-        session.cancel();
-        tell(Answer::Stopped);
+        // A stop that panicked dropped what it held as it unwound, the core's one sign-in at
+        // a time with it, and the next sign-in waits for this answer, so it is given
+        // whatever the stop came to.
+        let _ = catch_unwind(AssertUnwindSafe(|| session.cancel()));
+        tell(Answer::SignInStopped { id });
     }
     worker.sign_ins.end(id);
 }
@@ -679,11 +693,21 @@ impl Worker {
                 }
                 Answer::Pasted
             }
+            // A stop that stopped the tool has waited for it and let go of the core's one
+            // sign-in at a time, so it says so, and the next sign-in starts without waiting
+            // for the sign-in's own thread: that answers only once the tool's output has
+            // closed, which a program the tool started can hold open long after the tool was
+            // stopped, as `codex login` does once Codex's npm launcher is killed.
             Job::StopSignIn { id } => {
-                if let Some(session) = self.sign_ins.session(id) {
-                    session.cancel();
+                if self
+                    .sign_ins
+                    .session(id)
+                    .is_some_and(|session| session.cancel())
+                {
+                    Answer::SignInStopped { id }
+                } else {
+                    Answer::Stopped
                 }
-                Answer::Stopped
             }
             // A sign-in runs on a thread of its own, and never here.
             Job::SignIn { .. } | Job::SignInOver { .. } => Answer::Lost(job),
@@ -1217,7 +1241,9 @@ mod tests {
 
     /// A code typed back and a stop reach a sign-in only while its tool has started and is
     /// saying something: before, there is nothing to reach, and after, what it signed in to
-    /// may be being enrolled.
+    /// may be being enrolled. A stop that stops the tool says so by the sign-in's id, since by
+    /// then the tool has been waited for and the core's one sign-in at a time let go of, and
+    /// one that reaches nothing says nothing of it.
     #[test]
     #[cfg(unix)]
     fn a_code_and_a_stop_reach_only_a_tool_that_has_started_and_still_speaks() {
@@ -1266,18 +1292,22 @@ mod tests {
         assert!(worker.sign_ins.started(1, &session));
         // It writes its process id before it says anything.
         assert!(session.next_line().is_some(), "the stand-in says something");
+        let stopped = worker.work(Job::StopSignIn { id: 1 });
+        assert!(
+            matches!(stopped, Answer::SignInStopped { id: 1 }),
+            "{stopped:?}"
+        );
+        assert!(!claude.is_running(), "stopped and waited for as it answers");
+        assert!(
+            core.sign_in("claude/after".into())
+                .expect("the one sign-in at a time let go of")
+                .cancel(),
+            "the next stopped too"
+        );
         assert!(matches!(
             worker.work(Job::StopSignIn { id: 1 }),
             Answer::Stopped
         ));
-        let stopped = Instant::now();
-        while claude.is_running() {
-            assert!(
-                stopped.elapsed() < Duration::from_secs(20),
-                "the stand-in stopped"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
         worker.sign_ins.quiet(1);
         assert!(matches!(
             worker.work(Job::StopSignIn { id: 1 }),

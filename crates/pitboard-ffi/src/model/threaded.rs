@@ -703,9 +703,15 @@ struct SigningInWorld {
 
 #[cfg(unix)]
 fn signing_in_world(name: &str) -> SigningInWorld {
+    signing_in_world_with(name, World::claude_stand_in)
+}
+
+/// The same, with the stand-in `stand_in` makes.
+#[cfg(unix)]
+fn signing_in_world_with(name: &str, stand_in: fn(&mut World) -> StandIn) -> SigningInWorld {
     let mut world = World::new(name);
     world.enrolled("work", "here", 10.0);
-    let claude = world.claude_stand_in();
+    let claude = stand_in(&mut world);
     let core = world.core();
     let told = Arc::new(Told::default());
     let model = model(&core, &told);
@@ -875,6 +881,96 @@ fn cancelling_a_sign_in_stops_its_tool() {
     assert!(at.claude.typed().is_empty());
 
     at.model.shutdown();
+    eventually("every thread let go of the core", || {
+        Arc::strong_count(&at.core) == 1
+    });
+}
+
+/// Cancel and then Sign In at once, on the real core with a stand-in for `claude`, as a person
+/// can press one after the other: the new sign-in starts once the one cancelled before it has
+/// stopped, its tool exited and the core's one sign-in at a time let go, and asks for a code.
+/// It was refused as a sign-in already waiting, since the stop runs on the lane of sign-in
+/// calls while the new sign-in started at once on a thread of its own.
+#[test]
+#[cfg(unix)]
+fn a_sign_in_asked_for_at_once_after_a_cancel_starts_once_that_one_has_stopped() {
+    let at = signing_in_world("cancel-then-sign-in");
+    at.model.send(sign_in("travel"));
+    let told = at.told.until("a code asked for", signing(|s| s.wants_code));
+    let first = told
+        .last()
+        .and_then(|last| last.signing_in.as_ref())
+        .expect("the first sign-in")
+        .id;
+    at.model.send(Intent::CancelSignIn);
+    at.model.send(sign_in("travel"));
+    let told = at
+        .told
+        .until("a code asked for again, or a refusal", |told| {
+            told.last().is_some_and(|last| {
+                last.failure.is_some()
+                    || last
+                        .signing_in
+                        .as_ref()
+                        .is_some_and(|signing| signing.id != first && signing.wants_code)
+            })
+        });
+    let last = told.last().expect("a snapshot");
+    assert_eq!(last.failure, None, "the second sign-in refused");
+    assert!(at.claude.is_running(), "the second sign-in's tool");
+
+    at.model.send(Intent::CancelSignIn);
+    at.model.shutdown();
+    assert!(!at.claude.is_running());
+}
+
+/// Cancel and then Sign In at once, where the tool cancelled leaves a program it started
+/// running with its output open, as Codex's npm launcher leaves `codex login` once it is
+/// killed. The new sign-in starts once the stop has stopped the tool, waited for it and let go
+/// of the core's one sign-in at a time, and asks for a code while that output is still open.
+/// It waited for the thread of the one cancelled, which ends only once its tool's output has
+/// closed, and showed it as starting all that while.
+#[test]
+#[cfg(unix)]
+fn a_sign_in_after_a_cancel_waits_for_no_output_the_tool_stopped_left_open() {
+    let at = signing_in_world_with(
+        "cancel-output-held",
+        World::claude_stand_in_holding_its_output,
+    );
+    at.model.send(sign_in("travel"));
+    let told = at.told.until("a code asked for", signing(|s| s.wants_code));
+    let first = told
+        .last()
+        .and_then(|last| last.signing_in.as_ref())
+        .expect("the first sign-in")
+        .id;
+    assert!(at.claude.holds_output(), "its output held open");
+
+    at.model.send(Intent::CancelSignIn);
+    at.model.send(sign_in("travel"));
+    let told = at
+        .told
+        .until("a code asked for again, or a refusal", |told| {
+            told.last().is_some_and(|last| {
+                last.failure.is_some()
+                    || last
+                        .signing_in
+                        .as_ref()
+                        .is_some_and(|signing| signing.id != first && signing.wants_code)
+            })
+        });
+    let last = told.last().expect("a snapshot");
+    assert_eq!(last.failure, None, "the second sign-in refused");
+    assert!(at.claude.is_running(), "the second sign-in's tool");
+    assert!(
+        at.claude.holds_output(),
+        "the first's output still open as the second asks for a code"
+    );
+
+    at.model.send(Intent::CancelSignIn);
+    at.model.shutdown();
+    assert!(!at.claude.is_running());
+    at.claude.let_go_of_output();
     eventually("every thread let go of the core", || {
         Arc::strong_count(&at.core) == 1
     });

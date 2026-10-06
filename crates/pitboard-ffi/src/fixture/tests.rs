@@ -1377,6 +1377,60 @@ fn accounts_are_added_through_each_tools_sign_in() {
     model.shutdown();
 }
 
+/// Cancel and then Sign In at once, as a person can press one after the other: the new
+/// sign-in waits, shown as starting, until the one cancelled before it has stopped and let go
+/// of the core's one sign-in at a time, then asks for the code, and nothing on the way is
+/// refused as a sign-in already waiting.
+#[test]
+fn a_sign_in_asked_for_at_once_after_a_cancel_asks_for_the_code() {
+    let launched = made(World::OneTool);
+    let (model, told) = started(&launched);
+    let sign_in = || Intent::SignIn {
+        provider: "claude".into(),
+        name: "third".into(),
+    };
+    let refused =
+        |snapshot: &Snapshot| snapshot.failure.is_some() || snapshot.sheet_failure.is_some();
+    model.send(Intent::PresentSheet {
+        sheet: Sheet::Add { provider: None },
+    });
+    model.send(sign_in());
+    let first = told.until("the code asked for", |snapshot| {
+        snapshot
+            .signing_in
+            .as_ref()
+            .is_some_and(|signing| signing.wants_code)
+    });
+    let first = first.signing_in.expect("the first sign-in").id;
+    model.send(Intent::CancelSignIn);
+    model.send(sign_in());
+    let asking = told.until("the code asked for again, or a refusal", |snapshot| {
+        refused(snapshot)
+            || snapshot
+                .signing_in
+                .as_ref()
+                .is_some_and(|signing| signing.id != first && signing.wants_code)
+    });
+    assert_eq!(
+        (asking.failure, asking.sheet_failure),
+        (None, None),
+        "the second sign-in refused"
+    );
+    model.send(Intent::PasteCode { code: CODE.into() });
+    told.until("the account listed", |snapshot| {
+        refused(snapshot)
+            || (snapshot.signing_in.is_none()
+                && read_in(snapshot)
+                && snapshot.status.as_ref().is_some_and(|status| {
+                    status
+                        .accounts
+                        .iter()
+                        .any(|account| account.qualified.as_deref() == Some("claude/third"))
+                }))
+    });
+    model.shutdown();
+}
+
 /// A rename to a name another account has is refused in its sheet, and a free name is
 /// taken, as AccountsWindowTests.swift's testRenamingAnAccount reads it; the account in use
 /// offers no Forget, and any other is forgotten, as its testTheAccountInUseOffersNoForget

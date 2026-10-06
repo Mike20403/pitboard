@@ -474,6 +474,241 @@ fn a_sign_in_cancelled_while_it_starts_stops_what_started() {
     assert_eq!((shown.failure, shown.sheet_failure), (None, None));
 }
 
+fn a_sign_in(job: &Job) -> bool {
+    matches!(job, Job::SignIn { .. })
+}
+
+/// Cancel and then Sign In at once, as a person can press one after the other. The sign-in
+/// cancelled holds the core's one sign-in at a time until its tool has stopped, so the new one
+/// is shown as starting meanwhile, in the sheet it was started from, and asked for only once
+/// the cancelled one has let go: as the stop on the lane of sign-in calls answers, where it
+/// stopped the tool, or else once its own thread has answered last. Asked for at once, it
+/// started on a thread of its own before the stop had run, and was refused as a sign-in
+/// already waiting. Asked for only once that thread had answered, it waited as long as a
+/// program the tool started held the tool's output open, as `codex login` does once Codex's
+/// npm launcher is killed.
+#[test]
+fn a_sign_in_asked_for_after_a_cancel_starts_once_the_cancelled_one_has_stopped() {
+    for stops_its_tool in [true, false] {
+        let case = if stops_its_tool {
+            "the stop stopped its tool"
+        } else {
+            "it had gone quiet before the stop"
+        };
+        let mut model = Hand::new();
+        let mut machine = Machine::reading(Ok(status(Vec::new())));
+        put_up(&mut model, &mut machine, add(None));
+        let first = starts(&mut model, &mut machine, "claude", "work");
+        says(&mut model, first, PROMPT);
+
+        assert_eq!(
+            model.send(Intent::CancelSignIn),
+            [Job::StopSignIn { id: first }],
+            "{case}"
+        );
+        assert_eq!(
+            model.send(sign_in("claude", "work")),
+            [],
+            "{case}: nothing asked for while the first is stopping"
+        );
+        let waiting = running(&model);
+        assert_ne!(waiting.id, first);
+        assert_eq!(
+            (waiting.said.as_str(), waiting.url, waiting.wants_code),
+            ("", None, false),
+            "{case}: shown as starting"
+        );
+        assert_eq!(model.shown().sheet, Some(add(None)), "{case}");
+        assert_eq!(
+            model.send(paste("early#code")),
+            [],
+            "{case}: nothing to type to yet"
+        );
+
+        let stop = model.next();
+        assert_eq!(stop, Job::StopSignIn { id: first }, "{case}");
+        let asked_for = Job::SignIn {
+            id: waiting.id,
+            qualified: "claude/work".into(),
+        };
+        if stops_its_tool {
+            // As the lane answers once it has stopped the tool and waited for it. The
+            // thread may go on reading what the tool said for as long as its output is open.
+            assert_eq!(
+                model.give(Answer::SignInStopped { id: first }),
+                [asked_for],
+                "{case}: asked for as the stop answers"
+            );
+            model.run(&mut machine);
+            says(&mut model, waiting.id, PROMPT);
+            assert!(running(&model).wants_code, "{case}");
+            assert_eq!(
+                model.give(Answer::SignInQuiet { id: first }),
+                [Job::SignInOver {
+                    id: first,
+                    enrol: false
+                }],
+                "{case}"
+            );
+            model.run(&mut machine);
+            assert_eq!(model.count(a_sign_in), 2, "{case}: nothing asked for again");
+            assert_eq!(running(&model).id, waiting.id, "{case}");
+            assert!(
+                running(&model).wants_code,
+                "{case}: the new one left as it was"
+            );
+        } else {
+            // As the lane answers where the tool had stopped saying anything first: the
+            // thread sees to the tool, and its last answer is what lets the next start.
+            assert_eq!(
+                model.give(machine.answer(stop)),
+                [],
+                "{case}: a stop that stopped nothing is not over"
+            );
+            assert_eq!(
+                model.give(Answer::SignInQuiet { id: first }),
+                [Job::SignInOver {
+                    id: first,
+                    enrol: false
+                }],
+                "{case}"
+            );
+            let over = model.next();
+            assert_eq!(
+                model.give(machine.answer(over)),
+                [asked_for],
+                "{case}: asked for once the first's thread is over"
+            );
+            model.run(&mut machine);
+            says(&mut model, waiting.id, PROMPT);
+            assert!(running(&model).wants_code, "{case}");
+        }
+        assert_eq!(machine.signed_in, ["claude/work", "claude/work"], "{case}");
+        assert_eq!(machine.over, [(first, false)], "{case}");
+        let shown = model.shown();
+        assert_eq!((shown.failure, shown.sheet_failure), (None, None), "{case}");
+    }
+}
+
+/// However a sign-in cancelled before it lets go of the core's one sign-in at a time, that is
+/// what lets the one asked for since start: its tool failing to start, or starting and then
+/// being stopped as it starts, said by the stop where it stopped the tool and by its thread
+/// otherwise, or its start or its finish lost to a panic, or what it signed in to enrolled
+/// too late to stop. Its thread answering last after the stop said so asks for nothing more.
+/// A sign-in cancelled while it waits is never asked for, and once nothing is left of the one
+/// before it the next starts at once.
+#[test]
+fn a_sign_in_waiting_on_a_cancelled_one_starts_once_that_one_has_let_go() {
+    type Ends = fn(&mut Hand, &mut Machine, u64);
+    let cases: [(&str, Ends); 6] = [
+        ("could not start", |model, _, id| {
+            model.give(Answer::SignInStarted {
+                id,
+                started: Err(refusal("sign_in_incomplete", "no", Vec::new()).error()),
+            });
+        }),
+        (
+            "stopped as it started, by its thread",
+            |model, machine, id| {
+                model.give(Answer::SignInStarted {
+                    id,
+                    started: Ok(()),
+                });
+                model.run(machine);
+                assert_eq!(machine.stopped, [id]);
+                model.give(Answer::SignInQuiet { id });
+                model.run(machine);
+            },
+        ),
+        (
+            "stopped as it started, by the stop",
+            |model, machine, id| {
+                model.give(Answer::SignInStarted {
+                    id,
+                    started: Ok(()),
+                });
+                assert_eq!(
+                    model.take(|job| matches!(job, Job::StopSignIn { .. })),
+                    Job::StopSignIn { id }
+                );
+                model.give(Answer::SignInStopped { id });
+                model.run_but(machine, a_sign_in);
+                model.give(Answer::SignInQuiet { id });
+                model.run_but(machine, a_sign_in);
+            },
+        ),
+        ("its start lost", |model, _, id| {
+            model.give(Answer::Lost(Job::SignIn {
+                id,
+                qualified: "claude/one".into(),
+            }));
+        }),
+        ("its finish lost", |model, _, id| {
+            model.give(Answer::SignInStarted {
+                id,
+                started: Ok(()),
+            });
+            model.give(Answer::Lost(Job::SignInOver { id, enrol: true }));
+        }),
+        ("enrolled too late to stop", |model, machine, id| {
+            model.give(Answer::SignInStarted {
+                id,
+                started: Ok(()),
+            });
+            model.give(Answer::SignInFinished {
+                id,
+                done: machine.enrolling.clone().map_err(|refused| refused.error()),
+            });
+            model.run_but(machine, a_sign_in);
+        }),
+    ];
+    for (case, ends) in cases {
+        let mut model = Hand::new();
+        let mut machine = Machine::reading(Ok(status(Vec::new())));
+        model.send(sign_in("claude", "one"));
+        let Job::SignIn { id: first, .. } = model.next() else {
+            panic!("{case}: the first sign-in asked for");
+        };
+        model.send(Intent::CancelSignIn);
+        assert_eq!(model.send(sign_in("claude", "two")), [], "{case}");
+        let second = running(&model).id;
+        ends(&mut model, &mut machine, first);
+        let asked: Vec<&Job> = model.asked.iter().filter(|job| a_sign_in(job)).collect();
+        assert_eq!(
+            asked,
+            [
+                &Job::SignIn {
+                    id: first,
+                    qualified: "claude/one".into()
+                },
+                &Job::SignIn {
+                    id: second,
+                    qualified: "claude/two".into()
+                }
+            ],
+            "{case}"
+        );
+        assert_eq!(running(&model).id, second, "{case}");
+        assert_eq!(
+            model.shown().failure,
+            None,
+            "{case}: nothing said of the first"
+        );
+    }
+
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(status(Vec::new())));
+    let first = starts(&mut model, &mut machine, "claude", "one");
+    model.send(Intent::CancelSignIn);
+    model.send(sign_in("claude", "two"));
+    model.send(Intent::CancelSignIn);
+    assert_eq!(model.shown().signing_in, None);
+    model.run(&mut machine);
+    ends(&mut model, &mut machine, first);
+    assert_eq!(model.count(a_sign_in), 1, "the second was never asked for");
+    assert_eq!(model.send(sign_in("claude", "three")).len(), 1, "at once");
+}
+
 /// AppModelTests.swift's aFinishedSignInClosesOnlyTheSheetItStartedFrom. A sign-in that
 /// finishes closes the sheet it was started from. A sheet up by then would be somebody
 /// else's, such as a name half typed, and closing it threw that away. Here no other sheet can
@@ -536,7 +771,12 @@ fn a_sign_in_cancelled_while_it_finishes_leaves_what_came_after_it() {
         model.run(&mut machine);
 
         put_up(&mut model, &mut machine, add(Some("claude")));
-        let next = starts(&mut model, &mut machine, "claude", "other");
+        assert_eq!(
+            model.send(sign_in("claude", "other")),
+            [],
+            "not while the one finishing holds the core's one sign-in at a time"
+        );
+        let next = running(&model).id;
         let reads = model.count(any_read);
         machine.answer = Ok(status(vec![codex_account("work", true), travel.clone()]));
         let done = if stopped_first {
@@ -553,6 +793,11 @@ fn a_sign_in_cancelled_while_it_finishes_leaves_what_came_after_it() {
             done: done.map_err(|refused| refused.error()),
         });
         model.run(&mut machine);
+        assert_eq!(
+            machine.signed_in,
+            ["codex/travel", "claude/other"],
+            "asked for once the one finishing is over"
+        );
 
         let shown = model.shown();
         let still = shown
@@ -1007,8 +1252,10 @@ fn what_went_wrong_in_a_sheet_goes_with_it() {
     model.send(sign_in("claude", "work"));
     assert_eq!(model.shown().sheet_failure, None, "signed in from again");
     model.run(&mut machine);
+    let id = running(&model).id;
     model.send(Intent::CancelSignIn);
     model.run(&mut machine);
+    ends(&mut model, &mut machine, id);
 
     machine.starting = Err(refusal("claude_program_missing", "no claude", Vec::new()));
     starts(&mut model, &mut machine, "claude", "work");
