@@ -42,14 +42,20 @@ impl Permit {
 /// host says. A process that runs as root or under sudo changes nothing, and nor does one
 /// the host cannot place: a file it wrote would be root's, and a keychain item might be,
 /// where the person's own runs might never read, replace or remove it again.
+///
+/// Nor does one whose environment names a home that is empty or relative
+/// ([`crate::home::check_absolute`]): what it wrote would land under whichever folder it
+/// was run from. Asked after elevation, so `sudo` is what a run under it is told first.
 pub(crate) fn gate(ctx: &Context) -> Result<Permit> {
     match ctx.host().elevation(ctx) {
-        Elevation::Normal => Ok(Permit {
-            _only_the_gate_makes_one: (),
-        }),
-        Elevation::Elevated { why } => Err(Error::Elevated { why: Some(why) }),
-        Elevation::Unknown => Err(Error::Elevated { why: None }),
+        Elevation::Normal => {}
+        Elevation::Elevated { why } => return Err(Error::Elevated { why: Some(why) }),
+        Elevation::Unknown => return Err(Error::Elevated { why: None }),
     }
+    crate::home::check_absolute(ctx)?;
+    Ok(Permit {
+        _only_the_gate_makes_one: (),
+    })
 }
 
 /// Something to know about that did not stop the operation.
@@ -267,6 +273,15 @@ impl Pitboard {
     /// only be refused.
     pub fn permit(&self) -> Result<Permit> {
         gate(&self.ctx)
+    }
+
+    /// Whether every home the environment names is a full path, as the gate and every read
+    /// of the accounts ask. A front end asks it before anything else that reads under one,
+    /// such as the audit log, the schedule's file or the status line's session records, so
+    /// a home that is empty or relative is refused there too, never read as the folder the
+    /// front end runs in.
+    pub fn check_homes(&self) -> Result<()> {
+        crate::home::check_absolute(&self.ctx)
     }
 
     /// The gate's answer as the refusal of a change, which has found nothing on the way.
@@ -1462,6 +1477,42 @@ mod tests {
                     }
                 },
             );
+        }
+    }
+
+    /// An empty or relative `HOME` made every path under it lead into the folder Pitboard
+    /// was run from: its own files where `PITBOARD_HOME` was not set, and the scheduler's
+    /// and each tool's default folder whatever was. The gate refuses it now, and so does
+    /// every read of the accounts, with `home_not_absolute`, and nothing changes. Asked of
+    /// the gate and the reads first, which change nothing whatever they answer.
+    #[test]
+    fn every_change_and_read_is_refused_where_the_home_is_not_a_full_path() {
+        for home in ["", "relative"] {
+            for (tool, make) in MACHINES {
+                let at = format!("{tool}, HOME={home:?}");
+                let m = make(&format!("unplaced-{tool}-{}", home.len()));
+                let mut ctx = m.ctx.clone();
+                ctx.home = std::path::PathBuf::from(home);
+                let pitboard = Pitboard::new(ctx);
+                let refused = |error: Error| {
+                    assert_eq!(error.code(), "home_not_absolute", "{at}: {error}");
+                    assert!(error.to_string().starts_with("HOME is "), "{at}: {error}");
+                };
+
+                refused(pitboard.permit().expect_err("the gate refuses"));
+                refused(pitboard.status_offline().err().expect("refused"));
+                refused(pitboard.status(false).err().expect("refused"));
+                let before = (everything(&m), m.api.calls());
+                for (change, run) in CHANGES {
+                    let failed = run(&pitboard, &m).unwrap_or_else(|| panic!("{at}: {change}"));
+                    refused(failed.error);
+                    assert!(failed.warnings.is_empty(), "{at}, {change}");
+                }
+                assert!(
+                    (everything(&m), m.api.calls()) == before,
+                    "{at}: nothing changes and nobody is asked"
+                );
+            }
         }
     }
 

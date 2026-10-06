@@ -67,10 +67,10 @@ pub fn status(ctx: &Context) -> Installed {
 /// Whether the schedule is this context's to look after.
 ///
 /// The scheduler starts `renew` without `PITBOARD_HOME`, so the schedule always renews the
-/// default `~/.pitboard`. A Pitboard pointed at another home has none of its own: the one
-/// there is belongs to the default home.
+/// default home, `~/.pitboard` ([`crate::host::default_pitboard_home`]). A Pitboard pointed
+/// at another home has none of its own: the one there is belongs to the default home.
 pub(crate) fn serves(ctx: &Context) -> bool {
-    crate::home::dir(ctx) == ctx.home().join(".pitboard")
+    crate::home::dir(ctx) == crate::host::default_pitboard_home(ctx.home())
 }
 
 /// The Pitboard the schedule should run: the one the context names, or this one, by the

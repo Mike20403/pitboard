@@ -547,6 +547,132 @@ fn enrolling_by_sign_in_under_sudo_announces_no_sign_in() {
     assert!(tree(&env.root) == before, "nothing is written");
 }
 
+/// With `HOME` empty or relative, every command but the two that print a generated file is
+/// refused in its own envelope with `home_not_absolute`, before it reads or writes anything,
+/// and `doctor` fails its `homes` check and checks nothing else. Pitboard took the home to
+/// be under the folder it ran in, and `status` read each tool's default folder there. Run
+/// from the test's own folder, so anything written that way would show.
+///
+/// `schedule install` is not run here. It is the one command that would ask the system's
+/// service manager, the person's own launchd or systemd, were it let through: launchd finds
+/// a job by the label inside its file, so a scratch copy would replace their real schedule.
+/// The gate's refusal of it is the core's `service` tests', on a machine in memory, and no
+/// build for tests asks the service manager at all
+/// (`no_build_for_tests_asks_the_systems_service_manager`).
+#[test]
+fn every_command_refuses_a_home_that_is_not_a_full_path() {
+    let mut env = two_accounts("home-not-absolute");
+    access_lapsed(&env, "beta");
+    env.expect_usage_requests(0);
+    let before = tree(&env.root);
+    let commands: [(&[&str], &str); 14] = [
+        (&["status"], "status"),
+        (&["status", "--offline"], "status"),
+        (&["enroll", "gamma"], "enroll"),
+        (&["use", "beta"], "use"),
+        (&["renew"], "renew"),
+        (&["forget", "beta", "--yes"], "forget"),
+        (&["rename", "beta", "gamma"], "rename"),
+        (&["abandon"], "abandon"),
+        (&["repair"], "repair"),
+        (&["adopt"], "adopt"),
+        (&["schedule", "status"], "schedule"),
+        (&["log"], "log"),
+        (&["statusline"], "statusline"),
+        (&["uninstall", "--yes"], "uninstall"),
+    ];
+    let run = |args: &[&str], home: &str| {
+        env.command(&[args, &["--json"]].concat())
+            .env("HOME", home)
+            .current_dir(&env.root)
+            .output()
+            .expect("run Pitboard")
+    };
+    for home in ["", "relative"] {
+        let out = run(&["doctor"], home);
+        assert_eq!(out.status.code(), Some(3), "HOME={home:?} pitboard doctor");
+        let diagnosed = envelope(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!(diagnosed["error"]["code"], "checks_failed");
+        let checks = diagnosed["data"]["checks"].as_array().expect("its checks");
+        assert_eq!(checks.len(), 1, "nothing else is checked: {diagnosed}");
+        assert_eq!(checks[0]["code"], "homes");
+        assert_eq!(checks[0]["level"], "fail");
+    }
+    for home in ["", "relative"] {
+        for (args, command) in commands {
+            let at = format!("HOME={home:?} pitboard {}", args.join(" "));
+            let out = run(args, home);
+            assert_eq!(out.status.code(), Some(1), "{at}");
+            let refused = envelope(&String::from_utf8_lossy(&out.stdout));
+            assert_eq!(refused["command"], command, "{at}");
+            assert_eq!(refused["error"]["code"], "home_not_absolute", "{at}");
+            assert!(
+                refused["error"]["message"]
+                    .as_str()
+                    .is_some_and(|said| said.starts_with("HOME is ")),
+                "{at}: {refused}"
+            );
+        }
+    }
+    assert!(tree(&env.root) == before, "nothing is written");
+    env.assert_usage_requests();
+
+    let out = env
+        .command(&["completions", "bash"])
+        .env("HOME", "")
+        .current_dir(&env.root)
+        .output()
+        .expect("run Pitboard");
+    assert_eq!(out.status.code(), Some(0), "a generated file reads no home");
+    assert!(!out.stdout.is_empty());
+}
+
+/// A build for tests never asks the system's service manager, whose jobs are the person's
+/// own whatever home a test gives: `pitboard schedule install`, with a scratch home that is
+/// a full path and nothing else in its way, is refused with `schedule_refused` and leaves no
+/// unit behind. The `systemctl` it would start is a stand-in on `PATH` that writes down
+/// that it was asked, which it was. Linux only: launchd is asked by its full path, so no
+/// stand-in can take its place there, and running this against a build that asked it would
+/// replace the person's real schedule.
+#[cfg(target_os = "linux")]
+#[test]
+fn no_build_for_tests_asks_the_systems_service_manager() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = two_accounts("no-service-manager");
+    let asked = env.root.join("systemctl-was-asked");
+    let systemctl = env.root.join("bin/systemctl");
+    std::fs::create_dir_all(systemctl.parent().expect("its folder")).expect("made");
+    std::fs::write(
+        &systemctl,
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\n", asked.display()),
+    )
+    .expect("a stand-in");
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).expect("runnable");
+    let home = env.root.join("home");
+    std::fs::create_dir_all(&home).expect("a home of the test's own");
+
+    let out = env
+        .command(&["schedule", "install", "--json"])
+        .env("HOME", &home)
+        .output()
+        .expect("run Pitboard");
+
+    let refused = envelope(&String::from_utf8_lossy(&out.stdout));
+    assert_eq!(out.status.code(), Some(1), "{refused}");
+    assert_eq!(refused["error"]["code"], "schedule_refused", "{refused}");
+    assert!(
+        !asked.exists(),
+        "systemctl was asked: {}",
+        std::fs::read_to_string(&asked).unwrap_or_default()
+    );
+    assert!(
+        !home
+            .join(".config/systemd/user/pitboard-renew.timer")
+            .exists(),
+        "the timer was taken away again"
+    );
+}
+
 /// Under sudo, `pitboard status` answers what `--offline` answers and says why, asking
 /// Anthropic nothing and writing nothing.
 #[test]

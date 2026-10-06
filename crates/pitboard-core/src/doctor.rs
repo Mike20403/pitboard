@@ -1577,6 +1577,11 @@ pub struct Diagnosis {
 }
 
 pub fn run(ctx: &Context) -> Diagnosis {
+    if let Err(crate::error::Error::HomeNotAbsolute { variable, path }) =
+        crate::home::check_absolute(ctx)
+    {
+        return unplaced(ctx, variable, &path);
+    }
     let facts = gather(ctx);
     Diagnosis {
         redaction: redaction_for(ctx, &facts),
@@ -1599,6 +1604,37 @@ pub fn run(ctx: &Context) -> Diagnosis {
                 "version": facts.codex.version,
             },
         }),
+    }
+}
+
+/// What doctor says where a home the environment names is empty or relative
+/// ([`crate::home::check_absolute`]): how this process runs, where that fails, and the
+/// `homes` check, failed, and nothing else. Every other check reads files under one of the
+/// homes, and a relative one would have it read whatever is under the folder doctor was run
+/// from.
+fn unplaced(ctx: &Context, variable: &str, path: &std::path::Path) -> Diagnosis {
+    let holds = if path.as_os_str().is_empty() {
+        "empty".to_string()
+    } else {
+        format!("`{}`, which is not a full path", path.display())
+    };
+    let homes = fail(
+        "homes",
+        "homes",
+        format!("{variable} is {holds}"),
+        "Set it to a full path, or unset it. Pitboard checks nothing else until then: \
+         everything it reads is under these folders.",
+    );
+    Diagnosis {
+        checks: elevated(ctx.host().elevation(ctx))
+            .into_iter()
+            .chain(std::iter::once(homes))
+            .collect(),
+        environment: json!({}),
+        redaction: crate::redact::Sheet::new(
+            format!("{}:{}", crate::state::machine_id(), ctx.now_millis()),
+            ctx.home().to_string_lossy(),
+        ),
     }
 }
 
@@ -3172,6 +3208,38 @@ mod tests {
         facts.claude_present = false;
         let checks = evaluate(&facts);
         assert!(checks.iter().any(|c| c.code == "config_file"));
+    }
+
+    /// Where a home the environment names is not a full path, doctor says so and checks
+    /// nothing else, since every other check reads under one of the homes. It read Claude
+    /// Code's and Pitboard's files under whatever folder it was run from.
+    #[test]
+    fn doctor_checks_nothing_under_a_home_that_is_not_a_full_path() {
+        use crate::context::Environment;
+        for (pairs, said) in [
+            (&[("HOME", "")][..], "HOME is empty"),
+            (
+                &[("HOME", "/Users/x"), ("CODEX_HOME", "codex")],
+                "CODEX_HOME is `codex`, which is not a full path",
+            ),
+        ] {
+            let env: Environment = pairs.iter().copied().collect();
+            let ctx = Context::for_command_line(&env)
+                .with_memory_stores(crate::host::memory::MemoryHost::new());
+            let diagnosis = run(&ctx);
+            let checks: Vec<(&str, Level, &str)> = diagnosis
+                .checks
+                .iter()
+                .map(|c| (c.code, c.level, c.detail.as_str()))
+                .collect();
+            assert_eq!(checks, [("homes", Level::Fail, said)], "{pairs:?}");
+            assert!(
+                diagnosis.checks[0]
+                    .advice
+                    .starts_with("Set it to a full path")
+            );
+            assert_eq!(diagnosis.environment, json!({}));
+        }
     }
 
     /// What `/logout` leaves is nobody signed in, not a login whose shape moved.

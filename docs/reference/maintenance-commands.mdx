@@ -232,6 +232,7 @@ When Codex's checks appear and Claude Code is absent, `doctor` leaves out most o
   | Code | Name | What it checks |
   | --- | --- | --- |
   | `elevated` | `runs as` | Only when Pitboard runs as root or with `sudo`, or cannot tell whether it does. Always fails, because Pitboard then changes nothing. See [Pitboard changes nothing as root](/troubleshooting#pitboard-changes-nothing-as-root). |
+  | `homes` | `homes` | Only when `HOME` or `PITBOARD_HOME` is empty, or it, `CLAUDE_CONFIG_DIR`, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` holds a path that does not start at the root. Always fails, and `doctor` then checks nothing else, because everything it reads is under these folders. |
   | `security_tool` | `security tool` | macOS only. `/usr/bin/security`, which Pitboard reads the keychain with, is there. |
   | `config_file` | `config file` | Claude Code's config file can be read. Fails where Claude Code has never run. |
   | `identity` | `identity` | Claude Code's config names a signed-in account. |

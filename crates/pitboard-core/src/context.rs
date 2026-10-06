@@ -95,7 +95,8 @@ impl Environment {
 
     /// The person's home: `HOME`, or, where it is unset, the account's own, as the passwd
     /// database names it and Foundation finds it for an app. Set, even empty, it is what the
-    /// person said.
+    /// person said, and an empty or relative one is refused where it is used
+    /// ([`crate::home::check_absolute`]), never taken to be the folder Pitboard runs in.
     pub fn home(&self) -> PathBuf {
         self.path("HOME")
             .map(PathBuf::from)
@@ -103,12 +104,13 @@ impl Environment {
             .unwrap_or_default()
     }
 
-    /// Pitboard's own directory: `PITBOARD_HOME`, or `.pitboard` in [`Environment::home`].
-    /// The path as the environment gives it, with any `.`, `..` or trailing `/` it holds.
+    /// Pitboard's own directory: `PITBOARD_HOME`, or the system's default for
+    /// [`Environment::home`], `.pitboard` there on macOS and Linux. The path as the
+    /// environment gives it, with any `.`, `..` or trailing `/` it holds.
     pub fn pitboard_home(&self) -> PathBuf {
         self.path("PITBOARD_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.home().join(".pitboard"))
+            .unwrap_or_else(|| crate::host::default_pitboard_home(&self.home()))
     }
 
     /// Every variable, as a program started in this environment is given them.
@@ -117,6 +119,25 @@ impl Environment {
             .iter()
             .map(|(name, value)| (name.as_os_str(), value.as_os_str()))
     }
+}
+
+/// The one folder every home of [`Context::for_unit_test`] names for the test running on
+/// this thread: one per test, since the test harness names each test's thread after the
+/// test, under the temporary directory, and never made by anything here.
+#[cfg(test)]
+fn unit_test_sentinel() -> PathBuf {
+    let thread = std::thread::current();
+    let test = thread.name().map_or_else(
+        || format!("{:?}", thread.id()),
+        |name| {
+            name.chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect()
+        },
+    );
+    std::env::temp_dir()
+        .join(format!("pitboard-unit-test-{}", std::process::id()))
+        .join(test)
 }
 
 impl<K: Into<OsString>, V: Into<OsString>> FromIterator<(K, V)> for Environment {
@@ -233,10 +254,11 @@ impl Context {
 
     /// Claude Code's defaults for a person whose home is `home`: `~/.pitboard`, `~/.claude`,
     /// the default credential slot, `claude` looked up on `PATH`. An app starts here and sets
-    /// only what differs.
+    /// only what differs. Pitboard's own directory is the system's default for `home`, the
+    /// home handed in and never this account's own.
     pub fn new(home: PathBuf) -> Context {
         Context {
-            pitboard_home: home.join(".pitboard"),
+            pitboard_home: crate::host::default_pitboard_home(&home),
             home,
             claude_config_dir: None,
             secure_storage_dir: None,
@@ -426,10 +448,19 @@ impl Context {
     /// variable Pitboard reads, so what the person running the tests exported changes
     /// nothing a test checks. `PITBOARD_NO_ARGV=1` would fail a keychain test, and
     /// `PITBOARD_CLAUDE` would name the program a test runs.
+    ///
+    /// Every home is this test's sentinel ([`unit_test_sentinel`]): the person's home,
+    /// Pitboard's own directory, Claude Code's config directory and Codex's home. So a test
+    /// that forgets to make a scratch home of its own reads nothing real, and anything it
+    /// writes lands in a folder of its own. Taking the home from the environment, as this
+    /// did, gave every such test the real `~/.pitboard`, `~/.claude` and `~/.codex`.
     #[cfg(test)]
     pub(crate) fn for_unit_test() -> Context {
+        let sentinel = unit_test_sentinel().into_os_string();
+        let homes = ["HOME", "PITBOARD_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
         let kept: Environment = std::env::vars_os()
             .filter(|(name, _)| !variables().any(|read| name == read))
+            .chain(homes.map(|home| (home.into(), sentinel.clone())))
             .collect();
         Context::for_command_line(&kept)
     }
@@ -645,8 +676,9 @@ mod tests {
         assert_eq!(ctx.search_path(), "/opt/tools/bin:/usr/bin");
         assert_eq!(ctx.pitboard_home, PathBuf::from("/Users/x/.pitboard"));
         assert_eq!(ctx.caller, "cli");
+        let no_path: Environment = [("HOME", "/Users/x")].into_iter().collect();
         assert_eq!(
-            Context::for_command_line(&Environment::default()).search_path(),
+            Context::for_command_line(&no_path).search_path(),
             "",
             "no PATH is nowhere, not this process's"
         );
@@ -666,6 +698,7 @@ mod tests {
     /// so kept its files in `.pitboard` wherever it was run from.
     #[test]
     fn without_home_the_home_is_the_accounts_own() {
+        let _real = crate::host::user::testing::reaching_the_real_home();
         let own = crate::host::user::home().expect("this account has a home");
         let ctx = Context::for_command_line(&Environment::default());
         assert_eq!(ctx.home, own);
@@ -678,11 +711,48 @@ mod tests {
         );
     }
 
+    /// A unit test's context names one folder for every home, its own, under the temporary
+    /// directory, and makes nothing there, so a test that forgets to give a scratch home of
+    /// its own reads none of the real ones and writes only there. It took the person's real
+    /// home from the passwd database, and every home under it.
+    #[test]
+    fn a_unit_tests_homes_are_a_folder_of_its_own_that_nothing_makes() {
+        let ctx = Context::for_unit_test();
+        let sentinel = ctx.home.clone();
+        assert!(
+            sentinel.starts_with(std::env::temp_dir()),
+            "{}",
+            sentinel.display()
+        );
+        assert!(!sentinel.exists(), "{}", sentinel.display());
+        assert_eq!(ctx.pitboard_home, sentinel);
+        assert_eq!(
+            crate::provider::claude::paths::config_dir(&ctx),
+            sentinel,
+            "Claude Code's"
+        );
+        assert_eq!(
+            crate::provider::codex::paths::home(&ctx),
+            sentinel,
+            "Codex's"
+        );
+        assert_eq!(Context::for_unit_test().home, sentinel, "the same test's");
+        let another = std::thread::Builder::new()
+            .name("another::test".into())
+            .spawn(|| Context::for_unit_test().home)
+            .expect("a thread")
+            .join()
+            .expect("its context");
+        assert_ne!(another, sentinel, "another test's");
+        assert!(another.ends_with("another--test"), "{}", another.display());
+    }
+
     /// The home and Pitboard directory an app asks of the environment it was started with
     /// are the ones the context it is given reads, path for path, so an app that keys records
     /// of its own by Pitboard's directory keys them by the core's.
     #[test]
     fn the_homes_an_app_asks_for_are_the_contexts() {
+        let _real = crate::host::user::testing::reaching_the_real_home();
         let cases: [&[(&str, &str)]; 5] = [
             &[],
             &[("HOME", "/Users/x")],

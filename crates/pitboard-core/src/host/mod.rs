@@ -283,6 +283,18 @@ pub(crate) trait Scheduler: Send + Sync + std::fmt::Debug {
     fn started_this_process(&self, said: Option<&str>) -> bool;
 }
 
+/// Where Pitboard keeps its own files for a person whose home is `home`, when
+/// `PITBOARD_HOME` names nowhere else: `.pitboard` in that home on macOS and Linux.
+///
+/// Worked out from the home it is handed, never from this account's own, so a context made
+/// for a home of a test's own, or of an app's choosing, keeps Pitboard's files there. The
+/// daily renewal schedule belongs to this home and no other ([`crate::schedule`]).
+pub(crate) fn default_pitboard_home(home: &Path) -> PathBuf {
+    match OS {
+        Os::MacOs | Os::Linux => home.join(".pitboard"),
+    }
+}
+
 /// The host this build is standing on, which is what every real context uses.
 pub(crate) fn current() -> Arc<dyn Host> {
     os::host()
@@ -329,7 +341,9 @@ mod tests {
     #[test]
     fn the_host_reads_sudo_from_the_context_and_root_from_the_process() {
         let under = |value: &str| {
-            let env: Environment = [("SUDO_UID", value)].into_iter().collect();
+            let env: Environment = [("HOME", "/Users/x"), ("SUDO_UID", value)]
+                .into_iter()
+                .collect();
             let ctx = Context::for_command_line(&env);
             ctx.host().elevation(&ctx)
         };

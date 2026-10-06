@@ -54,7 +54,12 @@ pages load, as a browser would.
     system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
     through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
     `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`, such
-    as the folders macOS asks about before an app may look in them.
+    as the folders macOS asks about before an app may look in them, or
+    `default_pitboard_home`, where Pitboard keeps its files for a home when
+    `PITBOARD_HOME` names nowhere else.
+  - `home.rs`: Pitboard's own directory, and what every home must be before anything is
+    read or written under it: a full path (`check_absolute`), and, for Pitboard's own, not
+    in a folder that syncs (`check_location`).
   - `store/`: reading and writing logins, whichever store holds them: the chain rules, a
     file, the vault of files and the stores in memory the tests use. On macOS, parked
     logins are keychain items. On Linux, they are files in the vault.
@@ -310,6 +315,21 @@ pages load, as a browser would.
   except `HOME` and `USER`, and the core's unit tests make their context with
   `Context::for_unit_test`, which withholds all of them, so a variable exported where
   `cargo test` runs, such as `PITBOARD_CLAUDE`, never reaches a test.
+- No unit test reaches a real home. `Context::for_unit_test` names one folder for every
+  home, the person's, Pitboard's, Claude Code's config directory and Codex's: a folder of
+  that test's own under the temporary directory, which nothing makes. In any build for
+  tests the passwd database is never asked for a home (`host::user::home`): a unit test
+  that asks panics, unless it is a test of that lookup and says so, and any other build
+  for tests, the command line the integration tests run and an app built with the
+  fixtures among them, is told there is none, which is refused as below.
+- Every home Pitboard reads or writes under is a full path: `HOME`, Pitboard's own
+  directory, `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` where they name a
+  folder, and `CODEX_HOME` where it is set. One that is empty or relative is refused with
+  `home_not_absolute`, naming the variable, by `home::check_absolute`, which the gate every
+  change passes asks, and every read of the accounts. `doctor` fails its `homes` check
+  over it and checks nothing else. The command line asks it before every command but
+  `completions`, `manpage` and `doctor`, so `log`, `schedule status` and the status line
+  refuse it too. Nothing is resolved against the folder Pitboard runs in.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
@@ -342,7 +362,8 @@ pages load, as a browser would.
   one that is not there, or hands in what a shell said.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
-  the real hosts refuse to ask launchd or systemd from a unit test at all.
+  the real hosts refuse to ask launchd or systemd from any build for tests: a unit test,
+  the command line the integration tests run, or an app built with the fixtures.
 - `pitboard-ffi` exports records, enums, three error types, free functions, one object,
   `PitboardModel`, and four traits an app implements, `ModelListener`, `AppControl`,
   `Notifications` and `LocalTime`. Nothing it exports is async. The core it runs on is

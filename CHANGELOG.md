@@ -142,6 +142,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `app::write_file`, `audit::record`, `schedule::install`, `status::gather`,
   `switch::settle` and `statusline::read`, which takes an `Option<Permit>` and writes
   nothing without one. `host::Elevation` is new. These change the crate's public API.
+- In `pitboard-core`, `service::Pitboard::check_homes` and the error
+  `Error::HomeNotAbsolute` are new.
 
 ### Fixed
 
@@ -210,6 +212,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - With `HOME` unset, the command line used the folder it was run from as your home: it kept
   its files in a `.pitboard` there, and looked for Claude Code's and Codex's beside it. It
   now uses your account's home directory, as the app does.
+- With `HOME` or `PITBOARD_HOME` empty, or with it, `CLAUDE_CONFIG_DIR`,
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` set to a path that does not start at
+  the root, such as `pitboard`, Pitboard refuses every command but `completions`,
+  `manpage` and `doctor` with the error code `home_not_absolute`, which names the variable:
+  `HOME is empty, so the folder it names would depend on where each program runs. Set it
+  to a full path, or unset it; Pitboard reads and changes nothing until then.` Pitboard
+  took such a path to be under the folder it was run from: an empty `HOME` or
+  `PITBOARD_HOME` kept its files there, and an empty `HOME` had
+  `pitboard schedule install` write the schedule's file there. Claude Code and Codex take a
+  relative one from the folder each of them runs in, so the login Pitboard read and
+  switched was the one under the folder Pitboard ran in. `pitboard doctor` fails a `homes`
+  check instead, and checks nothing else; the app's **This Mac** pane shows the same.
 - The command line takes a `claude` or `codex` to be the tool's program only when it is a
   regular file you may run, as the system judges it when it starts one, and otherwise looks
   further on `PATH`. It took a file only others may run, and then failed to start it.

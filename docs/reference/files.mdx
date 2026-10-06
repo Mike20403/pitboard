@@ -124,6 +124,8 @@ A folder that another Pitboard directory also recorded is kept, and only the rec
 
 Opened from Finder, the app does not see your shell's variables, so the defaults apply. Daily renewal runs with the scheduler's environment, not your shell's.
 
+Pitboard refuses an empty `HOME` or `PITBOARD_HOME`, and a path that does not start at the root in either of them or in `CLAUDE_CONFIG_DIR`, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME`, with the error `home_not_absolute`. The folder such a path names depends on where each program runs.
+
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `HOME` | Both | Your home directory, the `~` in every path here. |

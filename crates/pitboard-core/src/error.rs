@@ -107,6 +107,14 @@ pub enum Error {
     )]
     StateOnSyncedDrive { path: PathBuf, marker: String },
 
+    /// A home the environment names is empty or relative, so what it leads to would depend
+    /// on the folder each program runs in. `variable` is the one that named it.
+    #[error("{}", not_absolute(variable, path))]
+    HomeNotAbsolute {
+        variable: &'static str,
+        path: PathBuf,
+    },
+
     #[error(
         "the login for `{label}` needs {bytes} bytes and `security` reads {limit} from \
          stdin, so it can only be written on the argument line, which PITBOARD_NO_ARGV \
@@ -578,6 +586,7 @@ impl Error {
         use Error::*;
         match self {
             StateOnSyncedDrive { .. } => "state_on_synced_drive",
+            HomeNotAbsolute { .. } => "home_not_absolute",
             ProgramMissing { tool, .. } => match tool {
                 ProviderId::Claude => "claude_program_missing",
                 ProviderId::Codex => "codex_program_missing",
@@ -709,6 +718,21 @@ fn elevated(why: Option<&str>) -> &'static str {
              Run it as yourself."
         }
     }
+}
+
+/// What Pitboard says of a home that is not a full path: which variable named it, and what
+/// it holds.
+fn not_absolute(variable: &str, path: &std::path::Path) -> String {
+    let holds = if path.as_os_str().is_empty() {
+        "empty".to_string()
+    } else {
+        format!("`{}`, which is not a full path", path.display())
+    };
+    format!(
+        "{variable} is {holds}, so the folder it names would depend on where each program \
+         runs. Set it to a full path, or unset it; Pitboard reads and changes nothing until \
+         then."
+    )
 }
 
 /// What makes a tool's live login readable again, where it could not be read.

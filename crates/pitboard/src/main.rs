@@ -118,6 +118,39 @@ enum Command {
     Manpage,
 }
 
+impl Command {
+    /// The name the command's envelope gives, as each command's own report names it.
+    fn name(&self) -> &'static str {
+        match self {
+            Command::Status { .. } => "status",
+            Command::Enroll { .. } => "enroll",
+            Command::Use { .. } => "use",
+            Command::Forget { .. } => "forget",
+            Command::Abandon => "abandon",
+            Command::Repair => "repair",
+            Command::Adopt => "adopt",
+            Command::Renew => "renew",
+            Command::Schedule { .. } => "schedule",
+            Command::Log { .. } => "log",
+            Command::Uninstall { .. } => "uninstall",
+            Command::Rename { .. } => "rename",
+            Command::Doctor => "doctor",
+            Command::Statusline => "statusline",
+            Command::Completions { .. } | Command::Manpage => "generate",
+        }
+    }
+
+    /// Whether the command is refused where a home the environment names is not a full
+    /// path. Every one reads or writes under the homes but the two that print a generated
+    /// file, and `doctor`, which says so as a check of its own and checks nothing else.
+    fn refuses_a_home_that_is_not_a_full_path(&self) -> bool {
+        !matches!(
+            self,
+            Command::Completions { .. } | Command::Manpage | Command::Doctor
+        )
+    }
+}
+
 /// A label is typed on the command line from then on, so it cannot be empty or hold spaces.
 /// A name somebody is choosing for a new account, optionally saying which tool it is for.
 ///
@@ -815,11 +848,21 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(exit) => return exit,
     };
-    let pitboard = Pitboard::new(Context::from_env());
-    let report = match cli.command.unwrap_or(Command::Status {
+    let command = cli.command.unwrap_or(Command::Status {
         offline: false,
         fresh: false,
-    }) {
+    });
+    let pitboard = Pitboard::new(Context::from_env());
+    // A home that is empty or relative is refused before a command reads or writes under
+    // it, rather than taken to be under the folder this was run from. The core refuses it
+    // too, wherever it reads Pitboard's accounts or is asked to change anything; this also
+    // covers `log`, `schedule status` and the status line.
+    if command.refuses_a_home_that_is_not_a_full_path()
+        && let Err(refused) = pitboard.check_homes()
+    {
+        return emit(Report::failed(Some(command.name()), refused), cli.json);
+    }
+    let report = match command {
         Command::Status { offline, fresh } => status(&pitboard, offline, fresh),
         Command::Doctor => doctor(&pitboard),
         Command::Statusline => statusline(&pitboard),

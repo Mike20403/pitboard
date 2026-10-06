@@ -114,6 +114,15 @@ app does, fail with `elevated`. The other unit tests and the fixtures run on `Me
 which runs as the person unless a test says otherwise. Run the tests as a user of your own,
 never as root on a machine that holds logins.
 
+A unit test reaches no real home. `Context::for_unit_test` points every home, `HOME`,
+Pitboard's directory, Claude Code's config directory and Codex's, at one folder of that
+test's own under the temporary directory, which nothing makes; a test that writes makes
+a scratch home of its own. A unit test that asks the passwd database for the account's
+home panics, unless it tests that lookup and keeps what
+`host::user::testing::reaching_the_real_home` returns while it does. Any other build for
+tests, such as the `pitboard` the integration tests run, gets no home from there, so a
+command run there without `HOME` is refused with `home_not_absolute`.
+
 The snapshots in `crates/pitboard/tests/snapshots` pin the `--json` contract. A snapshot
 changes only when the contract changes on purpose. Review the difference with
 `cargo insta review`, and say in the pull request why the contract moved.
