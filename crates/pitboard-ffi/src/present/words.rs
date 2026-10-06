@@ -313,10 +313,11 @@ pub(crate) fn spoken_level(level: Level) -> &'static str {
 }
 
 /// A change as the activity list names it, by the verb the log keeps: "Switch", "Enrol", and
-/// one it does not know yet by the verb itself made readable rather than not at all.
+/// one it does not know yet by the verb itself made readable rather than not at all. The
+/// core logs a switch as `use`, after the command that makes one.
 pub(crate) fn change_verb(verb: &str) -> String {
     match verb {
-        "switch" => "Switch".into(),
+        "use" | "switch" => "Switch".into(),
         "enroll" => "Enrol".into(),
         "forget" => "Forget".into(),
         "rename" => "Rename".into(),
@@ -969,6 +970,15 @@ mod tests {
         }
         assert_eq!(change_verb("sign_in"), "Sign in");
         assert_eq!(change_verb(""), "");
+    }
+
+    /// A switch is named a switch by the verb the core logs it under, `use`, after the
+    /// command that makes one: `service::Pitboard::switch_to` has logged it so since the
+    /// workspace began. The Swift app named only `switch`, which its fixture logged and the
+    /// core never has, so a real switch read "Use" there.
+    #[test]
+    fn a_switch_is_named_by_the_verb_the_core_logs_it_under() {
+        assert_eq!(change_verb("use"), "Switch");
     }
 
     /// A change that worked says so in a word, and one that did not says what stopped it,

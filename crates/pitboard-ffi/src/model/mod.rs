@@ -32,7 +32,7 @@
 pub(crate) mod advice;
 mod lanes;
 pub(crate) mod machine;
-mod preferences;
+pub(crate) mod preferences;
 pub(crate) mod state;
 
 #[cfg(test)]

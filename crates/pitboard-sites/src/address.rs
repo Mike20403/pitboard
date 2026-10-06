@@ -53,6 +53,19 @@ impl Address<'_> {
     pub(crate) fn decoded_path(&self) -> String {
         String::from_utf8_lossy(&percent_decoded(&self.path)).into_owned()
     }
+
+    /// The path as Foundation's `URL.path` gives it: percent-decoded, empty where that is not
+    /// UTF-8, and without the slashes it ends in, but for the one a path of nothing else
+    /// keeps.
+    pub(crate) fn url_path(&self) -> String {
+        let Ok(decoded) = String::from_utf8(percent_decoded(&self.path)) else {
+            return String::new();
+        };
+        match decoded.trim_end_matches('/') {
+            "" if decoded.starts_with('/') => "/".into(),
+            kept => kept.into(),
+        }
+    }
 }
 
 /// `text` split into its parts, or `None` where Foundation finds no link with a scheme: no

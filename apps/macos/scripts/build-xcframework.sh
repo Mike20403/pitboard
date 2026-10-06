@@ -10,7 +10,21 @@
 #
 # The two never meet in one binary: each library carries its own copy of Rust's standard
 # library, and scripts/build-app.sh fails a build where they do.
+#
+# --fixture builds the core with its `fixture` feature, for a debug build and the UI tests to
+# launch into a fixture: the worlds are Rust, and only a library built so has them. Its
+# bindings are the same either way. scripts/build-app.sh never passes it, and checks.
 set -eu
+
+features=
+case "${1:-}" in
+    --fixture) features=fixture ;;
+    "") ;;
+    *)
+        echo "usage: $0 [--fixture]" >&2
+        exit 64
+        ;;
+esac
 
 cd "$(dirname "$0")/../../.."
 export MACOSX_DEPLOYMENT_TARGET=14.0
@@ -18,11 +32,11 @@ out=apps/macos/build
 package=apps/macos
 rm -rf "$out"
 
-# build <crate> <module> <bindings>: the crate's static library for both kinds of Mac, as
-# <module>.xcframework, with its Swift bindings in Sources/<bindings>. The crate's own
-# uniffi.toml names the bindings' module. The headers sit in a folder named for the module,
-# where Clang looks for its module map, so the two frameworks' maps never share a path when
-# Xcode gathers their headers.
+# build <crate> <module> <bindings> [<features>]: the crate's static library for both kinds
+# of Mac, as <module>.xcframework, with its Swift bindings in Sources/<bindings>. The crate's
+# own uniffi.toml names the bindings' module. The headers sit in a folder named for the
+# module, where Clang looks for its module map, so the two frameworks' maps never share a
+# path when Xcode gathers their headers.
 build() {
     crate=$1
     module=$2
@@ -32,7 +46,8 @@ build() {
     rm -rf "$generated"
     mkdir -p "$work/bindings" "$work/headers/$module" "$generated"
     for target in aarch64-apple-darwin x86_64-apple-darwin; do
-        cargo build --locked --release -p "$crate" --target "$target"
+        cargo build --locked --release -p "$crate" --target "$target" \
+            ${4:+--features "$4"}
     done
     lipo -create \
         "target/aarch64-apple-darwin/release/$library" \
@@ -52,5 +67,5 @@ build() {
         -output "$package/$module.xcframework"
 }
 
-build pitboard-ffi PitboardFFI PitboardBindings
+build pitboard-ffi PitboardFFI PitboardBindings "$features"
 build pitboard-share-ffi PitboardShareFFI PitboardShareBindings

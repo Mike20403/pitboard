@@ -57,7 +57,9 @@ pages load, as a browser would.
     logins are keychain items. On Linux, they are files in the vault.
   - `switch/`: every change to Pitboard's index (switching, enrolling, adopting, renaming,
     forgetting, renewing, repairing, abandoning and uninstalling), and the journal that
-    finishes an interrupted switch.
+    finishes an interrupted switch. With `test-support`, a context may hold a
+    `SignInScript`, which plays a tool's own sign-in in place of its program, for a test or
+    a fixture that may start none; everything around it is the core's own.
   - `state.rs`: `state.json`, the index of accounts and where each one's login is parked.
   - `lock.rs`: the lock Claude Code takes around credential writes, taken the same way.
   - `context.rs`: what the core takes from its environment, read from a map of variables
@@ -141,6 +143,21 @@ pages load, as a browser would.
     A button the snapshot offers comes with its words beside the intent it sends, so a view
     never words an intent; a control each app always has, such as its toolbar's "Add
     Account…" or "Quit Pitboard", and what is about the app's own system stay the app's.
+  - `fixture/` holds the fixtures, the worlds a debug build of either app and its UI tests
+    launch into by name, which neither app launches into yet: the macOS app still runs its
+    Swift `FixtureCore`. Only the `fixture` feature compiles them, and it enables
+    `pitboard-core`'s `test-support`. `worlds.rs` makes each of the ten on the real core: a
+    home in the fixture's own folder in the temporary directory, `MemoryHost` and
+    `ScriptedApi`, and every account put there by the core as a person would have, signed
+    in, enrolled, parked and switched on a clock set to when it happened. `tools.rs` plays
+    each tool's sign-in through the core's `SignInScript`, with the person at the browser;
+    `apps.rs` is the fixture's other apps, where ChatGPT runs Codex's login and quits when
+    asked, and its notifications, which post nothing; `pages.rs` the stand-in pages an
+    account window loads on `pitboard-fixture://`, from the site table. `mod.rs` holds what
+    every build exports of them, the same in each: `PitboardModel::fixture`,
+    `fixture_names` and `fixture_page`, which without the feature refuse, naming it, or
+    name none. `tests.rs` is the macOS app's `FixtureTests.swift` ported, and what each UI
+    test reads in its world.
 - `crates/pitboard-sites`: the sites an account's window opens, and what a link from outside
   may be. A leaf, with no I/O and nothing of the core, whose one dependency is `url`, for
   IDNA alone.
@@ -158,7 +175,7 @@ pages load, as a browser would.
     was measured.
   - `web.rs` reads a page's address, for an account window's rules, as Foundation's `URL`
     does: its scheme, and the host, port and user it names, with the host a request goes
-    to.
+    to, and its path, which a fixture's stand-in page says.
 - `crates/pitboard-share-ffi`: `pitboard-sites` as UniFFI bindings for the macOS Share
   extension alone, a static library with one function, `share_link`. It checks a shared
   page and writes the Pitboard link that hands it to the app, or says why not in the
@@ -190,9 +207,11 @@ pages load, as a browser would.
     `App/Main.swift` then replaces the process with the command line inside the app.
   - `scripts/build-xcframework.sh` builds the core, as `PitboardFFI.xcframework`, and
     `pitboard-share-ffi`, as `PitboardShareFFI.xcframework`, each with its Swift bindings,
-    for both Mac architectures. `scripts/build-app.sh` generates the project and builds
-    `Pitboard.app` with `xcodebuild`, with the command line inside at
-    `Contents/Helpers/pitboard`.
+    for both Mac architectures; `--fixture` builds the core with its fixtures.
+    `scripts/build-app.sh` generates the project and builds `Pitboard.app` with
+    `xcodebuild`, with the command line inside at `Contents/Helpers/pitboard`. It never
+    passes `--fixture`, and fails where the core's library or the app holds a fixture
+    world's text.
 - `packaging/`: the files a release writes into the tap `datlechin/homebrew-tap`. They are
   the casks `pitboard.rb` for the command line and `pitboard-app.rb` for the app,
   `tap_migrations.json`, and the tap's README.
@@ -241,7 +260,7 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, three error types, free functions, three objects,
+- `pitboard-ffi` exports records, enums, four error types, free functions, three objects,
   `SignIn`, `Pitboard` and `PitboardModel`, and four traits an app implements,
   `ModelListener`, `AppControl`, `Notifications` and `LocalTime`. Nothing it exports is
   async. A call to
@@ -264,8 +283,10 @@ pages load, as a browser would.
   system whether each name it tries is taken; `command_line_places` and `app_command_line`,
   which only join paths; `can_run`, which asks the file system about one path; and
   `home_directory` and `pitboard_directory`, which read the environment they are given and,
-  without `HOME`, this account's passwd entry. `find_command_line` looks along a search
-  path, so the app makes it off the main thread.
+  without `HOME`, this account's passwd entry; and `fixture_names` and `fixture_page`, which
+  read only what they are given. `find_command_line` looks along a search path, so the app
+  makes it off the main thread. `PitboardModel::fixture` makes the fixture's world in its
+  folder before it answers, files in a temporary directory and nothing slower.
 - What a snapshot says is made by `present`, which reads the state and the moment and asks
   nothing of anyone but the app's `LocalTime`, for each clock time and whether a moment is
   on another day than now, and for each date and time of the activity log. Where that cannot
@@ -367,19 +388,32 @@ pages load, as a browser would.
   ([The C# bindings](#the-c-bindings)); `shutdown` waits for the actor alone.
 - No test makes the app model over the machine's own environment. Its Rust tests run the
   real core over a context of their own, with `MemoryHost` and `ScriptedApi` and a home in a
-  scratch directory. The Swift tests make no model, and the C# tests make one only as
-  `ModelTests.cs` does: every home a fresh folder, and never started or sent an intent, so
-  it reads nothing. So the launch, a listener, an `AppControl`, `Notifications`, a
-  `LocalTime` and a first snapshot cross the bindings in a test, but no intent does yet, and
-  no test has the library call one written in Swift or C#. Every `AppControl` a test hands
-  the model is a stand-in that records what it was asked, never one that reaches a real app,
-  and its `Notifications` keeps what it is given and posts nothing. A test that signs in
-  runs a stand-in for `claude`, a shell script of its own in its scratch home, and plants
-  the login it would have stored in `MemoryHost`'s keychain: never a real `claude` or
-  `codex`. A test that schedules renewal does it through `MemoryHost`'s pretend scheduler,
-  which writes its job into the scratch home and asks no service manager, and a test that
-  looks for the `pitboard` a terminal runs finds one in its scratch home before it would
-  reach any place of this machine's.
+  scratch directory, and so does a fixture. The Swift tests make no model, and the C# tests
+  make one only as `ModelTests.cs` does: every home a fresh folder, and never started or
+  sent an intent, so it reads nothing, or a fixture's, which reads no machine and may be
+  started. So the launch, a listener, an `AppControl`, `Notifications`, a `LocalTime`, a
+  first snapshot and `Intent::Start` cross the bindings in a test, and the library calls a
+  listener written in C#, from a thread of its own, against a library built with the
+  `fixture` feature. Every `AppControl` a test hands the model is a stand-in that records
+  what it was asked, never one that reaches a real app, and its `Notifications` keeps what
+  it is given and posts nothing. A test that signs in runs a stand-in for `claude`, a shell
+  script of its own in its scratch home, and plants the login it would have stored in
+  `MemoryHost`'s keychain, or plays the tool's sign-in through the core's `SignInScript`,
+  as a fixture does, which starts no program: never a real `claude` or `codex`. A test that
+  schedules renewal does it through `MemoryHost`'s pretend scheduler, which writes its job
+  into the scratch home and asks no service manager, and a test that looks for the
+  `pitboard` a terminal runs finds one in its scratch home before it would reach any place
+  of this machine's.
+- A fixture is the real core and the real model over a machine of its own, never a core
+  written again: what it plays is only what is outside the core, a tool's sign-in, the
+  person at the browser, the other apps and the services. Nothing it does reaches this
+  machine's homes, keychain, scheduler or network: its home, its tools' programs, which
+  are never run, and the command line inside its stand-in app are files in its own folder
+  in the temporary directory, its stores, process list and scheduler are `MemoryHost`'s,
+  and Anthropic and OpenAI are `ScriptedApi`. Its preferences and what it has told are in
+  its own Pitboard directory, made again at each launch. Only a library built with the
+  `fixture` feature has one, the bindings are the same either way, and nothing that ships
+  is built with it.
 - The app has no rule of its own for what the core decides: its home, Pitboard's directory,
   whether a path is a program, the sites and which links from outside it opens are asked of
   the core. Whether the copy of the app runs from a temporary place is the core's rule too,
@@ -569,7 +603,9 @@ Code or Codex login. The facts this rests on are under
   windows' scene and the **Open Link** window, the one scene that takes a Pitboard link.
 - `apps/macos/Sources/PitboardApp/Fixture/FixtureWeb.swift`: a fixture's stand-in pages for each
   site and sign-in host, on `pitboard-fixture://`, with stores in memory and links to
-  anywhere else recorded and opened nowhere.
+  anywhere else recorded and opened nowhere. `pitboard-ffi`'s `fixture_page` makes the same
+  pages, for both apps, from the site table, and the macOS app is to serve those once it
+  runs on the model.
 - `apps/macos/ShareExtension`: the `PitboardShare` target. It checks the shared page with
   `share_link`, which writes the Pitboard link too, then opens that link with the app it is
   inside, not whichever copy Launch Services would pick. The flow of an app extension stays
@@ -1049,6 +1085,12 @@ app.
   `port` is `0` for `:0`, and nil for `claude.ai:`; `user` is empty, not nil, for
   `https://@claude.ai/`. `WebAddress` reads two things otherwise: it keeps a port no `Int`
   holds, and names no host in `//claude.ai/x`, where `URL` reads `claude.ai` on no scheme.
+- `URL.path` is the path percent-decoded, then without the slashes it ends in, but for the
+  one a path of nothing else keeps: `/c/shared/` is `/c/shared`, `/a%20b/%2F` is `/a b`, `//`
+  is `/`, and no path at all is empty. A path whose bytes are not UTF-8 is empty, and
+  neither the query nor the fragment is part of it. Measured with Swift 6.4 on macOS 27.0
+  on 6 October 2026, on eleven addresses on `pitboard-fixture://`, which
+  `WebAddress::path` reads the same.
 - `NSString` splits a file name into a base and an extension at its last `.`, and finds no
   extension where it would be empty or hold a space, or where the base would be empty, `.`
   or `..`: `....a` has the extension `a`, `...a` none. `lastPathComponent` drops the
@@ -1154,3 +1196,57 @@ with Swift 6.4.
   30 seconds of waking time, where the Swift gave it none once the machine woke.
 - On Linux the standard library reads `CLOCK_MONOTONIC`, and on Windows
   `QueryPerformanceCounter`. How either counts a sleep was not read.
+
+### The fixtures
+
+Measured on 6 October 2026 on macOS 27.0, with `pitboard-ffi` built for
+`aarch64-apple-darwin`, in release and in debug, with and without the `fixture` feature.
+
+- The bindings are the same with the feature and without it: the Swift that
+  `uniffi-bindgen-swift` generated from each release static library, `PitboardBindings.swift`,
+  `PitboardFFI.h` and `module.modulemap`, and the C# that uniffi-bindgen-cs v0.11.0+v0.31.0
+  generated, `pitboard_ffi.cs`, had the same SHA-256 each, and the C# generated from each
+  debug library did too. The feature changes what the fixture's three exports do, never
+  their names, arguments, types or doc comments, which are all a checksum covers
+  ([The C# bindings](#the-c-bindings)). So one set of bindings links against either library.
+- A library built without the feature holds none of a fixture's text: `grep -a -c` for a
+  line of a stand-in page and an account of the worlds found it on no line of the release
+  `libpitboard_ffi.a` or `libpitboard_ffi.dylib`, and on 2 lines of each built with it, one
+  for each, and on 4 of the universal library `build-xcframework.sh --fixture` builds.
+  The CI job for C# checks the Linux library the same way, and `build-app.sh` the macOS
+  library and app.
+- `fixture_page` gives, byte for byte, what the macOS app's `FixturePages.page(for:)` gives,
+  for nine addresses on `pitboard-fixture://`: each site's home and a path of each, two of
+  chatgpt.com's sign-in hosts, the artifact's frame, a host of no site, and chatgpt.com in
+  capitals with an escape and a slash at its end. Measured by running the Swift's code,
+  copied whole, with Swift 6.4 over the same site table.
+- `ModelTests.AFixturesModelStartsAndTellsAListenerOfItsAccounts` starts a fixture's model
+  from C#, against the debug library built with the feature, and its listener, written in
+  C#, is told the accounts read on a thread that is neither the test's nor one of .NET's
+  thread pool, with the .NET SDK 10.0.401. Against the library built without, the test is
+  skipped and says why.
+- The real core answers some things in the fixtures otherwise than the Swift `FixtureCore`
+  did, which the UI tests were written against, each held by a test in
+  `crates/pitboard-ffi/src/fixture/tests.rs`:
+  - A read whose service cannot be reached answers, each account's numbers the last
+    measured and saying "Anthropic could not be reached"; `status` fails only where the
+    account index cannot be read. The Swift fixture failed the read, `unreachable`.
+  - No read says a switch was interrupted, whether or not it can be finished: every change
+    finishes one first, and one that cannot be finished is refused with
+    `recovery_undetermined`. The Swift fixture failed the read with that code, which is the
+    only thing that showed the notice offering Give Up…, so no read of the real core shows
+    it.
+  - A switch is logged as `use`, after the command, where the Swift fixture logged `switch`.
+  - Claude Code's sessions follow a switch within 33 seconds, `ADOPTION_CEILING_SECONDS`,
+    where the Swift fixture said 45.
+  - Doctor's checks are the core's: none is called "Keychain", and none warns of a schedule
+    that is not there, which was the Swift fixture's one thing worth looking at. oneTool's
+    one thing is the world's own instead: personal's parked login lapses in two days, so
+    that Renew Now renews it, where the Swift fixture's lasted eleven. Renew Now finds a
+    parked login due that the read before it left alone only while its refresh token lapses
+    within three days, and that is when doctor warns of it, since both ask
+    `doctor::renewal_due`. So oneTool says "One thing is worth looking at." as before, of
+    personal's parked login rather than of daily renewal.
+  - A read lists the account in use first, and the read of what is known lists only
+    enrolled accounts, so a login nobody has named is listed once the first read has asked
+    its service whose it is.

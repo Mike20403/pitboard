@@ -33,6 +33,11 @@ pub use model::{
     RestartNeeded, RunOutNotice, RunningSignIn, Sheet, Snapshot, WindowRequest,
 };
 
+// The fixtures, which the `fixture` feature compiles; what is exported of them is the same
+// in every build.
+mod fixture;
+pub use fixture::{FixtureError, fixture_names, fixture_page};
+
 mod present;
 pub use present::{
     AccountItem, AccountSection, AccountsShown, ActivityLine, ActivityShown, CheckLine,

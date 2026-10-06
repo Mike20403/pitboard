@@ -7,9 +7,10 @@ namespace Pitboard.Core.Tests;
 /// its first snapshot without starting it: a model reads nothing until it is sent an intent,
 /// and this one is given a fresh folder for every home it could read all the same. So the
 /// launch, the listener, AppControl, Notifications, LocalTime and the snapshot cross the
-/// library there. The library
-/// calling a listener or an AppControl written in C# waits for a fixture's model, which can
-/// be started with no machine to read. What the model does is the Rust tests' to prove.
+/// library there. The library calls a listener written in C# from a fixture's model, which
+/// may be started since it reads no machine, against a library built with the `fixture`
+/// feature; against one built without, that test is skipped and says why. What the model
+/// does is the Rust tests' to prove.
 ///
 /// Loading the library compares the checksum of every export, the model's constructor and
 /// methods, the listener's one method and each of AppControl's among them, and hands the
@@ -671,5 +672,146 @@ public sealed class ModelTests
         Assert.AreEqual<Intent>(new Intent.SwitchTo("claude/spare"), new Intent.SwitchTo(posting.Posted[0].SwitchTo));
         Assert.IsNull(posting.Posted[0].Subtitle);
         Assert.AreEqual("notifications are not allowed", refused.reason);
+    }
+
+    /// <summary>
+    /// What an app's listener does with a model that runs: keeps each snapshot it is told of,
+    /// and the thread it was told on, and lets a test wait for one.
+    /// </summary>
+    private sealed class Waiting : ModelListener
+    {
+        private readonly List<Snapshot> _told = [];
+
+        public int? TellingThread { get; private set; }
+
+        /// <summary>Whether it was told on a thread of .NET's thread pool.</summary>
+        public bool? ToldOnThePool { get; private set; }
+
+        public void Changed(Snapshot snapshot)
+        {
+            lock (_told)
+            {
+                TellingThread = Environment.CurrentManagedThreadId;
+                ToldOnThePool = Thread.CurrentThread.IsThreadPoolThread;
+                _told.Add(snapshot);
+                Monitor.PulseAll(_told);
+            }
+        }
+
+        /// <summary>The first snapshot told that <paramref name="done"/> takes, or null once
+        /// <paramref name="patience"/> has passed without one.</summary>
+        public Snapshot? Until(Func<Snapshot, bool> done, TimeSpan patience)
+        {
+            var until = DateTime.UtcNow + patience;
+            lock (_told)
+            {
+                while (true)
+                {
+                    var found = _told.FirstOrDefault(done);
+                    var left = until - DateTime.UtcNow;
+                    if (found is not null || left <= TimeSpan.Zero)
+                    {
+                        return found;
+                    }
+
+                    Monitor.Wait(_told, left);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// What a library built without the `fixture` feature, as every one an app ships is, says
+    /// of a test that needs a fixture.
+    /// </summary>
+    private const string NoFixtures =
+        "This library was built without the `fixture` feature, so it has no fixture to start. " +
+        "Build it with `cargo build -p pitboard-ffi --features fixture` and pass that to " +
+        "PitboardNativeLibrary to run this test.";
+
+    /// <summary>The accounts of the fixture <c>oneTool</c>, the one in use first.</summary>
+    private static readonly string[] OneToolsAccounts = ["claude/work", "claude/personal"];
+
+    /// <summary>
+    /// The fixtures are named by the library, in the order a debug build reads them, and a
+    /// name that is none of them is refused saying which there are; a library built without
+    /// them names none, and refuses a fixture and its stand-in pages, naming the feature that
+    /// has them. Neither refusal makes a model or a folder.
+    /// </summary>
+    [TestMethod]
+    public void AFixtureIsNamedOrRefusedWithWhy()
+    {
+        var names = PitboardFfiMethods.FixtureNames();
+        var listener = new Keeping();
+
+        if (names.Length == 0)
+        {
+            var refused = Assert.ThrowsExactly<FixtureException.Unavailable>(
+                () => PitboardModel.Fixture("twoTools", listener, new InUtc()));
+            Assert.Contains("--features fixture", refused.reason);
+            Assert.ThrowsExactly<FixtureException.Unavailable>(
+                () => PitboardFfiMethods.FixturePage("pitboard-fixture://claude.ai/"));
+            return;
+        }
+
+        string[] ordered =
+        [
+            "twoTools", "oneTool", "empty", "firstLaunch", "noClaudeCode", "unnamed", "onlyOne",
+            "readFailure", "stuck", "chatGPTOpen",
+        ];
+        CollectionAssert.AreEqual(ordered, names);
+        var unknown = Assert.ThrowsExactly<FixtureException.Unknown>(
+            () => PitboardModel.Fixture("twoTool", listener, new InUtc()));
+        Assert.Contains("twoTools, oneTool", unknown.reason);
+        Assert.Contains("<title>claude.ai stand-in</title>", PitboardFfiMethods.FixturePage("pitboard-fixture://claude.ai/"));
+        Assert.IsEmpty(listener.Told);
+    }
+
+    /// <summary>
+    /// A fixture's model, made by name from a library built with the `fixture` feature, is
+    /// started, reads the accounts of its world on the real core, and tells a listener
+    /// written here of them from another thread than the test's, and not one of .NET's thread
+    /// pool: the call crosses from Rust into C# on a thread of the library's. It reads
+    /// nothing of this machine, so it may be started. The folder the library keeps an app's
+    /// fixture in is removed once it is done, as the Swift tests that launch one remove it.
+    /// Against a library built without the feature there is no fixture, and the test says so
+    /// rather than failing.
+    /// </summary>
+    [TestMethod]
+    public void AFixturesModelStartsAndTellsAListenerOfItsAccounts()
+    {
+        if (PitboardFfiMethods.FixtureNames().Length == 0)
+        {
+            Assert.Inconclusive(NoFixtures);
+        }
+
+        var waiting = new Waiting();
+        Snapshot? read;
+        try
+        {
+            using var model = PitboardModel.Fixture("oneTool", waiting, new InUtc());
+            model.Send(new Intent.Start());
+            read = waiting.Until(
+                snapshot => snapshot is { Reading: false, UpdatedAt: not null, Status.Accounts.Length: > 0 },
+                TimeSpan.FromSeconds(30));
+            model.Shutdown();
+        }
+        finally
+        {
+            var kept = Path.Combine(Path.GetTempPath(), "pitboard-fixture");
+            if (Directory.Exists(kept))
+            {
+                Directory.Delete(kept, recursive: true);
+            }
+        }
+
+        Assert.IsNotNull(read, "the fixture's model told of no accounts read");
+        CollectionAssert.AreEqual(
+            OneToolsAccounts, read.Status!.Accounts.Select(account => account.Qualified).ToArray());
+        Assert.IsTrue(read.Status.Accounts[0].SignedIn);
+        Assert.AreEqual("work", read.Sections.Single().Accounts[0].Title);
+        Assert.IsNotNull(waiting.TellingThread);
+        Assert.AreNotEqual(Environment.CurrentManagedThreadId, waiting.TellingThread);
+        Assert.IsFalse(waiting.ToldOnThePool, "told on a thread of .NET's thread pool");
     }
 }
