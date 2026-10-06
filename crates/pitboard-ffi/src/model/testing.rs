@@ -10,8 +10,8 @@ use super::state::{Answer, Cadence, Job, Msg, Now, State};
 use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
 use crate::account_windows::records::{self, Entry, Records};
 use crate::{
-    Abandoned, Account, Adoption, Change, Check, Enrolled, EnrolledAs, FoundCommandLine, Holding,
-    Level, Limit, Made, OwnCommandLine, Pitboard, PitboardError, Remedy, Renewed, Schedule, Source,
+    Abandoned, Account, Adoption, AppCore, Change, Check, Enrolled, EnrolledAs, FoundCommandLine,
+    Holding, Level, Limit, Made, OwnCommandLine, PitboardError, Remedy, Renewed, Schedule, Source,
     Status, Switch, Switched, Tool, Usage, Warning,
 };
 use pitboard_core::context::Context;
@@ -372,7 +372,6 @@ impl Refusal {
     pub(super) fn error(&self) -> PitboardError {
         PitboardError::Failed {
             code: self.code.clone(),
-            cause: None,
             message: self.message.clone(),
             warnings: self.warnings.clone(),
         }
@@ -1076,16 +1075,16 @@ impl World {
         }
     }
 
-    /// The app's core over this machine, as the bindings make one, with Claude Code's
-    /// program found.
-    pub(super) fn core(&self) -> Arc<Pitboard> {
+    /// The app's core over this machine, made from its parts as `AppCore::for_app` makes it
+    /// from what the app was started with, with Claude Code's program found.
+    pub(super) fn core(&self) -> Arc<AppCore> {
         let ctx = self.ctx.clone();
         let (helper, places, search_path) = (
             self.helper.clone(),
             self.places.clone(),
             self.search_path.clone(),
         );
-        Arc::new(Pitboard::asking(
+        Arc::new(AppCore::asking(
             move || {
                 let made = Made {
                     core: service::Pitboard::new(ctx.clone()),

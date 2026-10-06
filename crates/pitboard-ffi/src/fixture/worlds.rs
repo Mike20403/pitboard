@@ -16,7 +16,7 @@ use crate::model::state::Cadence;
 use crate::model::{
     LocalTime, ModelListener, PitboardModel, Platform, WindowsLaunch, WindowsPlace,
 };
-use crate::{Made, Pitboard};
+use crate::{AppCore, Made};
 use pitboard_core::api::Owner;
 use pitboard_core::app::AppFile;
 use pitboard_core::context::Context;
@@ -608,7 +608,7 @@ fn codex_spare() -> Person {
 
 /// A world made, and what the app's model is made over.
 pub(crate) struct Launched {
-    pub(crate) core: Arc<Pitboard>,
+    pub(crate) core: Arc<AppCore>,
     pub(crate) apps: Arc<FixtureApps>,
     /// Where the account windows' records are kept: in the fixture's own folder, made again
     /// at each launch, never in the app's own directory.
@@ -682,7 +682,7 @@ pub(crate) fn make(world: World, folder: Folder) -> Result<Launched, Unmade> {
     let ctx = machine.app_context(Arc::new(Browser::new(Arc::clone(&machine))));
     let found = world.installed().to_vec();
     let (helper, places) = (machine.helper(), vec![machine.bin()]);
-    let core = Arc::new(Pitboard::asking(
+    let core = Arc::new(AppCore::asking(
         move || {
             let made = Made {
                 core: service::Pitboard::new(ctx.clone()),

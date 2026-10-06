@@ -21,6 +21,39 @@ public sealed class BindingsTests
     }
 
     /// <summary>
+    /// An app reaches the core through one object, the model, whose calls wait on nothing.
+    /// The objects the macOS app called before it ran on the model, whose calls waited on the
+    /// keychain, the network and the person's login shell, are not offered, nor what only
+    /// they took, answered or threw, nor the two account windows' calls whose answers the
+    /// snapshot carries now. uniffi-bindgen-cs writes an exported object as a class with an
+    /// interface of its own, named `I` and the class's name.
+    /// </summary>
+    [TestMethod]
+    public void TheBindingsOfferTheModelAndNothingOlder()
+    {
+        var exported = typeof(PitboardModel).Assembly.GetExportedTypes().Where(type => !type.IsNested);
+        var objects = exported
+            .Where(type => type.IsClass && type.GetInterface("I" + type.Name) is not null)
+            .Select(type => type.Name)
+            .Order(StringComparer.Ordinal);
+        string[] older =
+        [
+            "Pitboard", "SignIn", "Settings", "PitboardException", "Cause", "Switched", "Switch",
+            "Adoption", "Enrolled", "EnrolledAs", "Changed", "Holding", "Remedy", "Diagnosis", "Change",
+        ];
+        var stillOffered = exported.Select(type => type.Name).Intersect(older).Order(StringComparer.Ordinal);
+        string[] olderCalls = ["WindowsOf", "ForgetMessage"];
+        var stillCalled = typeof(PitboardFfiMethods).GetMethods()
+            .Select(method => method.Name)
+            .Intersect(olderCalls)
+            .Order(StringComparer.Ordinal);
+
+        Assert.AreEqual(nameof(PitboardModel), string.Join(", ", objects));
+        Assert.AreEqual("", string.Join(", ", stillOffered));
+        Assert.AreEqual("", string.Join(", ", stillCalled));
+    }
+
+    /// <summary>
     /// A sign-in is read by the core in its tool's own words, so the Windows app offers the
     /// address and the code field the macOS app does: the `https` address Codex prints after
     /// its loopback one, and no code, since Codex reads none.

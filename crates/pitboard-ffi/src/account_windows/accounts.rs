@@ -3,7 +3,7 @@
 
 use super::{stores, this_machine};
 use crate::{Account, Site};
-use pitboard_core::host::{OS, Os};
+use pitboard_core::host::Os;
 use pitboard_sites::Conjunction;
 
 /// An enrolled account that has a window on a site: what the menus, the account picker and
@@ -78,8 +78,9 @@ pub(crate) fn windows(accounts: &[Account]) -> Vec<WindowAccount> {
         .collect()
 }
 
-/// The windows `account` has, one for each site of its tool. The site is checked as well as
-/// the store: two tools' accounts can share an account id.
+/// The windows `account` has among those of `accounts`, one for each site of its tool: what
+/// its row's own menu offers to open, which the snapshot carries as `AccountItem::windows`.
+/// The site is checked as well as the store: two tools' accounts can share an account id.
 pub(crate) fn windows_of_account(account: &Account, accounts: &[Account]) -> Vec<WindowAccount> {
     windows(accounts)
         .into_iter()
@@ -115,13 +116,6 @@ pub fn window_of_store(accounts: Vec<Account>, store: String) -> Option<WindowAc
         .find(|window| stores::same(&window.store, &store))
 }
 
-/// The windows `account` has among those of `accounts`, one for each site of its tool: what
-/// its row's own menu offers to open, which the snapshot carries as `AccountItem::windows`.
-#[uniffi::export]
-pub fn windows_of(account: Account, accounts: Vec<Account>) -> Vec<WindowAccount> {
-    windows_of_account(&account, &accounts)
-}
-
 /// One menu entry per site that has an account with a window, in the sites' order.
 #[uniffi::export]
 pub fn site_menus(accounts: Vec<Account>) -> Vec<SiteMenu> {
@@ -153,13 +147,10 @@ pub fn site_menus(accounts: Vec<Account>) -> Vec<SiteMenu> {
         .collect()
 }
 
-/// What the alert asking to forget `account` says, among `accounts`. Forgetting an account
-/// that has a window deletes what that window keeps too, and a person deciding should know.
-#[uniffi::export]
-pub fn forget_message(account: Account, accounts: Vec<Account>) -> String {
-    forget_message_on(OS, &account, &accounts)
-}
-
+/// What the alert asking to forget `account` says, among `accounts`, on `os`: the question
+/// an account's Forget… asks first, which the snapshot carries as `AccountItem::forget`.
+/// Forgetting an account that has a window deletes what that window keeps too, and a person
+/// deciding should know.
 pub(crate) fn forget_message_on(os: Os, account: &Account, accounts: &[Account]) -> String {
     let windows = windows_of_account(account, accounts);
     if windows.is_empty() {
@@ -343,13 +334,13 @@ pub(crate) mod tests {
                 account(Some("main"), "codex", "same"),
             ]
         };
-        let claude = windows_of(account(Some("work"), "claude", "same"), all());
+        let claude = windows_of_account(&account(Some("work"), "claude", "same"), &all());
         assert_eq!(claude.len(), 1);
         assert_eq!(claude[0].site.host, "claude.ai");
-        let codex = windows_of(account(Some("main"), "codex", "same"), all());
+        let codex = windows_of_account(&account(Some("main"), "codex", "same"), &all());
         assert_eq!(codex.len(), 1);
         assert_eq!(codex[0].site.host, "chatgpt.com");
-        assert!(windows_of(unplaced("codex"), all()).is_empty());
+        assert!(windows_of_account(&unplaced("codex"), &all()).is_empty());
     }
 
     /// Forgetting an account that has a window deletes what that window keeps too, and a
@@ -375,9 +366,5 @@ pub(crate) mod tests {
         for os in [Os::MacOs, Os::Linux] {
             assert_eq!(forget_message_on(os, &api(), &[api()]), said);
         }
-        assert_eq!(
-            forget_message(work(), vec![work()]),
-            forget_message_on(OS, &work(), &[work()])
-        );
     }
 }

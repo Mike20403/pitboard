@@ -82,12 +82,32 @@ pages load, as a browser would.
     account lasts, a parked login's life, a renewal run and doctor's summary. It also holds
     `usage_level`, the steps at which a limit's colour changes. A thing said both in a
     column and in a sentence has a function for each form. The command line calls these
-    functions directly, and the macOS app calls the ones it shows through `pitboard-ffi`.
-    Clock times are not in it.
+    functions directly, and so does `pitboard-ffi`'s `present/` as it makes the snapshot,
+    which carries what an app shows of them. No app calls the free functions of the same
+    name that `pitboard-ffi` exports for each but `span` and `parked_life_column`; only the
+    C# tests do. Clock times are not in it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
-  the macOS app, a dynamic one for the Windows app.
+  the macOS app, a dynamic one for the Windows app. An app reaches the core through the
+  model alone.
+  - `lib.rs` declares what the bindings export beside the model and the account windows'
+    rules: the records a snapshot carries of what the core answered, such as `Status`,
+    `Account` and `Abandoned`, and free functions. The macOS app calls three of them, none
+    as it draws: `app_command_line`, for the command line inside its bundle, as it starts
+    and as it links that one; `can_run`, whether that one runs, as it links it; and
+    `pitboard_directory`, for where `app.json` is and the key the account windows' records
+    are kept under, as it starts. No app calls the rest, only the C# tests: `tools`,
+    `sign_in_view`, `command_line_places`, `find_command_line`, `home_directory`,
+    `usage_level`, the words of `words.rs` and `same_reset`. What an app shows of them the
+    snapshot carries, made by `present/` and the model's lanes. `Check` and `Renewed` are
+    exported only as what `doctor_summary` and `renewal_note` take: the model holds them of
+    doctor's checks and a renewal run, and no export answers either.
+  - `launch.rs` is the core the model's lanes call, `AppCore`, which nothing exports. It is
+    made from the `AppLaunch` the app was started with, read as `AppContext::discover`
+    reads it, the first time a lane needs it, and made once more a while after a login
+    shell too slow to answer. Beside it are what it answers that only the model reads, such
+    as what a switch or an enrolment came to, and `PitboardError`.
   - `sites.rs` gives both apps `pitboard-sites`' sites and links as records of their own,
     and says a site's sign-in steps as a window on this system can follow them: a window on
     a Mac cannot use a passkey.
@@ -302,18 +322,18 @@ pages load, as a browser would.
 - A test never reaches the system's own scheduler. A test context schedules through
   `MemoryHost`, which writes the files in the test's home and asks no service manager, and
   the real hosts refuse to ask launchd or systemd from a unit test at all.
-- `pitboard-ffi` exports records, enums, four error types, free functions, three objects,
-  `SignIn`, `Pitboard` and `PitboardModel`, and four traits an app implements,
-  `ModelListener`, `AppControl`, `Notifications` and `LocalTime`. Nothing it exports is
-  async. A call to `SignIn` or `Pitboard` is synchronous and may block on the keychain, a
-  lock, the network or the person's login shell, so only the model's lanes make one, and no
-  app does; making a `Pitboard` blocks on none of them, since it reads its environment on
-  first use. `PitboardModel` blocks on none of them anywhere: making one starts its threads,
+- `pitboard-ffi` exports records, enums, three error types, free functions, one object,
+  `PitboardModel`, and four traits an app implements, `ModelListener`, `AppControl`,
+  `Notifications` and `LocalTime`. Nothing it exports is async. The core it runs on is
+  `launch.rs`'s `AppCore`, which it does not export: a call to that is synchronous and may
+  block on the keychain, a lock, the network or the person's login shell, so only the
+  model's lanes make one. Making it blocks on none of them, since it reads its environment
+  on first use. `PitboardModel` blocks on none of them anywhere: making one starts its threads,
   `send` only posts an intent, `snapshot` only copies the last snapshot, `shutdown` waits
   only for the actor to take what is already in its mailbox and for each sign-in under way
   to stop, and the core, a tool's sign-in and the app's `AppControl`, `Notifications` and
   `LocalTime` are called on the model's own threads. The free functions block on nothing,
-  and the app makes them where it likes: `tools`, `sign_in_view`, `name_to_save`, the rule
+  and an app may make them where it likes: `tools`, `sign_in_view`, `name_to_save`, the rule
   `same_reset` from `usage.rs`, and `usage_level` and the sentences and column words of
   `words.rs` the apps show, which read only what they are given; `sites`, `sites_for`,
   `site_names`, `site_link`, `read_pitboard_link`, `pitboard_link` and
@@ -325,7 +345,7 @@ pages load, as a browser would.
   `can_run`, which asks the file system about one path; and `home_directory` and
   `pitboard_directory`, which read the environment they are given and, without `HOME`, this
   account's passwd entry; and `fixture_names` and `fixture_page`, which read only what they
-  are given. `find_command_line` looks along a search path, so the app makes it off the main
+  are given. `find_command_line` looks along a search path, so a caller makes it off the main
   thread. `PitboardModel::fixture` makes the fixture's world in its folder before it
   answers, files in a temporary directory and nothing slower.
 - What a snapshot says is made by `present`, which reads the state and the moment and asks

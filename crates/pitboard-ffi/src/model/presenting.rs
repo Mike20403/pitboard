@@ -11,13 +11,14 @@ use super::testing::{
     status, switched, warned, warning,
 };
 use super::{Intent, Pane, Sheet, Snapshot, WindowRequest};
+use crate::account_windows::forget_message_on;
 use crate::present::testing::{LimitExt, Unreadable, Utc, account, unplaced, window};
 use crate::present::{
     AccountItem, AccountsShown, Choice, Footing, ItemOffer, MenuEntry, NoticeAction, PanelNotice,
     Question, SetupStep, Severity, WindowOffer, present, present_on,
 };
 use crate::{Abandoned, Account, EnrolledAs, Warning};
-use pitboard_core::host::Os;
+use pitboard_core::host::{OS, Os};
 use std::time::Duration;
 
 /// 12:00 UTC on Wednesday 14 January 2026, a day far from any change of clocks.
@@ -447,7 +448,7 @@ fn an_accounts_own_menu_offers_what_can_be_done_to_it() {
             enabled: true,
             confirm: Some(Question {
                 title: "Forget “spare”?".into(),
-                message: crate::forget_message(spare, accounts),
+                message: forget_message_on(OS, &spare, &accounts),
                 confirm: "Forget".into(),
             }),
         })
@@ -871,7 +872,7 @@ fn only_an_enrolled_account_not_in_use_may_be_forgotten() {
         forget.confirm,
         Some(Question {
             title: "Forget “spare”?".into(),
-            message: crate::forget_message(spare, accounts),
+            message: forget_message_on(OS, &spare, &accounts),
             confirm: "Forget".into(),
         })
     );

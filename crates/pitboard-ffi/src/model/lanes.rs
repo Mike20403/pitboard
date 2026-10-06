@@ -30,7 +30,7 @@ use super::{
     WindowsLaunch,
 };
 use crate::account_windows::records::{self, Records};
-use crate::{Holding, Pitboard, Remedy, SignIn};
+use crate::{AppCore, Holding, Remedy, SignInSession};
 use pitboard_core::app::AppFile;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -154,7 +154,7 @@ impl Lanes {
     /// giving an app as long to quit as `cadence` says, with what the model keeps as
     /// `keeping` says.
     pub(crate) fn open(
-        core: Arc<Pitboard>,
+        core: Arc<AppCore>,
         apps: Arc<dyn AppControl>,
         notifications: Arc<dyn Notifications>,
         keeping: Keeping,
@@ -354,7 +354,7 @@ struct Held {
 }
 
 struct Running {
-    session: Option<Arc<SignIn>>,
+    session: Option<Arc<SignInSession>>,
     over: Option<Sender<bool>>,
     /// Its tool has been stopped and waited for from here, so nothing of it is left running
     /// but its thread, which may still be reading what the tool's output was held open by.
@@ -384,7 +384,7 @@ impl SignIns {
     /// The tool of the sign-in `id` has started as `session`, which a code can be typed back
     /// to and which can be stopped from now on. False once the model has gone, when it is to
     /// be stopped at once.
-    pub(crate) fn started(&self, id: u64, session: &Arc<SignIn>) -> bool {
+    pub(crate) fn started(&self, id: u64, session: &Arc<SignInSession>) -> bool {
         let mut held = self.held();
         if held.closed {
             return false;
@@ -407,7 +407,7 @@ impl SignIns {
     }
 
     /// The session of the sign-in `id`, while a code can be typed back to it.
-    pub(crate) fn session(&self, id: u64) -> Option<Arc<SignIn>> {
+    pub(crate) fn session(&self, id: u64) -> Option<Arc<SignInSession>> {
         self.held()
             .running
             .get(&id)
@@ -436,7 +436,7 @@ impl SignIns {
     /// waiting to be told whether to enrol is told not to, by its word going. Returns once
     /// each tool it stops has stopped and been waited for, and says so of each.
     pub(crate) fn close(&self) {
-        let stopping: Vec<(u64, Arc<SignIn>)> = {
+        let stopping: Vec<(u64, Arc<SignInSession>)> = {
             let mut held = self.held();
             held.closed = true;
             held.running
@@ -476,7 +476,7 @@ impl SignIns {
 
 /// What every lane works with.
 pub(crate) struct Worker {
-    pub(crate) core: Arc<Pitboard>,
+    pub(crate) core: Arc<AppCore>,
     pub(crate) apps: Arc<dyn AppControl>,
     pub(crate) notifications: Arc<dyn Notifications>,
     pub(crate) earlier: Option<EarlierPreferences>,
@@ -563,16 +563,14 @@ impl Worker {
                 to,
                 from,
             } => Answer::Renamed {
-                done: core
-                    .rename(format!("{provider}/{label}"), to.clone())
-                    .map(drop),
+                done: core.rename(format!("{provider}/{label}"), to.clone()),
                 provider,
                 label,
                 to,
                 from,
             },
             Job::Forget { qualified } => Answer::Forgot {
-                done: core.forget(qualified.clone()).map(drop),
+                done: core.forget(qualified.clone()),
                 qualified,
             },
             // Nothing kept, a record that is there and cannot be read, and one that does not
@@ -664,7 +662,7 @@ impl Worker {
                 renewals: core.renew(),
             },
             Job::Check => Answer::Checked {
-                checks: core.doctor().checks,
+                checks: core.doctor(),
             },
             Job::ReadLog { limit } => Answer::Logged {
                 changes: core.log(limit),
@@ -806,7 +804,7 @@ mod tests {
 
     const CHATGPT: &str = crate::model::testing::CHATGPT;
 
-    fn worker(core: Arc<Pitboard>, apps: Arc<StandInApps>) -> Worker {
+    fn worker(core: Arc<AppCore>, apps: Arc<StandInApps>) -> Worker {
         Worker {
             core,
             apps,
@@ -1361,22 +1359,26 @@ mod tests {
         );
     }
 
-    /// The `pitboard` a terminal runs is looked for in a core made as each app makes its own:
-    /// `Pitboard::new` from what it is told, and `Pitboard::for_app` from the environment the
-    /// app was started with. It is looked for on the login shell's `PATH` ahead of what cargo
-    /// installed, and then where each way of installing Pitboard puts it under the app's
-    /// home, which is all there is where the shell could not be asked. Only a copy of the app
-    /// has a command line inside it for a link to lead back to: a core not run from an app
-    /// has none, and nor does a build directory. Each look finds a copy in the scratch home
-    /// before any place of this machine's, each tool's program is named outright, and the
-    /// login shell named cannot be run, so nothing of this machine is looked in.
+    /// The `pitboard` a terminal runs is looked for in a core made from its parts, as a
+    /// fixture makes its own, and in one made as the app makes its own, by
+    /// `AppCore::for_app` from the environment the app was started with. It is looked for on
+    /// the login shell's `PATH` ahead of what cargo installed, and then where each way of
+    /// installing Pitboard puts it under the app's home, which is all there is where the shell
+    /// could not be asked. Only a copy of the app has a command line inside it for a link to
+    /// lead back to: a core not run from an app has none, and nor does a build directory.
+    /// Each look finds a copy in the scratch home before any place of this machine's. The
+    /// core made from its parts names no tool's program and is given an empty search path
+    /// for one, needing neither; the one made from the environment names each tool's
+    /// program outright, and the login shell it names cannot be run. So nothing of this
+    /// machine is looked in.
     ///
     /// AppModelTests.swift's theSettingsLookForTheCommandLineWhereTheLoginShellSays, but for
     /// linking nothing, since linking is the app's own.
     #[test]
     #[cfg(unix)]
     fn the_settings_look_for_the_command_line_where_the_login_shell_says() {
-        use crate::{FoundCommandLine, OwnCommandLine, Settings};
+        use crate::{FoundCommandLine, Made, OwnCommandLine};
+        use pitboard_core::context::Context;
         use pitboard_core::host::{OS, Os};
         use std::path::Path;
         let world = World::new("installs");
@@ -1392,7 +1394,7 @@ mod tests {
         let text = |path: &Path| path.to_string_lossy().into_owned();
         let bundled = |path: &Path| FoundCommandLine::Bundled { path: text(path) };
         let another = |path: &Path| FoundCommandLine::Another { path: text(path) };
-        let found = |core: Arc<Pitboard>| match worker(core, StandInApps::new(&[], true))
+        let found = |core: Arc<AppCore>| match worker(core, StandInApps::new(&[], true))
             .work(Job::FindCommandLine)
         {
             Answer::CommandLineFound { found, own } => (found, own),
@@ -1400,19 +1402,25 @@ mod tests {
         };
 
         let told = |search_path: Option<String>, helper: Option<&Path>| {
-            Pitboard::new(Settings {
-                home: text(&home),
-                pitboard_home: Some(text(&home.join(".pitboard"))),
-                claude_config_dir: Some(text(&home.join(".claude"))),
-                secure_storage_dir: None,
-                user: Some("tester".into()),
-                claude_program: Some("/nowhere/claude".into()),
-                codex_home: Some(text(&home.join(".codex"))),
-                codex_program: Some("/nowhere/codex".into()),
-                search_path,
-                schedule_program: helper.map(text),
-                no_argv: false,
-            })
+            let (home, helper) = (home.clone(), helper.map(Path::to_path_buf));
+            Arc::new(AppCore::asking(
+                move || {
+                    let made = Made {
+                        core: pitboard_core::service::Pitboard::new(
+                            Context::new(home.clone())
+                                .with_pitboard_home(home.join(".pitboard"))
+                                .with_search_path(String::new())
+                                .with_caller("app".into()),
+                        ),
+                        found: Vec::new(),
+                        search_path: search_path.clone(),
+                        helper: helper.clone(),
+                        command_line_places: pitboard_core::app::command_line_places(&home),
+                    };
+                    (made, false)
+                },
+                crate::ASK_AGAIN_AFTER,
+            ))
         };
         let login = Some(format!("/nowhere/bin:{}", bin.display()));
         assert_eq!(
@@ -1443,7 +1451,7 @@ mod tests {
         .into_iter()
         .map(|(name, value)| (name.to_owned(), value))
         .collect();
-        let started_at = |at: &Path| Pitboard::for_app(environment.clone(), Some(text(at)));
+        let started_at = |at: &Path| AppCore::for_app(environment.clone(), Some(text(at)));
         let (from_the_app, own) = found(started_at(&app));
         assert_eq!(
             from_the_app,
