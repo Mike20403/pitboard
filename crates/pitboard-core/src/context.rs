@@ -155,9 +155,11 @@ impl<K: Into<OsString>, V: Into<OsString>> FromIterator<(K, V)> for Environment 
 pub struct Context {
     pub(crate) home: PathBuf,
     pub(crate) pitboard_home: PathBuf,
-    /// `CLAUDE_CONFIG_DIR`, held only when it is set and not empty. Claude Code reads an
-    /// empty value as unset for its config file and its credential slot's name, but not for
-    /// its config dir, as the register's `config_file_location` says.
+    /// `CLAUDE_CONFIG_DIR`, held as it is set, empty included. Claude Code reads an empty
+    /// value as unset for its config file and its credential slot's name, but takes it as
+    /// the empty path for its config dir, which then is whatever folder it runs in, as the
+    /// register's `config_file_location` says. So an empty one is a home that is not a full
+    /// path, and refused as one ([`crate::home::check_absolute`]).
     pub(crate) claude_config_dir: Option<String>,
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR`, which Claude Code reads with `!== undefined`:
     /// empty is set, and pins the default credential slot.
@@ -300,11 +302,12 @@ impl Context {
         self
     }
 
-    /// Empty means unset, as Claude Code reads `CLAUDE_CONFIG_DIR` for its config file and
-    /// its credential slot's name. Its config dir reads an empty value as the empty path, as
-    /// the register's `config_file_location` says.
+    /// Claude Code's config directory, as `CLAUDE_CONFIG_DIR` names it. Empty is kept, as
+    /// Claude Code keeps it: unset for its config file and its credential slot's name, but
+    /// the empty path for its config dir, as the register's `config_file_location` says,
+    /// which is refused as a home that is not a full path.
     pub fn with_claude_config_dir(mut self, dir: String) -> Context {
-        self.claude_config_dir = Some(dir).filter(|d| !d.is_empty());
+        self.claude_config_dir = Some(dir);
         self
     }
 
@@ -483,7 +486,7 @@ impl Context {
         Context {
             pitboard_home: env.pitboard_home(),
             home,
-            claude_config_dir: owned("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()),
+            claude_config_dir: owned("CLAUDE_CONFIG_DIR"),
             secure_storage_dir: owned("CLAUDE_SECURESTORAGE_CONFIG_DIR"),
             user: owned("USER"),
             custom_oauth: env.set("CLAUDE_CODE_CUSTOM_OAUTH_URL"),
@@ -582,19 +585,44 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// An empty `CLAUDE_CONFIG_DIR` is kept, by the builder as by the environment, since
+    /// Claude Code takes it as the empty path for its config dir; the context is then
+    /// refused as one whose home is not a full path. It was read as unset, which pointed
+    /// Pitboard at `~/.claude`, where no Claude Code started with it keeps anything.
     #[test]
     fn an_explicit_context_reads_claude_codes_settings_the_way_the_environment_does() {
         let ctx = Context::new(PathBuf::from("/home/x"))
             .with_claude_config_dir(String::new())
             .with_secure_storage_dir(String::new());
         assert_eq!(ctx.pitboard_home, PathBuf::from("/home/x/.pitboard"));
-        assert_eq!(ctx.claude_config_dir, None, "empty means unset");
+        assert_eq!(
+            ctx.claude_config_dir.as_deref(),
+            Some(""),
+            "empty is the empty path for the config dir"
+        );
         assert_eq!(
             ctx.secure_storage_dir.as_deref(),
             Some(""),
             "empty is set, and pins the default slot"
         );
         assert_eq!(ctx.claude_program, PathBuf::from("claude"));
+        let env: Environment = [("HOME", "/home/x"), ("CLAUDE_CONFIG_DIR", "")]
+            .into_iter()
+            .collect();
+        let read = Context::for_command_line(&env);
+        assert_eq!(read.claude_config_dir, ctx.claude_config_dir);
+        for ctx in [ctx, read] {
+            assert!(
+                matches!(
+                    crate::home::check_absolute(&ctx),
+                    Err(crate::error::Error::HomeNotAbsolute {
+                        variable: "CLAUDE_CONFIG_DIR",
+                        ..
+                    })
+                ),
+                "refused"
+            );
+        }
     }
 
     /// What a fixture asks of the context it made: whether it reaches nothing but the machine

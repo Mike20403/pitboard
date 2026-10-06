@@ -1211,9 +1211,14 @@ treated, and only the macOS build shows it. The run reads both builds since.
   dir the empty path. A legacy `.config.json` is then looked for in the working directory,
   and so is `.credentials.json`, which is kept in the config dir unless
   `CLAUDE_SECURESTORAGE_CONFIG_DIR` is set. With that unset, the credential slot's name
-  tests `!CLAUDE_CONFIG_DIR`, so an empty value names the default slot. Pitboard reads an
-  empty value as unset for all of them, which is right for the file and the slot, and not
-  for the directory.
+  tests `!CLAUDE_CONFIG_DIR`, so an empty value names the default slot. Pitboard read an
+  empty value as unset for all of them, which was right for the file and the slot, and not
+  for the directory: it took Claude Code's lock and, on Linux, switched its login in
+  `~/.claude`, where no Claude Code started with it looks. No one folder holds that login,
+  so Pitboard refuses an empty `CLAUDE_CONFIG_DIR` as a home that is not a full path, and
+  reads the file and the slot as Claude Code does. The win32-x64 build's JavaScript refuses
+  a relative config dir itself in one of its features: "the configuration home
+  (CLAUDE_CONFIG_DIR) is not an absolute path".
 
 ### Codex
 

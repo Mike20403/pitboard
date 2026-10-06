@@ -76,7 +76,7 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 
 | Code | Exit | Meaning | What to do |
 | --- | --- | --- | --- |
-| `home_not_absolute` | 1 | `HOME` or `PITBOARD_HOME` is empty, or it, `CLAUDE_CONFIG_DIR`, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` holds a path that does not start at the root, such as `pitboard`. The folder it names would depend on where each program runs, so Pitboard reads and changes nothing. | Set the variable the message names to a full path, or unset it. |
+| `home_not_absolute` | 1 | `HOME`, `PITBOARD_HOME` or `CLAUDE_CONFIG_DIR` is empty, or one of them, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` holds a path that does not start at the root, such as `pitboard`. The folder it names would depend on where each program runs, so Pitboard reads and changes nothing. | Set the variable the message names to a full path, or unset it. |
 | `state_on_synced_drive` | 1 | Pitboard's directory, `~/.pitboard` unless `PITBOARD_HOME` is set, is inside a folder that syncs to other machines, such as Dropbox or iCloud Drive. | Set `PITBOARD_HOME` to a local folder. See [Pitboard refuses a folder that syncs](/troubleshooting#pitboard-refuses-a-folder-that-syncs). |
 | `state_unreadable` | 1 | Pitboard could not read its account list, `state.json`. | Check that you can read the file the message names. |
 | `state_corrupt` | 1 | The account list is not valid. | Delete the file the message names and enrol your accounts again. Their parked logins are lost. |

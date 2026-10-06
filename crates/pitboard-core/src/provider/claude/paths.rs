@@ -7,6 +7,9 @@ use crate::provider::claude::slot;
 use serde_json::Value;
 use std::path::PathBuf;
 
+/// `CLAUDE_CONFIG_DIR ?? ~/.claude`, as Claude Code 2.1.289 reads it: set, even empty, it
+/// is the directory, so an empty one is the empty path, which is refused before anything
+/// is read under it ([`crate::home::check_absolute`]).
 pub fn config_dir(ctx: &Context) -> PathBuf {
     ctx.claude_config_dir
         .as_ref()
@@ -15,16 +18,17 @@ pub fn config_dir(ctx: &Context) -> PathBuf {
 }
 
 /// A legacy `<config dir>/.config.json` wins when present; otherwise
-/// `<$CLAUDE_CONFIG_DIR or $HOME>/.claude.json`. The differing base is Claude Code's.
+/// `<$CLAUDE_CONFIG_DIR || $HOME>/.claude.json`, where an empty `CLAUDE_CONFIG_DIR` is the
+/// home. The differing base, and the differing reading of empty, are Claude Code's.
 pub fn config_file(ctx: &Context) -> PathBuf {
     let legacy = config_dir(ctx).join(".config.json");
     if legacy.is_file() {
         return legacy;
     }
     ctx.claude_config_dir
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| ctx.home.clone())
+        .as_deref()
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| ctx.home.clone(), PathBuf::from)
         .join(".claude.json")
 }
 
@@ -107,7 +111,9 @@ fn storage_dir_from(secure: Option<&str>, home: &std::path::Path, config_dir: &s
 }
 
 /// Whether this process reads the unsuffixed slot. An empty
-/// `CLAUDE_SECURESTORAGE_CONFIG_DIR` pins it even when `CLAUDE_CONFIG_DIR` is set.
+/// `CLAUDE_SECURESTORAGE_CONFIG_DIR` pins it even when `CLAUDE_CONFIG_DIR` is set, and
+/// without one, an empty `CLAUDE_CONFIG_DIR` names it, since Claude Code tests
+/// `!CLAUDE_CONFIG_DIR`.
 pub fn is_default_slot(ctx: &Context) -> bool {
     is_default_slot_from(
         ctx.secure_storage_dir.as_deref(),
@@ -118,7 +124,7 @@ pub fn is_default_slot(ctx: &Context) -> bool {
 fn is_default_slot_from(secure: Option<&str>, config_dir: Option<&str>) -> bool {
     match secure {
         Some(v) => v.is_empty(),
-        None => config_dir.is_none(),
+        None => config_dir.is_none_or(str::is_empty),
     }
 }
 
@@ -206,6 +212,26 @@ mod tests {
         assert!(!is_default_slot_from(None, Some("/cfg")));
         assert!(is_default_slot_from(Some(""), Some("/cfg")));
         assert!(!is_default_slot_from(Some("/elsewhere"), None));
+        assert!(
+            is_default_slot_from(None, Some("")),
+            "Claude Code tests !CLAUDE_CONFIG_DIR"
+        );
+    }
+
+    /// Claude Code 2.1.289 reads `CLAUDE_CONFIG_DIR` two ways: `??` for its config dir, so
+    /// an empty one is the empty path, and `||` for its config file's base, so an empty one
+    /// is the home. Both are read here as it reads them, though a context holding an empty
+    /// one is refused before either is used.
+    #[test]
+    fn an_empty_config_dir_is_read_as_claude_code_reads_it() {
+        let ctx = Context::new(std::path::PathBuf::from("/nowhere/home"))
+            .with_claude_config_dir(String::new());
+        assert_eq!(config_dir(&ctx), std::path::PathBuf::new());
+        assert_eq!(
+            config_file(&ctx),
+            std::path::Path::new("/nowhere/home/.claude.json")
+        );
+        assert!(is_default_slot(&ctx));
     }
 
     /// Claude Code: `if (n !== undefined) return (n || join(homedir(), ".claude"))`. The

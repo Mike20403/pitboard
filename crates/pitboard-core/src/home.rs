@@ -39,10 +39,14 @@ pub fn ensure(ctx: &Context, permit: Permit) -> io::Result<PathBuf> {
 /// given, and Codex canonicalises `CODEX_HOME` against the folder it runs in, so a relative
 /// one names a different login in each, and Pitboard would act on the one under the folder
 /// it was run from. An empty `HOME` or `PITBOARD_HOME` left Pitboard's files in that folder.
+/// An empty `CLAUDE_CONFIG_DIR` is Claude Code's config dir as the empty path, so whatever
+/// folder it runs in, while its config file and its credential slot read it as unset
+/// (`config_file_location` in its register).
 ///
 /// The home is asked first, so a relative home is named rather than the Pitboard directory
-/// worked out from it. Unset, each tool's variable names nothing, and an empty
-/// `CLAUDE_SECURESTORAGE_CONFIG_DIR` names Claude Code's default folder.
+/// worked out from it. Unset, each tool's variable names nothing; an empty `CODEX_HOME` is
+/// unset to Codex, and an empty `CLAUDE_SECURESTORAGE_CONFIG_DIR` names Claude Code's
+/// default folder.
 ///
 /// The one gate every change passes asks this ([`crate::service::Permit`]), and so does
 /// every read of Pitboard's account list, so nothing is read or written under such a home.
@@ -140,6 +144,7 @@ mod tests {
                 "CLAUDE_CONFIG_DIR",
                 "claude",
             ),
+            (&[home, ("CLAUDE_CONFIG_DIR", "")], "CLAUDE_CONFIG_DIR", ""),
             (
                 &[home, ("CLAUDE_SECURESTORAGE_CONFIG_DIR", "./slot")],
                 "CLAUDE_SECURESTORAGE_CONFIG_DIR",

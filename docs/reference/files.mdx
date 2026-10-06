@@ -124,7 +124,7 @@ A folder that another Pitboard directory also recorded is kept, and only the rec
 
 Opened from Finder, the app does not see your shell's variables, so the defaults apply. Daily renewal runs with the scheduler's environment, not your shell's.
 
-Pitboard refuses an empty `HOME` or `PITBOARD_HOME`, and a path that does not start at the root in either of them or in `CLAUDE_CONFIG_DIR`, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME`, with the error `home_not_absolute`. The folder such a path names depends on where each program runs.
+Pitboard refuses an empty `HOME`, `PITBOARD_HOME` or `CLAUDE_CONFIG_DIR`, and a path that does not start at the root in any of them or in `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME`, with the error `home_not_absolute`. The folder such a path names depends on where each program runs.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ Pitboard refuses an empty `HOME` or `PITBOARD_HOME`, and a path that does not st
 | `PITBOARD_HOME` | Both | Pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`. |
 | `PITBOARD_NO_ARGV` | Both | On macOS, when it is `1`, Pitboard refuses to write a large login on `security`'s argument line, and does not renew a parked login it could not write back. A renewal schedule installed while it is set keeps it. See [Large logins on macOS](/security#large-logins-on-macos). |
 | `PITBOARD_API_BASE` | Command line | For Pitboard's tests. Sends the requests meant for Anthropic and OpenAI to this URL, if it is an `http` URL whose host is a loopback IP address, such as `http://127.0.0.1:8080`. |
-| `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Empty counts as unset. |
+| `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Set but empty, Claude Code keeps its config directory in whatever folder it runs in, so Pitboard refuses it. |
 | `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Both | The directory that picks Claude Code's keychain item, `.credentials.json` and lock, in place of the config directory. Set but empty, it picks `~/.claude` and `Claude Code-credentials`. |
 | `USER` | Both | macOS: the keychain account of Claude Code's item and of parked logins. Unset or empty, your login name is used. A name with characters other than letters, digits, `.`, `_` and `-` becomes `claude-code-user`. |
 | `CLAUDE_CODE_CUSTOM_OAUTH_URL` | Command line | Not empty: Pitboard refuses every change to a Claude Code account, `abandon` of a Claude Code switch, `repair` and `uninstall`, with the error `custom_oauth_endpoint`. Claude Code then keeps its login under a name Pitboard does not read. The command line and the app also read it from an `env` block in Claude Code's settings. |
