@@ -370,6 +370,11 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// Whose credential this is.
     fn identify(&self, ctx: &Context, credential: &Credential) -> Result<Identity, ProviderError>;
 
+    /// Whether [`Provider::identify`] answers from the credential alone, asking nobody.
+    /// Where it does, whose a login is can be told by a read that sends no request, as
+    /// `doctor` and `status --offline` are.
+    fn identifies_by_itself(&self) -> bool;
+
     /// Whose credential this is, confirmed by the service still accepting it.
     ///
     /// The same answer as [`Provider::identify`] where that already asks the service, which

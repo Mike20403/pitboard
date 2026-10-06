@@ -1237,7 +1237,8 @@ impl Pitboard {
     /// One stat of one file, so an app can ask often. A switch typed in a terminal used to
     /// leave the menu bar naming the account the person had just stopped using, for as
     /// long as five minutes, with a button offering a switch that had already happened.
-    /// Poll this, and when it moves, read `status_offline`: no network and no keychain.
+    /// Poll this, and when it moves, read `status_offline`: no network, and no keychain
+    /// unless an interrupted switch is waiting.
     pub fn changed_at(&self) -> i64 {
         self.core().core.changed_at()
     }
@@ -1248,8 +1249,8 @@ impl Pitboard {
     /// Every session's status line records what that session has seen, and a reading only
     /// moves forward, so what is remembered is the newest any front end has. Poll this
     /// beside `changed_at`, and when it moves, take the numbers from `status_offline`: no
-    /// network and no keychain. Only the numbers: a reading moving says nothing about who is
-    /// signed in, which is `changed_at`'s to say.
+    /// network, and no keychain unless an interrupted switch is waiting. Only the numbers: a
+    /// reading moving says nothing about who is signed in, which is `changed_at`'s to say.
     pub fn readings_changed_at(&self) -> i64 {
         self.core().core.readings_changed_at()
     }
@@ -1258,7 +1259,8 @@ impl Pitboard {
     /// Claude Code's config says is signed in.
     ///
     /// What the app shows on a plane, and what it shows while a live read is still in
-    /// flight, rather than an empty panel and a spinner.
+    /// flight, rather than an empty panel and a spinner. It warns of an interrupted switch
+    /// nothing can finish as `status` does, wherever that can be told without a request.
     pub fn status_offline(&self) -> Result<Status, PitboardError> {
         let done = self.core().core.status_offline()?;
         let now = done.value.now;

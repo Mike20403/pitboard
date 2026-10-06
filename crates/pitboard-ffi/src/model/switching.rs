@@ -1136,6 +1136,96 @@ fn giving_up_on_a_switch_says_what_was_kept_until_put_away() {
     assert_eq!(model.shown().abandoned, None);
 }
 
+/// The tests here hand the model a read that says a switch is stuck. This one has the real
+/// core read a machine where a switch was interrupted and nothing can finish it, so what
+/// they assume the core says is what it says: the read is not refused, it carries the
+/// refusal the next change would make, and the model offers to give up on it at once.
+#[test]
+fn the_cores_own_read_of_a_stuck_switch_offers_to_give_up_on_it() {
+    let world = super::testing::World::new("stuck-read");
+    world.enrolled("work", "here", 10.0);
+    world.parked("personal", "there", 20.0);
+    world.stuck_switching_to("personal");
+
+    let read = world.core().status(false).expect("a read is not refused");
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(read));
+    model.refresh(&mut machine);
+
+    let shown = model.shown();
+    assert!(shown.stuck);
+    let notice = shown.notices.first().expect("said first");
+    assert_eq!(notice.id, "stuck");
+    assert!(
+        notice
+            .actions
+            .iter()
+            .any(|action| action.intent == Intent::AbandonStuckSwitch),
+        "{notice:?}"
+    );
+    assert!(
+        !shown
+            .notices
+            .iter()
+            .any(|notice| notice.id.starts_with("warning/")),
+        "and not said a second time: {:?}",
+        shown.notices
+    );
+}
+
+/// Every read says whether a switch is stuck, the one made when the account index moves
+/// too, as AppModelTests.swift's aStuckSwitchIsTakenFromTheReadMadeWhenTheIndexMoves has
+/// it. A switch interrupted in a terminal that nothing can finish is offered to give up on
+/// as the index moves. One given up on in a terminal stopped being offered only at the next
+/// read every few minutes, and offering it meanwhile offered nothing to give up on. A read
+/// that asks nobody says nothing of it then, which is also what it says of a switch only a
+/// service could judge, so the model asks: the read that asks says which, and until it
+/// lands what is offered stays.
+#[test]
+fn a_stuck_switch_is_taken_from_the_read_made_when_the_index_moves() {
+    let accounts = || vec![claude("work", true, 0.0)];
+    let interrupted = warning("recovery_undetermined", "An interrupted switch is waiting.");
+    let mut model = Hand::new();
+    let mut machine = Machine::reading(Ok(status(accounts())));
+    model.refresh(&mut machine);
+    assert!(!model.shown().stuck);
+
+    machine.offline = Ok(warned(accounts(), vec![interrupted.clone()]));
+    machine.changed = 42;
+    model.notice(&mut machine);
+    assert!(model.shown().stuck, "offered as the index moves");
+    assert_eq!(model.count(any_read), 1, "asking nobody");
+
+    // Given up on in a terminal.
+    machine.offline = Ok(status(accounts()));
+    machine.changed = 43;
+    model.look();
+    model.run_but(&mut machine, any_read);
+    assert!(
+        model.shown().stuck,
+        "until the read that asks says otherwise"
+    );
+    assert_eq!(model.pending(), 1);
+    model.run(&mut machine);
+    assert!(!model.shown().stuck);
+    assert_eq!(model.count(any_read), 2);
+    assert_eq!(model.count(fresh_read), 0, "asked as the timer asks");
+
+    // Nothing was stuck, so a read that asks nobody and says nothing of it is the end of it.
+    machine.changed = 44;
+    model.notice(&mut machine);
+    assert_eq!(model.count(any_read), 2);
+
+    // Stuck where only the service can tell, which the read that asks says.
+    machine.answer = Ok(warned(accounts(), vec![interrupted]));
+    model.refresh(&mut machine);
+    assert!(model.shown().stuck);
+    machine.changed = 45;
+    model.notice(&mut machine);
+    assert!(model.shown().stuck, "kept");
+    assert_eq!(model.count(any_read), 4);
+}
+
 /// Giving up that is refused is said in the window, as the panel's button said it, and
 /// leaves the switch stuck and nothing read.
 #[test]

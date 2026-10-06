@@ -83,6 +83,9 @@ pub struct Facts {
     /// Each enrolled account's parked login, read back from the vault.
     pub parks: Vec<ParkFact>,
     pub interrupted: bool,
+    /// The refusal the next change would make over the interrupted switch, where that
+    /// change could not finish it and that can be told without asking anybody.
+    pub stuck: Option<String>,
     /// What is read about Codex here, for the section that is about it.
     pub codex: CodexFacts,
     /// Whether Claude Code is on this machine at all: installed, run once, signed in, or
@@ -269,6 +272,13 @@ pub fn gather(ctx: &Context) -> Facts {
             .map(|s| park_facts(ctx, s))
             .unwrap_or_default(),
         codex: codex_facts(ctx, state.as_ref().ok()),
+        // Read as the next change reads it, without the one question it may put to a
+        // service: `doctor` sends no request.
+        stuck: state
+            .as_ref()
+            .ok()
+            .and_then(|s| switch::stuck(ctx, s, switch::Asking::Nobody))
+            .map(|refusal| refusal.to_string()),
         claude_present: claude::config_file(ctx).exists()
             || claude::program(ctx).is_some()
             || store::read_raw(&claude_live::chain(ctx), &service)
@@ -806,7 +816,15 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
         .iter()
         .partition(|p| p.provider == ProviderId::Claude);
     checks.extend(claude_parks.iter().map(|p| judge_park(p, facts.now)));
-    if facts.interrupted {
+    if let Some(refusal) = &facts.stuck {
+        checks.push(warn(
+            "interrupted_switch",
+            "interrupted switch",
+            refusal.clone(),
+            "If it still cannot be finished, `pitboard abandon` gives up on the switch and \
+             keeps every login.",
+        ));
+    } else if facts.interrupted {
         checks.push(warn(
             "interrupted_switch",
             "interrupted switch",
@@ -1681,6 +1699,7 @@ mod tests {
             state: Ok(State::default()),
             parks: Vec::new(),
             interrupted: false,
+            stuck: None,
             codex: no_codex(),
             claude_present: true,
             schedule: None,
@@ -2335,6 +2354,36 @@ mod tests {
         assert_eq!(check(&checks, "interrupted_switch").level, Level::Warn);
         assert_eq!(check(&checks, "discarded").level, Level::Warn);
         assert!(healthy(&checks), "neither stops Pitboard working");
+    }
+
+    /// A switch the next change cannot finish is said in the words that change would be
+    /// refused with, with the way out, and not as one the next change finishes, which is
+    /// what the check said of every interrupted switch.
+    #[test]
+    fn a_switch_the_next_change_cannot_finish_says_why_and_the_way_out() {
+        let mut f = facts();
+        f.interrupted = true;
+        f.stuck = Some("an earlier switch from `work` to `personal` was interrupted".into());
+        let checks = evaluate(&f);
+        let said = check(&checks, "interrupted_switch");
+        assert_eq!(said.level, Level::Warn);
+        assert_eq!(
+            said.detail,
+            "an earlier switch from `work` to `personal` was interrupted"
+        );
+        assert!(
+            said.advice.contains("`pitboard abandon`"),
+            "{}",
+            said.advice
+        );
+        assert_eq!(
+            checks
+                .iter()
+                .filter(|c| c.code == "interrupted_switch")
+                .count(),
+            1,
+            "said once"
+        );
     }
 
     /// The advice has to be something a person can type and have it act on the right

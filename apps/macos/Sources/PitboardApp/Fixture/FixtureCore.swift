@@ -34,6 +34,10 @@
 
         func searchPath() async -> String? { "/usr/bin:/bin" }
 
+        /// The stuck fixture's read is not refused over its switch, as the core's is not: it
+        /// carries the refusal the next change would make. The read that asks nobody says
+        /// nothing of it, as the core's does where only Anthropic can tell whose the login
+        /// is.
         func status(fresh: Bool) async throws -> Status {
             try lock.withLock {
                 switch fixture {
@@ -43,11 +47,15 @@
                         message: "Anthropic could not be reached.",
                         warnings: [])
                 case .stuck where stuck:
-                    throw PitboardError.Failed(
-                        code: "recovery_undetermined", cause: nil,
-                        message: "A switch from work to personal was interrupted, and it "
-                            + "cannot be finished until Anthropic answers.",
-                        warnings: [])
+                    let read = currentStatus()
+                    return Status(
+                        now: read.now, accounts: read.accounts,
+                        warnings: [
+                            Warning(
+                                code: "recovery_undetermined",
+                                message: "A switch from work to personal was interrupted, and "
+                                    + "it cannot be finished until Anthropic answers.")
+                        ])
                 default:
                     return currentStatus()
                 }

@@ -61,6 +61,11 @@ impl Provider for Claude {
         api::owner(ctx, token).map(from_owner).map_err(from_api)
     }
 
+    /// Anthropic's profile endpoint says whose a token is.
+    fn identifies_by_itself(&self) -> bool {
+        false
+    }
+
     fn usage(
         &self,
         ctx: &Context,

@@ -35,8 +35,8 @@ pub use enroll::{Enrolled, Said, SignIn, WatchedSignIn, enroll, sign_in, sign_in
 #[cfg(any(test, feature = "test-support"))]
 pub use enroll::{ScriptedSignIn, SignInScript};
 pub use forget::forget;
-pub(crate) use journal::interrupted_tool;
 pub use journal::{Abandoned, Recovered, pending as interrupted};
+pub(crate) use journal::{Asking, interrupted_tool};
 pub use rename::rename;
 pub use renew::{Due, Renewal, renew_due, renew_parked};
 pub use uninstall::{Removed, uninstall};
@@ -83,8 +83,13 @@ pub struct Settled {
 
 /// Throws away a record of an interrupted switch that cannot be finished, keeping every
 /// copy it names. Takes Pitboard's own lock but never Claude Code's: it installs nothing.
+///
+/// Under a custom Claude Code endpoint it gives up on another tool's switch, as a change to
+/// that tool settles one there, and refuses a Claude Code switch, which is settled nowhere.
+/// It refused every switch there, so a Codex switch that read as stuck could be neither
+/// finished nor given up on.
 pub fn abandon(ctx: &Context) -> Result<Option<Abandoned>> {
-    refuse_custom_oauth(ctx, None)?;
+    refuse_custom_oauth(ctx, journal::interrupted_tool(ctx))?;
     let _exclusive = exclusive(ctx)?;
     let mut state = state::load(ctx)?;
     journal::abandon(ctx, &mut state)
@@ -128,6 +133,27 @@ pub fn settle(ctx: &Context, tool: Option<ProviderId>) -> Result<(Settled, Optio
         },
         recovered,
     ))
+}
+
+/// Why the next change would stop at an interrupted switch it cannot finish: the refusal
+/// that change would make, in its words. `None` where no switch is waiting, where the next
+/// change finishes or undoes it by itself, and where telling which would need the service
+/// and `asking` says not to ask it.
+///
+/// Worked out the way [`settle`] works it out, from the same reads and the same decision,
+/// and only read: no lock is taken, nothing is written, and the record stays for whatever
+/// finishes it or gives up on it. A switch under way in another run has a record too, and
+/// what it leaves at every step is what the next change could settle, ordinarily from the
+/// fingerprints alone, so it does not read as stuck.
+pub(crate) fn stuck(ctx: &Context, state: &State, asking: Asking) -> Option<Error> {
+    if !journal::pending(ctx) {
+        return None;
+    }
+    // Under a custom Claude Code endpoint no change comes to a Claude Code switch: each is
+    // refused over the endpoint first, as settling it and giving up on it are. A Codex
+    // switch is settled there, and given up on, as anywhere.
+    refuse_custom_oauth(ctx, journal::interrupted_tool(ctx)).ok()?;
+    journal::refusal(ctx, state, asking)
 }
 
 /// Ask the store itself what parked logins are on this machine, and resolve every one the

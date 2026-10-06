@@ -413,6 +413,17 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         }
     }
 
+    /// Claude Code signed out behind Pitboard's back: its login is gone from where it keeps
+    /// it, and nothing else changed.
+    pub fn sign_out(&self) {
+        guard_not_live(&self.service);
+        if cfg!(target_os = "macos") {
+            let _ = pitboard_core::testing::vault_delete(&ctx(), &self.service);
+        } else {
+            let _ = std::fs::remove_file(self.live_path());
+        }
+    }
+
     /// Make the fake token endpoint answer a renewal of `refresh`. The caller keeps the mock
     /// alive and asserts it was asked exactly once.
     pub fn answers_renewal(
@@ -726,6 +737,19 @@ impl Drop for Env {
                 .map(|a| &a["parked"]["service"])
                 .chain(v["discarded"].as_array().into_iter().flatten());
             for s in parked.filter_map(serde_json::Value::as_str) {
+                let _ = Command::new(SECURITY)
+                    .args(["delete-generic-password", "-a", &account(), "-s", s])
+                    .output();
+            }
+        }
+        // A switch left interrupted names its parks in its record and nowhere else, so a
+        // test that fails before settling it would otherwise leave them in the keychain.
+        if cfg!(target_os = "macos")
+            && let Ok(record) = std::fs::read_to_string(self.root.join("pitboard/journal.json"))
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&record)
+        {
+            let named = [&v["park_service"], &v["incoming_service"]];
+            for s in named.into_iter().filter_map(serde_json::Value::as_str) {
                 let _ = Command::new(SECURITY)
                     .args(["delete-generic-password", "-a", &account(), "-s", s])
                     .output();

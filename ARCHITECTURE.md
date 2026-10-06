@@ -255,6 +255,16 @@ pages load, as a browser would.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
+- A read never settles an interrupted switch. Every change settles one first, under
+  Pitboard's lock. Where that change would stop at it as `recovery_undetermined`,
+  `status`, `status_offline` and `doctor` say so in its words, from the same reads and the
+  same decision (`read` and `decide` in `switch/journal.rs`, through `switch::stuck`), and
+  that check takes no lock and writes nothing. `status_offline` and `doctor` send no
+  request, so they say it only where the record and the logins tell it without one: a
+  Codex login names its own account, and a Claude Code login renewed since the switch
+  stopped is one only Anthropic can name. While a switch is waiting, telling reads the
+  tool's login and the copy the switch parked, which on macOS are keychain items; with no
+  record there, the check is one look at whether the file is there.
 - No test starts the person's own login shell. A test names a shell of its own in `SHELL`,
   one that is not there, or hands in what a shell said.
 - A test never reaches the system's own scheduler. A test context schedules through

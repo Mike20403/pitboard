@@ -205,15 +205,40 @@ fn read_park(ctx: &Context, service: &str) -> Option<Option<Value>> {
     }
 }
 
-fn live_owner(ctx: &Context, which: ProviderId) -> std::result::Result<String, String> {
-    let live = crate::provider::of(which)
-        .read_live(ctx)
-        .map_err(|e| e.to_string())?
-        .ok_or("nothing is signed in")?
-        .raw;
-    identify_document(ctx, which, &live)
-        .map(|owner| owner.account_uuid)
-        .map_err(|e| e.to_string())
+/// Whose the live login is, as far as the record and the login itself can say.
+enum Owner {
+    /// This account's.
+    Is(String),
+    /// Nobody can say, for this reason.
+    Unknown(String),
+    /// The record cannot say whose this login is, and the service has not been asked.
+    Unasked(Value),
+}
+
+/// Whose the live login is, read off the record and the login without asking anybody.
+///
+/// The fingerprints settle it without a round trip whenever they can, which is what makes
+/// an interrupted switch recoverable with no network at all.
+fn live_owner(ctx: &Context, journal: &Journal) -> Owner {
+    match crate::provider::of(journal.provider).read_live(ctx) {
+        Err(e) => Owner::Unknown(e.to_string()),
+        Ok(None) => Owner::Unknown("nothing is signed in".into()),
+        Ok(Some(live)) => match live_owner_by_fingerprint(journal, &live.raw) {
+            Some(uuid) => Owner::Is(uuid),
+            None => Owner::Unasked(live.raw),
+        },
+    }
+}
+
+/// Whose the live login is, with the service asked where only it can say.
+fn ask(ctx: &Context, which: ProviderId, owner: Owner) -> std::result::Result<String, String> {
+    match owner {
+        Owner::Is(uuid) => Ok(uuid),
+        Owner::Unknown(why) => Err(why),
+        Owner::Unasked(live) => identify_document(ctx, which, &live)
+            .map(|owner| owner.account_uuid)
+            .map_err(|e| e.to_string()),
+    }
 }
 
 /// Who owns the live login, answered from the record rather than from Anthropic, where the
@@ -228,18 +253,14 @@ fn live_owner(ctx: &Context, which: ProviderId) -> std::result::Result<String, S
 /// It narrows the network dependency rather than removing it. A rotation inside the seconds
 /// of an interrupted switch leaves a fingerprint matching neither side, which is exactly
 /// when this says nothing and Anthropic is asked after all.
-fn live_owner_by_fingerprint(ctx: &Context, journal: &Journal) -> Option<String> {
+fn live_owner_by_fingerprint(journal: &Journal, live: &Value) -> Option<String> {
     if journal.from_fingerprint.is_empty() || journal.to_fingerprint.is_empty() {
         return None;
     }
     if journal.from_fingerprint == journal.to_fingerprint {
         return None;
     }
-    let live = crate::provider::of(journal.provider)
-        .read_live(ctx)
-        .ok()??
-        .raw;
-    let found = crate::provider::of(journal.provider).fingerprint(&live);
+    let found = crate::provider::of(journal.provider).fingerprint(live);
     if found.is_empty() {
         return None;
     }
@@ -324,7 +345,18 @@ pub(super) fn abandon(ctx: &Context, state: &mut State) -> Result<Option<Abandon
     }))
 }
 
-pub(super) fn reconcile(ctx: &Context, state: &mut State) -> Result<Option<Recovered>> {
+/// The record of an interrupted switch, with every fact recovery decides it from that can be
+/// read without asking anybody.
+struct Waiting {
+    journal: Journal,
+    /// The park the record reserved: written, never written, or `None` if unreadable.
+    parked: Option<Option<Value>>,
+    owner: Owner,
+}
+
+/// The record of an interrupted switch, where one is waiting, and what recovery decides it
+/// from. Reads, and writes nothing whatever it finds.
+fn read(ctx: &Context, state: &State) -> Result<Option<Waiting>> {
     let path = journal_path(ctx);
     let raw = match std::fs::read_to_string(&path) {
         Ok(r) => r,
@@ -348,27 +380,47 @@ pub(super) fn reconcile(ctx: &Context, state: &mut State) -> Result<Option<Recov
         }
     }
 
-    // The fingerprints settle it without a round trip whenever they can, which is what
-    // makes an interrupted switch recoverable with no network at all.
-    let by_fingerprint = live_owner_by_fingerprint(ctx, &journal);
-    let owner = match &by_fingerprint {
-        Some(uuid) => Ok(uuid.clone()),
-        None => live_owner(ctx, journal.provider),
-    };
-    let found = Found {
+    let owner = live_owner(ctx, &journal);
+    Ok(Some(Waiting {
         parked: read_park(ctx, &journal.park_service),
+        journal,
+        owner,
+    }))
+}
+
+/// What finishes or undoes the switch, or, where the facts do not settle what it did, the
+/// refusal of the change that found them so.
+fn decide(
+    state: &State,
+    journal: &Journal,
+    parked: Option<Option<Value>>,
+    owner: std::result::Result<String, String>,
+) -> Result<Repair> {
+    let found = Found {
+        parked,
         live_owner: owner.as_ref().ok().cloned(),
     };
-    let Some(repair) = repair_for(state, &journal, &found) else {
-        return Err(Error::RecoveryUndetermined {
-            tool: journal.provider,
-            from: state.typed(&journal.from()),
-            to: state.typed(&journal.to()),
-            detail: owner
-                .err()
-                .unwrap_or_else(|| "its parked login could not be read".into()),
-        });
+    repair_for(state, journal, &found).ok_or_else(|| Error::RecoveryUndetermined {
+        tool: journal.provider,
+        from: state.typed(&journal.from()),
+        to: state.typed(&journal.to()),
+        detail: owner
+            .err()
+            .unwrap_or_else(|| "its parked login could not be read".into()),
+    })
+}
+
+pub(super) fn reconcile(ctx: &Context, state: &mut State) -> Result<Option<Recovered>> {
+    let Some(Waiting {
+        journal,
+        parked,
+        owner,
+    }) = read(ctx, state)?
+    else {
+        return Ok(None);
     };
+    let owner = ask(ctx, journal.provider, owner);
+    let repair = decide(state, &journal, parked, owner)?;
     let finished = repair.landed;
     apply(state, &journal, repair);
     state::save(ctx, state)?;
@@ -379,6 +431,40 @@ pub(super) fn reconcile(ctx: &Context, state: &mut State) -> Result<Option<Recov
         to: state.typed(&journal.to()),
         finished,
     }))
+}
+
+/// Whether working out what an interrupted switch did may ask the service whose the live
+/// login is, where the record cannot say. A change asks, and so does `status`, which asks
+/// the service about every account anyway; `doctor` and `status_offline` send no request.
+/// A tool whose login names its own account is identified from the login either way, which
+/// asks nobody.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Asking {
+    Service,
+    Nobody,
+}
+
+/// The refusal the next change would make over the interrupted switch waiting here, worked
+/// out by reading what [`reconcile`] reads and deciding as it decides, and changing nothing.
+///
+/// `None` where no switch is waiting, where the next change finishes or undoes it, and
+/// where telling which would need the service and `asking` says not to ask it. A record
+/// that cannot be read, or that was written for another slot, is refused by the next
+/// change for that reason and not for this one, and is not this function's to say.
+pub(super) fn refusal(ctx: &Context, state: &State, asking: Asking) -> Option<Error> {
+    let Waiting {
+        journal,
+        parked,
+        owner,
+    } = read(ctx, state).ok()??;
+    if asking == Asking::Nobody
+        && matches!(owner, Owner::Unasked(_))
+        && !crate::provider::of(journal.provider).identifies_by_itself()
+    {
+        return None;
+    }
+    let owner = ask(ctx, journal.provider, owner);
+    decide(state, &journal, parked, owner).err()
 }
 
 #[cfg(test)]
@@ -409,20 +495,26 @@ mod tests {
     /// did. Reading an old record must never be a reason to refuse.
     #[test]
     fn a_record_from_before_the_fingerprints_falls_back_to_asking() {
-        let ctx = Context::new(std::path::PathBuf::from("/nowhere"));
         let mut j = journal();
         j.from_fingerprint = String::new();
         j.to_fingerprint = String::new();
-        assert_eq!(live_owner_by_fingerprint(&ctx, &j), None);
+        assert_eq!(live_owner_by_fingerprint(&j, &live("refresh")), None);
     }
 
-    /// Two sides that fingerprint the same are not two sides. Nothing can be read off that.
+    /// Two sides that fingerprint the same are not two sides. Nothing can be read off that,
+    /// not even from a login that matches both.
     #[test]
     fn identical_fingerprints_settle_nothing() {
-        let ctx = Context::new(std::path::PathBuf::from("/nowhere"));
         let mut j = journal();
+        let live = live("refresh");
+        j.from_fingerprint = crate::provider::of(ProviderId::Claude).fingerprint(&live);
         j.to_fingerprint = j.from_fingerprint.clone();
-        assert_eq!(live_owner_by_fingerprint(&ctx, &j), None);
+        assert_eq!(live_owner_by_fingerprint(&j, &live), None);
+    }
+
+    /// A Claude Code login on `refresh`.
+    fn live(refresh: &str) -> Value {
+        serde_json::json!({"claudeAiOauth": {"refreshToken": refresh, "accessToken": "a"}})
     }
 
     fn account(label: &str, parked: Option<&str>) -> Account {
