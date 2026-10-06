@@ -1258,16 +1258,14 @@ mod tests {
         // Stops the stand-in, which ends once it has taken the code, and reaps it.
         session.cancel();
 
-        // In a home of its own: the core's one sign-in at a time is a file lock, which can
-        // outlive the cancel above for as long as a process another test starts meanwhile
-        // takes to run its program, as ARCHITECTURE.md's Measured facts say.
-        let mut stopping = World::new("reach-stop");
-        let claude = stopping.claude_stand_in();
-        let session = stopping
-            .core()
+        // In the same home, at once: the cancel has let go of the core's one sign-in at a
+        // time by the time it returns, whatever processes other tests start meanwhile.
+        let session = core
             .sign_in("claude/again".into())
-            .expect("the stand-in starts");
+            .expect("the stand-in starts again");
         assert!(worker.sign_ins.started(1, &session));
+        // It writes its process id before it says anything.
+        assert!(session.next_line().is_some(), "the stand-in says something");
         assert!(matches!(
             worker.work(Job::StopSignIn { id: 1 }),
             Answer::Stopped

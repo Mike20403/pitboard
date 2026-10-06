@@ -884,20 +884,50 @@ a scratch item.
 - Reads after a `dump-keychain` take the usual 0.016 seconds, so listing has none of the
   access-list cost of an in-process read. Each service name is on a line of the form
   `"svce"<blob>="<name>"`.
+- A lock taken with `flock` outlives the file it was taken on while another thread is
+  starting a process, here as on Linux: [One sign-in at a time](#one-sign-in-at-a-time).
+
+### One sign-in at a time
+
+The core's one sign-in at a time is a lock on `signin.lock`, taken with `File::try_lock`,
+which is `flock`.
+
 - Measured on macOS 27.0 on 5 October 2026, with Rust 1.98.1: a lock taken with
-  `File::try_lock`, which is `flock`, can stay held after its `File` is dropped, though std
-  opens every file so that a program started after does not keep it. A process another
-  thread is starting holds a copy of the descriptor until it runs its program, or ends.
-  Dropped and taken again at once, in 3000 rounds each, the lock was still held 437 to 1042
-  times, for up to 5.5 ms, while another thread started processes the way std forks and
-  execs, which it does for a program named bare with `PATH` set, as the core runs a tool's
-  program it found nowhere; 8 to 15 times, for up to 77 µs, where std uses `posix_spawn`;
-  and never with no process started. Through the core's own sign-in, one started right
-  after a cancel in the same home was refused as one already waiting 64 times in 100 while
-  another thread started a program it could not find, and never in 100 while one started
-  `/usr/bin/true` or none started anything. So the core's one sign-in at a time can outlive
-  a cancel by that long. No person starts a sign-in that fast, and a test that signs in
-  again right after a cancel does so in a home of its own.
+  `File::try_lock` can stay held after its `File` is dropped, though std opens every file so
+  that a program started after does not keep it. A process another thread is starting holds
+  a copy of the descriptor until it runs its program, or ends. Dropped and taken again at
+  once, in 3000 rounds each, the lock was still held 437 to 1042 times, for up to 5.5 ms,
+  while another thread started processes the way std forks and execs, which it does for a
+  program named bare with `PATH` set; 8 to 15 times, for up to 77 µs, where std uses
+  `posix_spawn`; and never with no process started. Through the core's own sign-in, one
+  started right after a cancel in the same home was refused as one already waiting 64 times
+  in 100 while another thread started a program it could not find, and never in 100 while
+  one started `/usr/bin/true` or none started anything.
+- Measured on 6 October 2026, with Rust 1.98.1, on macOS 27.0 and on Debian 13 with glibc
+  2.41 in Docker, both on arm64, by a program of the measurement's own, run three times on
+  each: a lock taken on a file, let go of, and at once taken again on the file opened again,
+  in 20,000 rounds 200 µs apart, while one other thread started one process after another
+  and waited for each. Let go of by closing the file, the lock was still held:
+  - with nothing started, never;
+  - while the other thread named its program bare with `PATH` set, which std forks and execs
+    for: found nowhere, 10 to 13 times on macOS, for up to 781 µs, and 71 to 97 times on
+    Linux, for up to 231 µs; found, 4 to 6 times, for up to 731 µs, and 44 to 55, for up to
+    269 µs;
+  - while it named its program by its path, which std starts with `posix_spawn`: found, 7 to
+    13 times on macOS, for up to 61 µs, and 54 to 60 on Linux, for up to 141 µs; where
+    nothing is, 166 to 200 times, for up to 151 µs, and 151 to 171, for up to 109 µs,
+    starting more since each fails at once.
+
+  Let go of with `File::unlock` before the file was closed, it was never held, however the
+  other thread started its processes, in any run on either system. Named by its path, a
+  process holds the copy for less time on macOS and for about as long on Linux, but holds
+  it: starting a program by the path it was found at does not close the window, and letting
+  go of the lock by name does. So a `SignIn` lets go of its lock with `File::unlock` as it
+  is dropped, after clearing its directory, and `WatchedSignIn::cancel` returns once it is
+  free. The core already starts every tool it found by the path it found it at. It names a
+  tool bare, with `PATH` set, only where it found none, in `provider::command`, and
+  `ready_to_sign_in` refuses such a sign-in before it gets there, so that runs only for a
+  program taken away between the two. It is left as it is.
 
 ### Claude Code
 

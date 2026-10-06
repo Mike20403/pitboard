@@ -43,7 +43,9 @@ pub struct SignIn {
     dir: PathBuf,
     document: Value,
     ctx: Context,
-    _one_at_a_time: File,
+    /// The lock on `signin.lock` that makes this the one sign-in at a time, let go of as this
+    /// is dropped.
+    one_at_a_time: File,
 }
 
 impl SignIn {
@@ -54,9 +56,19 @@ impl SignIn {
 }
 
 impl Drop for SignIn {
+    /// Clears the private directory, then lets go of the lock, so the next sign-in can start
+    /// the moment this returns.
+    ///
+    /// Let go of by name rather than by closing the file: a lock taken with `flock` belongs to
+    /// the open file, which every process another thread is starting holds a copy of until
+    /// it runs its program, though std opens the file so that the program does not keep it.
+    /// Closed, the lock stayed held until the last copy went, for up to milliseconds, as
+    /// ARCHITECTURE.md's Measured facts say, and a sign-in started in that time was refused
+    /// as one already waiting. Let go of, it is free whatever copies are still open.
     fn drop(&mut self) {
         provider::of(self.provider).discard_signin(&self.ctx, &self.dir);
         let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = self.one_at_a_time.unlock();
     }
 }
 
@@ -108,7 +120,7 @@ fn reserve_signin(ctx: &Context, which: ProviderId) -> Result<SignIn> {
         dir,
         document: Value::Null,
         ctx: ctx.clone(),
-        _one_at_a_time: one_at_a_time,
+        one_at_a_time,
     })
 }
 
@@ -273,7 +285,9 @@ impl WatchedSignIn {
         Ok(pending)
     }
 
-    /// Stops it. What it may have written is discarded by `SignIn`'s own cleanup.
+    /// Stops it, and returns once its tool has ended and been waited for and the one sign-in
+    /// at a time has been let go of, so a sign-in started after this returns is not refused as
+    /// one already waiting. What it may have written is discarded by `SignIn`'s own cleanup.
     pub fn cancel(mut self) {
         match &mut self.tool {
             Running::Program(child) => {
@@ -1388,6 +1402,35 @@ mod tests {
             assert_eq!(started[0].1, None, "{tool}: nobody said whom it was for");
             assert!(park_of(&m, "newcomer").is_none(), "{tool}");
             reserve_signin(&ctx, m.which).expect("a stopped sign-in lets the next one start");
+        }
+    }
+
+    /// A cancel has let go of the core's one sign-in at a time by the time it returns, even
+    /// while a copy of its lock's descriptor is open elsewhere, as one is in every process
+    /// another thread is starting until that process runs its program. Closing the file let
+    /// go of it only once every copy was closed, so the next sign-in was refused as one
+    /// already waiting for as long as that took, which ARCHITECTURE.md's Measured facts give.
+    #[test]
+    #[cfg(unix)]
+    fn a_cancelled_sign_in_lets_the_next_start_while_a_copy_of_its_lock_is_open() {
+        for (tool, make) in MACHINES {
+            let m = make("lock-copied");
+            let played = Arc::new(Played::default());
+            let ctx = nowhere(&m.ctx).with_sign_in_script(Arc::clone(&played) as _);
+            let watched = sign_in_watched(&ctx, m.which).unwrap_or_else(|e| panic!("{tool}: {e}"));
+            let copy = watched
+                .pending
+                .one_at_a_time
+                .try_clone()
+                .expect("a copy of the lock's descriptor");
+            watched.cancel();
+            let next = reserve_signin(&ctx, m.which);
+            drop(copy);
+            assert!(
+                next.is_ok(),
+                "{tool}: the next sign-in refused: {:?}",
+                next.err()
+            );
         }
     }
 
