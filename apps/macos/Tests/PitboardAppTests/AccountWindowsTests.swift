@@ -139,7 +139,8 @@ private func opened(
     OpenWindow(
         store: account.store, account: account, load: PageLoad(serial: serial, url: url),
         note: note,
-        clearDownloads: Choice(title: "Clear", intent: .clearDownloads(store: account.store)))
+        clearDownloads: Choice(
+            title: "Clear", intent: .clearDownloads(store: account.store), enabled: false))
 }
 
 /// Lets what the janitor started run.

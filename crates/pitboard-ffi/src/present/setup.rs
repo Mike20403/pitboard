@@ -88,6 +88,7 @@ pub(crate) fn step(seen: &Seen, footing: &Footing) -> Option<SetupStep> {
                             email: email.clone(),
                         },
                     },
+                    enabled: true,
                 }],
             })
         }
@@ -111,6 +112,7 @@ pub(crate) fn step(seen: &Seen, footing: &Footing) -> Option<SetupStep> {
                                 provider: Some(provider.clone()),
                             },
                         },
+                        enabled: true,
                     },
                     // Somebody may keep one account on purpose and watch its limits, so the
                     // nudge can be declined, for its tool alone.
@@ -119,6 +121,7 @@ pub(crate) fn step(seen: &Seen, footing: &Footing) -> Option<SetupStep> {
                         intent: Intent::DeclineSecondAccount {
                             provider: provider.clone(),
                         },
+                        enabled: true,
                     },
                 ],
             })
@@ -148,9 +151,12 @@ pub(crate) fn accounts_shown(seen: &Seen, footing: &Footing) -> AccountsShown {
         _ if seen.problem().is_some() && seen.accounts().is_empty() => AccountsShown::ReadFailed {
             title: "Couldn’t Read Accounts".into(),
             detail: seen.problem().unwrap_or_default().to_owned(),
+            // Held back while the accounts are read again, as the toolbar's Refresh is, so
+            // pressing it is seen to have done something; AccountsPane.swift held it back.
             retry: Choice {
                 title: "Try Again".into(),
                 intent: Intent::Refresh { asked: true },
+                enabled: seen.state.reads == 0,
             },
         },
         Footing::NoOneSignedIn => AccountsShown::NoAccounts {
@@ -163,6 +169,7 @@ pub(crate) fn accounts_shown(seen: &Seen, footing: &Footing) -> AccountsShown {
                 intent: Intent::PresentSheet {
                     sheet: Sheet::Add { provider: None },
                 },
+                enabled: true,
             },
         },
         _ if seen.state.status.is_none() => AccountsShown::Reading {

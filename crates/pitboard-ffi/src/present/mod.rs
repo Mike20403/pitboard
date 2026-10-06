@@ -15,13 +15,17 @@
 //! parked login's life, a renewal's note and doctor's summary, is `pitboard_core::words`',
 //! called from here.
 //!
-//! A button the snapshot offers comes with its words and what it sends, a `Choice`, an
-//! `ItemAction` or a `NoticeAction`, so a view never words an intent itself and both apps
-//! label one offer alike: a row's "Use", "Sign In Again…" or "Name…", the setup step's "Add
-//! Account…" and "Not Now", an empty pane's "Try Again". A control an app always has, such as
-//! its toolbar's and its menu's "Add Account…", "Settings…" or "Quit Pitboard", is the app's
-//! own, in its own catalog, and so is what is about the app's own system, such as asking for
-//! Login Items. So "Add Account…" is said in both places.
+//! A button the snapshot offers comes with its words and what it sends, and with whether it
+//! can be pressed now where it can be held back, a `Choice`, an `ItemAction`, an `ItemOffer`
+//! or a `NoticeAction`, so a view never words an intent or decides whether to offer one, and
+//! both apps label and hold back one offer alike: a row's "Use", "Sign In Again…" or "Name…",
+//! what an account's own menu offers, the setup step's "Add Account…" and "Not Now", an empty
+//! pane's "Try Again", a window's "Clear" and a sheet's default button. A control an app always
+//! has, such as its toolbar's and its menu's "Add Account…", "Refresh", "Settings…" or "Quit
+//! Pitboard", is the app's own, in its own catalog, held back where the snapshot says what it
+//! waits for is under way, and so is what is about the app's own system or done by the app
+//! alone, such as asking for Login Items, copying an email address or showing a file in
+//! Finder. So "Add Account…" is said in both places.
 
 mod accounts;
 mod machine;
@@ -48,7 +52,7 @@ pub use windows::{
 pub(crate) use accounts::in_order;
 pub(crate) use notices::run_out_notice;
 
-use crate::account_windows::AlertText;
+use crate::account_windows::{AlertText, WindowAccount};
 use crate::model::state::State;
 use crate::model::{Intent, LocalTime, Snapshot};
 use crate::{Account, Tool, UsageLevel};
@@ -109,8 +113,6 @@ pub struct AccountItem {
     pub unplaced: bool,
     /// A switch to it is under way.
     pub switching: bool,
-    /// A sign-in is under way, which holds back signing in again from here.
-    pub busy: bool,
     /// What pressing it does, decided once: switch to it, sign in to it again, or name it.
     /// `None` where nothing can be done: it is the one in use, a switch is under way, or
     /// Pitboard cannot use it.
@@ -130,13 +132,17 @@ pub struct AccountItem {
     pub help: Option<String>,
     /// Each of its limits, in the order its service gave them.
     pub limits: Vec<LimitRow>,
-    /// An enrolled account, which can be renamed and signed in to again.
-    pub renamable: bool,
-    /// Whether it may be forgotten: enrolled, and not the one in use, whose record is the
-    /// only one of who is signed in, and which the core refuses.
-    pub can_forget: bool,
-    /// The question asked before it is forgotten, once it may be.
-    pub forget_question: Option<Question>,
+    /// What its own menu offers to do to it, in order: switching to it, or naming it, where
+    /// pressing it does that; then, for an account Pitboard has a name for, signing in to it
+    /// again and renaming it. Signing in again is offered once, here, and held back while
+    /// another sign-in runs.
+    pub offers: Vec<ItemOffer>,
+    /// Its windows, one for each site of its tool, as its own menu offers to open them.
+    pub windows: Vec<WindowOffer>,
+    /// Forgetting it, with the question asked first, where it may be forgotten: enrolled,
+    /// and not the one in use, whose record is the only one of who is signed in, and which
+    /// the core refuses. What its own menu offers last, and what deleting its row does.
+    pub forget: Option<ItemOffer>,
 }
 
 /// What pressing an account does.
@@ -146,10 +152,32 @@ pub struct ItemAction {
     pub title: String,
     /// What VoiceOver says of that button: "Use work (Codex)".
     pub spoken: String,
-    /// What the account's own menu says of it: "Use work", "Sign In Again…", "Name…".
-    pub menu_title: String,
     /// What to send.
     pub intent: Intent,
+}
+
+/// Something an account's own menu offers to do to it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ItemOffer {
+    /// What its item says: "Use work", "Name…", "Sign In Again…", "Rename…", "Forget…".
+    pub title: String,
+    /// What to send, once any question has been answered.
+    pub intent: Intent,
+    /// Whether it can be chosen now. One held back is shown all the same, and cannot be
+    /// chosen.
+    pub enabled: bool,
+    /// The question asked first, where there is one.
+    pub confirm: Option<Question>,
+}
+
+/// One of an account's windows, as its own menu offers to open it. Opening a window is the
+/// app's own doing; the app says it has with `Intent::WindowOpened`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct WindowOffer {
+    /// What its item says: "Open chatgpt.com".
+    pub title: String,
+    /// The window it opens, as the menus and the picker list it.
+    pub window: WindowAccount,
 }
 
 /// One limit of an account, as a row of its bars.
@@ -297,11 +325,14 @@ pub struct SetupStep {
     pub actions: Vec<Choice>,
 }
 
-/// A button, and what pressing it sends.
+/// A button, what pressing it sends, and whether it can be pressed now.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Choice {
     pub title: String,
     pub intent: Intent,
+    /// Whether it can be pressed now. One held back is shown all the same, and cannot be
+    /// pressed.
+    pub enabled: bool,
 }
 
 /// What the window's accounts pane shows in place of its list, or the list.
@@ -351,6 +382,9 @@ pub struct SheetText {
     pub prompt: String,
     /// Why a tool is missing from the picker, rather than leaving it out without a word.
     pub not_offered: Option<String>,
+    /// What its default button says, which does what the sheet is for: "Sign In", "Save",
+    /// "Rename". It can be pressed once `name_to_save` gives a name, and not while saving.
+    pub confirm: String,
     /// A name typed in it is being saved, which cannot be withdrawn: nothing in it can be
     /// pressed meanwhile, and it cannot be closed.
     pub saving: bool,

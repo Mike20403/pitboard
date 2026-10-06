@@ -95,7 +95,7 @@ struct SignInSheet: View {
         } buttons: {
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("Sign In", action: start)
+            Button(text?.confirm ?? "", action: start)
                 .keyboardShortcut(.defaultAction)
                 .disabled(
                     nameToSave(sheet: sheet, typed: name) == nil || model.signingIn != nil)

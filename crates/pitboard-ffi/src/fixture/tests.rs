@@ -1391,15 +1391,31 @@ fn accounts_are_renamed_and_forgotten_as_the_window_offers() {
     let launched = made(World::OneTool);
     let (model, told) = started(&launched);
     let shown = told.until("the accounts read", read_in);
-    let can_forget: Vec<(String, bool)> = shown
+    // Each row's own menu, by its items' titles, with Forget… last where it is offered.
+    let menus: Vec<(String, Vec<String>)> = shown
         .sections
         .iter()
         .flat_map(|section| &section.accounts)
-        .map(|item| (item.title.clone(), item.can_forget))
+        .map(|item| {
+            let titles = item
+                .offers
+                .iter()
+                .chain(&item.forget)
+                .map(|offer| offer.title.clone())
+                .collect();
+            (item.title.clone(), titles)
+        })
         .collect();
+    let titles = |titles: &[&str]| titles.iter().map(|&title| title.to_owned()).collect();
     assert_eq!(
-        can_forget,
-        [("work".into(), false), ("personal".into(), true)]
+        menus,
+        [
+            ("work".into(), titles(&["Sign In Again…", "Rename…"])),
+            (
+                "personal".into(),
+                titles(&["Use personal", "Sign In Again…", "Rename…", "Forget…"])
+            ),
+        ]
     );
 
     model.send(Intent::PresentSheet {
@@ -1513,6 +1529,7 @@ fn a_failed_read_is_said_in_the_menu_and_in_the_window() {
             retry: crate::present::Choice {
                 title: "Try Again".into(),
                 intent: Intent::Refresh { asked: true },
+                enabled: true,
             },
         }
     );
@@ -1723,11 +1740,12 @@ fn this_mac_shows_the_cores_checks() {
 // The account windows.
 
 /// The account windows in twoTools, as AccountWindowTests.swift and AccountPickerTests.swift
-/// in the UI tests read them: each site's menu offers its own tool's accounts; a chatgpt.com
-/// link shared with the debug build's scheme asks which Codex account opens it, and Open
-/// answers once the link has waited; choosing spare opens its window on the link's stand-in,
-/// saying how to sign in, with its store recorded in the fixture's own folder; and a link to
-/// another site is refused, saying where it is.
+/// in the UI tests read them: each site's menu offers its own tool's accounts, and spare's
+/// own menu in the window opens its chatgpt.com window; a chatgpt.com link shared with the
+/// debug build's scheme asks which Codex account opens it, and Open answers once the link has
+/// waited; choosing spare opens its window on the link's stand-in, saying how to sign in,
+/// with its store recorded in the fixture's own folder; and a link to another site is
+/// refused, saying where it is.
 #[test]
 fn the_account_windows_are_what_their_ui_tests_read() {
     use crate::SiteMenu;
@@ -1736,7 +1754,20 @@ fn the_account_windows_are_what_their_ui_tests_read() {
 
     let launched = made(World::TwoTools);
     let (model, told) = started(&launched);
-    let shown = told.until("the accounts read", read_in).account_windows;
+    let read = told.until("the accounts read", read_in);
+    let spare_row = read
+        .sections
+        .iter()
+        .flat_map(|section| &section.accounts)
+        .find(|item| item.qualified.as_deref() == Some("codex/spare"))
+        .expect("spare's row");
+    let opens: Vec<(&str, &str)> = spare_row
+        .windows
+        .iter()
+        .map(|offer| (offer.title.as_str(), offer.window.label.as_str()))
+        .collect();
+    assert_eq!(opens, [("Open chatgpt.com", "spare")]);
+    let shown = read.account_windows;
     let menus: Vec<(String, Vec<String>)> = shown
         .menus
         .iter()

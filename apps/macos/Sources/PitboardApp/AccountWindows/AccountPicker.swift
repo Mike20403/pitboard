@@ -68,6 +68,7 @@ struct AccountPicker: View {
                 cancelButton
                 Button(retry.title) { windows.model.send(retry.intent) }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(!retry.enabled)
             }
         case .refused(let title, let reason):
             Text(title).font(.headline)
@@ -89,6 +90,7 @@ struct AccountPicker: View {
                 cancelButton
                 Button(add.title) { windows.model.send(add.intent) }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(!add.enabled)
             }
         case .choose(let title, let link, let linkText, let accounts, let preferred, let open):
             Text(title).font(.headline)

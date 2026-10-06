@@ -13,8 +13,8 @@ use super::testing::{
 use super::{Intent, Pane, Sheet, Snapshot, WindowRequest};
 use crate::present::testing::{LimitExt, Unreadable, Utc, account, unplaced, window};
 use crate::present::{
-    AccountItem, AccountsShown, Choice, Footing, MenuEntry, NoticeAction, PanelNotice, Question,
-    SetupStep, Severity, present, present_on,
+    AccountItem, AccountsShown, Choice, Footing, ItemOffer, MenuEntry, NoticeAction, PanelNotice,
+    Question, SetupStep, Severity, WindowOffer, present, present_on,
 };
 use crate::{Abandoned, Account, EnrolledAs, Warning};
 use pitboard_core::host::Os;
@@ -79,6 +79,15 @@ fn signing_in(model: &mut Hand) {
 /// What the action of a row sends, if it has one.
 fn sends(row: &AccountItem) -> Option<Intent> {
     row.action.as_ref().map(|action| action.intent.clone())
+}
+
+/// What an account's own menu offers above its windows, by title, and whether each can be
+/// chosen now.
+fn offered(row: &AccountItem) -> Vec<(&str, bool)> {
+    row.offers
+        .iter()
+        .map(|offer| (offer.title.as_str(), offer.enabled))
+        .collect()
 }
 
 fn present_sheet(sheet: Sheet) -> Intent {
@@ -219,14 +228,15 @@ fn pressing_an_account_does_the_one_thing_its_state_allows() {
             qualified: "claude/spare".into()
         })
     );
-    let action = spare.action.expect("an action");
+    let action = spare.action.as_ref().expect("an action");
     assert_eq!(
-        (
-            action.title.as_str(),
-            action.spoken.as_str(),
-            action.menu_title.as_str()
-        ),
-        ("Use", "Use spare", "Use spare")
+        (action.title.as_str(), action.spoken.as_str()),
+        ("Use", "Use spare")
+    );
+    assert_eq!(
+        spare.offers.first().map(|offer| offer.title.as_str()),
+        Some("Use spare"),
+        "as the account's own menu says it"
     );
     assert_eq!(
         sends(&described(account(Some("spare")).of("codex").build())),
@@ -299,6 +309,13 @@ fn a_switch_running_holds_back_every_account_and_marks_only_its_own() {
     assert!(!other.switching);
     assert_eq!(other.summary, "5-hour 5%");
     assert_eq!(other.action, None);
+    // Its own menu offers no switch either, and what else it offers it offers as the Swift
+    // menu did, which held nothing else back for a switch.
+    assert_eq!(
+        offered(&other),
+        [("Sign In Again…", true), ("Rename…", true)]
+    );
+    assert!(other.forget.as_ref().is_some_and(|forget| forget.enabled));
     let unnamed = || account(None).signed_in().uuid("u").build();
     assert_eq!(described_while(unnamed(), switching(running)).action, None);
     assert!(
@@ -325,7 +342,16 @@ fn a_sign_in_running_holds_back_only_another_sign_in() {
             qualified: "claude/spare".into()
         })
     );
-    assert!(spare.busy);
+    // Its own menu shows signing in again, held back, beside what can still be done.
+    assert_eq!(
+        offered(&spare),
+        [
+            ("Use spare", true),
+            ("Sign In Again…", false),
+            ("Rename…", true)
+        ]
+    );
+    assert!(spare.forget.as_ref().is_some_and(|forget| forget.enabled));
     assert_eq!(
         sends(&described_while(
             account(None).signed_in().uuid("u").build(),
@@ -336,12 +362,172 @@ fn a_sign_in_running_holds_back_only_another_sign_in() {
             email: "u@example.com".into()
         }))
     );
+    let stale = described_while(account(Some("stale")).switchable(false).build(), signing_in);
+    assert_eq!(sends(&stale), None);
     assert_eq!(
-        sends(&described_while(
-            account(Some("stale")).switchable(false).build(),
-            signing_in
-        )),
-        None
+        offered(&stale),
+        [("Sign In Again…", false), ("Rename…", true)]
+    );
+}
+
+/// What an account's own menu offers, each with its words, what it sends, and whether it can
+/// be chosen now: switching to it or naming it, where pressing the account does that, then,
+/// for an account Pitboard has a name for, signing in to it again and renaming it; each of
+/// its windows; and forgetting it, asked first, where it may be. Signing in again is offered
+/// once, not again as the account's own action, and a login Pitboard cannot use offers
+/// nothing.
+///
+/// AccountsPane.swift's shortcut menu, as it was at c1be7c3, which the Swift tested nowhere,
+/// and which AccountsWindowTests.swift's testRenamingAnAccount, testForgettingAsksFirst and
+/// testTheAccountInUseOffersNoForget read.
+#[test]
+fn an_accounts_own_menu_offers_what_can_be_done_to_it() {
+    let again = |label: &str| {
+        present_sheet(Sheet::SignInAgain {
+            provider: "claude".into(),
+            label: label.into(),
+        })
+    };
+    let rename = |label: &str| {
+        present_sheet(Sheet::Rename {
+            provider: "claude".into(),
+            label: label.into(),
+        })
+    };
+    let offer = |title: &str, intent: Intent| ItemOffer {
+        title: title.into(),
+        intent,
+        enabled: true,
+        confirm: None,
+    };
+    let spare = account(Some("spare")).build();
+    let accounts = vec![
+        account(Some("work")).signed_in().build(),
+        spare.clone(),
+        account(Some("stale")).switchable(false).build(),
+    ];
+    let (model, _) = reading(accounts.clone());
+    let [work, spare_row, stale] = &rows(&model)[..] else {
+        panic!("three rows");
+    };
+
+    assert_eq!(
+        work.offers,
+        [
+            offer("Sign In Again…", again("work")),
+            offer("Rename…", rename("work"))
+        ],
+        "nothing to switch to: it is the one in use"
+    );
+    assert_eq!(
+        work.forget, None,
+        "the core refuses to forget the one in use"
+    );
+
+    assert_eq!(
+        spare_row.offers,
+        [
+            offer(
+                "Use spare",
+                Intent::SwitchTo {
+                    qualified: "claude/spare".into()
+                }
+            ),
+            offer("Sign In Again…", again("spare")),
+            offer("Rename…", rename("spare")),
+        ]
+    );
+    assert_eq!(
+        spare_row.forget,
+        Some(ItemOffer {
+            title: "Forget…".into(),
+            intent: Intent::Forget {
+                qualified: "claude/spare".into()
+            },
+            enabled: true,
+            confirm: Some(Question {
+                title: "Forget “spare”?".into(),
+                message: crate::forget_message(spare, accounts),
+                confirm: "Forget".into(),
+            }),
+        })
+    );
+
+    assert_eq!(
+        stale.offers,
+        [
+            offer("Sign In Again…", again("stale")),
+            offer("Rename…", rename("stale"))
+        ],
+        "its own action, offered once"
+    );
+    assert!(stale.forget.is_some());
+
+    let unnamed = described(account(None).of("codex").signed_in().uuid("u").build());
+    assert_eq!(
+        unnamed.offers,
+        [offer(
+            "Name…",
+            present_sheet(Sheet::Name {
+                provider: "codex".into(),
+                email: "u@example.com".into()
+            })
+        )]
+    );
+    assert_eq!(unnamed.forget, None);
+    assert!(
+        described(account(None).uuid("u").build()).offers.is_empty(),
+        "a login not signed in has no name and cannot be named from here"
+    );
+    for signed_in in [false, true] {
+        let cannot = described(unplaced("codex", signed_in));
+        assert!(cannot.offers.is_empty());
+        assert!(cannot.windows.is_empty());
+        assert_eq!(cannot.forget, None);
+    }
+}
+
+/// An account's own menu opens each of its windows, one per site of its tool, named by the
+/// site, and the window is the one the menus and the picker list for it: not that of another
+/// tool's account with the same account id. A login with no name, or one Pitboard cannot
+/// use, has none.
+///
+/// AccountsPane.swift's Open items, which asked `windowsOf` and worded each in Swift, and
+/// which AccountWindowTests.swift's testAnAccountsShortcutMenuOpensItsWindow reads.
+#[test]
+fn an_accounts_own_menu_opens_its_windows() {
+    let accounts = vec![
+        account(Some("work")).signed_in().uuid("same").build(),
+        account(Some("main"))
+            .of("codex")
+            .signed_in()
+            .uuid("same")
+            .build(),
+    ];
+    let (model, _) = reading(accounts.clone());
+    let listed = crate::window_accounts(accounts);
+    let [work, main] = &rows(&model)[..] else {
+        panic!("two rows");
+    };
+    assert_eq!(
+        work.windows,
+        [WindowOffer {
+            title: "Open claude.ai".into(),
+            window: listed[0].clone(),
+        }]
+    );
+    assert_eq!(
+        main.windows,
+        [WindowOffer {
+            title: "Open chatgpt.com".into(),
+            window: listed[1].clone(),
+        }]
+    );
+    assert_eq!(main.windows[0].window.site.host, "chatgpt.com");
+    assert!(
+        described(account(None).signed_in().uuid("u").build())
+            .windows
+            .is_empty()
     );
 }
 
@@ -664,7 +850,7 @@ fn how_long_an_account_lasts_is_said_as_a_sentence() {
 /// Only an enrolled account that is not the one in use may be forgotten: forgetting that one
 /// would throw away the only record of who is signed in, and the core refuses it. The
 /// question asked first names it, and says what forgetting it deletes in the words the
-/// account windows say it in.
+/// account windows say it in. Its menu offers it, and the window's Delete key does it.
 ///
 /// AccountsPane.swift's canForget and its alert, which the Swift tested nowhere.
 #[test]
@@ -673,20 +859,27 @@ fn only_an_enrolled_account_not_in_use_may_be_forgotten() {
     let accounts = vec![account(Some("work")).signed_in().build(), spare.clone()];
     let (model, _) = reading(accounts.clone());
     let shown = rows(&model);
-    assert!(!shown[0].can_forget);
-    assert_eq!(shown[0].forget_question, None);
-    assert!(shown[1].can_forget);
+    assert_eq!(shown[0].forget, None);
+    let forget = shown[1].forget.as_ref().expect("spare may be forgotten");
     assert_eq!(
-        shown[1].forget_question,
+        forget.intent,
+        Intent::Forget {
+            qualified: "claude/spare".into()
+        }
+    );
+    assert_eq!(
+        forget.confirm,
         Some(Question {
             title: "Forget “spare”?".into(),
             message: crate::forget_message(spare, accounts),
             confirm: "Forget".into(),
         })
     );
-    assert!(shown[1].renamable);
-    assert!(!described(account(None).signed_in().uuid("u").build()).can_forget);
-    assert!(!described(unplaced("codex", false)).renamable);
+    assert_eq!(
+        described(account(None).signed_in().uuid("u").build()).forget,
+        None
+    );
+    assert_eq!(described(unplaced("codex", false)).forget, None);
 }
 
 /// AppModelTests.swift's anAccountThatCannotBeSwitchedToIsSignedInToAgainFromThePanel, its
@@ -1052,6 +1245,7 @@ fn a_failed_read_with_nothing_to_list_is_what_the_window_shows() {
         retry: Choice {
             title: "Try Again".into(),
             intent: Intent::Refresh { asked: true },
+            enabled: true,
         },
     };
 
@@ -1099,6 +1293,41 @@ fn a_failed_read_with_nothing_to_list_is_what_the_window_shows() {
     let shown = missing.shown();
     assert_eq!(shown.footing, Footing::NoClaudeCode);
     assert!(matches!(shown.accounts_shown, AccountsShown::NoTool { .. }));
+}
+
+/// The pane's Try Again is held back while the accounts are read again, and offered once the
+/// read has answered, as the pane's toolbar Refresh is. AccountsPane.swift held it back
+/// itself, from the snapshot's `reading`, which the Swift tested nowhere.
+#[test]
+fn the_panes_try_again_is_held_back_while_the_accounts_are_read() {
+    let failed = || {
+        Err(refusal(
+            "state_wrong_machine",
+            "~/.pitboard/state.json was written on another Mac.",
+            Vec::new(),
+        ))
+    };
+    let mut model = at_noon();
+    let mut machine = Machine::reading(failed());
+    machine.offline = failed();
+    model.refresh(&mut machine);
+    let retry = |model: &Hand| match model.shown().accounts_shown {
+        AccountsShown::ReadFailed { retry, .. } => retry,
+        other => panic!("why the read failed: {other:?}"),
+    };
+    assert!(retry(&model).enabled);
+    model.send(Intent::Refresh { asked: true });
+    assert!(model.shown().reading);
+    assert_eq!(
+        retry(&model),
+        Choice {
+            title: "Try Again".into(),
+            intent: Intent::Refresh { asked: true },
+            enabled: false,
+        }
+    );
+    model.run(&mut machine);
+    assert!(retry(&model).enabled, "the read answered, and failed again");
 }
 
 /// Without a tool there is nothing to read, and the menu says how to install one instead.
@@ -1894,6 +2123,7 @@ fn where_there_are_no_accounts_the_menu_and_the_window_say_why() {
             add: Choice {
                 title: "Add Account…".into(),
                 intent: present_sheet(Sheet::Add { provider: None }),
+                enabled: true,
             },
         }
     );
@@ -2028,6 +2258,7 @@ fn an_account_signed_in_without_a_name_is_asked_for_one() {
                     provider: "claude".into(),
                     email: "a@example.com".into()
                 }),
+                enabled: true,
             }],
         })
     );
@@ -2064,12 +2295,14 @@ fn one_enrolled_account_is_told_there_is_nothing_to_switch_to() {
                     intent: present_sheet(Sheet::Add {
                         provider: Some("claude".into())
                     }),
+                    enabled: true,
                 },
                 Choice {
                     title: "Not Now".into(),
                     intent: Intent::DeclineSecondAccount {
                         provider: "claude".into()
                     },
+                    enabled: true,
                 },
             ],
         })
@@ -2394,6 +2627,43 @@ fn each_sheet_says_what_it_is_for() {
         ("work", "work")
     );
     assert!(!rename.saving);
+}
+
+/// Each sheet's default button says what pressing it does: a sheet that signs in says Sign
+/// In, one that names a login signed in now says Save, and a rename says Rename.
+///
+/// SignInSheet.swift's Sign In and NameSheets.swift's `saveTitle`, which chose between Save
+/// and Rename by the sheet, which the Swift tested nowhere, and which
+/// AccountsWindowTests.swift's testRenamingAnAccount presses.
+#[test]
+fn each_sheets_default_button_says_what_it_does() {
+    let confirm = |sheet: Sheet| {
+        let mut model = Hand::new();
+        model.send(present_sheet(sheet));
+        model.shown().sheet_text.expect("the sheet").confirm
+    };
+    assert_eq!(confirm(Sheet::Add { provider: None }), "Sign In");
+    assert_eq!(
+        confirm(Sheet::SignInAgain {
+            provider: "codex".into(),
+            label: "work".into(),
+        }),
+        "Sign In"
+    );
+    assert_eq!(
+        confirm(Sheet::Name {
+            provider: "codex".into(),
+            email: "c@example.com".into(),
+        }),
+        "Save"
+    );
+    assert_eq!(
+        confirm(Sheet::Rename {
+            provider: "claude".into(),
+            label: "work".into(),
+        }),
+        "Rename"
+    );
 }
 
 /// A sign-in under way says what to do in the browser and what the field for a code is for,

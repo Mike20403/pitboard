@@ -3,7 +3,11 @@
 //! row, with its limits.
 
 use super::words;
-use super::{AccountItem, AccountSection, ItemAction, LimitRow, MenuBarText, Question, Seen};
+use super::{
+    AccountItem, AccountSection, ItemAction, ItemOffer, LimitRow, MenuBarText, Question, Seen,
+    WindowOffer,
+};
+use crate::account_windows::{forget_message_on, windows_of_account};
 use crate::model::{Intent, Sheet};
 use crate::{Account, Limit, Tool};
 use pitboard_core::words as said;
@@ -207,7 +211,6 @@ pub(crate) fn item(seen: &Seen, account: &Account) -> AccountItem {
     if needs_sign_in {
         spoken.push("needs signing in again".into());
     }
-    let can_forget = account.label.is_some() && !account.signed_in;
     AccountItem {
         id: account.id.clone(),
         provider: account.provider.clone(),
@@ -220,7 +223,15 @@ pub(crate) fn item(seen: &Seen, account: &Account) -> AccountItem {
         needs_sign_in,
         unplaced: account.unplaced,
         switching,
-        busy,
+        offers: offers(account, action.as_ref(), busy),
+        windows: windows_of_account(account, seen.accounts())
+            .into_iter()
+            .map(|window| WindowOffer {
+                title: format!("Open {}", window.site.name),
+                window,
+            })
+            .collect(),
+        forget: forget(seen, account, &spoken_name),
         action,
         help: problem.clone().or_else(|| stale_note.clone()),
         problem,
@@ -238,15 +249,86 @@ pub(crate) fn item(seen: &Seen, account: &Account) -> AccountItem {
                     .collect()
             })
             .unwrap_or_default(),
-        renamable: account.label.is_some() && !account.unplaced,
-        can_forget,
-        forget_question: can_forget.then(|| Question {
-            title: format!("Forget “{spoken_name}”?"),
-            message: crate::account_windows::forget_message_on(seen.os, account, seen.accounts()),
-            confirm: "Forget".into(),
-        }),
         spoken_name,
     }
+}
+
+/// What an account's own menu offers to do to it, above its windows: its own action where
+/// that switches to it or names it, and then, for an account Pitboard has a name for and can
+/// place, signing in to it again and renaming it. Signing in again is offered here for every
+/// such account, so not a second time as the account's own action, and is held back while a
+/// sign-in runs, as the action is; nothing else is held back, here or by a switch under way.
+///
+/// AccountsPane.swift's shortcut menu as it was at c1be7c3: its `offeredInItsMenu`, and the
+/// items it worded and sent from `renamable` and `busy`.
+fn offers(account: &Account, action: Option<&ItemAction>, busy: bool) -> Vec<ItemOffer> {
+    let offer = |title: String, intent: Intent, enabled: bool| ItemOffer {
+        title,
+        intent,
+        enabled,
+        confirm: None,
+    };
+    let own = action.and_then(|action| {
+        let title = match &action.intent {
+            Intent::SwitchTo { .. } => format!("Use {}", account.label.as_deref()?),
+            Intent::PresentSheet {
+                sheet: Sheet::Name { .. },
+            } => action.title.clone(),
+            _ => return None,
+        };
+        Some(offer(title, action.intent.clone(), true))
+    });
+    let named = account
+        .label
+        .as_deref()
+        .filter(|_| !account.unplaced)
+        .map(|label| {
+            let provider = account.provider.clone();
+            let label = label.to_owned();
+            [
+                offer(
+                    "Sign In Again…".into(),
+                    Intent::PresentSheet {
+                        sheet: Sheet::SignInAgain {
+                            provider: provider.clone(),
+                            label: label.clone(),
+                        },
+                    },
+                    !busy,
+                ),
+                offer(
+                    "Rename…".into(),
+                    Intent::PresentSheet {
+                        sheet: Sheet::Rename { provider, label },
+                    },
+                    true,
+                ),
+            ]
+        });
+    own.into_iter().chain(named.into_iter().flatten()).collect()
+}
+
+/// Forgetting an account, with the question asked first, where it may be forgotten: one
+/// enrolled, and not the one in use, whose record is the only one of who is signed in, and
+/// which the core refuses. The question names it, and says what forgetting it deletes in the
+/// words the account windows say it in.
+fn forget(seen: &Seen, account: &Account, spoken_name: &str) -> Option<ItemOffer> {
+    let qualified = account
+        .qualified
+        .as_ref()
+        .filter(|_| account.label.is_some() && !account.signed_in)?;
+    Some(ItemOffer {
+        title: "Forget…".into(),
+        intent: Intent::Forget {
+            qualified: qualified.clone(),
+        },
+        enabled: true,
+        confirm: Some(Question {
+            title: format!("Forget “{spoken_name}”?"),
+            message: forget_message_on(seen.os, account, seen.accounts()),
+            confirm: "Forget".into(),
+        }),
+    })
 }
 
 /// What pressing an account does, decided once so the menu and the window cannot disagree.
@@ -262,7 +344,6 @@ fn action(account: &Account, switching: bool, busy: bool, spoken: &str) -> Optio
         return account.signed_in.then(|| ItemAction {
             title: "Name…".into(),
             spoken: format!("Name {spoken}…"),
-            menu_title: "Name…".into(),
             intent: Intent::PresentSheet {
                 sheet: Sheet::Name {
                     provider: account.provider.clone(),
@@ -280,7 +361,6 @@ fn action(account: &Account, switching: bool, busy: bool, spoken: &str) -> Optio
         return Some(ItemAction {
             title: "Use".into(),
             spoken: format!("Use {spoken}"),
-            menu_title: format!("Use {label}"),
             intent: Intent::SwitchTo {
                 qualified: qualified.clone(),
             },
@@ -289,7 +369,6 @@ fn action(account: &Account, switching: bool, busy: bool, spoken: &str) -> Optio
     (!busy).then(|| ItemAction {
         title: "Sign In Again…".into(),
         spoken: format!("Sign In to {spoken} Again…"),
-        menu_title: "Sign In Again…".into(),
         intent: Intent::PresentSheet {
             sheet: Sheet::SignInAgain {
                 provider: account.provider.clone(),
