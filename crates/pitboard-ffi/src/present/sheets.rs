@@ -167,9 +167,9 @@ pub(crate) fn signing_in_text(seen: &Seen) -> Option<SigningInText> {
             "{tool} takes the code shown after you sign in, whether or not your browser came \
              back to it."
         ),
-        // The author's wording, for the owner to approve or replace before PR 10: the owner
-        // decided that a code may be pasted again, and the Swift app, which never asked
-        // again, had nothing to say here.
+        // The owner approved this sentence as written on 6 October 2026. The owner decided
+        // that a code may be pasted again, and the Swift app, which never asked again, had
+        // nothing to say here.
         refused: signing.code_refused.then(|| {
             format!(
                 "{tool} didn’t take that code. Copy the whole code your browser shows, and \

@@ -3,12 +3,14 @@
 //! around it is the real core's: the private directory it reserves, the login it reads back
 //! from where the tool stores it there, and the enrolment.
 //!
-//! Each prints what its tool's register records it printing. Claude Code's, as
-//! `sign_in_output` has 2.1.289, prints that it opens the browser, the address to open where
-//! the browser did not, and its prompt for the code the browser shows, and then waits for
-//! one; where 2.1.289 refuses a line that is not `<code>#<state>`, as
-//! `sign_in_takes_another_code` has it, this takes whatever is typed back, since a UI test
-//! types `fixture-code`. Codex's, as `codex_login_prints_its_address` has 0.160.0, prints
+//! Each prints what its tool's register records it printing, and reads what it records it
+//! reading. Claude Code's, as `sign_in_output` has 2.1.289, prints that it opens the browser,
+//! the address to open where the browser did not, and its prompt for the code the browser
+//! shows, and then reads each line typed back, as `sign_in_takes_another_code` has 2.1.289
+//! read them: a line that is not `<code>#<state>` with both halves it refuses with its own
+//! `Invalid code.` line and reads on, printing no prompt again, and the first line with both
+//! halves it takes, whatever its state half says. So a test types a code with its `#`, such
+//! as `fixture-code#state`. Codex's, as `codex_login_prints_its_address` has 0.160.0, prints
 //! where its loopback server listens and the address to open, reads nothing typed back, and
 //! finishes by itself a moment later, once the browser would have come back.
 //!
@@ -42,6 +44,11 @@ pub(crate) const CLAUDE_ADDRESS: &str =
 pub(crate) const CODEX_ADDRESS: &str =
     "https://auth.openai.com/oauth/authorize?response_type=code&state=pitboard-fixture";
 
+/// What Claude Code's sign-in writes, to stderr, for a line typed back that it refuses:
+/// the register's `sign_in_takes_another_code` holds it whole.
+pub(crate) const CLAUDE_REFUSES: &str =
+    "Invalid code. Please make sure the full code was copied.\n";
+
 /// The browser and each tool's sign-in on a fixture's machine.
 pub(crate) struct Browser {
     machine: Arc<Machine>,
@@ -64,7 +71,7 @@ impl std::fmt::Debug for Browser {
 /// What a played sign-in is told from outside.
 enum Told {
     /// A line typed back.
-    Typed,
+    Typed(String),
     /// Stopped, as a kill stops the program.
     Stopped,
 }
@@ -100,8 +107,8 @@ struct Playing {
 }
 
 impl ScriptedSignIn for Playing {
-    fn typed(&mut self, _line: &str) -> bool {
-        self.told.send(Told::Typed).is_ok()
+    fn typed(&mut self, line: &str) -> bool {
+        self.told.send(Told::Typed(line.to_owned())).is_ok()
     }
 
     fn wait(&mut self) -> bool {
@@ -141,25 +148,39 @@ fn play(
         _ => return false,
     };
     // A line typed back before the tool reads one waits for it, as it would in its stdin.
-    let mut typed = false;
+    let mut typed = Vec::new();
     let last = printed.len() - 1;
     for (at, piece) in printed.into_iter().enumerate() {
         if say.send(piece).is_err() {
             return false;
         }
-        if at < last {
-            match heard_within(hears, BETWEEN) {
-                Heard::Stopped => return false,
-                Heard::Typed => typed = true,
-                Heard::Nothing => {}
-            }
+        if at < last && stopped_within(hears, BETWEEN, &mut typed) {
+            return false;
         }
     }
     let done = match person.tool {
-        // It waits for the code the browser shows, however long that takes.
-        ProviderId::Claude => typed || matches!(hears.recv(), Ok(Told::Typed)),
+        // It reads the code the browser shows, however long that takes, and another in
+        // place of each it refuses.
+        ProviderId::Claude => {
+            let mut typed = typed.into_iter();
+            loop {
+                let line = match typed.next() {
+                    Some(line) => line,
+                    None => match hears.recv() {
+                        Ok(Told::Typed(line)) => line,
+                        Ok(Told::Stopped) | Err(_) => break false,
+                    },
+                };
+                if is_whole_code(&line) {
+                    break true;
+                }
+                if say.send(CLAUDE_REFUSES.to_owned()).is_err() {
+                    break false;
+                }
+            }
+        }
         // It reads nothing typed back, and the browser comes back by itself.
-        ProviderId::Codex => heard_within(hears, BROWSER) != Heard::Stopped,
+        ProviderId::Codex => !stopped_within(hears, BROWSER, &mut typed),
         _ => false,
     };
     if done {
@@ -168,25 +189,25 @@ fn play(
     done
 }
 
-/// What a sign-in was told while it waited.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Heard {
-    Nothing,
-    /// A line was typed back, and it was not stopped.
-    Typed,
-    Stopped,
+/// Whether Claude Code takes `line` as the code the browser shows: trimmed and split at `#`,
+/// a code and a state, neither of them empty, as the register's `sign_in_takes_another_code`
+/// reads 2.1.289. What the state says is not looked at.
+fn is_whole_code(line: &str) -> bool {
+    let mut halves = line.trim().split('#');
+    let code = halves.next().unwrap_or_default();
+    let state = halves.next().unwrap_or_default();
+    !code.is_empty() && !state.is_empty()
 }
 
-/// What it is told within `wait`: whether it was stopped, and otherwise whether a line was
-/// typed back meanwhile.
-fn heard_within(hears: &Receiver<Told>, wait: Duration) -> Heard {
+/// Whether it is stopped within `wait`, keeping every line typed back meanwhile in `typed`,
+/// in the order it was typed.
+fn stopped_within(hears: &Receiver<Told>, wait: Duration, typed: &mut Vec<String>) -> bool {
     let until = Instant::now() + wait;
-    let mut heard = Heard::Nothing;
     loop {
         match hears.recv_timeout(until.saturating_duration_since(Instant::now())) {
-            Ok(Told::Typed) => heard = Heard::Typed,
-            Ok(Told::Stopped) | Err(RecvTimeoutError::Disconnected) => return Heard::Stopped,
-            Err(RecvTimeoutError::Timeout) => return heard,
+            Ok(Told::Typed(line)) => typed.push(line),
+            Ok(Told::Stopped) | Err(RecvTimeoutError::Disconnected) => return true,
+            Err(RecvTimeoutError::Timeout) => return false,
         }
     }
 }
