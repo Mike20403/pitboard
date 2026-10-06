@@ -194,14 +194,17 @@ so a debug build launched into a fixture while they run loses what it keeps ther
 
 In a fixture, an account's window loads a stand-in page for its site, such as
 `pitboard-fixture://claude.ai`, and each sign-in host has a stand-in on the same scheme. Its
-data stays in memory, and a link it would hand to macOS is recorded instead, so nothing
-reaches either site. Run without a fixture, the debug build loads the real sites, into
-stores of its own under `~/Library/WebKit/com.usepitboard.Pitboard.debug`.
+data stays in memory, its records are in the fixture's folder, and a link it would hand to
+macOS is recorded instead, so nothing reaches either site. Run without a fixture, the debug
+build loads the real sites, into stores of its own under
+`~/Library/WebKit/com.usepitboard.Pitboard.debug`, and keeps their records in
+`~/Library/Application Support/com.usepitboard.Pitboard.debug`.
 
-The unit tests load no page. They cover what a window decides: its navigation policy, its
-stores, its menus and the account picker. The UI tests cover what its pages do, in a
-fixture: sign-in windows, Google's sign-in being stopped, downloads, Find, **Remove Website
-Data** and links shared to the **Open Link** window.
+The unit tests load no page. What a window decides, its navigation policy, its stores and
+their records, its menus, the account picker and its downloads, is the core's, tested in
+Rust; the Swift tests cover what the app does with it. The UI tests cover what its pages
+do, in a fixture: sign-in windows, Google's sign-in being stopped, downloads, Find,
+**Remove Website Data** and links shared to the **Open Link** window.
 
 The debug build claims `pitboard-debug://` rather than `pitboard://`, and its Share
 extension shows as **Pitboard Debug**. So a debug build never answers a link or a share
