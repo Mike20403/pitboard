@@ -488,6 +488,8 @@ fn a_refused_renewal_says_why_rather_than_that_nothing_was_due() {
     let renewal = shown(&model).renewal;
     assert!(!renewal.renewing);
     assert_eq!(renewal.note, refused);
+}
+
 /// `changing.rs`'s look landing after a change, for renewing now: a renewal writes the account
 /// index with each parked login it renews, and the read after it, asking every service, was
 /// dropped as one that started before a change made elsewhere.
