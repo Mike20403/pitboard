@@ -10,6 +10,7 @@
 
 mod common;
 
+use pitboard_core::testing::stand_in::{Script, Step};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
@@ -50,9 +51,18 @@ fn in_a_child_given_both_variables() {
     std::fs::create_dir_all(&scratch.0).expect("a scratch directory");
     let ran = scratch.0.join("ran");
     let trap = scratch.0.join("must-not-run");
-    common::write_program(
+    common::put_stand_in(
         &trap,
-        &format!("#!/bin/sh\necho \"$0 $*\" >> '{}'\nexit 1\n", ran.display()),
+        &Script::Plays {
+            args: None,
+            steps: vec![
+                Step::Records {
+                    at: ran.clone(),
+                    variables: Vec::new(),
+                },
+                Step::Exits(1),
+            ],
+        },
     );
 
     let out = Command::new(std::env::current_exe().expect("this test binary"))

@@ -745,6 +745,22 @@ fn never_run(path: &Path) -> Result<(), Unmade> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    refusing_program(path)
+}
+
+/// In this crate's own tests, the compiled stand-in the tests start in place of every
+/// program, which refuses the same way on every system, and is found as a program on each.
+#[cfg(test)]
+fn refusing_program(path: &Path) -> Result<(), Unmade> {
+    use pitboard_core::testing::stand_in::{self, Script};
+    let never = Script::refusing("a Pitboard fixture's program, never meant to run\n");
+    stand_in::install(path, &never).map_err(|error| Unmade(format!("{error}")))
+}
+
+/// In an app's debug build, which no compiled stand-in comes with, a script that refuses
+/// where it is run.
+#[cfg(not(test))]
+fn refusing_program(path: &Path) -> Result<(), Unmade> {
     std::fs::write(path, "#!/bin/sh\nexit 64\n")?;
     Ok(files::make_runnable(path)?)
 }

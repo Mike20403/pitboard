@@ -310,11 +310,10 @@ fn a_sign_in_in_progress_does_not_hold_up_a_switch() {
     let mut env = two_accounts("waiting");
     let (c, q) = (env.uuid('c'), env.uuid('q'));
     let credential = common::credential("refresh-c").to_string();
-    env.install_fake_claude(&credential);
+    env.install_fake_claude_waiting(&credential, std::time::Duration::from_secs(4));
     env.owns("access-refresh-c", &c, "c@example.com", &q);
     let signing_in = env
         .command(&["enroll", "side", "--sign-in"])
-        .env("FAKE_SIGN_IN_SECONDS", "4")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -698,16 +697,21 @@ fn every_command_refuses_a_home_that_is_not_a_full_path() {
 #[cfg(target_os = "linux")]
 #[test]
 fn no_build_for_tests_asks_the_systems_service_manager() {
+    use pitboard_core::testing::stand_in::{Script, Step};
     let env = two_accounts("no-service-manager");
     let asked = env.root.join("systemctl-was-asked");
     let systemctl = env.root.join("bin/systemctl");
     std::fs::create_dir_all(systemctl.parent().expect("its folder")).expect("made");
-    std::fs::write(
+    common::put_stand_in(
         &systemctl,
-        format!("#!/bin/sh\necho \"$@\" >> '{}'\n", asked.display()),
-    )
-    .expect("a stand-in");
-    pitboard_core::testing::fs::make_runnable(&systemctl).expect("runnable");
+        &Script::Plays {
+            args: None,
+            steps: vec![Step::Records {
+                at: asked.clone(),
+                variables: Vec::new(),
+            }],
+        },
+    );
     let home = env.root.join("home");
     std::fs::create_dir_all(&home).expect("a home of the test's own");
 
