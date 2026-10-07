@@ -1730,7 +1730,9 @@ impl State {
     /// means for sessions already running is kept the way a switch's is. The tool did not
     /// switch, so what its last switch said stays true and stays with it; a count of the
     /// same sessions naming this account's old login, beside one naming the account the
-    /// switch left, would contradict it.
+    /// switch left, would contradict it. Where the switch could not tell what was running,
+    /// the sign-in's word that it could not tell either is the same thing said again, and
+    /// the switch's keeps what not to do in them.
     fn enrolled(&mut self, signing: &SigningIn, done: Enrolled) -> Vec<Warning> {
         let EnrolledAs::InUse { again } = done.outcome else {
             return done.warnings;
@@ -1751,16 +1753,16 @@ impl State {
                 warnings: Vec::new(),
             });
         said.said = Some(signed_in_now(&signing.name, again));
-        let counted = said
-            .warnings
-            .iter()
-            .any(|warning| warning.code == "sessions_still_running");
+        let switch_said = |code: &str| said.warnings.iter().any(|warning| warning.code == code);
+        let counted = switch_said("sessions_still_running");
+        let untold = switch_said("sessions_unknown");
         let new: Vec<Warning> = done
             .warnings
             .into_iter()
             .filter(|warning| {
                 !said.warnings.contains(warning)
                     && !(counted && warning.code == "sessions_keep_old_login")
+                    && !(untold && warning.code == "sessions_unknown")
             })
             .collect();
         said.warnings.extend(new);

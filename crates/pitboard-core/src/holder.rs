@@ -12,7 +12,7 @@
 //! with one that is anywhere, so every process is one kind and none is guessed to be an app.
 
 use crate::context::Context;
-use crate::host::Process;
+use crate::host::{OS, Process};
 use std::path::Path;
 
 /// One kind of process that holds a tool's login.
@@ -58,16 +58,54 @@ pub enum Location {
 pub enum Remedy {
     /// Quit it and start it again.
     Restart,
-    /// Quit the app the way Command-Q does, and open it again. Closing its windows is not
-    /// enough. The menu bar app can do both for the person; the command line only says so.
+    /// Quit the app the way its system quits an app, and open it again. Closing its windows
+    /// is not enough. The menu bar app can do both for the person; the command line only
+    /// says so.
     ReopenApp {
-        bundle_id: &'static str,
+        /// The app, as its own system names it.
+        app: AppId,
+        /// The app as a person knows it: "ChatGPT".
         name: &'static str,
     },
     /// Run this command.
     Run(&'static str),
     /// Do this, somewhere Pitboard cannot reach.
     Do(&'static str),
+}
+
+/// An app, by the id its own system knows it by, which is what Pitboard asks that system to
+/// quit it and open it again with.
+///
+/// Which system's id is part of the id, rather than chosen by the system Pitboard runs on.
+/// An app is told apart by where its program runs from, and that place is its own system's:
+/// a program inside a Mac app's bundle runs only on a Mac. So an app found running is always
+/// named by the id of the system it was found on, and a test whose machine runs a Mac app's
+/// program has that Mac app, on whatever system the test runs.
+///
+/// Another system's kind of id is another variant, so a match outside this crate keeps an
+/// arm for the ones to come, and [`AppId::as_str`] is what an app is handed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AppId {
+    /// A Mac app's bundle identifier, such as `com.openai.codex`.
+    MacBundle(&'static str),
+}
+
+impl AppId {
+    /// The id as its system writes it, which is what an app hands its system.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AppId::MacBundle(id) => id,
+        }
+    }
+
+    /// What makes the app `name` let go of a login, as a clause, said its own system's way.
+    /// On a Mac that is Command-Q: an app stays open after its last window closes.
+    fn reopen(self, name: &str) -> String {
+        match self {
+            AppId::MacBundle(_) => format!("quit {name} with Command-Q and open it again"),
+        }
+    }
 }
 
 /// The processes of one kind of holder that are running.
@@ -80,15 +118,24 @@ pub struct Holding {
 
 impl Location {
     /// Whether a program at `path` runs from here. Only the directories it is in are
-    /// looked at, never the program's own name.
+    /// looked at, never the program's own name. A directory's name is compared the way this
+    /// system compares paths ([`crate::host::Os::same_path`]), and a prefix as that many of
+    /// its first characters.
     fn holds(self, path: &Path) -> bool {
         let mut directories = path.ancestors().skip(1).filter_map(Path::file_name);
         match self {
             Location::Anywhere => true,
-            Location::Within(name) => directories.any(|dir| dir == name),
-            Location::WithinPrefixed(prefix) => {
-                directories.any(|dir| dir.to_string_lossy().starts_with(prefix))
+            Location::Within(name) => {
+                directories.any(|dir| OS.same_path(Path::new(dir), Path::new(name)))
             }
+            Location::WithinPrefixed(prefix) => directories.any(|dir| {
+                let head: String = dir
+                    .to_string_lossy()
+                    .chars()
+                    .take(prefix.chars().count())
+                    .collect();
+                OS.same_path(Path::new(&head), Path::new(prefix))
+            }),
         }
     }
 }
@@ -159,9 +206,7 @@ impl Holding {
                 };
                 format!("quit {what} and start {them} again")
             }
-            Remedy::ReopenApp { name, .. } => {
-                format!("quit {name} with Command-Q and open it again")
-            }
+            Remedy::ReopenApp { app, name } => app.reopen(name),
             Remedy::Run(command) => format!("run `{command}`"),
             Remedy::Do(instruction) => instruction.to_string(),
         }
@@ -248,7 +293,7 @@ mod tests {
         noun: Noun::One("the App"),
         location: Location::Within("App.app"),
         remedy: Remedy::ReopenApp {
-            bundle_id: "com.example.app",
+            app: AppId::MacBundle("com.example.app"),
             name: "App",
         },
     };
@@ -314,6 +359,49 @@ mod tests {
         let holding = classify(&[at(1, "/usr/bin/App.app")], HOLDERS);
         assert_eq!(kinds(&holding), [("session", vec![1])]);
         assert!(!Location::WithinPrefixed("vendor.tool-").holds(Path::new("vendor.tool-9")));
+    }
+
+    /// A folder is the place a kind names only as this system compares paths: exactly, on
+    /// macOS and Linux, so a folder of the same name in another case is somewhere else.
+    #[test]
+    fn a_place_is_named_as_this_system_compares_paths() {
+        let holding = classify(
+            &[
+                at(1, "/Applications/app.app/x/tool"),
+                at(2, "/e/Vendor.Tool-1/bin/tool"),
+            ],
+            HOLDERS,
+        );
+        match OS {
+            crate::host::Os::MacOs | crate::host::Os::Linux => {
+                assert_eq!(kinds(&holding), [("session", vec![1, 2])]);
+            }
+        }
+        assert!(Location::WithinPrefixed("vendor.tool-").holds(Path::new("/e/vendor.tool-1/t")));
+        assert!(
+            !Location::WithinPrefixed("vendor.tool-").holds(Path::new("/e/vendor.tool/t")),
+            "a name shorter than the prefix does not start with it"
+        );
+    }
+
+    /// A Mac app is named by its bundle id and quit with Command-Q, since closing its last
+    /// window leaves it running: the id is its own system's, whichever system finds it.
+    #[test]
+    fn an_app_is_named_and_quit_its_own_system_s_way() {
+        let mac = AppId::MacBundle("com.example.app");
+        assert_eq!(mac.as_str(), "com.example.app");
+        assert_eq!(
+            mac.reopen("App"),
+            "quit App with Command-Q and open it again"
+        );
+        let app = classify(&[at(1, "/Applications/App.app/x/tool")], HOLDERS);
+        assert_eq!(
+            app.first().map(|h| h.holder.remedy),
+            Some(Remedy::ReopenApp {
+                app: mac,
+                name: "App"
+            })
+        );
     }
 
     #[test]

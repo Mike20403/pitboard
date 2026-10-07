@@ -552,12 +552,19 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     // A tool that never follows a switch on its own goes on using the outgoing account in
     // everything of it already running. Said with what is running, because "restart it"
     // means nothing to somebody who does not know one is open, with what makes each kind
-    // take the switch, and with the one thing not to do in any of them.
-    let still_running =
-        still_holding(ctx, key.provider).map(|holding| Warning::SessionsStillRunning {
+    // take the switch, and with the one thing not to do in any of them. Where nobody could
+    // tell what is running, that is said, with the same thing not to do.
+    let still_running = match still_holding(ctx, key.provider) {
+        StillHolding::Nothing => None,
+        StillHolding::These(holding) => Some(Warning::SessionsStillRunning {
             from: from.clone(),
             holding,
-        });
+        }),
+        StillHolding::Unknown => Some(Warning::SessionsUnknown {
+            tool: key.provider,
+            from: from.clone(),
+        }),
+    };
     let warnings = on_the_command_line
         .into_iter()
         .chain(parking)
@@ -671,14 +678,32 @@ fn holds(which: ProviderId, live: &provider::LiveStore) -> std::result::Result<b
     })
 }
 
-/// What is running a tool whose running sessions keep the login they started with, by
-/// kind. `None` when that is nothing, or nobody could tell.
-pub(crate) fn still_holding(ctx: &Context, which: ProviderId) -> Option<Vec<holder::Holding>> {
+/// What is running a tool whose running sessions keep the login they started with, which a
+/// change of that login leaves on the login they had.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StillHolding {
+    /// Nothing is: no process runs the tool, or its sessions follow a change by themselves.
+    Nothing,
+    /// These are, by kind. Never empty.
+    These(Vec<holder::Holding>),
+    /// The process list could not be read, so nobody can say whether anything is. Said as
+    /// such, because taken for nothing it would tell somebody with sessions open that none
+    /// are.
+    Unknown,
+}
+
+/// What is running `which`'s tool with the login it started with, by kind, as the process
+/// list says.
+pub(crate) fn still_holding(ctx: &Context, which: ProviderId) -> StillHolding {
     match provider::of(which).adoption() {
         provider::Adoption::RestartRequired { program, holders } => {
-            holder::find(ctx, program, holders).filter(|holding| !holding.is_empty())
+            match holder::find(ctx, program, holders) {
+                None => StillHolding::Unknown,
+                Some(holding) if holding.is_empty() => StillHolding::Nothing,
+                Some(holding) => StillHolding::These(holding),
+            }
         }
-        provider::Adoption::PollingWithin(_) => None,
+        provider::Adoption::PollingWithin(_) => StillHolding::Nothing,
     }
 }
 

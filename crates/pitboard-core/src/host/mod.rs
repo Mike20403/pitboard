@@ -120,6 +120,18 @@ impl Os {
         }
     }
 
+    /// Whether `a` and `b` are one path, as Pitboard compares the places a program runs
+    /// from: component by component, and exactly on macOS and Linux. Their process lists give
+    /// a program's path as it was started or as the file system has it, and the places a
+    /// tool's holders name are named by their makers in one case. Every comparison of where
+    /// a program runs from goes through this, so a system whose paths ignore case says so
+    /// once.
+    pub(crate) fn same_path(self, a: &Path, b: &Path) -> bool {
+        match self {
+            Os::MacOs | Os::Linux => a == b,
+        }
+    }
+
     /// The command line an app at `app` comes with, which is what its renewal schedule runs:
     /// the app itself is not one. A Mac app carries it at `Contents/Helpers/pitboard`, where
     /// `build-app.sh` puts it, and anything that is not an app bundle, such as a test or a
@@ -348,6 +360,23 @@ mod tests {
             ctx.host().file(PathBuf::from("/nowhere/at/all")).kind(),
             crate::store::Backend::File
         );
+    }
+
+    /// A path is the same one only in the same case on macOS and Linux, as Pitboard has always
+    /// compared where a program runs from there. A doubled or trailing separator still
+    /// leaves it the same path.
+    #[test]
+    fn paths_are_compared_exactly_on_macos_and_linux() {
+        for os in [Os::MacOs, Os::Linux] {
+            let same = |a: &str, b: &str| os.same_path(Path::new(a), Path::new(b));
+            assert!(same("ChatGPT.app", "ChatGPT.app"), "{os:?}");
+            assert!(
+                same("/Applications/ChatGPT.app/", "/Applications//ChatGPT.app"),
+                "{os:?}"
+            );
+            assert!(!same("chatgpt.app", "ChatGPT.app"), "{os:?}");
+            assert!(!same("ChatGPT.app", "ChatGPT"), "{os:?}");
+        }
     }
 
     /// Every system Pitboard runs on has a scheduler of its own that Pitboard writes for.

@@ -148,6 +148,7 @@ pub(crate) fn warning_heading(warning: &Warning) -> &'static str {
     match warning.code.as_str() {
         "sessions_still_running" => "Open sessions still use the previous account",
         "sessions_keep_old_login" => "Open sessions still use the old login",
+        "sessions_unknown" => "Couldn’t tell which sessions are open",
         "auth_overridden" => "An environment variable overrides the login",
         "parked_login_refused" => "A parked login was refused",
         "lock_compromised" => "The login may have been written twice",
@@ -839,6 +840,7 @@ mod tests {
                 "sessions_keep_old_login",
                 "Open sessions still use the old login",
             ),
+            ("sessions_unknown", "Couldn’t tell which sessions are open"),
             (
                 "auth_overridden",
                 "An environment variable overrides the login",

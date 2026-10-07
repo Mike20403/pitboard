@@ -289,6 +289,56 @@ fn what_still_runs_the_old_login_is_told_apart_by_where_it_runs_from() {
     );
 }
 
+/// A process list nobody could read is not one with nothing on it. The switch is made, as
+/// a running `codex` never stops one, and it says that nobody could tell, with the one thing
+/// not to do in anything that is still running. It used to say nothing, which reads as
+/// nothing running. Claude Code's sessions follow a switch by themselves, so nothing is
+/// asked about them and nothing said.
+#[test]
+fn a_process_list_nobody_could_read_is_said_rather_than_taken_for_none() {
+    let m = codex_machine("listless");
+    m.mem.without_a_process_list();
+    let settled = settle(&m.ctx, Permit::for_a_test(), Some(ProviderId::Codex))
+        .expect("nothing to recover")
+        .0;
+    let (_, warnings) = switch(settled, &m.key("there")).expect("switched");
+
+    let text = warnings
+        .iter()
+        .find(|w| w.code() == "sessions_unknown")
+        .unwrap_or_else(|| panic!("warned: {warnings:?}"))
+        .to_string();
+    assert!(
+        text.starts_with(
+            "Pitboard could not tell whether Codex sessions started before this switch are \
+             still running"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("`codex/here`"), "names the account: {text}");
+    assert!(
+        text.contains("signing out"),
+        "and the one thing not to do: {text}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .all(|w| w.code() != "sessions_still_running"),
+        "nothing is said to be running: {warnings:?}"
+    );
+
+    let m = super::harness::machine("listless-claude");
+    m.mem.without_a_process_list();
+    let settled = settle(&m.ctx, Permit::for_a_test(), Some(ProviderId::Claude))
+        .expect("nothing to recover")
+        .0;
+    let (_, warnings) = switch(settled, &m.key("there")).expect("switched");
+    assert!(
+        warnings.iter().all(|w| w.code() != "sessions_unknown"),
+        "{warnings:?}"
+    );
+}
+
 /// Nothing running is nothing to say.
 #[test]
 fn no_running_session_is_no_warning() {

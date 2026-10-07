@@ -188,7 +188,7 @@ pub(super) fn chatgpt_holding() -> Holding {
         phrase: "the ChatGPT app".into(),
         pids: vec![4242, 4243],
         remedy: Remedy::ReopenApp {
-            bundle_id: CHATGPT.into(),
+            app_id: CHATGPT.into(),
             name: "ChatGPT".into(),
         },
     }

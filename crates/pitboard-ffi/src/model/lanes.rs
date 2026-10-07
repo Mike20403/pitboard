@@ -746,11 +746,11 @@ pub(crate) fn holder(
     qualified: &str,
 ) -> Option<QuitQuestion> {
     holdings.iter().find_map(|held| match &held.remedy {
-        Remedy::ReopenApp { bundle_id, name } => {
-            let running = !matches!(apps.running(bundle_id.clone()), Ok(None));
+        Remedy::ReopenApp { app_id, name } => {
+            let running = !matches!(apps.running(app_id.clone()), Ok(None));
             running.then(|| QuitQuestion {
                 qualified: qualified.to_owned(),
-                app_id: bundle_id.clone(),
+                app_id: app_id.clone(),
                 name: name.clone(),
             })
         }
