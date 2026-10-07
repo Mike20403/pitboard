@@ -801,9 +801,13 @@ pub fn codex_login(account: &str, email: &str, refresh: &str) -> serde_json::Val
 
 /// What a stand-in for `codex login` does once started, whatever line starts it: store
 /// `login` in whichever `CODEX_HOME` it is run with, and nothing else.
+///
+/// It runs only as Pitboard runs Codex's sign-in, `codex -c cli_auth_credentials_store="file"
+/// login`, and fails otherwise, so every test that signs in to Codex checks the `-c` that keeps
+/// a setting of `/etc/codex` or of a project from sending the new login to the keychain.
 fn fake_codex_login(login: &serde_json::Value) -> String {
     format!(
-        "[ \"$1\" = login ] || exit 64\n\
+        "[ \"$1 $2 $3\" = '-c cli_auth_credentials_store=\"file\" login' ] || exit 64\n\
          [ -n \"$CODEX_HOME\" ] || exit 65\n\
          cat > \"$CODEX_HOME/auth.json\" <<'LOGIN'\n{login}\nLOGIN\n\
          chmod 600 \"$CODEX_HOME/auth.json\"\n\

@@ -7,7 +7,7 @@
 //!
 //! See [`crate::assumptions`] for what an entry means and how a probe reads one.
 
-use crate::assumptions::OnSystem::{Pending, Read};
+use crate::assumptions::OnSystem::{NotRead, Pending, Read};
 use crate::assumptions::{Assumption, PerSystem};
 
 /// The build every entry below was read from on macOS and Linux, unless it names its own.
@@ -48,9 +48,10 @@ const fn later_on_windows(
 }
 
 /// What each fact below is on each system. On macOS and Linux every fact is read, from the
-/// build its entry names, as this register said of every fact before it had a table. The
-/// macOS readings are of the codex installed on a Mac, or of the builds an entry names, and
-/// the conformance run reads the facts from the macOS, Linux and Windows builds alike.
+/// build its entry names, as this register said of every fact before it had a table, but the
+/// managed preferences, which only macOS has. The macOS readings are of the codex installed
+/// on a Mac, or of the builds an entry names, and the conformance run reads the facts from
+/// the macOS, Linux and Windows builds alike.
 ///
 /// Three facts were read on a Mac alone: the ChatGPT app's codex, the app server's parent
 /// and the keychain stores. They stay read on Linux, since the code that stands on them,
@@ -59,7 +60,7 @@ const fn later_on_windows(
 pub const PER_SYSTEM: &[PerSystem] = &[
     later_on_windows(
         "codex_login_location",
-        VERIFIED_AGAINST,
+        "0.160.0",
         &["W21"],
         "codex_windows_login_location: where the login is on Windows, and which store \
          Codex's configuration layers pick there",
@@ -85,7 +86,7 @@ pub const PER_SYSTEM: &[PerSystem] = &[
     ),
     later_on_windows(
         "codex_home_isolates_a_sign_in",
-        VERIFIED_AGAINST,
+        "0.160.0",
         &["W14"],
         "codex_windows_home: Codex's home on Windows, and what moves it",
     ),
@@ -111,6 +112,28 @@ pub const PER_SYSTEM: &[PerSystem] = &[
         "whether `codex login` runs piped, with no console window, from a program on Windows",
     ),
     everywhere("codex_login_prints_its_address", "0.160.0"),
+    later_on_windows(
+        "codex_store_layers",
+        "0.160.0",
+        &["W21"],
+        "codex_windows_store_layers: the layers Codex reads on Windows, from \
+         %ProgramData%\\OpenAI\\Codex and with no managed_config.toml, and \
+         `secret_auth_storage`, which is on by default there",
+    ),
+    PerSystem {
+        name: "codex_managed_preferences",
+        macos: Read("0.160.0"),
+        linux: NotRead(
+            "Linux has no managed preferences, and Codex's Linux build holds neither of their \
+             keys",
+        ),
+        windows: NotRead(
+            "Windows has no managed preferences, and neither Windows build of Codex holds \
+             their keys; what an administrator sets there is codex_store_layers' Windows \
+             reading",
+        ),
+    },
+    everywhere("codex_login_takes_a_store_override", "0.160.0"),
 ];
 
 pub const ASSUMPTIONS: &[Assumption] = &[
@@ -118,9 +141,13 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         name: "codex_login_location",
         fact: "the login is `$CODEX_HOME/auth.json`, default `~/.codex/auth.json`, mode 0600, \
                and `file` is the packaged default backend (`cli_auth_credentials_store`); the \
-               alternatives are `keyring`, `auto` and `ephemeral`",
-        read_from: "the auth storage module's file path and the packaged `.codexconfig.toml`",
-        verified_against: VERIFIED_AGAINST,
+               alternatives are `keyring`, `auto` and `ephemeral`. Which of them a machine \
+               uses is codex_store_layers'",
+        read_from: "get_auth_file and FileAuthStorage's 0o600 in codex-rs/login/src/auth/\
+                    storage.rs, AuthCredentialsStoreMode in codex-rs/config/src/types.rs, and \
+                    codex-rs/config/defaults.toml, at tag rust-v0.160.0, read on 2026-10-07. \
+                    0.154.0 packaged the default as `.codexconfig.toml`",
+        verified_against: "0.160.0",
         depends: "provider::codex::paths, and every read and write of the live login",
         probe: &["auth.json", "cli_auth_credentials_store"],
         absent: &[],
@@ -237,13 +264,18 @@ pub const ASSUMPTIONS: &[Assumption] = &[
     },
     Assumption {
         name: "codex_home_isolates_a_sign_in",
-        fact: "`CODEX_HOME` moves everything Codex keeps, and a home with no `config.toml` \
-               keeps its login in the file store, so a sign-in with `CODEX_HOME` set to an \
-               empty private directory writes `auth.json` there and nowhere else. An empty \
-               `CODEX_HOME` means unset and falls back to `~/.codex`, which is why the \
-               directory is always set and never empty",
-        read_from: "the home resolution and the packaged default store",
-        verified_against: VERIFIED_AGAINST,
+        fact: "`CODEX_HOME` moves everything Codex keeps in a home, so a sign-in with \
+               `CODEX_HOME` set to an empty private directory writes `auth.json` there and \
+               nowhere else, as long as its store is the file. A home with no `config.toml` \
+               does not make it so: `/etc/codex/config.toml` and a trusted project's config \
+               are read whatever the home, which is why Pitboard's sign-ins name the file \
+               store with `-c` (codex_login_takes_a_store_override). An empty `CODEX_HOME` \
+               means unset and falls back to `~/.codex`, which is why the directory is always \
+               set and never empty",
+        read_from: "find_codex_home_from_env in codex-rs/utils/home-dir/src/lib.rs and the \
+                    layers load_config_layers_state reads, at tag rust-v0.160.0, read on \
+                    2026-10-07",
+        verified_against: "0.160.0",
         depends: "provider::codex::engine's sign_in and read_signin, and Isolation for Codex",
         probe: &["CODEX_HOME", "cli_auth_credentials_store"],
         absent: &[],
@@ -257,7 +289,7 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                rather than put a permission prompt in front of every read",
         read_from: "the keyring store, the secret auth storage feature and their key names",
         verified_against: VERIFIED_AGAINST,
-        depends: "provider::codex::paths::backend and Codex::live's refusal",
+        depends: "provider::codex::layers and Codex::live's refusal",
         probe: &["Codex Auth", "secret_auth_storage", "codex_auth.age"],
         absent: &[],
     },
@@ -340,6 +372,141 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         ],
         absent: &[],
     },
+    Assumption {
+        name: "codex_store_layers",
+        fact: "the store is `cli_auth_credentials_store` as the highest layer that sets it \
+               says, lowest first: the packaged default `file`, `/etc/codex/config.toml`, an \
+               enterprise's cloud config, which `codex login` does not load and a session of \
+               the TUI does, and from which nothing strips the store, \
+               `$CODEX_HOME/config.toml`, a profile's `$CODEX_HOME/<name>.config.toml` only for \
+               a run given `--profile`, which `codex login` and `codex logout` refuse, a \
+               trusted project's `.codex/config.toml`, `-c` on the command line, and \
+               `/etc/codex/managed_config.toml`. A profile's file is a layer of its own just \
+               over `$CODEX_HOME/config.toml`, and `--profile <name>` is refused where \
+               `$CODEX_HOME/config.toml` has a `profile = \"<name>\"` line or a \
+               `[profiles.<name>]` table of that name. Such a line, which 0.160.0 calls a \
+               legacy way to choose a profile, stops 0.160.0 from starting in any layer, \
+               once it has read the configuration whole, whether or not a table defines the \
+               profile; a project's layer may set neither it nor `profiles`. 0.99.0 has no \
+               such refusal: it chooses with the line the profile `[profiles.<name>]` \
+               defines, and stops with an error for one no table defines. A profile's table \
+               holds no store either build reads: neither one's `ConfigProfile` has \
+               `cli_auth_credentials_store`, and each takes the store from the merged top \
+               level alone, so one in a profile's table is dropped, or in 0.160.0 refused as \
+               a field Codex does not know under `--strict-config`. 0.160.0 applies no \
+               profile's `[features]`; 0.99.0 applies them, and none of its features is \
+               about the store. \
+               `/etc/codex/requirements.toml` pins the store over every layer, and cloud \
+               requirements may not set it. `secret_auth_storage`, which makes a keychain \
+               store an encrypted file of secrets, is read from `[features]` in the same \
+               layers, and from `[features]` or `[feature_requirements]` in requirements, which \
+               pin it the same way. It is off by default on macOS and Linux. A layer that is \
+               there and is not TOML Codex can read, or that names a store Codex does not \
+               have, stops Codex from starting",
+        read_from: "load_config_layers_state, load_requirements_from_sources, \
+                    ConfigLayerSource::precedence and LOCAL_ONLY_AUTH_REQUIREMENTS in \
+                    codex-rs/config/src, codex-rs/config/defaults.toml, apply_to_config and the \
+                    cli_auth_credentials_store_mode it feeds and the legacy profile refusal in \
+                    load_config_with_layer_stack in codex-rs/core/src/config, \
+                    profile_v2_for_subcommand in codex-rs/cli/src/main.rs, the \
+                    SecretAuthStorage feature's `cfg!(windows)` default in \
+                    codex-rs/features/src/lib.rs, the `alias = \"feature_requirements\"` \
+                    ConfigRequirementsToml has and ConfigToml does not in codex-rs/config/src, \
+                    strip_cloud_auth_requirements, which strips the store from cloud \
+                    requirements alone, and the cloud_config_bundle codex-rs/tui/src/lib.rs \
+                    builds its config with, at tag rust-v0.160.0, read on 2026-10-07. For a \
+                    profile, read the same day at that tag: ConfigProfile in \
+                    codex-rs/config/src/profile_toml.rs, which has no store and does not deny \
+                    a field it does not know, the empty profile source \
+                    load_config_with_layer_stack hands Features::from_sources, \
+                    config_error_from_ignored_toml_value_fields in \
+                    codex-rs/config/src/strict_config.rs, PROJECT_LOCAL_CONFIG_DENYLIST and \
+                    the check of `--profile` against a legacy profile in \
+                    load_config_layers_state, and the precedence 21, over the person's 20, \
+                    ConfigLayerSource::precedence gives a User layer with a profile. Whether \
+                    a running session's store follows a cloud fragment was not read. The \
+                    three `/etc/codex` paths are in the macOS and Linux binaries, and in neither \
+                    Windows one; the profile refusal is in all four, three times each in the \
+                    macOS and Linux ones. That 0.99.0 chooses a profile with the line is read \
+                    from its darwin-arm64 build, as bytes on 2026-10-07: it holds no copy of \
+                    the refusal, and holds the error for a chosen profile that is not there, \
+                    \"config profile `<name>` not found\". 0.160.0's ConfigToml still has \
+                    the `profile` field, documented as the profile to use from the `profiles` \
+                    map. How 0.99.0 reads a chosen profile, read at tag rust-v0.99.0 on \
+                    2026-10-07: ConfigProfile in codex-rs/core/src/config/profile.rs, which \
+                    has no store and denies a field it does not know only in its JSON schema; \
+                    Config's load in codex-rs/core/src/config/mod.rs, which reads the \
+                    config its layers merge into, takes the profile `--profile` or the \
+                    `profile` line names, stops with \"config profile `<name>` not found\" \
+                    where `profiles` has none of that name, and sets \
+                    cli_auth_credentials_store_mode from cfg.cli_auth_credentials_store \
+                    alone, the file by default (AuthCredentialsStoreMode in \
+                    codex-rs/core/src/auth/storage.rs); Features::from_config in \
+                    codex-rs/core/src/features.rs, which applies a profile's features, none \
+                    of them about the store; and load_config_or_exit in \
+                    codex-rs/cli/src/login.rs, through which `codex login` loads that config",
+        verified_against: "0.160.0",
+        depends: "provider::codex::layers, and so every read and write of the live Codex \
+                  login and every refusal of a store",
+        probe: &[
+            "/etc/codex/config.toml",
+            "/etc/codex/managed_config.toml",
+            "/etc/codex/requirements.toml",
+            "cli_auth_credentials_store",
+            "secret_auth_storage",
+            "` config is no longer supported; use `--profile ",
+        ],
+        absent: &[],
+    },
+    Assumption {
+        name: "codex_managed_preferences",
+        fact: "on macOS, Codex also reads what a configuration profile forces for \
+               `com.openai.codex`, and only what it forces: `config_toml_base64`, base64 TOML \
+               read as configuration over every file, `/etc/codex/managed_config.toml` \
+               included, and `requirements_toml_base64`, read as requirements over \
+               `/etc/codex/requirements.toml`. A value it forces must be a string of canonical \
+               standard base64 whose bytes are UTF-8, or Codex does not start",
+        read_from: "codex-rs/config/src/loader/macos.rs at tag rust-v0.160.0, read on \
+                    2026-10-07: MANAGED_PREFERENCES_APPLICATION_ID and its two keys, \
+                    load_managed_preference_with, which asks CFPreferencesAppValueIsForced \
+                    before and after CFPreferencesCopyAppValue, and the BASE64_STANDARD decode; \
+                    and where load_requirements_from_sources and load_config_layers_state put \
+                    them. The two keys are in the macOS binary, and in neither the Linux nor \
+                    the Windows ones",
+        verified_against: "0.160.0",
+        depends: "host::macos::preferences, and provider::codex::layers's ManagedPreference \
+                  and RequiredByPreference",
+        probe: &[
+            "com.openai.codex",
+            "config_toml_base64",
+            "requirements_toml_base64",
+        ],
+        absent: &[],
+    },
+    Assumption {
+        name: "codex_login_takes_a_store_override",
+        fact: "`codex -c cli_auth_credentials_store=\"file\" login` signs in to the file \
+               store, unless a layer over the session flags or a requirement chooses another. \
+               Codex's own command line takes `-c key=value` before a subcommand, and after \
+               it, since the flag is global; `login` adds its own after the root's. The value \
+               is read as TOML and put in the session-flags layer, over \
+               `$CODEX_HOME/config.toml`, a profile's and a project's config. Which layers are \
+               over it on each system, and which requirements there are, is \
+               codex_store_layers'. `codex login` has no flag of its own for a store",
+        read_from: "CliConfigOverrides in codex-rs/utils/cli/src/config_override.rs, \
+                    MultitoolCli and the Login arm in codex-rs/cli/src/main.rs, \
+                    load_config_or_exit in codex-rs/cli/src/login.rs, and the precedence of \
+                    ConfigLayerSource::SessionFlags, at tag rust-v0.160.0, read on 2026-10-07. \
+                    The flag's help is in the macOS, Linux and both Windows binaries",
+        verified_against: "0.160.0",
+        depends: "provider::codex::engine's sign_in, and so where a sign-in Pitboard runs \
+                  leaves the login it reads back",
+        probe: &[
+            "Override a configuration value that would otherwise be loaded from",
+            "cli_auth_credentials_store",
+        ],
+        absent: &[],
+    },
 ];
 
 #[cfg(test)]
@@ -369,23 +536,40 @@ mod tests {
                 "codex_identity_is_the_person",
                 "codex_refusal_is_invalid_grant",
                 "codex_login_prints_its_address",
+                "codex_login_takes_a_store_override",
             ]
         );
     }
 
-    /// Every fact is read on macOS and on Linux, as the register said of each before it had
-    /// a table, and the conformance run checks a build of each for them.
+    /// Every fact is read on macOS, and on Linux, as the register said of each before it had
+    /// a table, but the managed preferences, which Linux has none of. The conformance run
+    /// checks a build of each system for them.
     #[test]
     fn macos_and_linux_read_every_fact() {
         for line in PER_SYSTEM {
-            for platform in [Platform::MacOs, Platform::Linux] {
-                assert!(
-                    matches!(line.on(platform), Read(_)),
-                    "{} on {}",
-                    line.name,
-                    platform.code()
-                );
-            }
+            assert!(matches!(line.on(Platform::MacOs), Read(_)), "{}", line.name);
+            assert_eq!(
+                matches!(line.on(Platform::Linux), Read(_)),
+                line.name != "codex_managed_preferences",
+                "{} on linux",
+                line.name
+            );
+        }
+    }
+
+    /// Each fact re-read from 0.160.0 for which store Codex keeps its login in, and the two
+    /// read for it, name that build on macOS and Linux.
+    #[test]
+    fn the_store_facts_are_read_from_0_160_0() {
+        for name in [
+            "codex_login_location",
+            "codex_home_isolates_a_sign_in",
+            "codex_store_layers",
+            "codex_managed_preferences",
+            "codex_login_takes_a_store_override",
+        ] {
+            let line = PER_SYSTEM.iter().find(|l| l.name == name).expect(name);
+            assert_eq!(line.on(Platform::MacOs), Read("0.160.0"), "{name}");
         }
     }
 }

@@ -5,13 +5,13 @@
 //! no test ever ran Claude Code's own slot hashing on the sign-in path: the double answered
 //! the question the code was supposed to answer.
 
-use super::{Elevation, Host, Process, Scheduler};
+use super::{Administered, Elevation, Host, Process, Scheduler};
 use crate::context::Context;
 use crate::service::Permit;
 use crate::store::memory::MemoryStore;
 use crate::store::{Backend, Cost, Error, RawStore};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -83,6 +83,10 @@ pub struct MemoryHost {
     unscheduled: AtomicBool,
     /// Whether this process runs as the person, as this machine says it does.
     elevation: Mutex<Elevation>,
+    /// The files only an administrator writes, by path, as a test said. Unset otherwise.
+    administered: Mutex<HashMap<PathBuf, Administered>>,
+    /// The managed preferences a profile forces, by domain and key, as a test said.
+    forced: Mutex<HashMap<(String, String), Administered>>,
 }
 
 impl Default for MemoryHost {
@@ -99,6 +103,8 @@ impl Default for MemoryHost {
             refuse_start,
             unscheduled: AtomicBool::new(false),
             elevation: Mutex::new(Elevation::Normal),
+            administered: Mutex::new(HashMap::new()),
+            forced: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -175,6 +181,36 @@ impl MemoryHost {
             .lock()
             .expect("a poisoned test host is a failed test") = elevation;
     }
+
+    /// Say an administrator wrote `contents` to the file at `path`, outside every home, such
+    /// as Codex's `/etc/codex/requirements.toml`. Nothing is written anywhere.
+    pub fn administers(&self, path: impl Into<PathBuf>, contents: &str) {
+        self.administer(path.into(), Administered::Set(contents.into()));
+    }
+
+    /// Say the file at `path` an administrator writes is there and cannot be read, `why`.
+    pub fn administers_unreadably(&self, path: impl Into<PathBuf>, why: &str) {
+        self.administer(path.into(), Administered::Unreadable(why.into()));
+    }
+
+    fn administer(&self, path: PathBuf, holds: Administered) {
+        self.administered
+            .lock()
+            .expect("a poisoned test host is a failed test")
+            .insert(path, holds);
+    }
+
+    /// Say an administrator's configuration profile forces `key` of `domain` to `value`, a
+    /// managed preference, on whatever system the tests run on.
+    pub fn forces(&self, domain: &str, key: &str, value: &str) {
+        self.forced
+            .lock()
+            .expect("a poisoned test host is a failed test")
+            .insert(
+                (domain.to_string(), key.to_string()),
+                Administered::Set(value.into()),
+            );
+    }
 }
 
 impl Host for MemoryHost {
@@ -219,5 +255,25 @@ impl Host for MemoryHost {
             .elevation
             .lock()
             .expect("a poisoned test host is a failed test")
+    }
+
+    /// What a test said an administrator wrote, and nothing on the machine running the tests.
+    fn administered_file(&self, path: &Path) -> Administered {
+        self.administered
+            .lock()
+            .expect("a poisoned test host is a failed test")
+            .get(path)
+            .cloned()
+            .unwrap_or(Administered::Unset)
+    }
+
+    /// What a test said a profile forces, on whatever system the tests run on.
+    fn managed_preference(&self, domain: &str, key: &str) -> Administered {
+        self.forced
+            .lock()
+            .expect("a poisoned test host is a failed test")
+            .get(&(domain.to_string(), key.to_string()))
+            .cloned()
+            .unwrap_or(Administered::Unset)
     }
 }

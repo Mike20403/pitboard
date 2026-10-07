@@ -1,12 +1,14 @@
-//! macOS: the login keychain, files, `ps` and launchd.
+//! macOS: the login keychain, files, `ps`, launchd and managed preferences.
 
 mod helper;
 mod keychain;
 mod launchd;
+mod preferences;
 mod ps;
 
 pub(crate) use super::unix::{fs, proc, user};
 
+use super::administered::{self, Administered};
 use super::unix::service;
 use super::{Elevation, Host, LoginPath, Os, Process, Scheduler};
 use crate::context::{Context, Environment};
@@ -73,6 +75,14 @@ impl Host for MacOs {
 
     fn elevation(&self, ctx: &Context) -> Elevation {
         user::elevation(ctx.sudo())
+    }
+
+    fn managed_preference(&self, domain: &str, key: &str) -> Administered {
+        if administered::READ_BY_REAL_HOSTS {
+            preferences::forced(domain, key)
+        } else {
+            Administered::Unset
+        }
     }
 }
 

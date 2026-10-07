@@ -161,9 +161,63 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Error::ScheduleNotDefaultHome`, `Context::started_by_the_schedule` and
   `schedule::SCHEDULED_RUN` are new, and `Context::with_claude_config_dir` keeps an empty
   value, which it dropped as unset.
+- Pitboard's own Codex sign-ins, the ones `pitboard enroll codex/<label> --sign-in` and the
+  app's **Add Account** and **Sign In Again** run, start Codex as
+  `codex -c cli_auth_credentials_store="file" login`, so Codex keeps the new login in
+  `auth.json` in the private folder Pitboard reads it back from. `/etc/codex/config.toml`,
+  or a trusted project's `.codex/config.toml`, could have sent it to the keychain instead.
+  Only `/etc/codex/managed_config.toml`, a managed preference or a requirement is over the
+  `-c`. Where one of them chooses a store other than the file, Pitboard refuses the sign-in
+  before it starts, as the first entry under Fixed says; where one chooses the file, the
+  sign-in goes ahead.
+- `pitboard doctor`'s `Codex login store` line, and the app's **This Mac** pane, say which
+  setting chose Codex's store, such as `file (Codex's default)` or
+  ``keyring (pinned to `keyring` by /etc/codex/requirements.toml)``. Where the store is the
+  file, `doctor` adds that Pitboard does not read a project's own `.codex/config.toml`. It
+  said `file`, or, whichever file chose another store,
+  `keyring (cli_auth_credentials_store in config.toml)`. `pitboard doctor --json` gives
+  `unknown` as Codex's `backend` where nobody can tell, as the second entry under Fixed
+  says.
+- In `pitboard-core`, `doctor::CodexFacts` has two more fields, `backend_setting` and
+  `backend_remedy`. This changes the crate's public API.
 
 ### Fixed
 
+- On macOS and Linux, Pitboard reads which store Codex keeps its login in from every layer
+  Codex 0.160.0 reads outside a project, in Codex's order: its default, the file store;
+  `/etc/codex/config.toml`; `config.toml` in Codex's home; `/etc/codex/managed_config.toml`;
+  and on macOS the managed preference `config_toml_base64` of `com.openai.codex`, which a
+  configuration profile forces. `/etc/codex/requirements.toml`, and on macOS the managed
+  preference `requirements_toml_base64`, pin the store over all of them. Pitboard read only
+  `config.toml` in Codex's home, so on a machine where another of them put Codex's login in
+  the keychain or in memory, it looked for the login in an `auth.json` Codex does not keep:
+  it said nothing was signed in to Codex, and a sign-in it ran left its login where Pitboard
+  could not read it back. A Codex switch, enrolment or sign-in on such a machine is refused
+  with `live_store_unsupported`, as one already was where Codex's own `config.toml` named
+  such a store, and the message names the setting and what would choose the file store: the line
+  `cli_auth_credentials_store = "file"` in your own `config.toml`, or, where a requirement,
+  `managed_config.toml` or a managed preference chose it, that only an administrator can
+  change it.
+- Where one of those layers is there and Codex cannot read it, because it cannot be read,
+  is not TOML or names a store Codex does not have, Pitboard refuses with
+  `live_store_unsupported` and says which, and `pitboard doctor` says it cannot tell where
+  the login is: Codex 0.160.0 does not start then. Pitboard took such a store to be the
+  file. `cli_auth_credentials_store = "nonsense"` in your own `config.toml` was read as the
+  file store, and is refused the same way.
+- Where one of those layers has a `profile = "<name>"` line, Pitboard reads it as choosing
+  the profile that a `[profiles.<name>]` table in any of them defines, as an older Codex,
+  such as 0.99.0, does. A profile's table does not change the store, since neither Codex
+  0.99.0 nor 0.160.0 reads `cli_auth_credentials_store` there, so the store is still the
+  one the layers choose. A line that names a profile no table defines is refused with
+  `live_store_unsupported`, as 0.99.0 refuses it; Pitboard ignored the line. Codex 0.160.0
+  does not start with such a line at all, whatever it names: it chooses a profile only
+  with `--profile`.
+- On macOS and Linux, Pitboard no longer refuses a Codex account where your own
+  `config.toml` sets `cli_auth_credentials_store` to `keyring`, `auto` or `ephemeral` and
+  `/etc/codex/managed_config.toml`, `/etc/codex/requirements.toml` or, on macOS, a managed
+  preference sets it to `file`. Codex 0.160.0 takes their setting over yours and keeps its
+  login in `auth.json`, so Pitboard parks and switches it there. Pitboard read only your
+  own `config.toml`, and refused such an account with `live_store_unsupported`.
 - An account's window no longer opens again on a sign-in page of its site, such as
   chatgpt.com's `/api/auth`, which would repeat a sign-in that has ended: it opens on the
   page it showed before, or at the site's home. A window closed, or Pitboard quit, while it

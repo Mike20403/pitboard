@@ -126,8 +126,17 @@ pub struct CodexFacts {
     /// Where Codex is configured to keep its login, in Codex's own words:
     /// `cli_auth_credentials_store`'s `file`, `keyring`, `auto` or `ephemeral`, or `secrets`
     /// for a keychain store with `[features] secret_auth_storage`, which Codex has no one
-    /// word for.
+    /// word for. `unknown` where a layer Codex reads it from is there and cannot be read as
+    /// Codex reads it, which stops Codex from starting.
     pub backend: &'static str,
+    /// The setting that chose it, in words that follow it in brackets: `Codex's default`,
+    /// `` `cli_auth_credentials_store = "keyring"` in /etc/codex/config.toml ``, or `pinned to
+    /// `keyring` by /etc/codex/requirements.toml`. For `unknown`, what cannot be read.
+    pub backend_setting: String,
+    /// What would choose the file store instead, as a sentence with no full stop: the line to
+    /// set and where, or who can. For `unknown`, what Codex does until what cannot be read is
+    /// put right, as sentences with no last full stop. Empty for the file.
+    pub backend_remedy: String,
     /// Where the default store keeps it.
     pub auth_file: PathBuf,
     /// Who can reach that file, where there is such a file.
@@ -375,7 +384,8 @@ fn loose_logins(ctx: &Context) -> Vec<(String, Access)> {
 /// What is read about Codex here: its home, its configuration, the file it keeps its login
 /// in by default, what is installed and what is running.
 fn codex_facts(ctx: &Context, state: Option<&State>) -> CodexFacts {
-    let backend = codex::backend(ctx);
+    let store = codex::store(ctx);
+    let backend = store.backend;
     let auth_file = codex::auth_file(ctx);
     let home = codex::home(ctx);
     // The program Pitboard would run, as the context names it and where the context looks:
@@ -391,6 +401,15 @@ fn codex_facts(ctx: &Context, state: Option<&State>) -> CodexFacts {
                 .count()
         }),
         backend: backend_name(backend),
+        backend_setting: match backend {
+            codex::Backend::Unknown => store.why_unknown().unwrap_or_default(),
+            _ => store.setting(),
+        },
+        backend_remedy: match backend {
+            codex::Backend::File => String::new(),
+            codex::Backend::Unknown => store.while_unknown().unwrap_or_default(),
+            _ => store.to_use_the_file(),
+        },
         auth_access: crate::host::fs::access(&auth_file),
         // Read only from the default store. A keychain item Codex created for itself
         // trusts the `codex` binary alone, and reading it would put a permission prompt in
@@ -423,8 +442,15 @@ fn backend_name(backend: codex::Backend) -> &'static str {
         // is in the keychain. Codex has no one word for it, so it gets the name of the
         // directory it keeps the file in.
         codex::Backend::Secrets => "secrets",
+        // Not Codex's word: nobody can tell, Codex included.
+        codex::Backend::Unknown => "unknown",
     }
 }
+
+/// What the file store's line adds: the one layer Pitboard leaves unread, and what it does.
+const PROJECTS_NOT_READ: &str = "Pitboard does not read a project's own \
+    `.codex/config.toml`, which applies only inside that project: in a trusted project that \
+    sets `cli_auth_credentials_store`, Codex keeps its login somewhere else.";
 
 /// Whose login Codex's file holds, from the login's own ID token and with no network call.
 fn codex_login(ctx: &Context) -> Result<Option<CodexLogin>, CodexLoginTrouble> {
@@ -1390,19 +1416,31 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
         }
     };
     let file = facts.backend == "file";
-    let config = facts.home.join("config.toml");
+    let setting = &facts.backend_setting;
     let described = match facts.backend {
-        "ephemeral" => "in memory only (cli_auth_credentials_store = \"ephemeral\")".to_string(),
-        "secrets" => "secrets (cli_auth_credentials_store with secret_auth_storage in \
-                      config.toml)"
-            .to_string(),
-        other => format!("{other} (cli_auth_credentials_store in config.toml)"),
+        "ephemeral" => format!("in memory only ({setting})"),
+        "unknown" => format!("cannot tell: {setting}"),
+        other => format!("{other} ({setting})"),
     };
     checks.push(match facts.backend {
-        "file" => ok(
+        "file" => Check {
+            advice: PROJECTS_NOT_READ.into(),
+            ..ok(
+                "codex_backend",
+                "Codex login store",
+                format!("file ({setting})  ·  {}", facts.auth_file.display()),
+            )
+        },
+        // Not a choice: Codex 0.160.0 does not start.
+        "unknown" => broken(
             "codex_backend",
             "Codex login store",
-            format!("file  ·  {}", facts.auth_file.display()),
+            described,
+            format!(
+                "{}. Pitboard parks and switches no Codex login while it cannot tell where \
+                 Codex keeps it.",
+                facts.backend_remedy
+            ),
         ),
         // A choice, and one that leaves nothing Pitboard can park or switch.
         other if enrolled => fail(
@@ -1412,16 +1450,15 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
             match other {
                 "ephemeral" => format!(
                     "Codex keeps nothing at rest, so there is no login Pitboard can park or \
-                     switch. Remove the setting from {} to use Codex's default file store.",
-                    config.display()
+                     switch. {}.",
+                    facts.backend_remedy
                 ),
                 _ => format!(
-                    "Pitboard reads only Codex's default file store, auth.json, and will not \
-                     touch the keychain item Codex created for itself, because every read of \
-                     it would ask you for permission, so no enrolled Codex account can be \
-                     switched to. Remove the setting from {} to use the file store, then sign \
-                     in with `codex login`.",
-                    config.display()
+                    "Pitboard reads only Codex's file store, auth.json, and will not touch the \
+                     keychain item Codex created for itself, because every read of it would \
+                     ask you for permission, so no enrolled Codex account can be switched to. \
+                     {}.",
+                    facts.backend_remedy
                 ),
             },
         ),
@@ -1782,6 +1819,8 @@ mod tests {
             present: false,
             enrolled: 0,
             backend: "file",
+            backend_setting: "Codex's default".into(),
+            backend_remedy: String::new(),
             auth_file: PathBuf::from("/home/x/.codex/auth.json"),
             auth_access: None,
             login: Ok(None),
@@ -2667,6 +2706,13 @@ mod tests {
             let codex = CodexFacts {
                 backend,
                 enrolled,
+                backend_setting: format!(
+                    "`cli_auth_credentials_store = \"{backend}\"` in /home/x/.codex/config.toml"
+                ),
+                backend_remedy: "To use the file store, set `cli_auth_credentials_store = \
+                                 \"file\"` in /home/x/.codex/config.toml, then sign in again \
+                                 with `codex login`"
+                    .into(),
                 ..with_codex()
             };
             codex_checks(&codex)
@@ -2678,8 +2724,15 @@ mod tests {
             assert_eq!(found.level, Level::Fail, "{store}");
             assert!(found.detail.contains(store), "{}", found.detail);
             assert!(
-                found.advice.contains("config.toml"),
-                "says which setting to remove: {}",
+                found.detail.contains("/home/x/.codex/config.toml"),
+                "says which file set it: {}",
+                found.detail
+            );
+            assert!(
+                found.advice.contains(
+                    "set `cli_auth_credentials_store = \"file\"` in /home/x/.codex/config.toml"
+                ),
+                "says the line and where it goes: {}",
                 found.advice
             );
             assert!(!healthy(&checks), "{store}");
@@ -2704,6 +2757,105 @@ mod tests {
             let advice = &check(&found, "codex_backend").advice;
             assert!(advice.contains("will not touch"), "{advice}");
         }
+    }
+
+    /// The file store's line says which setting chose it, and that a project's own config is
+    /// not read, since in a trusted project that sets the store Codex keeps its login
+    /// somewhere else.
+    #[test]
+    fn the_file_store_says_what_chose_it_and_what_is_not_read() {
+        let checks = codex_checks(&with_codex());
+        let found = check(&checks, "codex_backend");
+        assert_eq!(found.level, Level::Ok);
+        assert_eq!(
+            found.detail,
+            "file (Codex's default)  ·  /home/x/.codex/auth.json"
+        );
+        assert!(
+            found
+                .advice
+                .contains("does not read a project's own `.codex/config.toml`"),
+            "{}",
+            found.advice
+        );
+    }
+
+    /// A store nobody can tell stops Codex itself, so it is broken rather than a choice: a
+    /// failure where Codex accounts are enrolled, and a warning where none are.
+    #[test]
+    fn a_codex_store_nobody_can_tell_is_broken() {
+        let unknown = |enrolled| CodexFacts {
+            backend: "unknown",
+            backend_setting: "/etc/codex/config.toml is not TOML Codex can read, at line 3".into(),
+            backend_remedy: "Codex 0.160.0 does not start until that is put right".into(),
+            enrolled,
+            ..with_codex()
+        };
+        for (enrolled, level) in [(1, Level::Fail), (0, Level::Warn)] {
+            let checks = codex_checks(&unknown(enrolled));
+            let found = check(&checks, "codex_backend");
+            assert_eq!(found.level, level);
+            assert_eq!(
+                found.detail,
+                "cannot tell: /etc/codex/config.toml is not TOML Codex can read, at line 3"
+            );
+            assert_eq!(
+                found.advice,
+                "Codex 0.160.0 does not start until that is put right. Pitboard parks and \
+                 switches no Codex login while it cannot tell where Codex keeps it."
+            );
+            assert!(checks.iter().all(|c| c.code != "codex_login"));
+        }
+    }
+
+    /// What `/etc/codex` and the person's own config say is gathered as Codex reads it, and a
+    /// store a requirement pins is said to be one no line of the person's own changes.
+    #[test]
+    fn a_store_an_administrator_pinned_is_gathered_and_said() {
+        let host = crate::host::memory::MemoryHost::new();
+        let ctx = Context::for_unit_test().with_memory_stores(host.clone());
+        host.administers(
+            "/etc/codex/requirements.toml",
+            "cli_auth_credentials_store = \"keyring\"\n",
+        );
+        let codex = CodexFacts {
+            enrolled: 1,
+            ..codex_facts(&ctx, None)
+        };
+        assert_eq!(codex.backend, "keyring");
+        assert_eq!(
+            codex.backend_setting,
+            "pinned to `keyring` by /etc/codex/requirements.toml"
+        );
+        let checks = codex_checks(&codex);
+        let found = check(&checks, "codex_backend");
+        assert_eq!(found.level, Level::Fail);
+        assert_eq!(
+            found.detail,
+            "keyring (pinned to `keyring` by /etc/codex/requirements.toml)"
+        );
+        assert!(
+            found.advice.ends_with(
+                "No line in your own config.toml can change it: \
+                 /etc/codex/requirements.toml pins it, and only an administrator can change \
+                 that."
+            ),
+            "{}",
+            found.advice
+        );
+
+        host.administers("/etc/codex/requirements.toml", "x = \n");
+        let unknown = codex_facts(&ctx, None);
+        assert_eq!(unknown.backend, "unknown");
+        assert_eq!(
+            unknown.backend_setting,
+            "/etc/codex/requirements.toml is not TOML Codex can read, at line 1"
+        );
+        assert_eq!(
+            unknown.backend_remedy,
+            "Codex 0.160.0 does not start until that is put right"
+        );
+        assert!(matches!(unknown.login, Ok(None)), "nothing is read");
     }
 
     /// Signed in with an API key is somebody's choice, and nothing about it is broken or
@@ -3003,7 +3155,7 @@ mod tests {
 
     #[test]
     fn every_codex_failure_and_warning_tells_the_user_something() {
-        for backend in ["file", "keyring", "auto", "ephemeral"] {
+        for backend in ["file", "keyring", "auto", "ephemeral", "secrets", "unknown"] {
             let codex = CodexFacts {
                 backend,
                 enrolled: 1,
@@ -3166,7 +3318,25 @@ mod tests {
             "cli_auth_credentials_store = \"auto\"\n[features]\nsecret_auth_storage = true\n",
         )
         .expect("a config");
-        assert_eq!(codex_facts(&ctx, None).backend, "secrets");
+        let secrets = codex_facts(&ctx, None);
+        assert_eq!(secrets.backend, "secrets");
+        let config = home.join("config.toml");
+        assert_eq!(
+            secrets.backend_setting,
+            format!(
+                "`cli_auth_credentials_store = \"auto\"` in {config}, with \
+                 `secret_auth_storage` in {config}",
+                config = config.display()
+            )
+        );
+        assert_eq!(
+            secrets.backend_remedy,
+            format!(
+                "To use the file store, set `cli_auth_credentials_store = \"file\"` in \
+                 {}, then sign in again with `codex login`",
+                config.display()
+            )
+        );
     }
 
     #[test]

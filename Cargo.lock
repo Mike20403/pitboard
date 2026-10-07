@@ -1329,6 +1329,8 @@ dependencies = [
 name = "pitboard-core"
 version = "0.7.0"
 dependencies = [
+ "core-foundation",
+ "core-foundation-sys",
  "hex",
  "jiff",
  "libc",
@@ -1338,6 +1340,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "toml",
  "unicode-normalization",
  "ureq",
 ]
