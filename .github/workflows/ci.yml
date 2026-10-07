@@ -191,11 +191,27 @@ jobs:
       # release.yml (publish = false).
       - run: cargo build --locked -p pitboard-probe
       - run: cargo test --locked -p pitboard-probe
+      # What the owner's VM session runs: the probe's four programs and the gated
+      # pitboard.exe a 0.x release is built as, which refuses everything. The VM fetches
+      # nothing itself, so the owner copies these in. Uploaded before the runner facts, so a
+      # runner-facts failure still leaves them.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vm-session-${{ matrix.triple }}
+          path: |
+            target/debug/pitboard-probe.exe
+            target/debug/pitboard-probe-detached.exe
+            target/debug/pitboard-probe-detached-asmv1.exe
+            target/debug/pitboard-probe-sparse.exe
+            target/gated/debug/pitboard.exe
+          if-no-files-found: error
+          retention-days: 30
       # The runner facts W12, W13, W16 and W17 are decided from, as the job's user on this
       # disposable runner: the probe's safe blocks, the machine's policies, an exFAT and a
       # FAT32 VHD made with diskpart, and a throwaway standard user started with
       # Start-Process -Credential, with Developer Mode and then the symbolic-link right given
-      # for one run each. The script says what it changes and undoes it.
+      # for one run each. The script says what it changes and undoes it, and fails the step
+      # when a probe report is missing or cannot be parsed.
       - name: Runner facts
         shell: pwsh
         env:
@@ -209,20 +225,6 @@ jobs:
           name: runner-facts-${{ matrix.triple }}
           path: ${{ runner.temp }}/runner-facts.json
           if-no-files-found: warn
-      # What the owner's VM session runs: the probe's four programs and the gated
-      # pitboard.exe a 0.x release is built as, which refuses everything. The VM fetches
-      # nothing itself, so the owner copies these in.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: vm-session-${{ matrix.triple }}
-          path: |
-            target/debug/pitboard-probe.exe
-            target/debug/pitboard-probe-detached.exe
-            target/debug/pitboard-probe-detached-asmv1.exe
-            target/debug/pitboard-probe-sparse.exe
-            target/gated/debug/pitboard.exe
-          if-no-files-found: error
-          retention-days: 30
 
   # The floor the manifests promise, on Windows. ring compiles C against the target's own
   # headers, so a Windows check needs a Windows C toolchain: the MSVC this image has, never

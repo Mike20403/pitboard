@@ -21,13 +21,19 @@ use windows_sys::Win32::Security::Credentials::{
 
 const ERROR_NOT_FOUND: u32 = 1168;
 
+/// A target name as printed: the account's profile and name replaced, and an address-shaped
+/// run, which a sign-in's user name may put there, masked. The hash a slot carries stays.
+fn shown_target(target: &str, r: &crate::redact::Redactor) -> String {
+    crate::redact::mask_addresses(&r.redact(target))
+}
+
 /// What may be printed of one item. The blob's size is read, the blob never is.
 fn describe(cred: &CREDENTIALW, details: bool, r: &crate::redact::Redactor) -> Value {
     // SAFETY: TargetName is a NUL-terminated string in the item.
     let target = unsafe { ffi::from_wide_ptr(cred.TargetName) };
     let kind = names::classify(&target);
     let mut v = json!({
-        "target": target,
+        "target": shown_target(&target, r),
         "kind": match kind {
             Kind::Live(_) => "live",
             Kind::CiTest => "citest",
@@ -70,7 +76,9 @@ fn describe(cred: &CREDENTIALW, details: bool, r: &crate::redact::Redactor) -> V
             }
         }));
         v["user_name_chars"] = json!(user.chars().count());
-        v["comment"] = json!((!cred.Comment.is_null()).then(|| r.redact(&comment)));
+        v["comment"] = json!(
+            (!cred.Comment.is_null()).then(|| crate::redact::mask_addresses(&r.redact(&comment)))
+        );
         v["attributes"] = json!(attributes);
         v["blob_bytes"] = json!(cred.CredentialBlobSize);
         v["last_written_ms"] = json!(ffi::ticks_to_unix_ms(ffi::filetime_ticks(cred.LastWritten)));
@@ -121,7 +129,7 @@ pub fn names(leak_check: bool, config_dirs: &[PathBuf]) -> Report {
                 continue;
             }
             if kind.is_leak() {
-                leaks.push(target.clone());
+                leaks.push(shown_target(&target, &r));
             }
             let mut v = describe(cred, details, &r);
             if !candidates.is_empty() {

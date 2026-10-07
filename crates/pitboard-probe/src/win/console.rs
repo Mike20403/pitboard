@@ -6,7 +6,7 @@
 
 use super::{ffi, logon_now, sibling_exe, take_child_report, task};
 use crate::cli::{Outcome, TaskExec};
-use crate::console::{Scenario, Variant, excerpt, spelling};
+use crate::console::{LAUNCH_FLAGS, Scenario, Variant, excerpt, is_variant_program, spelling};
 use crate::report::Report;
 use serde_json::{Value, json};
 use std::os::windows::process::CommandExt;
@@ -209,8 +209,29 @@ fn via_launcher(launcher: &Path, exe: &Path, launcher_flags: u32, out: &Path) ->
     }
 }
 
-/// The go-between: start `exe` as `console-child` with `flags` and exit with its code.
+/// The go-between: start `exe` as `console-child` with `flags` and exit with its code. It
+/// starts only one of the variants' programs beside this one, with one of the flags the
+/// block uses, and hands the child an absolute `pitboard-probe-*` report file (which the
+/// child's own guard checks again); anything else exits 2 without starting anything.
 pub fn console_launch(exe: &Path, flags: u32, child_out: &Path) -> Outcome {
+    let beside_this = |p: &Path| {
+        Variant::ALL.iter().any(|v| {
+            let sibling = sibling_exe(v.bin_name());
+            crate::guard::is_within(p, &sibling) && crate::guard::is_within(&sibling, p)
+        })
+    };
+    let out_name = child_out.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let known = exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(is_variant_program)
+        && beside_this(exe)
+        && LAUNCH_FLAGS.contains(&flags)
+        && crate::guard::is_probe_file_name(out_name)
+        && crate::guard::is_absolute_without_parent(child_out);
+    if !known {
+        return Outcome::Code(2);
+    }
     let mut cmd = Command::new(exe);
     cmd.arg("--out").arg(child_out).arg("console-child");
     if flags != 0 {

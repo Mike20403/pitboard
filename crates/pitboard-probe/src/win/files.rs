@@ -1,7 +1,8 @@
 //! C3 to C6 and G6: rename routes, the replace loop and its readers, flushing a directory,
 //! proper-lockfile's lock, LockFileEx, and replacing a file in a scratch folder. Every file
-//! is a `pitboard-probe-*` one under a scratch folder that passed the write guard, except
-//! G6's target and source, which are files in a scratch folder the owner names.
+//! is a `pitboard-probe-*` one under a scratch folder that passed the write guard; G6's
+//! target and source are `pitboard-probe-*` files the owner stages there, so a swap can
+//! never replace a file the probe did not make.
 
 use super::ffi::{self, Owned};
 use super::{io_code, logon_now, take_child_report};
@@ -878,7 +879,7 @@ pub fn swap(scratch: &Path, target: &str, source: &str, route: Route) -> Report 
         return Report::refused(
             "swap",
             logon,
-            "--target and --source must both be files in --scratch",
+            "--target and --source must both be pitboard-probe-* files in --scratch",
         );
     }
     let tmp = probe_file(scratch, &format!("swap-{}.tmp", std::process::id()));

@@ -6,7 +6,7 @@
 
 use super::{ffi, logon_now};
 use crate::cli::Outcome;
-use crate::exelookup::{CASES, CMD_ANSWER, Place, is_probe_name};
+use crate::exelookup::{CASES, CMD_ANSWER, Place, is_child_path_folder, is_probe_name};
 use crate::report::Report;
 use serde_json::json;
 use std::ffi::OsString;
@@ -112,7 +112,18 @@ pub fn exe_lookup(scratch: &Path, name: &str) -> Report {
 }
 
 /// The host: look `name` up as std's Command does, run it, and say which stand-in answered.
+/// It takes only a probe name and the probe's own child-path folder, as `exe-lookup` does,
+/// so it can never start a real program by a bare name.
 pub fn host(name: &str, child_path: Option<&Path>) -> Outcome {
+    if !is_probe_name(name) || child_path.is_some_and(|p| !is_child_path_folder(p)) {
+        return Outcome::Line(
+            json!({
+                "ran": false,
+                "refused": "--name must be a pitboard-probe-* name and --child-path the probe's child-path folder",
+            })
+            .to_string(),
+        );
+    }
     let mut cmd = Command::new(name);
     cmd.arg("exe-lookup-whoami")
         .stdin(Stdio::null())

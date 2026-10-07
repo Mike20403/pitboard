@@ -2,7 +2,8 @@
 //! account. It reads `daemon.lock`'s field names and its pid, start and version fields, and
 //! compares any process-start field with `GetProcessTimes` of that pid; lists the named
 //! pipes whose names start `cc-daemon-` (no other application's pipe is named); and gives
-//! `pipe.key`'s size and place, never its bytes. Paths in the lock are redacted.
+//! `pipe.key`'s size and place, never its bytes. Every string read from the lock, the start
+//! fields' values included, is redacted.
 
 use super::ffi::{self, filetime_ticks, ticks_to_unix_ms};
 use super::logon_now;
@@ -17,6 +18,18 @@ use windows_sys::Win32::Storage::FileSystem::{
     FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
 };
 use windows_sys::Win32::System::Threading::GetProcessTimes;
+
+/// Fields read from `daemon.lock`, whose names are Claude Code's, as a list of name and value
+/// rather than an object: two of its names could differ only in case, which a report's
+/// object may not hold.
+fn names_and_values(fields: serde_json::Map<String, Value>) -> Value {
+    Value::Array(
+        fields
+            .into_iter()
+            .map(|(name, value)| json!({ "name": name, "value": value }))
+            .collect(),
+    )
+}
 
 fn number(v: &Value) -> Option<u64> {
     v.as_u64()
@@ -136,7 +149,7 @@ pub fn daemon(config_dir: &Path, pipe_key: Option<&Path>) -> Report {
                             "image": image.as_deref().map(images::reportable),
                             "creation_filetime": ticks,
                             "creation_unix_ms": ticks_to_unix_ms(ticks),
-                            "start_fields_against_creation": comparisons,
+                            "start_fields_against_creation": names_and_values(comparisons),
                         })
                     }
                     Err(code) => json!({ "running_or_readable": false, "open_error": code }),
@@ -150,7 +163,12 @@ pub fn daemon(config_dir: &Path, pipe_key: Option<&Path>) -> Report {
                     "origin": text_field("origin"),
                     "launch_target": text_field("launchTarget"),
                     "json_path": text_field("jsonPath"),
-                    "start_fields": start_fields,
+                    "start_fields": names_and_values(
+                        start_fields
+                            .iter()
+                            .map(|(k, v)| (k.clone(), r.redact_json(v)))
+                            .collect(),
+                    ),
                     "process": process,
                 })
             }

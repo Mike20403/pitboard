@@ -152,6 +152,18 @@ pub fn excerpt(manifest: &str) -> Option<String> {
     )
 }
 
+/// The creation flags the hidden `console-launch` go-between may start a variant with: none,
+/// `CREATE_NO_WINDOW` or `DETACHED_PROCESS`.
+pub const LAUNCH_FLAGS: [u32; 3] = [0, 0x0800_0000, 0x0000_0008];
+
+/// Whether `file_name` is one of the variants' programs, which is all `console-launch`
+/// starts.
+pub fn is_variant_program(file_name: &str) -> bool {
+    Variant::ALL
+        .iter()
+        .any(|v| file_name.eq_ignore_ascii_case(&format!("{}.exe", v.bin_name())))
+}
+
 fn without_comments(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -201,6 +213,18 @@ mod tests {
         assert!(e.contains("consoleAllocationPolicy>detached"), "{e}");
         assert!(e.contains("asmv3:windowsSettings"), "{e}");
         assert_eq!(excerpt("<assembly/>"), None);
+    }
+
+    #[test]
+    fn the_go_between_starts_only_a_variant_with_a_known_flag() {
+        assert!(is_variant_program("pitboard-probe.exe"));
+        assert!(is_variant_program("PITBOARD-PROBE-DETACHED.EXE"));
+        assert!(is_variant_program("pitboard-probe-detached-asmv1.exe"));
+        for bad in ["claude.exe", "pitboard-probe", "pitboard.exe", "cmd.exe"] {
+            assert!(!is_variant_program(bad), "{bad}");
+        }
+        assert!(LAUNCH_FLAGS.contains(&0));
+        assert!(!LAUNCH_FLAGS.contains(&0x10));
     }
 
     #[test]

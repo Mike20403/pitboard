@@ -1,6 +1,6 @@
 //! K1: the sparse identity. Registering the self-signed sparse package is the owner's
-//! (`sparse/register.ps1`, in the VM only); the probe never registers a package. What the
-//! probe does:
+//! (`sparse/k1.ps1`, in the VM only, with the steps in `sparse/README.md`); the probe never
+//! registers a package. What the probe does:
 //!
 //! - `identity`: whether this process has package identity, and the package family;
 //! - `write`: from wherever it runs, write a file under `%LOCALAPPDATA%\Pitboard\
@@ -25,6 +25,7 @@ use crate::report::Report;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
+use windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use windows_sys::Win32::Storage::Packaging::Appx::{
     GetCurrentApplicationUserModelId, GetCurrentPackageFamilyName,
 };
@@ -45,12 +46,16 @@ fn identity() -> Value {
     // SAFETY: `buf` holds `len` units.
     let rc = unsafe { GetCurrentPackageFamilyName(&mut len, buf.as_mut_ptr()) };
     let mut aumid_len = 0u32;
-    // SAFETY: a sizing call with a null buffer.
+    // SAFETY: a sizing call with a null buffer. It answers ERROR_INSUFFICIENT_BUFFER when
+    // the process has an application user model id, APPMODEL_ERROR_NO_PACKAGE (15700) with
+    // no package, and APPMODEL_ERROR_NO_APPLICATION (15703) with a package but no
+    // application.
     let aumid = unsafe { GetCurrentApplicationUserModelId(&mut aumid_len, std::ptr::null_mut()) };
     json!({
         "has_package_identity": rc != APPMODEL_ERROR_NO_PACKAGE,
         "package_family": (rc == 0).then(|| ffi::from_wide_buf(&buf)),
-        "has_application_user_model_id": aumid != APPMODEL_ERROR_NO_PACKAGE,
+        "has_application_user_model_id": aumid == ERROR_INSUFFICIENT_BUFFER,
+        "application_user_model_id_status": aumid,
         "program": std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())),
     })
 }

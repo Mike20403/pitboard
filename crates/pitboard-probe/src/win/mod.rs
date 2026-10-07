@@ -36,6 +36,7 @@ use windows_sys::Win32::Security::Authentication::Identity::{
     LsaFreeReturnBuffer, LsaGetLogonSessionData, SECURITY_LOGON_SESSION_DATA,
 };
 use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_STATISTICS, TokenStatistics};
+use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
 
 /// Run one command.
 pub fn run(command: &Command, out: Option<&Path>) -> Outcome {
@@ -178,22 +179,82 @@ pub fn run(command: &Command, out: Option<&Path>) -> Outcome {
         } => daemon::daemon(config_dir, pipe_key.as_deref()),
         C::Symlink { scratch } => runner::symlink(scratch),
         C::RunnerFacts { scratch } => runner::runner_facts(scratch),
+        C::ExePath => exe_path(),
     };
     Outcome::Report(report)
 }
 
-/// Write a report to `out`, which must lie in a folder the write guard allows.
+/// E5: the path this program reports for itself, as std and as `GetModuleFileNameW` give it,
+/// beside how it was started (`argv[0]`) and where its links lead, so a run through a
+/// WinGet link, a Scoop shim, a junction or a copy shows which path a scheduled task would
+/// be given. Every path is redacted.
+fn exe_path() -> Report {
+    let logon = logon_now();
+    let r = ffi::redactor();
+    let red = |p: &Path| r.redact(&p.display().to_string());
+    let mut buf = vec![0u16; 32_768];
+    // SAFETY: a null module is this program; `buf` holds `buf.len()` units.
+    let n = unsafe { GetModuleFileNameW(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) }
+        as usize;
+    let (module, module_error) = if n > 0 && n < buf.len() {
+        (Some(PathBuf::from(ffi::from_wide_buf(&buf))), None)
+    } else {
+        (None, Some(ffi::last_error()))
+    };
+    let current = std::env::current_exe().ok();
+    let canonical = module
+        .as_deref()
+        .and_then(|m| std::fs::canonicalize(m).ok());
+    let argv0 = std::env::args_os().next().map(PathBuf::from);
+    let link = |p: &Path| {
+        std::fs::symlink_metadata(p)
+            .ok()
+            .map(|m| m.file_type().is_symlink())
+    };
+    Report::ok(
+        "exe-path",
+        logon,
+        json!({
+            "module_file_name": module.as_deref().map(red),
+            "module_file_name_error": module_error,
+            "current_exe": current.as_deref().map(red),
+            "argv0": argv0.as_deref().map(red),
+            "canonical": canonical.as_deref().map(red),
+            "module_is_a_symbolic_link": module.as_deref().and_then(link),
+            "current_exe_equals_module": current.is_some() && current == module,
+            "module_hard_links": module.as_deref().and_then(hard_links),
+        }),
+    )
+}
+
+/// How many names the file at `path` has, by its handle's link count.
+fn hard_links(path: &Path) -> Option<u32> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+    let file = std::fs::File::open(path).ok()?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: an open file handle; `info` is a valid out-param.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    (ok != 0).then_some(info.nNumberOfLinks)
+}
+
+/// Write a report to `out`: an absolute path whose file is a `pitboard-probe-*` name, so it
+/// can never be a file the probe did not make, in a folder the write guard allows, in a
+/// marked account; the file itself passes the guard too, so a link there to a login file is
+/// refused.
 pub fn write_out(out: &Path, text: &str) -> Result<(), String> {
     let name = out
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or("--out names no file")?;
-    let folder = match out.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-        _ => std::env::current_dir().map_err(|e| e.to_string())?,
-    };
-    let path = ffi::scratch_file(&folder, name)?;
-    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let folder = out
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or("--out must be an absolute path")?;
+    let path = ffi::scratch_file(folder, name)?;
+    std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| e.to_string())
 }
 

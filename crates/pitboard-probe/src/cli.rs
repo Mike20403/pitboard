@@ -1,7 +1,9 @@
 //! The probe's command line, shared by every program the crate builds. Each subcommand is
 //! one measurement a VM session or the runner-facts step needs; the hidden ones are the
-//! children a measurement starts. On a system that is not Windows every subcommand prints
-//! that the probe is for Windows and exits non-zero without touching anything.
+//! children a measurement starts, and they check what they are given as the public ones do:
+//! a job name is the probe's, a program to start is one of the probe's own, a page to open
+//! is the probe's stand-in. On a system that is not Windows every subcommand prints that the
+//! probe is for Windows and exits non-zero without touching anything.
 
 use crate::report::Report;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -14,9 +16,10 @@ use std::process::ExitCode;
 #[derive(Parser, Debug)]
 #[command(name = "pitboard-probe", version, disable_help_subcommand = true)]
 pub struct Cli {
-    /// Also write the report to this file. It must lie in a folder the write guard allows,
-    /// in a marked account. A child started with no console, a task's action, or a process
-    /// started through runas has no other way to hand its report back.
+    /// Also write the report to this file: an absolute path whose name begins
+    /// pitboard-probe-, in a folder the write guard allows, in a marked account. A child
+    /// started with no console, a task's action, or a process started through runas has no
+    /// other way to hand its report back.
     #[arg(long, global = true)]
     pub out: Option<PathBuf>,
 
@@ -71,7 +74,8 @@ pub enum Command {
         /// Leave the file made by --create for another token to --open.
         #[arg(long)]
         keep: bool,
-        /// Try to read, write and delete-open this probe file under --scratch.
+        /// Try to read, write and delete-open this probe file under --scratch. Given alone it
+        /// changes nothing, so it needs the scratch check and not the marker.
         #[arg(long)]
         open: Option<PathBuf>,
         /// Delete this probe file under --scratch.
@@ -136,13 +140,15 @@ pub enum Command {
     },
     /// D1-D3: seal and unseal a dummy secret with the vault's flags and entropy. seal keeps
     /// the sealed bytes in a scratch file, so unseal can open them after a password change,
-    /// from a task or from another token.
+    /// from a task or from another token. unseal only reads, so it needs the scratch check
+    /// and not the marker, which a restricted token such as Codex's sandbox may not see.
     Dpapi {
         #[arg(long)]
         scratch: PathBuf,
         #[arg(long, value_enum, default_value_t = DpapiAction::RoundTrip)]
         action: DpapiAction,
-        /// The sealed file's name under --scratch, for seal and unseal.
+        /// The sealed file's name under --scratch, for seal and unseal: a pitboard-probe-*
+        /// name.
         #[arg(long, default_value = "pitboard-probe-sealed.bin")]
         file: String,
     },
@@ -297,14 +303,17 @@ pub enum Command {
     },
     #[command(hide = true)]
     ExeLookupWhoami,
-    /// G6: replace a file in a scratch folder with another one there, the way W16 will.
+    /// G6: replace a file in a scratch folder with another one there, the way W16 will. Both
+    /// are pitboard-probe-* files the owner staged there, so neither can be a file the probe
+    /// did not make.
     Swap {
         #[arg(long)]
         scratch: PathBuf,
-        /// The file to replace, by name, in --scratch.
+        /// The file to replace: a pitboard-probe-* name in --scratch.
         #[arg(long)]
         target: String,
-        /// The file whose bytes replace it, by name, in --scratch. Left in place.
+        /// The file whose bytes replace it: a pitboard-probe-* name in --scratch. Left in
+        /// place.
         #[arg(long)]
         source: String,
         #[arg(long, value_enum, default_value_t = Route::Movefile)]
@@ -339,6 +348,9 @@ pub enum Command {
         #[arg(long)]
         scratch: PathBuf,
     },
+    /// E5: the path this program reports for itself (std's current_exe and
+    /// GetModuleFileNameW), as started through a link, a junction, a shim or a copy.
+    ExePath,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -560,6 +572,7 @@ pub fn block_name(command: &Command) -> &'static str {
         Command::Daemon { .. } => "daemon",
         Command::Symlink { .. } => "symlink",
         Command::RunnerFacts { .. } => "runner-facts",
+        Command::ExePath => "exe-path",
     }
 }
 
@@ -622,6 +635,8 @@ mod tests {
     fn every_command_has_a_block_name() {
         let cli = Cli::try_parse_from(["pitboard-probe", "symlink", "--scratch", "x"]).unwrap();
         assert_eq!(block_name(&cli.command), "symlink");
+        let cli = Cli::try_parse_from(["pitboard-probe", "exe-path"]).unwrap();
+        assert_eq!(block_name(&cli.command), "exe-path");
     }
 
     #[cfg(not(windows))]
