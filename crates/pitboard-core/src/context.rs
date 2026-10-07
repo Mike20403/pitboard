@@ -21,7 +21,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Every variable Pitboard reads from the environment it was started with, besides
-/// [`crate::settings::OVERRIDING_ENV`]: what [`Context::read`] consults, the shell an app
+/// [`crate::settings::OVERRIDING_ENV`] and the proxy variables, which [`crate::proxy`] lists
+/// in the order ureq tries them: what [`Context::read`] consults, the shell an app
 /// asks for its `PATH`, and the three read straight from the process: `PATH` where a context
 /// was given no search path, and where Linux's host finds the path Pitboard was started by,
 /// `NO_COLOR` by the command line's status line, and `XPC_SERVICE_NAME` by launchd's host.
@@ -55,6 +56,8 @@ const READ: &[&str] = &[
 pub(crate) fn variables() -> impl Iterator<Item = &'static str> {
     READ.iter()
         .chain(crate::settings::OVERRIDING_ENV.iter())
+        .chain(crate::proxy::NAMING.iter())
+        .chain(crate::proxy::EXEMPTING.iter())
         .copied()
 }
 
@@ -185,6 +188,12 @@ pub struct Context {
     pub(crate) claude_program: PathBuf,
     /// Where Anthropic's endpoints are reached instead, for tests; `api` honours loopback only.
     pub(crate) api_base: Option<String>,
+    /// The proxy the environment names for Pitboard's requests, read as ureq 3.4.2 reads one.
+    /// None in a context made without an environment.
+    pub(crate) proxy: crate::proxy::Proxies,
+    /// The agent this context's requests go out on, made with `proxy` for the first request
+    /// and shared by every copy of the context.
+    pub(crate) agent: crate::api::Agents,
     /// `CLAUDE_CODE_HOVER_REST`, which switches on Claude Code's successor credential backend.
     pub(crate) hover_rest: bool,
     /// `CODEX_HOME`, which moves everything Codex keeps, including its keyring account.
@@ -259,9 +268,9 @@ impl Context {
     }
 
     /// Claude Code's defaults for a person whose home is `home`: `~/.pitboard`, `~/.claude`,
-    /// the default credential slot, `claude` looked up on `PATH`. An app starts here and sets
-    /// only what differs. Pitboard's own directory is the system's default for `home`, the
-    /// home handed in and never this account's own.
+    /// the default credential slot, `claude` looked up on `PATH`, and no proxy. An app starts
+    /// here and sets only what differs. Pitboard's own directory is the system's default for
+    /// `home`, the home handed in and never this account's own.
     pub fn new(home: PathBuf) -> Context {
         Context {
             pitboard_home: crate::host::default_pitboard_home(&home),
@@ -275,6 +284,8 @@ impl Context {
             caller: "unknown".into(),
             claude_program: PathBuf::from("claude"),
             api_base: None,
+            proxy: crate::proxy::Proxies::default(),
+            agent: crate::api::Agents::default(),
             hover_rest: false,
             codex_home: None,
             codex_program: PathBuf::from("codex"),
@@ -519,6 +530,8 @@ impl Context {
             caller: caller.into(),
             claude_program: program(ProviderId::Claude),
             api_base: owned("PITBOARD_API_BASE"),
+            proxy: crate::proxy::Proxies::read(env),
+            agent: crate::api::Agents::default(),
             hover_rest: matches!(env.text("CLAUDE_CODE_HOVER_REST"), Some("1" | "true")),
             codex_home: owned("CODEX_HOME").filter(|v| !v.is_empty()),
             codex_program: program(ProviderId::Codex),

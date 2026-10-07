@@ -215,12 +215,12 @@ impl Holding {
 
 /// Everything running, as one noun phrase: "2 `codex` sessions and the ChatGPT app".
 pub fn described(holding: &[Holding]) -> String {
-    listed(holding.iter().map(Holding::phrase).collect())
+    crate::words::listed(holding.iter().map(Holding::phrase).collect())
 }
 
 /// The same, with the pids of each: "2 `codex` sessions (pid 41, 42)".
 pub fn described_with_pids(holding: &[Holding]) -> String {
-    listed(
+    crate::words::listed(
         holding
             .iter()
             .map(|h| format!("{} (pid {})", h.phrase(), some_of(&h.pids)))
@@ -249,18 +249,6 @@ pub fn remedies(holding: &[Holding], purpose: &str) -> String {
                 .collect::<Vec<_>>()
                 .join("; ")
         ),
-    }
-}
-
-/// "a", "a and b", "a, b and c".
-fn listed(mut items: Vec<String>) -> String {
-    match items.len() {
-        0 => String::new(),
-        1 => items.remove(0),
-        _ => {
-            let last = items.pop().unwrap_or_default();
-            format!("{} and {last}", items.join(", "))
-        }
     }
 }
 

@@ -199,6 +199,18 @@ pub fn doctor_summary(levels: impl IntoIterator<Item = Level>) -> String {
     }
 }
 
+/// Things one after another, as a sentence lists them: "a", "a and b", "a, b and c".
+pub(crate) fn listed(mut items: Vec<String>) -> String {
+    match items.len() {
+        0 => String::new(),
+        1 => items.remove(0),
+        _ => {
+            let last = items.pop().unwrap_or_default();
+            format!("{} and {last}", items.join(", "))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

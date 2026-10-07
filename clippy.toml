@@ -1,9 +1,46 @@
 # Pitboard reads its environment in context.rs, through a list of every variable it reads
 # (context::READ), which the tests withhold from whatever they run. A read made anywhere else
 # is one the tests cannot see, so it is refused unless an #[allow] there says why it is meant.
+#
+# Every ureq agent's configuration starts by reading a proxy from this process's environment
+# in the same unseen way, so every request goes out on the context's agent (api::agent),
+# which is given the proxy the context read. Every way ureq offers to make an agent or a
+# configuration, and to name the configuration's type, is refused; api::made's #[allow] says
+# why its configuration and its agent are meant.
+#
+# ureq also lets a single request change its agent's configuration. A request that did could
+# name another proxy, or follow a redirect the agent does not follow while a SOCKS proxy is
+# named, from a host NO_PROXY exempts to one it does not, directly, past that proxy. So every
+# way to change a request's configuration is refused too.
 disallowed-methods = [
     { path = "std::env::var", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
     { path = "std::env::var_os", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
     { path = "std::env::vars", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
     { path = "std::env::vars_os", reason = "read the environment through context::Environment, or say why not in an #[allow]" },
+    { path = "ureq::Proxy::try_from_env", reason = "read the proxy through the context (proxy::Proxies), or say why not in an #[allow]" },
+    { path = "ureq::Agent::new_with_defaults", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::Agent::new_with_config", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::Agent::with_parts", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::Agent::config_builder", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::RequestExt::with_default_agent", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::agent", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::run", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::get", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::post", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::put", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::delete", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::head", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::options", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::connect", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::patch", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::trace", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
+    { path = "ureq::RequestBuilder::config", reason = "send each request with its agent's configuration, which api::made gives the context's proxy, and no redirects while a SOCKS proxy is named" },
+    { path = "ureq::Agent::configure_request", reason = "send each request with its agent's configuration, which api::made gives the context's proxy, and no redirects while a SOCKS proxy is named" },
+    { path = "ureq::request_ext::WithAgent::configure", reason = "send each request with its agent's configuration, which api::made gives the context's proxy, and no redirects while a SOCKS proxy is named" },
+    { path = "ureq::RequestExt::middleware_config", reason = "send each request with its agent's configuration, which api::made gives the context's proxy, and no redirects while a SOCKS proxy is named" },
+]
+# Config::default() and Config::builder(), which read the proxy too. A path to a trait's
+# method cannot name Config's Default alone, so the type is refused wherever it is named.
+disallowed-types = [
+    { path = "ureq::config::Config", reason = "send requests on the context's agent, api::agent, which is given the context's proxy" },
 ]

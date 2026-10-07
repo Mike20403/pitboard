@@ -62,6 +62,8 @@ unicode-width = "0.2"
 uniffi = "=0.31.2"
 # TLS: rustls for the protocol, the operating system for deciding which certificates to
 # trust. No bundled root store, so a corporate or system trust setting is honoured.
+# No socks-proxy: its connector in 3.4.2 waits past the time limit and looks the proxy up
+# before NO_PROXY, so Pitboard refuses SOCKS proxies (pitboard-core's proxy::Refusal).
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # IDNA, for a host that is not plain ASCII. pitboard-sites splits a link itself, as

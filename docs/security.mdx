@@ -71,7 +71,11 @@ Pitboard makes only these requests. It has no server of its own and no telemetry
 
 Pitboard never renews a login a tool is using. Each renewal is the request the tool itself makes to renew its own login. Until you enrol a Codex account, Pitboard sends OpenAI nothing.
 
-Every request verifies TLS against your system's trust store. Pitboard's own requests to Anthropic and OpenAI time out after 5 seconds.
+Every request verifies TLS against your system's trust store. Pitboard's own requests to Anthropic and OpenAI time out after 5 seconds, including those through a proxy that never answers.
+
+Those requests go through the HTTP or HTTPS proxy that `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY` names, unless `NO_PROXY` names the host. Pitboard does not go through a SOCKS proxy. While the proxy they name is a SOCKS one, each request to a host `NO_PROXY` does not name fails before anything is sent, so no request goes around the proxy you set. TLS runs through the proxy to the host, so the proxy sees which host each request goes to but not what it carries. Some company proxies decrypt TLS, with a root certificate installed in your system's trust store. Pitboard trusts that store, so such a proxy sees everything a request carries, tokens included. `pitboard doctor` says which proxy applies. See [Environment variables](/reference/files#environment-variables).
+
+Daily renewal's job is given the proxy variables it was installed with, a password in a proxy's address included. Pitboard writes the job's files with mode 600, so only you can read them. Any program running as you can still read them, and systemd gives a unit's variables to programs that ask for them, as systemd.exec(5) says.
 
 ## Large logins on macOS
 

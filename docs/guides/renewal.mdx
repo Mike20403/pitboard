@@ -45,6 +45,8 @@ Daily renewal runs `pitboard renew` once a day, from a LaunchAgent on macOS or a
 
 On a Mac, the first run comes a day after you turn it on. A run due while the Mac is asleep is missed, and the next one renews whatever is still due.
 
+Daily renewal goes through the proxy `pitboard schedule install` was started with, since your computer's scheduler does not start it from your shell. After your proxy changes, run `pitboard schedule install` again. The app's switch writes the app's own environment, which names no proxy your shell sets. For the details, see [`schedule`](/reference/maintenance-commands#schedule).
+
 <Note>
   Daily renewal renews only the parked logins in `~/.pitboard`. While the `PITBOARD_HOME` environment variable names another directory, Pitboard refuses to turn it on, with `schedule_not_default_home`. To turn it on, unset `PITBOARD_HOME`. To renew the parked logins in the other directory, run `pitboard renew` yourself with `PITBOARD_HOME` set.
 </Note>

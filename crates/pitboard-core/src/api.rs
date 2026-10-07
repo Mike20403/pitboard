@@ -12,13 +12,13 @@ use crate::context::Context;
 use crate::service::Permit;
 use crate::usage::{self, Snapshot};
 use serde_json::Value;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use ureq::Agent;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
-const BASE: &str = "https://api.anthropic.com";
-const AUTH_BASE: &str = "https://platform.claude.com";
+pub(crate) const BASE: &str = "https://api.anthropic.com";
+pub(crate) const AUTH_BASE: &str = "https://platform.claude.com";
 
 /// Claude Code's own OAuth client, which every login it stores was issued to.
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -172,29 +172,82 @@ pub fn renew(
         .renew(ctx, permit, refresh_token, scopes, client_id)
 }
 
-pub(crate) fn agent() -> &'static Agent {
-    static AGENT: OnceLock<Agent> = OnceLock::new();
-    AGENT.get_or_init(|| {
-        // rustls's documented way to choose a crypto provider. Returns Err only when one is
-        // already installed, which is exactly the state wanted.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        Agent::config_builder()
-            .tls_config(
-                TlsConfig::builder()
-                    .provider(TlsProvider::Rustls)
-                    .root_certs(RootCerts::PlatformVerifier)
-                    .build(),
-            )
-            .timeout_global(Some(TIMEOUT))
-            .http_status_as_error(false)
-            .user_agent(concat!("pitboard/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .new_agent()
-    })
+/// The agent a context's requests go out on, made the first time one of them needs it and
+/// shared by every copy of the context, so they share its connections too.
+#[derive(Clone, Default)]
+pub(crate) struct Agents(Arc<OnceLock<Agent>>);
+
+/// Whether it has been made, and nothing of how: ureq's own form shows the first letter of a
+/// proxy's user name.
+impl std::fmt::Debug for Agents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Agents")
+            .field("made", &self.0.get().is_some())
+            .finish()
+    }
+}
+
+/// The agent `ctx`'s requests go out on: through the HTTP proxy its environment names, and
+/// through no other ([`crate::proxy`]). ureq finds one of its own in this process's
+/// environment as the configuration is made; giving it the context's, or none, replaces that
+/// before the agent exists, so what ureq found never reaches a request. Where the environment
+/// names a SOCKS proxy, which Pitboard does not use yet, ureq is given none, and the agent
+/// refuses each request that proxy would have carried before anything is sent
+/// ([`crate::proxy::Refusal`]).
+pub(crate) fn agent(ctx: &Context) -> &Agent {
+    ctx.agent
+        .0
+        .get_or_init(|| made(ctx, ureq::unversioned::resolver::DefaultResolver::default()))
+}
+
+/// [`agent`]'s agent, looking hosts up with `resolver`, which is ureq's own but in a test,
+/// and connecting through ureq's own default chain of connectors.
+///
+/// A SOCKS proxy's refusal is the agent's middleware, not a check made by each function that
+/// sends a request: every request on the agent passes it, whichever code sends it, and
+/// `clippy.toml` refuses every other way to make an agent, so no request can go out directly
+/// past the proxy the person named. ureq follows a redirect inside the request the
+/// middleware handed on, so with a SOCKS proxy named the agent follows none: one from a host
+/// `NO_PROXY` names could take the request to a host it does not name, directly.
+///
+/// ureq 3.4.2 also lets a single request change the agent's configuration, with
+/// `RequestBuilder::config`, `Agent::configure_request`, `WithAgent::configure`, or
+/// `RequestExt::middleware_config` inside a middleware. A request given its own
+/// `max_redirects` follows that redirect after all, and one given its own proxy goes another
+/// way, so `clippy.toml` refuses each of those too: every request goes out with the
+/// configuration made here.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the one agent configuration Pitboard makes, which is given the context's proxy, \
+              and the one agent, given the resolver a test can replace"
+)]
+pub(crate) fn made(ctx: &Context, resolver: impl ureq::unversioned::resolver::Resolver) -> Agent {
+    // rustls's documented way to choose a crypto provider. Returns Err only when one is
+    // already installed, which is exactly the state wanted.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut config = Agent::config_builder()
+        .proxy(ctx.proxy.for_ureq())
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TlsProvider::Rustls)
+                .root_certs(RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .timeout_global(Some(TIMEOUT))
+        .http_status_as_error(false)
+        .user_agent(concat!("pitboard/", env!("CARGO_PKG_VERSION")));
+    if let Some(refusal) = ctx.proxy.refusal() {
+        config = config.middleware(refusal).max_redirects(0);
+    }
+    Agent::with_parts(
+        config.build(),
+        ureq::unversioned::transport::DefaultConnector::default(),
+        resolver,
+    )
 }
 
 fn get(ctx: &Context, path: &str, access_token: &str) -> Result<Value, ApiError> {
-    let mut response = agent()
+    let mut response = agent(ctx)
         .get(format!("{}{path}", base(ctx)))
         .header("Authorization", format!("Bearer {access_token}"))
         .header("anthropic-beta", "oauth-2025-04-20")
@@ -248,7 +301,7 @@ fn ask_renew(
         "client_id": client_id.unwrap_or(CLIENT_ID),
         "scope": scopes.join(" "),
     });
-    let mut response = agent()
+    let mut response = agent(ctx)
         .post(format!("{}/v1/oauth/token", auth_base(ctx)))
         .header("Content-Type", "application/json")
         .send(body.to_string())
