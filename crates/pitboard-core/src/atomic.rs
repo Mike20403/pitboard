@@ -5,7 +5,7 @@
 
 use crate::host::fs;
 use crate::service::Permit;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -76,7 +76,7 @@ fn temp_owner(file_name: &str) -> Option<u32> {
 /// A new private file at `temp`. This process never reuses a name, so a file already there
 /// was left by an earlier process that had the same pid, as happens in containers.
 fn create_fresh(permit: Permit, temp: &Path) -> io::Result<File> {
-    let create = || fs::private(permit, OpenOptions::new().write(true).create_new(true)).open(temp);
+    let create = || fs::create_private(permit, temp);
     match create() {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
             remove_stale(permit, temp)?;
@@ -159,7 +159,7 @@ mod tests {
         let dir = scratch("match");
         let path = dir.join("claude.json");
         std::fs::write(&path, b"old").unwrap();
-        testing::open_to_others(&path);
+        testing::open_to_others(&path).expect("opened to others");
         let before = fs::access(&path);
         write(Permit::for_a_test(), &path, b"new", Perms::MatchExisting).unwrap();
         assert_eq!(
@@ -175,7 +175,7 @@ mod tests {
         let dir = scratch("tighter");
         let path = dir.join("claude.json");
         std::fs::write(&path, b"old").unwrap();
-        testing::read_only_for_owner(&path);
+        testing::read_only_for_owner(&path).expect("read only");
         let before = fs::access(&path);
         write(Permit::for_a_test(), &path, b"new", Perms::MatchExisting).unwrap();
         assert_eq!(
@@ -280,7 +280,7 @@ mod tests {
         assert_eq!(std::fs::read(&temp).unwrap(), b"new");
 
         let link = dir.join(".usage.json.1.0.pitboard");
-        testing::link(&dir.join("elsewhere"), &link);
+        testing::link(&dir.join("elsewhere"), &link).expect("a planted link");
         assert!(
             create_fresh(Permit::for_a_test(), &link).is_err(),
             "a planted link is never removed"
@@ -330,9 +330,9 @@ mod tests {
         let dir = scratch("symlink");
         let target = dir.join("elsewhere");
         std::fs::write(&target, b"x").unwrap();
-        testing::open_to_others(&target);
+        testing::open_to_others(&target).expect("opened to others");
         let path = dir.join("link.json");
-        testing::link(&target, &path);
+        testing::link(&target, &path).expect("a link");
 
         write(Permit::for_a_test(), &path, b"{}", Perms::MatchExisting).unwrap();
         assert!(

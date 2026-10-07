@@ -1540,12 +1540,10 @@ fn the_apps_preferences_follow_its_pitboard_directory() {
             text == r#"{"second_account_declined":["claude"],"has_been_seen":true}"#
         })
     });
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&kept).expect("kept").permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "private, as the core's own files are");
-    }
+    assert!(
+        pitboard_core::testing::fs::is_private(&kept).expect("kept"),
+        "private, as the core's own files are"
+    );
     first_model.shutdown();
 
     // Opened again over the same directory, it reads them back: no nudge, and no window.
@@ -1740,16 +1738,7 @@ fn the_windows_records_are_kept_in_the_apps_own_directory() {
     });
     let kept = read();
     assert!(kept.contains(gone) && kept.contains(&work), "{kept}");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&file)
-            .expect("there")
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(mode, 0o600);
-    }
+    assert!(pitboard_core::testing::fs::is_private(&file).expect("there"));
     model.send(Intent::StoreDeleted {
         store: gone.to_uppercase(),
     });

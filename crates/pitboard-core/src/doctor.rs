@@ -2218,13 +2218,13 @@ mod tests {
 
         let park = vault.join("pitboard-park-x.json");
         std::fs::write(&park, "{}").expect("a park");
-        testing::open_to_others(&park);
+        testing::open_to_others(&park).expect("opened to others");
         let found = loose_logins(&ctx);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(Some(&found[0].1), crate::host::fs::access(&park).as_ref());
         assert!(found[0].0.ends_with("pitboard-park-x.json"), "{found:?}");
 
-        testing::make_private(&park);
+        testing::make_private(&park).expect("made private");
         assert!(loose_logins(&ctx).is_empty(), "a private park is not loose");
     }
 
@@ -3776,7 +3776,7 @@ mod tests {
     /// standalone install is named without opening any file inside it.
     #[test]
     fn a_version_is_read_out_of_each_way_codex_is_installed() {
-        use crate::host::fs::testing::link as symlink;
+        use crate::host::fs::testing;
 
         let root = std::env::temp_dir().join(format!(
             "pitboard-doctor-codex-version-{}-{:?}",
@@ -3808,7 +3808,7 @@ mod tests {
         .unwrap();
         let link = root.join("bin/codex");
         std::fs::create_dir_all(link.parent().unwrap()).unwrap();
-        symlink(&standalone, &link);
+        testing::link(&standalone, &link).expect("a link");
         assert_eq!(codex_version(&link).as_deref(), Some("0.154.0"));
 
         let cask = place("Caskroom/codex/0.153.2/codex-aarch64-apple-darwin");
@@ -4043,9 +4043,9 @@ mod tests {
         std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
         std::fs::write(&installed, "").unwrap();
         // A program is what can be run, as the installer leaves it.
-        testing::make_runnable(&installed);
+        testing::make_runnable(&installed).expect("runnable");
         std::fs::create_dir_all(program.parent().unwrap()).unwrap();
-        testing::link(&installed, &program);
+        testing::link(&installed, &program).expect("a link");
         let found = codex_facts(&ctx, None);
         assert_eq!(found.program.as_deref(), Some(program.as_path()));
         assert_eq!(found.version.as_deref(), Some("0.154.0"));
@@ -4069,7 +4069,7 @@ mod tests {
             .to_string(),
         )
         .expect("a login");
-        testing::open_to_others(&auth);
+        testing::open_to_others(&auth).expect("opened to others");
         let found = codex_facts(&ctx, None);
         assert!(found.present);
         assert!(found.auth_access.expect("there").shared);

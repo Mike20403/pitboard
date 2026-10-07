@@ -826,6 +826,8 @@ mod tests {
     use crate::model::Intent;
     use crate::model::state::{Cadence, Now, State};
     use crate::model::testing::{CHATGPT_CODEX, Posted, StandInApps, World, chatgpt_holding};
+    #[cfg(unix)]
+    use pitboard_core::testing::fs as files;
 
     const CHATGPT: &str = crate::model::testing::CHATGPT;
 
@@ -1373,7 +1375,7 @@ mod tests {
         };
         assert_eq!(found(&worker), FoundCommandLine::Nowhere);
 
-        std::os::unix::fs::symlink(&helper, bin.join("pitboard")).expect("a link");
+        files::link(&helper, &bin.join("pitboard")).expect("a link");
         assert_eq!(
             found(&worker),
             FoundCommandLine::Bundled {
@@ -1381,7 +1383,7 @@ mod tests {
             }
         );
 
-        crate::model::testing::a_program_at(&cargo.join("pitboard"), 0o755);
+        crate::model::testing::a_program_at(&cargo.join("pitboard"));
         assert_eq!(
             found(&worker),
             FoundCommandLine::Another {
@@ -1418,11 +1420,11 @@ mod tests {
         let helper = app.join("Contents/Helpers/pitboard");
         let (bin, home) = (world.dir("bin"), world.dir("home"));
         let cargo = home.join(".cargo/bin/pitboard");
-        crate::model::testing::a_program_at(&helper, 0o755);
-        crate::model::testing::a_program_at(&cargo, 0o755);
+        crate::model::testing::a_program_at(&helper);
+        crate::model::testing::a_program_at(&cargo);
         std::fs::create_dir_all(&bin).expect("a bin");
         let linked = bin.join("pitboard");
-        std::os::unix::fs::symlink(&helper, &linked).expect("a link");
+        files::link(&helper, &linked).expect("a link");
         let text = |path: &Path| path.to_string_lossy().into_owned();
         let bundled = |path: &Path| FoundCommandLine::Bundled { path: text(path) };
         let another = |path: &Path| FoundCommandLine::Another { path: text(path) };
@@ -1505,7 +1507,7 @@ mod tests {
         );
 
         std::fs::remove_file(&cargo).expect("cargo's copy taken away");
-        std::os::unix::fs::symlink(&helper, &cargo).expect("a link where cargo installs");
+        files::link(&helper, &cargo).expect("a link where cargo installs");
         assert_eq!(
             found(started_at(&app)).0,
             if inside {
@@ -1526,7 +1528,6 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn the_command_line_inside_is_read_from_the_file_each_time() {
-        use std::os::unix::fs::PermissionsExt;
         let read = |worker: &Worker| match worker.work(Job::ReadSchedule {
             after_change: false,
         }) {
@@ -1547,8 +1548,7 @@ mod tests {
         let mut world = World::new("unrunnable");
         let helper = world.app_with_a_command_line();
         let worker = worker(world.core(), StandInApps::new(&[], true));
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644))
-            .expect("a mode nobody runs");
+        files::deny_running(&helper).expect("a mode nobody runs");
         let own = read(&worker);
         assert!(own.inside && !own.temporary && !own.runs, "{own:?}");
         assert!(matches!(
@@ -1558,8 +1558,7 @@ mod tests {
                 ..
             }
         ));
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))
-            .expect("a mode that runs");
+        files::make_runnable(&helper).expect("a mode that runs");
         assert!(read(&worker).lasting());
 
         let mut temporary = World::new("translocated");

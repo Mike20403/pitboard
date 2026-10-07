@@ -19,7 +19,7 @@ use crate::service::{Permit, Warning};
 use crate::state::{Account, Key, Park, State};
 use crate::{home, lock, park, state, store};
 use serde_json::{Value, json};
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{File, TryLockError};
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -86,15 +86,13 @@ fn reserve_signin(ctx: &Context, permit: Permit, which: ProviderId) -> Result<Si
         source,
     })?;
     let lock_path = home.join("signin.lock");
-    let one_at_a_time = crate::host::fs::private(
-        permit,
-        OpenOptions::new().create(true).truncate(false).write(true),
-    )
-    .open(&lock_path)
-    .map_err(|source| Error::HomeUnwritable {
-        path: lock_path.clone(),
-        source,
-    })?;
+    let one_at_a_time =
+        crate::host::fs::open_private_lock(permit, &lock_path).map_err(|source| {
+            Error::HomeUnwritable {
+                path: lock_path.clone(),
+                source,
+            }
+        })?;
     match one_at_a_time.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => return Err(Error::SignInInProgress),

@@ -137,14 +137,14 @@ mod tests {
         let runnable = |path: &std::path::Path| {
             std::fs::create_dir_all(path.parent().unwrap()).expect("its directory");
             std::fs::write(path, "").expect("a program");
-            fs::testing::make_runnable(path);
+            fs::testing::make_runnable(path).expect("runnable");
         };
         let running = home.join("Caskroom/pitboard/0.4.0/pitboard");
         runnable(&running);
         let bin = home.join("bin");
         std::fs::create_dir_all(&bin).expect("a bin");
         let link = bin.join("pitboard");
-        std::os::unix::fs::symlink(&running, &link).expect("a link");
+        fs::testing::link(&running, &link).expect("a link");
         let another = home.join("elsewhere/pitboard");
         runnable(&another);
 

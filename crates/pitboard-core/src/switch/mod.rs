@@ -229,15 +229,7 @@ fn lock_file(ctx: &Context, permit: Permit) -> Result<(std::fs::File, PathBuf)> 
         source,
     };
     home::ensure(ctx, permit).map_err(fail)?;
-    let file = crate::host::fs::private(
-        permit,
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true),
-    )
-    .open(&path)
-    .map_err(fail)?;
+    let file = crate::host::fs::open_private_lock(permit, &path).map_err(fail)?;
     Ok((file, path))
 }
 

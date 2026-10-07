@@ -56,7 +56,11 @@ pages load, as a browser would.
     plain functions for what the system does whoever asks: private files and directories,
     every other change to the disk, whether a process is alive, the login name, whether
     this process runs as root, and the `PATH` the person's login shell builds, which
-    `unix/shell.rs` asks for. `program.rs` finds a program the way the
+    `unix/shell.rs` asks for. `fs` creates each private file itself and hands it back open
+    (`create_private`, `open_private_append` and `open_private_lock`), so how a file is made
+    private is the face's alone. `fs::testing`, in a build for tests, is how a test or a
+    fixture sets a file's access or makes a link; other crates reach it as
+    `pitboard_core::testing::fs`. `program.rs` finds a program the way the
     system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
     through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
     `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`, such
@@ -368,6 +372,14 @@ pages load, as a browser would.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
   system added to `host::Os` does not compile until it is said for every one.
+- Outside a host's own face, a test or a fixture sets a file's mode, makes a file runnable
+  or makes a link only through that face's `fs::testing` (`pitboard_core::testing::fs`),
+  never through `std::os::unix`. A link to a directory is asked for as one, `link_dir`, apart
+  from a link to a file or to nothing, `link`. So a system whose files have no mode, or that
+  links a directory otherwise than a file, says how in its own face and nowhere else. The
+  integration tests' harness says what differs by system in
+  `crates/pitboard/tests/common/os.rs`, one `match` on `host::OS` for each fact: where
+  Claude Code keeps the login it uses and where Pitboard parks one.
 - A read never settles an interrupted switch. Every change settles one first, under
   Pitboard's lock. Where that change would stop at it as `recovery_undetermined`,
   `status`, `status_offline` and `doctor` say so in its words, from the same reads and the

@@ -628,11 +628,11 @@ fn a_renewal_that_cannot_record_its_answer_keeps_it_for_the_next_run() {
     let outcomes = fault::meanwhile(
         "renew.park_stored",
         move || {
-            testing::deny_changes(&locked);
+            testing::deny_changes(&locked).expect("read-only");
         },
         || renew::renew_parked(&m.ctx, Permit::for_a_test()),
     );
-    testing::allow_changes(&home);
+    testing::allow_changes(&home).expect("changeable again");
     assert!(
         outcomes
             .iter()

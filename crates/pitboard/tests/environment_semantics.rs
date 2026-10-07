@@ -108,14 +108,13 @@ fn an_empty_config_dir_is_refused() {
 /// each tool's installer puts the version.
 #[test]
 fn a_program_the_environment_names_is_the_one_the_command_line_runs() {
-    use std::os::unix::fs::PermissionsExt;
     let home = scratch("named");
     let claude = home.join("elsewhere/claude/versions/9.9.9");
     let codex = home.join("elsewhere/codex/releases/9.9.8-aarch64-apple-darwin/bin/codex");
     for program in [&claude, &codex] {
         std::fs::create_dir_all(program.parent().expect("its directory")).unwrap();
         std::fs::write(program, "#!/bin/sh\nexit 64\n").unwrap();
-        std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        pitboard_core::testing::fs::make_runnable(program).unwrap();
     }
 
     let named = doctor(
