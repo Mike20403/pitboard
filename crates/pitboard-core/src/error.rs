@@ -582,6 +582,12 @@ pub enum Error {
     #[error("{}", elevated(*why))]
     Elevated { why: Option<&'static str> },
 
+    /// This is a Windows build of a release made before Pitboard for Windows is released, so
+    /// it does nothing ([`crate::release`]). Kept once Windows is released, where it never
+    /// occurs.
+    #[error("Pitboard for Windows is not released yet. This build changes nothing.")]
+    WindowsNotReleased,
+
     /// The command line itself was wrong; the message is clap's.
     #[error("{0}")]
     Usage(String),
@@ -665,6 +671,7 @@ impl Error {
             RenewalFailed { .. } => "renewal_failed",
             SignInInProgress => "sign_in_in_progress",
             Elevated { .. } => "elevated",
+            WindowsNotReleased => "windows_not_released",
             Usage(_) => "usage",
             Store(e) => e.code(),
             Lock(e) => e.code(),

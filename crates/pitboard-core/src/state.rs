@@ -480,7 +480,11 @@ pub fn load(ctx: &Context) -> Result<State> {
 /// Only `adopt` reads it this way. Everything else goes through [`load`], which refuses a
 /// file from elsewhere: a parked login is a refresh token, and two machines taking turns
 /// presenting one ends the login for both.
+///
+/// A build that may do nothing here reads nothing either ([`crate::release`]), so an app on
+/// a Windows build of a release before Windows is released is refused at its first read.
 pub(crate) fn load_any_machine(ctx: &Context) -> Result<(State, bool)> {
+    crate::release::check()?;
     let path = file(ctx);
     home::check_absolute(ctx)?;
     home::check_location(&home::dir(ctx))?;

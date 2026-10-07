@@ -835,7 +835,7 @@ fn the_log_records_changes_newest_last_as_they_are_typed() {
 fn the_schedule_turns_on_and_off() {
     let launched = made(World::OneTool);
     let core = &launched.core;
-    assert_eq!(core.schedule(), Schedule::Absent);
+    assert_eq!(core.schedule(), Some(Schedule::Absent));
     assert_eq!(core.schedule_uninstall().ok(), Some(false));
 
     let path = core.schedule_install().expect("installed");
@@ -845,13 +845,13 @@ fn the_schedule_turns_on_and_off() {
     );
     assert_eq!(
         core.schedule(),
-        Schedule::Installed {
+        Some(Schedule::Installed {
             path,
             every_seconds: 86_400
-        }
+        })
     );
     assert_eq!(core.schedule_uninstall().ok(), Some(true));
-    assert_eq!(core.schedule(), Schedule::Absent);
+    assert_eq!(core.schedule(), Some(Schedule::Absent));
     assert_eq!(core.schedule_repair().ok(), Some(false));
 }
 

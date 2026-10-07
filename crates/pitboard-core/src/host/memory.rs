@@ -79,7 +79,9 @@ pub struct MemoryHost {
     /// keychain. So by default, because that is where the rules about another Pitboard's
     /// parks are needed.
     shared_vault: AtomicBool,
-    scheduler: Box<dyn Scheduler>,
+    /// This system's scheduler, writing in the test's own home, where Pitboard writes for one
+    /// on this system: none on Windows until W25.
+    scheduler: Option<Box<dyn Scheduler>>,
     /// Whether the scheduler refuses the next schedule it is asked to start.
     refuse_start: Arc<AtomicBool>,
     /// Whether this machine has no scheduler at all.
@@ -260,7 +262,9 @@ impl Host for MemoryHost {
     }
 
     fn scheduler(&self) -> Option<&dyn Scheduler> {
-        (!self.unscheduled.load(Ordering::SeqCst)).then_some(self.scheduler.as_ref())
+        self.scheduler
+            .as_deref()
+            .filter(|_| !self.unscheduled.load(Ordering::SeqCst))
     }
 
     /// What a test said, and nothing about the process running the tests.

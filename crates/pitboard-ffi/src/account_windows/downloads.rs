@@ -52,13 +52,22 @@ fn numbered(os: Os, name: &str, base: &str, extension: Option<&str>, nth: u64) -
     }
     match os {
         // As Finder numbers one: `report 2.pdf`, then `report 3.pdf`. No app runs on Linux,
-        // and it numbers as the Mac does. Windows, once it is a system here, numbers one
-        // `report (1).pdf`, as the owner decided; which of its programs names a copy so is
-        // to be measured when that arm is written.
+        // and it numbers as the Mac does.
         Os::MacOs | Os::Linux => match extension {
             Some(extension) => format!("{base} {nth}.{extension}"),
             None => format!("{base} {nth}"),
         },
+        // As Explorer numbers one, as the owner decided: `report (1).pdf`, then
+        // `report (2).pdf`. The name is split as everywhere else here; how WebView2 and
+        // Explorer split a name with two extensions, such as `archive.tar.gz`, is the
+        // Windows app's to measure.
+        Os::Windows => {
+            let copy = nth - 1;
+            match extension {
+                Some(extension) => format!("{base} ({copy}).{extension}"),
+                None => format!("{base} ({copy})"),
+            }
+        }
     }
 }
 
@@ -66,6 +75,8 @@ fn numbered(os: Os, name: &str, base: &str, extension: Option<&str>, nth: u64) -
 /// names that are canonically equivalent in Unicode for one, measured on APFS on macOS 27.0,
 /// so they are compared decomposed. No app runs on Linux, which compares them as the Mac
 /// does; where its file system takes them for two, a name is numbered that need not be.
+/// Windows takes names in any case for one, and does not normalise them, so two forms of one
+/// name are two files there ([`pitboard_core::host::same_path_in_any_case`]).
 fn same_file(os: Os, one: &Path, other: &Path) -> bool {
     match os {
         Os::MacOs | Os::Linux => {
@@ -73,6 +84,7 @@ fn same_file(os: Os, one: &Path, other: &Path) -> bool {
                 |path: &Path| PathBuf::from(path.to_string_lossy().nfd().collect::<String>());
             decomposed(one) == decomposed(other)
         }
+        Os::Windows => pitboard_core::host::same_path_in_any_case(one, other),
     }
 }
 
@@ -216,6 +228,50 @@ mod tests {
             candidate == Path::new("/d/report.pdf")
         });
         assert_eq!(name, Path::new("/d/report 2.pdf"));
+    }
+
+    /// Windows numbers a copy as Explorer does, as the owner decided: in brackets, from one,
+    /// so the second `report.pdf` is `report (1).pdf`.
+    #[test]
+    fn windows_numbers_a_copy_in_brackets_from_one() {
+        let on_windows = |suggested: &str, taken: &[&str]| {
+            destination(Os::Windows, Path::new("/d"), suggested, |candidate| {
+                taken
+                    .iter()
+                    .any(|name| Path::new("/d").join(name) == candidate)
+            })
+        };
+        assert_eq!(on_windows("report.pdf", &[]), Path::new("/d/report.pdf"));
+        assert_eq!(
+            on_windows("report.pdf", &["report.pdf"]),
+            Path::new("/d/report (1).pdf")
+        );
+        assert_eq!(
+            on_windows("report.pdf", &["report.pdf", "report (1).pdf"]),
+            Path::new("/d/report (2).pdf")
+        );
+        assert_eq!(on_windows("notes", &["notes"]), Path::new("/d/notes (1)"));
+        assert_eq!(on_windows("", &["Download"]), Path::new("/d/Download (1)"));
+    }
+
+    /// Windows takes names in any case for one file, so `Report.PDF` and `report.pdf` are one,
+    /// and a name in two Unicode forms for two, since it compares a name without normalising
+    /// it.
+    #[test]
+    fn windows_takes_names_in_any_case_for_one_and_in_two_forms_for_two() {
+        let same =
+            |one: &str, other: &str| same_file(Os::Windows, Path::new(one), Path::new(other));
+        assert!(same("/d/Report.PDF", "/d/report.pdf"));
+        assert!(same("/D//REPORT.pdf", "/d/report.pdf"));
+        assert!(!same(
+            "/d/B\u{e1}o c\u{e1}o.pdf",
+            "/d/Ba\u{301}o ca\u{301}o.pdf"
+        ));
+        assert!(!same("/d/report.pdf", "/d/report (1).pdf"));
+        let name = destination(Os::Windows, Path::new("/d"), "report.pdf", |candidate| {
+            same_file(Os::Windows, Path::new("/d/Report.PDF"), candidate)
+        });
+        assert_eq!(name, Path::new("/d/report (1).pdf"));
     }
 
     /// The export looks at the folder as well as the names reserved for downloads running.

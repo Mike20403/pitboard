@@ -150,6 +150,14 @@ mod tests {
         );
         let linux = remove_data_alert_on(Os::Linux, &work);
         assert!(linux.message.contains(" on this computer, "));
+        let windows = remove_data_alert_on(Os::Windows, &work);
+        assert_eq!(windows.title, mac.title);
+        assert_eq!(
+            windows.message,
+            "Pitboard removes the cookies and everything else claude.ai keeps in this window on \
+             this PC, which signs this window out. claude.ai is not told: the account stays \
+             signed in on your other devices and browsers."
+        );
         assert_eq!(
             remove_data_alert(work.clone()),
             remove_data_alert_on(OS, &work)

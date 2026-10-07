@@ -350,7 +350,8 @@ mod tests {
     }
 
     /// A folder is the place a kind names only as this system compares paths: exactly, on
-    /// macOS and Linux, so a folder of the same name in another case is somewhere else.
+    /// macOS and Linux, so a folder of the same name in another case is somewhere else, and
+    /// in any case on Windows, where it is the same folder.
     #[test]
     fn a_place_is_named_as_this_system_compares_paths() {
         let holding = classify(
@@ -363,6 +364,9 @@ mod tests {
         match OS {
             crate::host::Os::MacOs | crate::host::Os::Linux => {
                 assert_eq!(kinds(&holding), [("session", vec![1, 2])]);
+            }
+            crate::host::Os::Windows => {
+                assert_eq!(kinds(&holding), [("app", vec![1]), ("extension", vec![2])]);
             }
         }
         assert!(Location::WithinPrefixed("vendor.tool-").holds(Path::new("/e/vendor.tool-1/t")));

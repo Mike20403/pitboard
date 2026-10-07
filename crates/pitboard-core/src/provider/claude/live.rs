@@ -8,13 +8,29 @@
 
 use super::{paths as claude, slot};
 use crate::context::Context;
+use crate::host::{OS, Os};
 use crate::service::Permit;
-use crate::store::{Error, Live, RawStore};
+use crate::store::{Backend, Error, Live, RawStore, Unbuilt};
 use std::path::{Path, PathBuf};
 
 /// The plaintext file Claude Code demotes to, and reads on a machine with no keychain.
 pub(crate) fn credential_file(ctx: &Context) -> PathBuf {
     PathBuf::from(claude::storage_dir(ctx)).join(slot::CRED_FILE)
+}
+
+/// Claude Code's store on Windows, which Pitboard does not read or write yet. Its storage
+/// backends are `keychain`, `plaintext` and `windows-credman`, the last behind the
+/// `tengu_windows_credman` flag or `CLAUDE_CODE_FORCE_WINDOWS_CREDMAN` (the register's
+/// `no_keyring_off_macos`), and which one it uses on Windows is the register's pending
+/// `windows_backend_choice`. So the file alone is never the chain: it could read a login that
+/// is not the one in use, and write one nothing reads. W22 reads the file where Claude Code
+/// reads it and refuses wherever Credential Manager may hold the login, and W23 follows
+/// Claude Code there.
+fn not_on_windows_yet() -> Unbuilt {
+    Unbuilt::new(
+        Backend::Unknown,
+        "Pitboard does not switch Claude Code on Windows yet",
+    )
 }
 
 /// The backends that may hold Claude Code's login, in the order it looks.
@@ -27,20 +43,31 @@ pub(crate) fn credential_file(ctx: &Context) -> PathBuf {
 /// Resolved on every call, never cached: Claude Code moves the credential between backends
 /// when a keychain write fails for good, so a remembered answer goes wrong without warning.
 /// From 2.1.281 a locked keychain whose item the process has seen does not move it.
+///
+/// On Windows it is one store that refuses every call ([`not_on_windows_yet`]).
 pub(crate) fn chain(ctx: &Context) -> Live {
-    let host = ctx.host();
-    let mut backends: Vec<Box<dyn RawStore>> = Vec::new();
-    if let Some(keychain) = host.foreign_secrets(ctx, &slot::account_name(ctx)) {
-        backends.push(keychain);
+    match OS {
+        Os::MacOs | Os::Linux => {
+            let host = ctx.host();
+            let mut backends: Vec<Box<dyn RawStore>> = Vec::new();
+            if let Some(keychain) = host.foreign_secrets(ctx, &slot::account_name(ctx)) {
+                backends.push(keychain);
+            }
+            backends.push(host.file(credential_file(ctx)));
+            Live::of(backends)
+        }
+        Os::Windows => Live::of(vec![Box::new(not_on_windows_yet())]),
     }
-    backends.push(host.file(credential_file(ctx)));
-    Live::of(backends)
 }
 
 /// The credential Claude Code left for a config directory during a private sign-in: the
 /// keychain item its own hashing names, or the file inside that directory where there is
-/// no keychain.
+/// no keychain. Refused on Windows, as the chain is.
 pub(crate) fn read_signin(ctx: &Context, dir: &Path) -> Result<Option<String>, Error> {
+    match OS {
+        Os::MacOs | Os::Linux => {}
+        Os::Windows => return not_on_windows_yet().read(""),
+    }
     match ctx.host().foreign_secrets(ctx, &slot::account_name(ctx)) {
         Some(keychain) => keychain.read(&slot::service_for_dir(&dir.to_string_lossy())),
         None => ctx.host().file(dir.join(slot::CRED_FILE)).read(""),
@@ -51,8 +78,13 @@ pub(crate) fn read_signin(ctx: &Context, dir: &Path) -> Result<Option<String>, E
 ///
 /// It refuses any name that could be a real login: the default slot, and whatever this
 /// context's own `CLAUDE_CONFIG_DIR` hashes to. A scratch directory's hash is safe by
-/// construction, and those two are the only names in the family that are not.
+/// construction, and those two are the only names in the family that are not. Refused on
+/// Windows, as the chain is.
 pub(crate) fn discard_signin(ctx: &Context, permit: Permit, dir: &Path) -> Result<(), Error> {
+    match OS {
+        Os::MacOs | Os::Linux => {}
+        Os::Windows => return not_on_windows_yet().delete(permit, ""),
+    }
     let service = slot::service_for_dir(&dir.to_string_lossy());
     if service == slot::LIVE_SERVICE || service == claude::live_service(ctx) {
         return Err(Error::Write(format!("refusing to delete {service}")));

@@ -5,12 +5,13 @@
 
 use super::{api, paths};
 use crate::context::Context;
+use crate::host::Os;
 use crate::provider::{
     Adoption, Credential, Expiry, Identity, Isolation, LiveStore, ParkSemantics, Provider,
     ProviderError, ProviderId, SignInView, jwt,
 };
 use crate::service::Permit;
-use crate::store::{self, Live};
+use crate::store::{self, Backend, Live, Unbuilt};
 use crate::usage::Snapshot;
 use serde_json::Value;
 
@@ -28,8 +29,19 @@ pub(crate) struct Codex;
 /// of the person, from `status` as much as from a switch. Pressing Always Allow would
 /// change Codex's own item. The honest answer is to say Pitboard does not handle that
 /// store, rather than to prompt on every refresh of a menu bar.
+///
+/// On Windows it is one store that refuses every call, until W21 reads which store Codex
+/// keeps its login in there, from layers of its own and with `secret_auth_storage` on by
+/// default (the register's pending `codex_store_layers` and `codex_login_location`), and
+/// switches it where that is the file.
 fn chain(ctx: &Context) -> Live {
-    Live::of(vec![ctx.host().file(paths::auth_file(ctx))])
+    match crate::host::OS {
+        Os::MacOs | Os::Linux => Live::of(vec![ctx.host().file(paths::auth_file(ctx))]),
+        Os::Windows => Live::of(vec![Box::new(Unbuilt::new(
+            Backend::Unknown,
+            "Pitboard does not switch Codex on Windows yet",
+        ))]),
+    }
 }
 
 impl Provider for Codex {

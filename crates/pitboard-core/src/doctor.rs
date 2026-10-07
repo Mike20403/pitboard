@@ -77,6 +77,9 @@ pub struct Facts {
     /// Every reason a session here would authenticate as something other than the stored
     /// login, read from settings files as well as from this process's environment.
     pub auth_overrides: Vec<crate::settings::Override>,
+    /// What of those settings Pitboard does not read here, where it does not read them all:
+    /// Claude Code's managed settings on Windows, until W17.
+    pub auth_unread: Option<&'static str>,
     /// Accounts Pitboard is not asking Anthropic about yet, and for how long: (uuid, seconds).
     pub asking_held: Vec<(String, i64)>,
     pub state: Result<State, Error>,
@@ -322,6 +325,7 @@ pub fn gather(ctx: &Context) -> Facts {
         pending_parks: crate::pending::outstanding(ctx, state.as_ref().ok()),
         claude_version: claude::installed_version(ctx),
         auth_overrides: crate::settings::overrides(ctx),
+        auth_unread: crate::settings::unread(),
         asking_held: crate::budget::holds(ctx),
         parks: state
             .as_ref()
@@ -653,6 +657,13 @@ fn fail(
     }
 }
 
+/// The end of a sentence of advice that says what to run, from `: ` to its full stop, where
+/// Pitboard can say a command, and the full stop alone where it cannot
+/// ([`Os::make_private_command`]).
+fn running(command: Option<String>) -> String {
+    command.map_or_else(|| ".".into(), |command| format!(": `{command}`."))
+}
+
 pub fn evaluate(facts: &Facts) -> Vec<Check> {
     let mut checks = Vec::new();
     // Claude Code's own checks, where there is a Claude Code, or where there is no other
@@ -782,8 +793,26 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
                     "Claude Code fell back to a file, which means a keychain write failed at some point.",
                 ),
                 Os::Linux => ok("credential_store", "credential store", detail),
+                // Claude Code has no keychain on Windows: the file is where it keeps the
+                // login unless it uses Credential Manager, which W22 tells apart. Until then
+                // its chain there is a store Pitboard does not read, never the file, so this
+                // is not reached; and the file alone says nothing of which login is in use
+                // while Credential Manager may hold another.
+                Os::Windows => warn(
+                    "credential_store",
+                    "credential store",
+                    detail,
+                    "Claude Code may keep its login in Credential Manager instead, which \
+                     Pitboard does not read yet.",
+                ),
             }
         }
+        Ok(store::Backend::Unknown) => fail(
+            "credential_store",
+            "credential store",
+            "a store Pitboard does not read yet",
+            "Treat this as unknown, never as empty.",
+        ),
         // The one wrong diagnosis in this file. If Claude Code's config names somebody as
         // signed in, "nothing is signed in" is not an observation, it is Pitboard looking
         // in the wrong place, and it is the failure that would follow Claude Code moving
@@ -863,17 +892,20 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
         Some(access) if !access.shared => {
             ok("home", "Pitboard home", facts.home.display().to_string())
         }
-        Some(access) => warn(
-            "home",
-            "Pitboard home",
-            format!("{} is {}", facts.home.display(), access.described),
-            format!(
-                "Park names contain account identifiers, so only you should read it: `{}`.",
-                facts
-                    .os
-                    .make_private_command(Kind::Directory, &[&facts.home.display().to_string()])
-            ),
-        ),
+        Some(access) => {
+            warn(
+                "home",
+                "Pitboard home",
+                format!("{} is {}", facts.home.display(), access.described),
+                format!(
+                    "Park names contain account identifiers, so only you should read it{}",
+                    running(facts.os.make_private_command(
+                        Kind::Directory,
+                        &[&facts.home.display().to_string()]
+                    ))
+                ),
+            )
+        }
     });
 
     checks.push(if facts.readable_by_others.is_empty() {
@@ -895,14 +927,16 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
             format!(
                 "These hold usable OAuth tokens in plain text, which is how Claude Code \
                  stores them where there is no keychain. Anyone else on this machine can \
-                 read them: `{}`.",
-                facts.os.make_private_command(
-                    Kind::Any,
-                    &facts
-                        .readable_by_others
-                        .iter()
-                        .map(|(path, _)| path.as_str())
-                        .collect::<Vec<_>>()
+                 read them{}",
+                running(
+                    facts.os.make_private_command(
+                        Kind::Any,
+                        &facts
+                            .readable_by_others
+                            .iter()
+                            .map(|(path, _)| path.as_str())
+                            .collect::<Vec<_>>()
+                    )
                 ),
             ),
         )
@@ -1405,12 +1439,19 @@ fn exempting(proxy: &ProxyFact) -> Option<String> {
 /// files rather than from this process's environment, because an app launched from Finder
 /// has no environment to read and is the surface most likely to be used on a machine that
 /// needs the answer.
+///
+/// Where Pitboard does not read every layer, it says which it did not read beside that
+/// answer, since a layer it did not read could still set something else.
 fn judge_auth(facts: &Facts) -> Check {
     if facts.auth_overrides.is_empty() {
+        let read = "the stored login, which is what Pitboard moves";
         return ok(
             "auth_source",
             "what a session authenticates with",
-            "the stored login, which is what Pitboard moves",
+            match facts.auth_unread {
+                None => read.to_string(),
+                Some(unread) => format!("{read}, as far as it reads: {unread}"),
+            },
         );
     }
     let named: Vec<String> = facts
@@ -1611,7 +1652,8 @@ fn proxy_named(proxy: &ProxyFact) -> String {
     }
 }
 
-/// How to write the schedule again. There is an app only on macOS.
+/// How to write the schedule again. There is an app only on macOS until the Windows app
+/// ships.
 fn again(os: Os) -> &'static str {
     if has_app(os) {
         "Turn daily renewal off and on again: in the app's Settings, or with \
@@ -1622,11 +1664,12 @@ fn again(os: Os) -> &'static str {
     }
 }
 
-/// Whether Pitboard has an app for `os`, with a Settings window of its own.
+/// Whether Pitboard has an app for `os`, with a Settings window of its own. The Windows app
+/// is still to be written, and says so here once it has its Settings.
 fn has_app(os: Os) -> bool {
     match os {
         Os::MacOs => true,
-        Os::Linux => false,
+        Os::Linux | Os::Windows => false,
     }
 }
 
@@ -1698,7 +1741,8 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
                 format!("file ({setting})  ·  {}", facts.auth_file.display()),
             )
         },
-        // Not a choice: Codex 0.160.0 does not start.
+        // Not a choice: Codex 0.160.0 does not start, or Pitboard does not read where the
+        // store is chosen on this system yet.
         "unknown" => broken(
             "codex_backend",
             "Codex login store",
@@ -1762,8 +1806,11 @@ fn judge_codex(os: Os, facts: &CodexFacts, parks: &[&ParkFact], now: i64) -> Vec
                 format!("{} is {}", facts.auth_file.display(), access.described),
                 format!(
                     "It holds a usable login in plain text, and Codex sets 0600 only when it \
-                     creates the file, never on a later write: `{}`.",
-                    os.make_private_command(Kind::File, &[&facts.auth_file.display().to_string()])
+                     creates the file, never on a later write{}",
+                    running(os.make_private_command(
+                        Kind::File,
+                        &[&facts.auth_file.display().to_string()]
+                    ))
                 ),
             ),
             Some(access) => ok(
@@ -2087,6 +2134,7 @@ mod tests {
             pending_parks: Vec::new(),
             claude_version: Some(crate::provider::claude::assumptions::VERIFIED_AGAINST.into()),
             auth_overrides: Vec::new(),
+            auth_unread: None,
             asking_held: Vec::new(),
             state: Ok(State::default()),
             parks: Vec::new(),
@@ -2118,6 +2166,43 @@ mod tests {
             version: None,
             running: Some(Vec::new()),
         }
+    }
+
+    /// Where Pitboard does not read every layer of Claude Code's settings, as it does not
+    /// read the managed ones on Windows yet, the check says which beside its answer, and
+    /// still passes: nothing it read says anything else.
+    #[test]
+    fn the_auth_check_says_what_it_did_not_read() {
+        let mut facts = facts();
+        assert_eq!(
+            judge_auth(&facts).detail,
+            "the stored login, which is what Pitboard moves"
+        );
+        facts.auth_unread = Some("Claude Code's managed settings are not read on Windows yet");
+        let check = judge_auth(&facts);
+        assert_eq!(check.level, Level::Ok);
+        assert_eq!(
+            check.detail,
+            "the stored login, which is what Pitboard moves, as far as it reads: Claude Code's \
+             managed settings are not read on Windows yet"
+        );
+    }
+
+    /// Advice to make something private ends with the command that does, where Pitboard can
+    /// say one, and with the sentence alone where it cannot, as on Windows until it reads who
+    /// may read a file.
+    #[test]
+    fn advice_names_a_command_only_where_there_is_one() {
+        assert_eq!(
+            running(Os::MacOs.make_private_command(Kind::File, &["/a"])),
+            ": `chmod 600 /a`."
+        );
+        assert_eq!(
+            running(Os::Linux.make_private_command(Kind::Directory, &["/a", "/b"])),
+            ": `chmod 700 /a /b`."
+        );
+        assert_eq!(Os::Windows.make_private_command(Kind::Any, &["/a"]), None);
+        assert_eq!(running(None), ".");
     }
 
     /// Codex's section for a machine with no Codex accounts parked.
@@ -2327,6 +2412,40 @@ mod tests {
         f.backend = Ok(store::Backend::File);
         let checks = evaluate(&f);
         assert_eq!(check(&checks, "storage_v5").level, Level::Ok);
+    }
+
+    /// Claude Code's file is the whole answer only where it has no other store: on Linux. On
+    /// macOS it is a fallback after a keychain write failed, and on Windows Credential
+    /// Manager may hold the login in use instead, which Pitboard does not read yet.
+    #[test]
+    fn a_file_store_is_the_whole_answer_only_on_linux() {
+        let mut f = facts();
+        f.backend = Ok(store::Backend::File);
+        for (os, level, advice) in [
+            (Os::Linux, Level::Ok, ""),
+            (
+                Os::MacOs,
+                Level::Warn,
+                "Claude Code fell back to a file, which means a keychain write failed at some \
+                 point.",
+            ),
+            (
+                Os::Windows,
+                Level::Warn,
+                "Claude Code may keep its login in Credential Manager instead, which Pitboard \
+                 does not read yet.",
+            ),
+        ] {
+            f.os = os;
+            let checks = evaluate(&f);
+            let store = check(&checks, "credential_store");
+            assert_eq!(
+                (store.level, store.advice.as_str()),
+                (level, advice),
+                "{os:?}"
+            );
+            assert!(store.detail.starts_with("plaintext file"), "{os:?}");
+        }
     }
 
     /// The failure that would follow Claude Code moving where it keeps a login: not an

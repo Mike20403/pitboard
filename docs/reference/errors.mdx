@@ -128,6 +128,12 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 | --- | --- | --- | --- |
 | `elevated` | 1 | Pitboard runs as root or with `sudo`, which it tells by `SUDO_UID` being set, or cannot tell whether it does, so it changed nothing. A file it made as root would belong to root, and a keychain item might too. | Run the command as yourself, without `sudo`. See [Pitboard changes nothing as root](/troubleshooting#pitboard-changes-nothing-as-root). |
 
+## Windows
+
+| Code | Exit | Meaning | What to do |
+| --- | --- | --- | --- |
+| `windows_not_released` | 1 | This is a Windows build of Pitboard, and Pitboard for Windows is not released. The build reads and changes nothing. Only `--version`, `--help`, `completions` and `manpage` answer. | Nothing makes this build work. Pitboard runs on macOS and Linux. |
+
 ## Command output
 
 | Code | Exit | Meaning | What to do |

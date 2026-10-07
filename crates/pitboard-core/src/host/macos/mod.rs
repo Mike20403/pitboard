@@ -102,8 +102,8 @@ pub(super) fn current_program() -> std::io::Result<PathBuf> {
 #[cfg(any(test, feature = "test-support"))]
 pub(super) fn pretend_scheduler(
     refuse_start: Arc<std::sync::atomic::AtomicBool>,
-) -> Box<dyn Scheduler> {
-    Box::new(launchd::Launchd::new(Arc::new(service::Pretend {
-        refuse_start,
-    })))
+) -> Option<Box<dyn Scheduler>> {
+    Some(Box::new(launchd::Launchd::new(Arc::new(
+        service::Pretend { refuse_start },
+    ))))
 }

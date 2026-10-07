@@ -598,12 +598,18 @@ mod tests {
     /// `XPC_SERVICE_NAME` or systemd's unit would name it, and by the marker the systemd
     /// unit runs Pitboard with.
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "W25: Task Scheduler, which names the task it starts, and Pitboard's default \
+                  home on Windows (W14)"
+    )]
     fn a_run_the_schedule_started_renews_the_default_home_whatever_pitboard_home_says() {
         use crate::host::{OS, Os};
         use crate::service::Pitboard;
         let job = match OS {
             Os::MacOs => "com.datlechin.pitboard.renew",
             Os::Linux => "pitboard-renew.service",
+            Os::Windows => panic!("W25 names the task Task Scheduler starts for the schedule"),
         };
         type Told = fn(Context, &str) -> Context;
         let ways: [(&str, Told); 2] = [

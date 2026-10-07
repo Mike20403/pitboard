@@ -20,6 +20,7 @@
 //! to be run from is worse than no answer at all.
 
 use crate::context::Context;
+use crate::host::Os;
 use crate::provider::claude::paths as claude;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -53,16 +54,33 @@ impl std::fmt::Display for Override {
     }
 }
 
-/// Where managed settings are, which is a fact about the machine and not about the person.
-fn managed_dir() -> PathBuf {
-    PathBuf::from(match crate::host::OS {
-        crate::host::Os::MacOs => "/Library/Application Support/ClaudeCode",
-        crate::host::Os::Linux => "/etc/claude-code",
-    })
+/// Where managed settings are on `os`, which is a fact about the machine and not about the
+/// person. `None` on Windows, where W17 reads where Claude Code keeps them, until which
+/// [`unread`] says so.
+fn managed_dir(os: Os) -> Option<PathBuf> {
+    match os {
+        Os::MacOs => Some("/Library/Application Support/ClaudeCode".into()),
+        Os::Linux => Some("/etc/claude-code".into()),
+        Os::Windows => None,
+    }
+}
+
+/// What Pitboard does not read of what a session here would authenticate as, where it does
+/// not read everything: on Windows, Claude Code's managed settings, until W17.
+pub(crate) fn unread() -> Option<&'static str> {
+    unread_on(crate::host::OS)
+}
+
+fn unread_on(os: Os) -> Option<&'static str> {
+    managed_dir(os)
+        .is_none()
+        .then_some("Claude Code's managed settings are not read on Windows yet")
 }
 
 fn managed_files() -> Vec<PathBuf> {
-    let dir = managed_dir();
+    let Some(dir) = managed_dir(crate::host::OS) else {
+        return Vec::new();
+    };
     let mut files = vec![dir.join("managed-settings.json")];
     if let Ok(entries) = std::fs::read_dir(dir.join("managed-settings.d")) {
         let mut drop_ins: Vec<PathBuf> = entries
@@ -203,6 +221,18 @@ mod tests {
     use super::tests_support::*;
     use super::*;
     use serde_json::json;
+
+    /// Where Pitboard does not know where Claude Code keeps its managed settings, it says it
+    /// did not read them, rather than that nothing is in the way: on Windows, until W17.
+    #[test]
+    fn managed_settings_are_said_unread_where_pitboard_does_not_read_them() {
+        assert_eq!(unread_on(Os::MacOs), None);
+        assert_eq!(unread_on(Os::Linux), None);
+        assert_eq!(
+            unread_on(Os::Windows),
+            Some("Claude Code's managed settings are not read on Windows yet")
+        );
+    }
 
     #[test]
     fn an_ordinary_machine_has_nothing_in_the_way() {

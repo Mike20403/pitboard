@@ -23,14 +23,26 @@
 //! finishes an interrupted one before starting another.
 
 // Pitboard for Windows is being built, and reaches people only once the command line, the
-// app, their installers and their docs are done. Until then a release says so on Windows,
-// in the words the Windows build will use when it refuses, rather than compile there.
-#[cfg(windows)]
-compile_error!("Pitboard for Windows is not released yet.");
+// app, their installers and their docs are done. Until then a Windows build of a release
+// compiles and refuses everything at run time (`release`). It compiles only for the two
+// targets its builds are made and tested on: an x64 or ARM64 PC with the MSVC toolchain.
+// A 32-bit, GNU, UWP or Arm64EC build is another program nobody has run.
+#[cfg(all(
+    windows,
+    not(all(
+        target_vendor = "pc",
+        target_env = "msvc",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))
+))]
+compile_error!(
+    "Pitboard for Windows is built for x86_64-pc-windows-msvc and aarch64-pc-windows-msvc \
+     alone, the targets it is built and tested on."
+);
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 compile_error!(
-    "Pitboard runs on macOS and Linux. Another system needs a host of its own in \
+    "Pitboard runs on macOS, Linux and Windows. Another system needs a host of its own in \
      `host/`, saying where its stores, processes and scheduler are."
 );
 
@@ -45,6 +57,7 @@ pub mod error;
 pub mod label;
 pub mod provider;
 pub mod redact;
+pub mod release;
 pub mod schedule;
 pub mod service;
 pub mod settings;

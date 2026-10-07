@@ -219,6 +219,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "W16: Pitboard's locks on Windows")]
     fn acquires_and_releases() {
         let t = scratch("basic");
         let lock = t.with_extension("").parent().unwrap().join("target.lock");

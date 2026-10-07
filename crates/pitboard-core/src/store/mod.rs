@@ -8,8 +8,9 @@ mod file;
 #[cfg(any(test, feature = "test-support"))]
 pub mod memory;
 // macOS parks in the login keychain, so there nothing outside the tests opens a vault of
-// files; every other system parks in one.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+// files; Linux parks in one. Windows parks nowhere until W20 seals each park to the person,
+// in files of its own kind, so nothing opens this vault there either.
+#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
 pub(crate) mod vault;
 
 pub(crate) use file::PlainFile;
@@ -28,6 +29,10 @@ pub enum Backend {
     Keychain,
     File,
     Absent,
+    /// A store nobody can say anything of yet, since the part of Pitboard that would read it
+    /// is not written: on Windows, until each of its stores is. Kept, with its code, once
+    /// they are.
+    Unknown,
 }
 
 impl Backend {
@@ -36,7 +41,53 @@ impl Backend {
             Backend::Keychain => "keychain",
             Backend::File => "file",
             Backend::Absent => "absent",
+            Backend::Unknown => "unknown",
         }
+    }
+}
+
+/// A store the part of Pitboard that would read or write it is not written for yet. Every
+/// call says it cannot be read, and why, which no caller takes for a store with nothing in
+/// it: an empty answer would say a login is gone.
+pub(crate) struct Unbuilt {
+    kind: Backend,
+    why: &'static str,
+}
+
+impl Unbuilt {
+    /// One of `kind`, every call to which says `why`.
+    pub(crate) fn new(kind: Backend, why: &'static str) -> Unbuilt {
+        Unbuilt { kind, why }
+    }
+
+    fn refused<T>(&self) -> Result<T, Error> {
+        Err(Error::Unreadable(self.why.into()))
+    }
+}
+
+impl RawStore for Unbuilt {
+    fn kind(&self) -> Backend {
+        self.kind
+    }
+
+    fn contains(&self, _service: &str) -> Result<bool, Error> {
+        self.refused()
+    }
+
+    fn read(&self, _service: &str) -> Result<Option<String>, Error> {
+        self.refused()
+    }
+
+    fn write(&self, _: Permit, _service: &str, _contents: &str) -> Result<(), Error> {
+        self.refused()
+    }
+
+    fn delete(&self, _: Permit, _service: &str) -> Result<(), Error> {
+        self.refused()
+    }
+
+    fn list(&self) -> Result<Option<Vec<String>>, Error> {
+        self.refused()
     }
 }
 
@@ -401,6 +452,31 @@ mod tests {
             None,
             "could-not-tell must never be read as nothing-there"
         );
+    }
+
+    /// A store the part of Pitboard that would read it is not written for answers every call
+    /// as one that cannot be read, saying why, and never as one with nothing in it; a chain
+    /// of it alone resolves to that, never to absent.
+    #[test]
+    fn a_store_not_built_yet_cannot_be_read() {
+        let store = Unbuilt::new(Backend::Unknown, "not built yet");
+        let unreadable = |answer: Result<String, Error>| match answer {
+            Err(Error::Unreadable(why)) => assert_eq!(why, "not built yet"),
+            other => panic!("{other:?}"),
+        };
+        let permit = Permit::for_a_test();
+        assert_eq!(store.kind(), Backend::Unknown);
+        unreadable(store.contains("svc").map(|c| c.to_string()));
+        unreadable(store.read("svc").map(|r| format!("{r:?}")));
+        unreadable(store.write(permit, "svc", "x").map(|()| String::new()));
+        unreadable(store.delete(permit, "svc").map(|()| String::new()));
+        unreadable(store.list().map(|l| format!("{l:?}")));
+        assert_eq!(store.cost("svc", "x"), None);
+        let live = Live::of(vec![Box::new(Unbuilt::new(
+            Backend::Unknown,
+            "not built yet",
+        ))]);
+        unreadable(resolve(&live, "svc").map(|b| b.name().to_string()));
     }
 
     #[test]

@@ -396,6 +396,8 @@ mod tests {
                 "Homebrew on Apple silicon and on Intel"
             ),
             Os::Linux => assert!(OS.package_bins().is_empty()),
+            // Until W17 reads where winget, Scoop and npm put programs.
+            Os::Windows => assert!(OS.package_bins().is_empty()),
         }
     }
 
@@ -503,7 +505,9 @@ mod tests {
         let looked = looked.into_inner();
         let kept: &[&str] = match OS {
             Os::MacOs => &["/Users/x/Documentsbin", "/usr/bin"],
-            Os::Linux => &entries,
+            // Neither passes over a folder: Linux asks nothing, and which folders Windows
+            // asks about, if any, W17 reads.
+            Os::Linux | Os::Windows => &entries,
         };
         let places = ProviderId::Claude.install_places(Path::new("/Users/x"));
         let claude: Vec<PathBuf> = kept
@@ -539,7 +543,8 @@ mod tests {
         };
         let inside = |app: &str| match OS {
             Os::MacOs => Some(PathBuf::from(format!("{app}/Contents/Helpers/pitboard"))),
-            Os::Linux => None,
+            // No app runs on Linux, and the Windows app does not say where its own is yet.
+            Os::Linux | Os::Windows => None,
         };
         for app in [
             "/Applications/Pitboard.app",

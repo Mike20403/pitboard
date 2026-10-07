@@ -50,6 +50,8 @@ pub(crate) fn this_machine(os: Os) -> &'static str {
         Os::MacOs => "this Mac",
         // No app runs on Linux.
         Os::Linux => "this computer",
+        // As Windows 11 names the machine in its own Settings and File Explorer.
+        Os::Windows => "this PC",
     }
 }
 
@@ -57,9 +59,12 @@ pub(crate) fn this_machine(os: Os) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Each system's machine is called what the system calls it: a Mac, and a PC on
+    /// Windows, as the owner decided.
     #[test]
-    fn a_mac_is_called_one() {
+    fn a_machine_is_called_what_its_system_calls_it() {
         assert_eq!(this_machine(Os::MacOs), "this Mac");
         assert_eq!(this_machine(Os::Linux), "this computer");
+        assert_eq!(this_machine(Os::Windows), "this PC");
     }
 }

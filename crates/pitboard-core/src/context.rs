@@ -117,6 +117,13 @@ impl Environment {
     }
 
     /// Every variable, as a program started in this environment is given them.
+    #[cfg_attr(
+        windows,
+        allow(
+            dead_code,
+            reason = "what the login shell is given, and Windows has none (`host::login_path`)"
+        )
+    )]
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
         self.0
             .iter()

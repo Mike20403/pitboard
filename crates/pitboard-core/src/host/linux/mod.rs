@@ -112,10 +112,10 @@ fn started_as(
 #[cfg(any(test, feature = "test-support"))]
 pub(super) fn pretend_scheduler(
     refuse_start: Arc<std::sync::atomic::AtomicBool>,
-) -> Box<dyn Scheduler> {
-    Box::new(systemd::Systemd::new(Arc::new(service::Pretend {
-        refuse_start,
-    })))
+) -> Option<Box<dyn Scheduler>> {
+    Some(Box::new(systemd::Systemd::new(Arc::new(
+        service::Pretend { refuse_start },
+    ))))
 }
 
 #[cfg(test)]

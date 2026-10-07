@@ -1,0 +1,7 @@
+# Every text file is checked out with LF endings on every system. Git on a Windows runner
+# has core.autocrlf=true, which would otherwise give the snapshots in
+# crates/pitboard/tests/snapshots and every file a test reads with include_str! CRLF endings,
+# and fail them there alone. Windows' own command scripts keep the CRLF that cmd.exe expects.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
