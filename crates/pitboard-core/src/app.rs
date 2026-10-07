@@ -267,6 +267,7 @@ pub fn write_app_file(ctx: &Context, permit: Permit, file: AppFile, body: &str) 
 mod tests {
     use super::*;
     use crate::host::Os;
+    use crate::host::fs::testing;
     use std::cell::RefCell;
 
     fn env(pairs: &[(&str, &str)]) -> Environment {
@@ -587,7 +588,7 @@ mod tests {
             std::fs::create_dir_all(at.parent().expect("its directory")).expect("a directory");
             std::fs::write(at, "#!/bin/sh\n").expect("a program");
             if runnable {
-                crate::host::fs::testing::make_runnable(at);
+                testing::make_runnable(at).expect("runnable");
             }
         }
     }
@@ -610,19 +611,19 @@ mod tests {
         let plain = scratch.dir("plain");
         scratch.program(&plain.join("pitboard"), false);
         let dangling = scratch.dir("dangling");
-        crate::host::fs::testing::link(
-            &scratch.0.join("gone/pitboard"),
-            &dangling.join("pitboard"),
-        );
+        testing::link(&scratch.0.join("gone/pitboard"), &dangling.join("pitboard"))
+            .expect("a link to nothing");
         let brew = scratch.dir("brew/bin");
-        crate::host::fs::testing::link(
+        testing::link(
             Path::new("../../Fake.app/Contents/Helpers/pitboard"),
             &brew.join("pitboard"),
-        );
+        )
+        .expect("a link as Homebrew makes one");
         let cargo = scratch.dir("cargo/bin");
         scratch.program(&cargo.join("pitboard"), true);
         let helpers = scratch.0.join("helpers");
-        crate::host::fs::testing::link(scratch.helper().parent().expect("Helpers"), &helpers);
+        testing::link_dir(scratch.helper().parent().expect("Helpers"), &helpers)
+            .expect("a link to a directory");
 
         let own = scratch.helper();
         let find = |dirs: &[&PathBuf], helper: Option<&Path>| {
@@ -712,14 +713,16 @@ mod tests {
         write_app_file(&ctx, Permit::for_a_test(), AppFile::Told, "{}").expect("kept again");
         assert_eq!(read(AppFile::Told).as_deref(), Some("{}"));
         assert_eq!(read(AppFile::Preferences).as_deref(), Some("{}"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode =
-                |path: &Path| std::fs::metadata(path).expect("there").permissions().mode() & 0o777;
-            assert_eq!(mode(&root.join(".pitboard")), 0o700);
-            assert_eq!(mode(&root.join(".pitboard").join("told.json")), 0o600);
-            assert_eq!(mode(&root.join(".pitboard").join("app.json")), 0o600);
+        for kept in [
+            root.join(".pitboard"),
+            root.join(".pitboard").join("told.json"),
+            root.join(".pitboard").join("app.json"),
+        ] {
+            assert!(
+                testing::is_private(&kept).expect("there"),
+                "{}",
+                kept.display()
+            );
         }
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -760,13 +763,12 @@ mod tests {
             read_file(&file).expect("read").as_deref(),
             Some(r#"{"stores":{}}"#)
         );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode =
-                |path: &Path| std::fs::metadata(path).expect("there").permissions().mode() & 0o777;
-            assert_eq!(mode(file.parent().expect("its directory")), 0o700);
-            assert_eq!(mode(&file), 0o600);
+        for kept in [file.parent().expect("its directory"), file.as_path()] {
+            assert!(
+                testing::is_private(kept).expect("there"),
+                "{}",
+                kept.display()
+            );
         }
         std::fs::write(&file, [0xff, 0xfe, 0x00]).expect("a file that is not text");
         assert!(read_file(&file).is_err());

@@ -23,6 +23,7 @@ use pitboard_core::context::Context;
 use pitboard_core::provider::ProviderId;
 use pitboard_core::service;
 use pitboard_core::state::Key;
+use pitboard_core::testing::fs as files;
 use pitboard_core::testing::{Fault, FixedClock, MemoryHost, ScriptedApi, live_service};
 use pitboard_core::usage;
 use serde_json::json;
@@ -732,10 +733,11 @@ fn install(machine: &Machine, tools: &[ProviderId]) -> Result<(), Unmade> {
     Ok(())
 }
 
-/// A file at `path` holding `contents` that only its owner can read or write.
+/// A file at `path` holding `contents` that only its owner can read or write, as Codex leaves
+/// its login.
 fn private_file(path: &Path, contents: &str) -> Result<(), Unmade> {
     std::fs::write(path, contents)?;
-    with_mode(path, 0o600)
+    Ok(files::make_private(path)?)
 }
 
 /// A program at `path` that refuses to do anything.
@@ -744,21 +746,7 @@ fn never_run(path: &Path) -> Result<(), Unmade> {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(path, "#!/bin/sh\nexit 64\n")?;
-    with_mode(path, 0o755)
-}
-
-/// Gives the file at `path` the Unix `mode`. Only a Unix file has one: the core has no host
-/// for any other system yet, so what stands in for a mode there is for the change that gives
-/// it one to say, and until then the file keeps what it was made with.
-fn with_mode(path: &Path, mode: u32) -> Result<(), Unmade> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
-    }
-    #[cfg(not(unix))]
-    let _ = (path, mode);
-    Ok(())
+    Ok(files::make_runnable(path)?)
 }
 
 /// Puts `world`'s accounts on `machine`, each as a person would have put it there.
@@ -897,7 +885,7 @@ fn codex_parked(machine: &Machine) -> Result<(), Unmade> {
 /// none to give it: there, the world is not made, rather than made otherwise than its name
 /// says.
 fn unreadable_index(machine: &Machine) -> Result<(), Unmade> {
-    with_mode(&machine.home().join(".pitboard").join("state.json"), 0o000)?;
+    files::deny_reading(&machine.home().join(".pitboard").join("state.json"))?;
     match service::Pitboard::new(machine.base.clone()).status_offline() {
         Err(error) if error.code() == "state_unreadable" => Ok(()),
         Err(error) => Err(Unmade(format!(

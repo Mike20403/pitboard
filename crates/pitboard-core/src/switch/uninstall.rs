@@ -127,13 +127,13 @@ mod tests {
             let dir = schedule::path(&m.ctx)
                 .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
                 .expect("where the scheduler keeps it");
-            testing::deny_changes(&dir);
+            testing::deny_changes(&dir).expect("read-only");
             let refused = uninstall(
                 settle(&m.ctx, Permit::for_a_test(), None)
                     .expect("nothing to recover")
                     .0,
             );
-            testing::allow_changes(&dir);
+            testing::allow_changes(&dir).expect("changeable again");
 
             let Err(error) = refused else {
                 panic!("{:?}: uninstalled with the schedule still there", m.which);

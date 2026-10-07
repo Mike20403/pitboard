@@ -954,7 +954,7 @@ fn a_launch_keeps_its_command_line_in_its_own_folder() {
     #[cfg(unix)]
     {
         let link = launched.machine.bin().join("pitboard");
-        std::os::unix::fs::symlink(launched.machine.helper(), &link).expect("linked");
+        pitboard_core::testing::fs::link(&launched.machine.helper(), &link).expect("linked");
         assert_eq!(
             core.command_line(),
             FoundCommandLine::Bundled {

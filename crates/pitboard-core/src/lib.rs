@@ -76,6 +76,10 @@ pub(crate) mod store;
 #[doc(hidden)]
 pub mod testing {
     pub use crate::api::scripted::{Answer, Asked, ScriptedApi, Trouble};
+    /// What a test or a fixture does to a file's access, or to make a link, which only this
+    /// system's face says how to do: the integration tests and the apps' fixtures do it here,
+    /// as the core's own tests do.
+    pub use crate::host::fs::testing as fs;
     pub use crate::host::memory::MemoryHost;
     pub use crate::provider::claude::paths::live_service;
     pub use crate::provider::claude::slot::{LIVE_SERVICE, dir_hash, service_for_dir};

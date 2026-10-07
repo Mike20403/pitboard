@@ -246,6 +246,9 @@ fn a_codex_sign_in_without_codex_says_so_first() {
 ///
 /// Driven through the library, the way the app drives it: the command line looks for a
 /// program on its own `PATH`, where its directory always is.
+///
+/// npm's layout on macOS and Linux. Its Windows counterpart, a `codex.cmd` shim, is W13's.
+#[cfg(unix)]
 #[test]
 fn an_npm_installed_codex_signs_in_from_a_path_without_its_directory() {
     let env = Env::new("codex-npm");

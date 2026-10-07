@@ -8,6 +8,11 @@
 // does not use one of these helpers would otherwise warn about it.
 #![allow(dead_code)]
 
+pub mod os;
+
+use os::Kept;
+use pitboard_core::testing::fs as files;
+
 /// Write a program a test then runs, and make it runnable.
 ///
 /// A separate process writes it, so this process never holds the file open for writing.
@@ -356,20 +361,19 @@ impl Env {
     pub fn install_fake_claude(&self, credential: &str) {
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let store = if cfg!(target_os = "macos") {
-            format!(
+        let store = match os::claude_code_login() {
+            Kept::InKeychain => format!(
                 r#"hash=$(printf %s "$CLAUDE_CONFIG_DIR" | shasum -a 256 | cut -c1-8)
 /usr/bin/security add-generic-password -U -a "{account}" -s "Claude Code-credentials-$hash" -w '{credential}'"#,
                 account = account(),
-            )
-        } else {
+            ),
             // 0600, and by the same route Claude Code takes: write, then chmod. A shim
             // that leaves the umask to decide writes a login anybody can read, which
             // `doctor` is right to fail on and which Claude Code does not do.
-            format!(
+            Kept::InFile => format!(
                 r#"printf %s '{credential}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
 chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
-            )
+            ),
         };
         write_program(
             &bin.join("claude"),
@@ -381,34 +385,34 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         );
     }
 
-    /// Park a login where the binary under test will look for it. On macOS that is the
-    /// keychain; elsewhere it is this test's own Pitboard home, never the machine's.
+    /// Park a login where the binary under test will look for it: the keychain where
+    /// Pitboard parks there, and otherwise this test's own Pitboard home, never the
+    /// machine's.
     pub fn write_park(&self, service: &str, contents: &str) {
         guard_not_live(service);
-        if cfg!(target_os = "macos") {
-            pitboard_core::testing::vault_write(&ctx(), service, contents).unwrap();
-        } else {
-            // The modes Pitboard's own file vault writes, for the same reason: a parked
+        match os::parked_login() {
+            Kept::InKeychain => {
+                pitboard_core::testing::vault_write(&ctx(), service, contents).unwrap();
+            }
+            // The access Pitboard's own file vault gives, for the same reason: a parked
             // login is a plaintext token and `doctor` fails on one anybody can read.
-            use std::os::unix::fs::PermissionsExt;
-            let vault = self.root.join("pitboard/vault");
-            std::fs::create_dir_all(&vault).unwrap();
-            std::fs::set_permissions(&vault, std::fs::Permissions::from_mode(0o700)).unwrap();
-            let path = vault.join(format!("{service}.json"));
-            std::fs::write(&path, contents).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            Kept::InFile => {
+                let vault = self.root.join("pitboard/vault");
+                os::create_private_dir(&vault);
+                os::write_private(&vault.join(format!("{service}.json")), contents);
+            }
         }
     }
 
     pub fn is_parked(&self, service: &str) -> bool {
-        if cfg!(target_os = "macos") {
-            pitboard_core::testing::vault_read(&ctx(), service)
+        match os::parked_login() {
+            Kept::InKeychain => pitboard_core::testing::vault_read(&ctx(), service)
                 .unwrap()
-                .is_some()
-        } else {
-            self.root
+                .is_some(),
+            Kept::InFile => self
+                .root
                 .join(format!("pitboard/vault/{service}.json"))
-                .exists()
+                .exists(),
         }
     }
 
@@ -421,10 +425,14 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// switch. Never caught, because CI's Linux leg was being cancelled by a lint failure
     /// before it got this far.
     pub fn delete_park(&self, service: &str) {
-        if cfg!(target_os = "macos") {
-            let _ = pitboard_core::testing::vault_delete(&ctx(), service);
-        } else {
-            let _ = std::fs::remove_file(self.root.join(format!("pitboard/vault/{service}.json")));
+        match os::parked_login() {
+            Kept::InKeychain => {
+                let _ = pitboard_core::testing::vault_delete(&ctx(), service);
+            }
+            Kept::InFile => {
+                let _ =
+                    std::fs::remove_file(self.root.join(format!("pitboard/vault/{service}.json")));
+            }
         }
     }
 
@@ -432,10 +440,13 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// it, and nothing else changed.
     pub fn sign_out(&self) {
         guard_not_live(&self.service);
-        if cfg!(target_os = "macos") {
-            let _ = pitboard_core::testing::vault_delete(&ctx(), &self.service);
-        } else {
-            let _ = std::fs::remove_file(self.live_path());
+        match os::claude_code_login() {
+            Kept::InKeychain => {
+                let _ = pitboard_core::testing::vault_delete(&ctx(), &self.service);
+            }
+            Kept::InFile => {
+                let _ = std::fs::remove_file(self.live_path());
+            }
         }
     }
 
@@ -527,10 +538,7 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// signed by nothing, and nothing in Pitboard checks a signature: it reads the claims.
     pub fn sign_in_codex(&self, account: &str, email: &str, refresh: &str) {
         let login = codex_login(account, email, refresh);
-        use std::os::unix::fs::PermissionsExt;
-        let path = self.codex_home().join("auth.json");
-        std::fs::write(&path, login.to_string()).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        os::write_private(&self.codex_home().join("auth.json"), &login.to_string());
     }
 
     /// Stand in for `codex login`: signs `login` into whichever `CODEX_HOME` it is run with,
@@ -553,6 +561,11 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// Here that is `fakenode`, which runs the script with `sh`, so a real `node` on this
     /// machine can never be the one found: the script starts only where `PATH` has its
     /// prefix's `bin`.
+    ///
+    /// The layout npm makes on macOS and Linux alone. On Windows npm puts a `codex.cmd`
+    /// shim in the prefix instead, which W13 of the Windows work lays out as a fixture of its
+    /// own.
+    #[cfg(unix)]
     pub fn install_fake_npm_codex_login(&self, login: &serde_json::Value) -> PathBuf {
         let prefix = self.root.join("npm");
         let bin = prefix.join("bin");
@@ -566,8 +579,11 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         );
         let program = bin.join("codex");
         let _ = std::fs::remove_file(&program);
-        std::os::unix::fs::symlink("../lib/node_modules/@openai/codex/bin/codex.js", &program)
-            .unwrap();
+        files::link(
+            Path::new("../lib/node_modules/@openai/codex/bin/codex.js"),
+            &program,
+        )
+        .unwrap();
         program
     }
 
@@ -580,14 +596,11 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// Sign Codex in with an API key rather than an account, the way `codex login
     /// --with-api-key` leaves it. The key is made up.
     pub fn sign_in_codex_with_an_api_key(&self) {
-        use std::os::unix::fs::PermissionsExt;
         let login = serde_json::json!({
             "auth_mode": "apikey",
             "OPENAI_API_KEY": "sk-not-a-real-key",
         });
-        let path = self.codex_home().join("auth.json");
-        std::fs::write(&path, login.to_string()).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        os::write_private(&self.codex_home().join("auth.json"), &login.to_string());
     }
 
     /// Put a `codex` of this test's own first on `PATH`, laid out the way Codex's standalone
@@ -611,7 +624,7 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         std::fs::create_dir_all(&bin).unwrap();
         let link = bin.join("codex");
         let _ = std::fs::remove_file(&link);
-        std::os::unix::fs::symlink(&installed, &link).unwrap();
+        files::link(&installed, &link).unwrap();
     }
 
     /// Make the fake OpenAI answer what a Codex login has left: a five-hour window and a
@@ -645,8 +658,8 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         self.mocks.push(mock);
     }
 
-    /// Where this platform's Claude Code keeps the live credential: the keychain slot on
-    /// macOS, and `.credentials.json` in the config directory everywhere else.
+    /// Where Claude Code keeps the live credential where it keeps it in a file:
+    /// `.credentials.json` in the config directory.
     fn live_path(&self) -> PathBuf {
         self.root.join(".credentials.json")
     }
@@ -654,14 +667,18 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     /// Replaces the live credential document, for a test that needs it to be a particular
     /// shape rather than whatever a sign-in produced.
     ///
-    /// Written the way Claude Code writes a large one, through `security`'s argument line,
-    /// because Pitboard itself refuses to and that refusal is what some of these tests are
-    /// about. The item is this test's own, guarded like every other write here.
+    /// In the keychain, written the way Claude Code writes a large one, through `security`'s
+    /// argument line, because Pitboard itself refuses to and that refusal is what some of
+    /// these tests are about. The item is this test's own, guarded like every other write
+    /// here.
     pub fn replace_live(&self, credential: &serde_json::Value) {
         let body = credential.to_string();
-        if !cfg!(target_os = "macos") {
-            self.write_live(&body);
-            return;
+        match os::claude_code_login() {
+            Kept::InKeychain => {}
+            Kept::InFile => {
+                self.write_live(&body);
+                return;
+            }
         }
         guard_not_live(&self.service);
         let done = Command::new(SECURITY)
@@ -684,27 +701,24 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     }
 
     fn write_live(&self, credential: &str) {
-        if cfg!(target_os = "macos") {
-            pitboard_core::testing::vault_write(&ctx(), &self.service, credential).unwrap();
-        } else {
-            // 0600, because that is what Claude Code writes: it chmods the plaintext
+        match os::claude_code_login() {
+            Kept::InKeychain => {
+                pitboard_core::testing::vault_write(&ctx(), &self.service, credential).unwrap();
+            }
+            // Private, because that is what Claude Code writes: it chmods the plaintext
             // credential after writing it, and a stand-in that leaves the umask to decide
             // is a stand-in for something else. `doctor` reads these modes and fails on a
             // login anybody can read, which is how this was found.
-            use std::os::unix::fs::PermissionsExt;
-            let path = self.live_path();
-            std::fs::write(&path, credential).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            Kept::InFile => os::write_private(&self.live_path(), credential),
         }
     }
 
     pub fn live(&self) -> serde_json::Value {
-        let raw = if cfg!(target_os = "macos") {
-            pitboard_core::testing::vault_read(&ctx(), &self.service)
+        let raw = match os::claude_code_login() {
+            Kept::InKeychain => pitboard_core::testing::vault_read(&ctx(), &self.service)
                 .unwrap()
-                .unwrap()
-        } else {
-            std::fs::read_to_string(self.live_path()).unwrap()
+                .unwrap(),
+            Kept::InFile => std::fs::read_to_string(self.live_path()).unwrap(),
         };
         serde_json::from_str(&raw).unwrap()
     }
@@ -737,49 +751,65 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     }
 }
 
-impl Drop for Env {
-    fn drop(&mut self) {
-        // Off macOS every credential this harness created lives under `root`, which the
-        // final line removes. On macOS they are keychain items and must be deleted by name.
-        if cfg!(target_os = "macos")
-            && let Ok(state) = std::fs::read_to_string(self.root.join("pitboard/state.json"))
-            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&state)
-        {
+impl Env {
+    /// Every park this test's Pitboard names: in its account index, parked or discarded, and
+    /// in the record of a switch left interrupted, which names its parks there and nowhere
+    /// else.
+    fn parks_named(&self) -> Vec<String> {
+        let read = |name: &str| {
+            std::fs::read_to_string(self.root.join("pitboard").join(name))
+                .ok()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        };
+        let mut named = Vec::new();
+        if let Some(v) = read("state.json") {
             let parked = v["accounts"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .map(|a| &a["parked"]["service"])
                 .chain(v["discarded"].as_array().into_iter().flatten());
-            for s in parked.filter_map(serde_json::Value::as_str) {
-                let _ = Command::new(SECURITY)
-                    .args(["delete-generic-password", "-a", &account(), "-s", s])
-                    .output();
-            }
+            named.extend(
+                parked
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_owned),
+            );
         }
-        // A switch left interrupted names its parks in its record and nowhere else, so a
-        // test that fails before settling it would otherwise leave them in the keychain.
-        if cfg!(target_os = "macos")
-            && let Ok(record) = std::fs::read_to_string(self.root.join("pitboard/journal.json"))
-            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&record)
-        {
-            let named = [&v["park_service"], &v["incoming_service"]];
-            for s in named.into_iter().filter_map(serde_json::Value::as_str) {
-                let _ = Command::new(SECURITY)
-                    .args(["delete-generic-password", "-a", &account(), "-s", s])
-                    .output();
-            }
+        if let Some(v) = read("journal.json") {
+            let recorded = [&v["park_service"], &v["incoming_service"]];
+            named.extend(
+                recorded
+                    .into_iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_owned),
+            );
         }
-        if cfg!(target_os = "macos") {
-            let _ = Command::new(SECURITY)
-                .args([
-                    "delete-generic-password",
-                    "-a",
-                    &account(),
-                    "-s",
-                    &self.service,
-                ])
-                .output();
+        named
+    }
+}
+
+/// Deletes the keychain item `service` under this test's account, if it is there.
+fn delete_keychain_item(service: &str) {
+    let _ = Command::new(SECURITY)
+        .args(["delete-generic-password", "-a", &account(), "-s", service])
+        .output();
+}
+
+impl Drop for Env {
+    fn drop(&mut self) {
+        // A login kept in a file lives under `root`, which the final line removes. One kept
+        // in the keychain outlives it, and is deleted by name.
+        match os::parked_login() {
+            Kept::InKeychain => {
+                for service in self.parks_named() {
+                    delete_keychain_item(&service);
+                }
+            }
+            Kept::InFile => {}
+        }
+        match os::claude_code_login() {
+            Kept::InKeychain => delete_keychain_item(&self.service),
+            Kept::InFile => {}
         }
         let _ = std::fs::remove_dir_all(&self.root);
     }

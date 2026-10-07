@@ -698,7 +698,6 @@ fn every_command_refuses_a_home_that_is_not_a_full_path() {
 #[cfg(target_os = "linux")]
 #[test]
 fn no_build_for_tests_asks_the_systems_service_manager() {
-    use std::os::unix::fs::PermissionsExt;
     let env = two_accounts("no-service-manager");
     let asked = env.root.join("systemctl-was-asked");
     let systemctl = env.root.join("bin/systemctl");
@@ -708,7 +707,7 @@ fn no_build_for_tests_asks_the_systems_service_manager() {
         format!("#!/bin/sh\necho \"$@\" >> '{}'\n", asked.display()),
     )
     .expect("a stand-in");
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).expect("runnable");
+    pitboard_core::testing::fs::make_runnable(&systemctl).expect("runnable");
     let home = env.root.join("home");
     std::fs::create_dir_all(&home).expect("a home of the test's own");
 

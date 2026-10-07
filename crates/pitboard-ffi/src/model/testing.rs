@@ -1128,7 +1128,7 @@ impl World {
             .root
             .join(dir)
             .join("Pitboard.app/Contents/Helpers/pitboard");
-        a_program_at(&helper, 0o755);
+        a_program_at(&helper);
         self.ctx = self.ctx.clone().with_schedule_program(helper.clone());
         self.helper = Some(helper.clone());
         helper
@@ -1620,15 +1620,13 @@ fn whether_the_stand_in_runs_is_answered_once_it_has_written_its_process_id() {
     writing.join().expect("the writer");
 }
 
-/// A program at `path`, made with `mode`, with the directories it needs.
+/// A program at `path` that anybody may run, with the directories it needs.
 #[cfg(unix)]
-pub(super) fn a_program_at(path: &std::path::Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
+pub(super) fn a_program_at(path: &std::path::Path) {
     let dir = path.parent().expect("a program's directory");
     std::fs::create_dir_all(dir).expect("a scratch directory");
     std::fs::write(path, "#!/bin/sh\n").expect("a program");
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .expect("a program's mode");
+    pitboard_core::testing::fs::make_runnable(path).expect("a program's mode");
 }
 
 fn epoch_now() -> i64 {

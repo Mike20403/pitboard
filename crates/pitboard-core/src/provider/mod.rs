@@ -764,7 +764,7 @@ mod tests {
             for &tool in ProviderId::ALL {
                 let program = bin.join(tool.program());
                 std::fs::write(&program, "").expect("a program");
-                crate::host::fs::testing::make_runnable(&program);
+                crate::host::fs::testing::make_runnable(&program).expect("runnable");
             }
             Prefix(root)
         }
