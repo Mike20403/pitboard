@@ -14,6 +14,7 @@ use crate::{
     Adoption, AppCore, Enrolled, EnrolledAs, FoundCommandLine, PitboardError, Schedule, Status,
     Switch,
 };
+use pitboard_core::provider::{self, ProviderId};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -470,7 +471,7 @@ fn a_claude_code_sign_in_waits_for_the_code_and_then_parks_the_account() {
             break;
         }
     }
-    let shown = crate::sign_in_view("claude".into(), said, false);
+    let shown = provider::sign_in_view(ProviderId::Claude, &said, false);
     assert_eq!(shown.url.as_deref(), Some(CLAUDE_ADDRESS));
     assert!(shown.wants_code);
 
@@ -610,7 +611,7 @@ fn a_codex_sign_in_finishes_by_itself() {
     while let Some(line) = session.next_line() {
         said.push_str(&line);
     }
-    let shown = crate::sign_in_view("codex".into(), said, false);
+    let shown = provider::sign_in_view(ProviderId::Codex, &said, false);
     assert_eq!(shown.url.as_deref(), Some(CODEX_ADDRESS));
     assert!(!shown.wants_code);
 

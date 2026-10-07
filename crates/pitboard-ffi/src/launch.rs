@@ -6,11 +6,12 @@
 //!
 //! What the core answers is said in records of the bindings where a snapshot shows it, such
 //! as `Status` and `Abandoned`, and in the types here where only the model reads it, such as
-//! what a switch or an enrolment came to and why something failed.
+//! what a switch, an enrolment or a renewal came to, doctor's checks, and why something
+//! failed.
 
 use crate::{
-    Abandoned, Account, Check, FoundCommandLine, Level, Limit, Parked, Renewed, Schedule, Source,
-    Status, Tool, Usage, Warning, found_command_line, tool,
+    Abandoned, Account, FoundCommandLine, Level, Limit, Parked, Schedule, Source, Status, Tool,
+    Usage, Warning, found_command_line, tool,
 };
 use pitboard_core::app::AppContext;
 use pitboard_core::context::Environment;
@@ -178,6 +179,29 @@ pub(crate) struct Enrolled {
     pub(crate) email: String,
     pub(crate) outcome: EnrolledAs,
     pub(crate) warnings: Vec<Warning>,
+}
+
+/// What renewing every due parked login came to, one for each. A snapshot says what the run
+/// did in one sentence, `renewal_note`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Renewed {
+    /// As a person types it: bare for Claude Code, `codex/work` for Codex.
+    pub(crate) label: String,
+    /// Which tool's login it is.
+    pub(crate) provider: String,
+    /// `renewed`, `renewal_deferred`, `parked_login_refused`, or the code of a failure.
+    pub(crate) outcome: String,
+}
+
+/// One of doctor's checks. A snapshot shows each as a `CheckLine`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Check {
+    pub(crate) code: String,
+    pub(crate) name: String,
+    pub(crate) level: Level,
+    pub(crate) detail: String,
+    /// Empty when there is nothing to do.
+    pub(crate) advice: String,
 }
 
 fn enrolled(enrolled: switch::Enrolled, warnings: Vec<Warning>) -> Enrolled {
@@ -353,9 +377,10 @@ pub(crate) struct Made {
     /// none, such as a build run from a build directory. The core schedules the program
     /// asking where none is named, and that is the app, which renews nothing.
     pub(crate) helper: Option<PathBuf>,
-    /// Where each way of installing Pitboard puts `pitboard`, as `command_line_places` gives
-    /// them for the app's home: under it, and where the system's package managers put
-    /// programs. Looked in after the login shell's `PATH` for the one a terminal would run.
+    /// Where each way of installing Pitboard puts `pitboard`, as the core's
+    /// `command_line_places` gives them for the app's home: under it, and where the system's
+    /// package managers put programs. Looked in after the login shell's `PATH` for the one a
+    /// terminal would run.
     pub(crate) command_line_places: Vec<PathBuf>,
 }
 
@@ -588,10 +613,10 @@ impl AppCore {
         }
     }
 
-    /// The first `pitboard` a terminal would run, as `find_command_line` finds it: on the
-    /// login shell's `PATH`, then where each way of installing Pitboard puts it, and whether
-    /// it is the one inside this copy of the app. Looks along a search path, and may ask the
-    /// login shell again. None is found where nothing may be read here.
+    /// The first `pitboard` a terminal would run, as the core's `find_command_line` finds it:
+    /// on the login shell's `PATH`, then where each way of installing Pitboard puts it, and
+    /// whether it is the one inside this copy of the app. Looks along a search path, and may
+    /// ask the login shell again. None is found where nothing may be read here.
     pub(crate) fn command_line(&self) -> FoundCommandLine {
         let Ok(made) = self.readable_asking_again() else {
             return FoundCommandLine::Nowhere;

@@ -230,7 +230,7 @@ fn renewal(seen: &Seen) -> RenewalShown {
         renewing: machine.renewing,
         note: match &machine.renewals {
             None => words::RENEWS_WHAT_IS_DUE.to_owned(),
-            Some(Ok(renewals)) => crate::renewal_note_of(renewals),
+            Some(Ok(renewals)) => crate::renewal_note(renewals),
             Some(Err(refused)) => refused.to_string(),
         },
     }
@@ -255,7 +255,7 @@ fn checks(seen: &Seen) -> ChecksShown {
                     .then(|| check.advice.clone()),
             })
             .collect(),
-        summary: any.then(|| crate::doctor_summary_of(&machine.checks)),
+        summary: any.then(|| crate::doctor_summary(&machine.checks)),
         checking,
         checked: machine
             .checked_at

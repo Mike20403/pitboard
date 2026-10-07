@@ -92,7 +92,8 @@ public sealed class ModelTests
         return new Snapshot(
             Revision: revision, Now: At, Reading: false, UpdatedAt: At,
             Status: new Status(At, [work], []), Warnings: [], ReadFailure: null, Stuck: false,
-            Installed: [PitboardFfiMethods.Tools()[0]], SwitchUnderWay: null, QuitQuestion: null,
+            Installed: [new Tool(Code: "claude", Name: "Claude Code", Program: "claude", Service: "Anthropic")],
+            SwitchUnderWay: null, QuitQuestion: null,
             LastSwitches: [], Abandoned: null, Failure: null,
             WindowRequest: new WindowRequest(Serial: 0, Pane: null),
             SigningIn: null, Sheet: null, SheetFailure: null,
@@ -158,8 +159,9 @@ public sealed class ModelTests
     public void TheBindingsAgreeWithTheLibraryOnTheModel()
     {
         // The first call loads the library: every checksum is compared, and the listener's
-        // calls are registered, before it answers.
-        Assert.AreEqual("claude", PitboardFfiMethods.Tools()[0].Code);
+        // calls are registered, before it answers. Saying what a sheet saves reads only what
+        // it is given, so it answers at once.
+        Assert.AreEqual("home", PitboardFfiMethods.NameToSave(new Sheet.Name("claude", "a@example.com"), " home "));
     }
 
     /// <summary>
