@@ -265,6 +265,19 @@ pages load, as a browser would.
   reads, declares its own.
 - `crates/pitboard-conformance`: checks a tool's register against a build of that tool, for
   macOS, Linux or Windows.
+- `crates/pitboard-probe`: the Windows measurement probe. It is `publish = false`, never
+  built by `release.yml`, and has a Windows-only measuring half (`win/`) beside a
+  cross-platform half (the command line, the report shape, the write guard, the Credential
+  Manager and process-image allowlists, the redactor, the logon and elevation naming, the
+  PE reader), so that half is unit tested on every system. One subcommand per measurement
+  the VM sessions and the runner facts need; `.github/scripts/runner-facts.ps1` runs the
+  safe ones on both Windows CI legs. Every writing subcommand refuses unless the account
+  carries a throwaway marker, and refuses a scratch path that lies, in any spelling Windows
+  opens, inside a real login folder. `credman-names` asks Credential Manager only for the
+  live login families' and `pitboard-*` prefixes and never reads a blob out. Reports name
+  principals by their relation to the token rather than by SID, and print paths with the
+  profile folder and the account name replaced. `helpers/` holds the Bun and Node scripts,
+  and `sparse/` the sparse-package manifests and script, that the owner runs in the VM.
 - `apps/`: the native apps, one directory for each system.
 - `apps/windows/`: the Windows app. `Pitboard.Core` is the core's C# bindings as an
   assembly of their own, generated into `Generated/` and not committed, and

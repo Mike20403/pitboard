@@ -1,0 +1,317 @@
+//! The measure half, compiled on Windows alone. Each block runs one measurement and hands
+//! back a [`Report`]; the naming, formatting and guards it leans on are the library's
+//! cross-platform half.
+//!
+//! Nothing here reads, writes or deletes a real login. Every block that writes passes
+//! [`ffi::refuse_write`] first; the blocks that read what a tool wrote do so only in a
+//! scratch folder of a marked account; principals are named by relation and paths pass
+//! through the account's [`crate::redact::Redactor`].
+
+pub mod ffi;
+
+mod acl;
+mod console;
+mod credman;
+mod daemon;
+mod dpapi;
+mod exelookup;
+mod files;
+mod homes;
+mod job;
+mod processes;
+mod runner;
+mod sparse;
+mod task;
+mod tokens;
+mod windowless;
+
+use crate::cli::{Command, Outcome};
+use crate::logon::LogonSession;
+use crate::report::Report;
+use serde_json::json;
+use std::path::{Path, PathBuf};
+
+use windows_sys::Win32::Foundation::LUID;
+use windows_sys::Win32::Security::Authentication::Identity::{
+    LsaFreeReturnBuffer, LsaGetLogonSessionData, SECURITY_LOGON_SESSION_DATA,
+};
+use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_STATISTICS, TokenStatistics};
+
+/// Run one command.
+pub fn run(command: &Command, out: Option<&Path>) -> Outcome {
+    use Command as C;
+    let report = match command {
+        C::Logon => logon_block(),
+        C::Tokens { scratch } => tokens::tokens(scratch.as_deref()),
+        C::Safer { spawn, scratch } => tokens::safer(*spawn, scratch.as_deref()),
+        C::Homes {
+            codex_home,
+            claude_config_dir,
+        } => homes::homes(codex_home.as_deref(), claude_config_dir.as_deref()),
+        C::PathVars { scratch } => homes::path_vars(scratch),
+        C::EnvChild => homes::env_child(),
+        C::Acl {
+            scratch,
+            create,
+            keep,
+            open,
+            remove,
+        } => acl::acl(
+            scratch.as_deref(),
+            *create,
+            *keep,
+            open.as_deref(),
+            remove.as_deref(),
+        ),
+        C::Volume { scratch } => files::volume(scratch),
+        C::ReplaceLoop {
+            scratch,
+            rounds,
+            lead_seconds,
+            reader,
+        } => files::replace_loop(scratch, *rounds, *lead_seconds, *reader),
+        C::ReplaceReader {
+            scratch,
+            seconds,
+            share,
+        } => files::replace_reader(scratch, *seconds, *share),
+        C::FlushDir { scratch } => files::flush_dir(scratch),
+        C::Lock {
+            scratch,
+            mode,
+            seconds,
+        } => files::lock(scratch, *mode, *seconds),
+        C::Lockfileex {
+            scratch,
+            mode,
+            seconds,
+            share,
+        } => files::lockfileex(scratch, *mode, *seconds, *share),
+        C::Dpapi {
+            scratch,
+            action,
+            file,
+        } => dpapi::dpapi(scratch, *action, file),
+        C::Task {
+            action,
+            scratch,
+            label,
+            folder,
+            sid_suffix,
+            exec,
+            args,
+            at_minutes,
+            start_when_available,
+            allow_battery,
+        } => task::task(&task::Request {
+            action: *action,
+            scratch: scratch.as_deref(),
+            label,
+            folder: *folder,
+            sid_suffix: *sid_suffix,
+            exec: *exec,
+            args: args.as_deref(),
+            at_minutes: *at_minutes,
+            start_when_available: *start_when_available,
+            allow_battery: *allow_battery,
+        }),
+        C::Console { scratch, with_task } => console::console(scratch, *with_task),
+        C::ConsoleChild => console::console_child(),
+        C::ConsoleLaunch {
+            exe,
+            flags,
+            child_out,
+        } => return console::console_launch(exe, *flags, child_out),
+        C::Job {
+            scratch,
+            chain,
+            rounds,
+        } => job::job(scratch, *chain, *rounds),
+        C::JobBrowser {
+            scratch,
+            end,
+            wait_seconds,
+        } => job::job_browser(scratch, *end, *wait_seconds),
+        C::JobLeaf { job_name } => return job::job_leaf(job_name),
+        C::JobMid { job_name } => return job::job_mid(job_name),
+        C::JobOpenPage {
+            page,
+            job_name,
+            linger_seconds,
+        } => return job::job_open_page(page, job_name, *linger_seconds),
+        C::Processes { find } => processes::processes(find),
+        C::CredmanNames {
+            leak_check,
+            config_dir,
+        } => credman::names(*leak_check, config_dir),
+        C::CredmanItem {
+            action,
+            name,
+            persist,
+            blob_bytes,
+        } => credman::item(*action, name, *persist, *blob_bytes),
+        C::PeImports { scratch, exe } => pe_imports(scratch.as_deref(), exe.as_deref()),
+        C::Sparse {
+            action,
+            tag,
+            scratch,
+        } => sparse::sparse(*action, tag, scratch.as_deref(), out),
+        C::ExeLookup { scratch, name } => exelookup::exe_lookup(scratch, name),
+        C::ExeLookupHost { name, child_path } => {
+            return exelookup::host(name, child_path.as_deref());
+        }
+        C::ExeLookupWhoami => return exelookup::whoami(),
+        C::Swap {
+            scratch,
+            target,
+            source,
+            route,
+        } => files::swap(scratch, target, source, *route),
+        C::Windowless {
+            scratch,
+            newline,
+            program,
+        } => windowless::windowless(scratch, *newline, program),
+        C::Daemon {
+            config_dir,
+            pipe_key,
+        } => daemon::daemon(config_dir, pipe_key.as_deref()),
+        C::Symlink { scratch } => runner::symlink(scratch),
+        C::RunnerFacts { scratch } => runner::runner_facts(scratch),
+    };
+    Outcome::Report(report)
+}
+
+/// Write a report to `out`, which must lie in a folder the write guard allows.
+pub fn write_out(out: &Path, text: &str) -> Result<(), String> {
+    let name = out
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("--out names no file")?;
+    let folder = match out.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => std::env::current_dir().map_err(|e| e.to_string())?,
+    };
+    let path = ffi::scratch_file(&folder, name)?;
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+/// The logon this process runs in.
+pub fn logon_now() -> LogonSession {
+    let Some(luid) = auth_luid() else {
+        return LogonSession::unknown();
+    };
+    let mut data: *mut SECURITY_LOGON_SESSION_DATA = std::ptr::null_mut();
+    // SAFETY: `luid` is the token's authentication id; `data` receives an LSA buffer freed
+    // below.
+    let status = unsafe { LsaGetLogonSessionData(&luid, &mut data) };
+    if status != 0 || data.is_null() {
+        return LogonSession::unknown();
+    }
+    // SAFETY: on success `data` points at a valid SECURITY_LOGON_SESSION_DATA.
+    let ty = unsafe { (*data).LogonType };
+    // SAFETY: `data` came from LsaGetLogonSessionData.
+    unsafe {
+        LsaFreeReturnBuffer(data as *const core::ffi::c_void);
+    }
+    LogonSession::from_security_logon_type(ty)
+}
+
+/// The token's authentication LUID, which names its logon session.
+fn auth_luid() -> Option<LUID> {
+    let token = ffi::Token::current().ok()?;
+    let mut stats = TOKEN_STATISTICS::default();
+    let mut len = 0u32;
+    // SAFETY: `stats` is sized for TOKEN_STATISTICS.
+    let ok = unsafe {
+        GetTokenInformation(
+            token.raw(),
+            TokenStatistics,
+            (&mut stats as *mut TOKEN_STATISTICS).cast(),
+            std::mem::size_of::<TOKEN_STATISTICS>() as u32,
+            &mut len,
+        )
+    };
+    (ok != 0).then_some(stats.AuthenticationId)
+}
+
+fn logon_block() -> Report {
+    let logon = logon_now();
+    Report::ok(
+        "logon",
+        logon,
+        json!({
+            "note": "logon_expects_user_keys is an expectation: the dpapi and credman blocks \
+                     make their calls in any logon and record what happened",
+        }),
+    )
+}
+
+/// R1: a program's imported DLLs. The probe itself, or a program the owner copied under a
+/// scratch folder; never a file elsewhere.
+fn pe_imports(scratch: Option<&Path>, exe: Option<&Path>) -> Report {
+    let logon = logon_now();
+    let path = match (exe, scratch) {
+        (None, _) => match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => return Report::refused("pe-imports", logon, format!("no current exe: {e}")),
+        },
+        (Some(exe), Some(scratch)) => {
+            if let Err(reason) = ffi::scratch_check(scratch) {
+                return Report::refused("pe-imports", logon, reason);
+            }
+            if !ffi::lies_in(exe, scratch) {
+                return Report::refused(
+                    "pe-imports",
+                    logon,
+                    "--exe must be a program copied under --scratch",
+                );
+            }
+            exe.to_path_buf()
+        }
+        (Some(_), None) => {
+            return Report::refused("pe-imports", logon, "--exe needs --scratch");
+        }
+    };
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let dlls = crate::pe::import_dlls(&bytes);
+            Report::ok(
+                "pe-imports",
+                logon,
+                json!({
+                    "exe": path.file_name().map(|n| n.to_string_lossy().into_owned()),
+                    "import_dlls": dlls,
+                    "takes_c_runtime_from_dll": crate::pe::takes_c_runtime_from_dll(&dlls),
+                }),
+            )
+        }
+        Err(e) => Report::refused("pe-imports", logon, format!("cannot read the exe: {e}")),
+    }
+}
+
+/// A program beside this one, by name (with `.exe`).
+pub fn sibling_exe(name: &str) -> PathBuf {
+    let dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."));
+    dir.join(format!("{name}.exe"))
+}
+
+/// The report of a child that wrote one with `--out`, read back and removed. `None` when it
+/// wrote none.
+pub fn take_child_report(path: &Path) -> Option<serde_json::Value> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let _ = std::fs::remove_file(path);
+    serde_json::from_str(&text).ok()
+}
+
+/// An `io::Error` as its raw Windows code, or its kind when it has none.
+pub fn io_code(e: &std::io::Error) -> serde_json::Value {
+    match e.raw_os_error() {
+        Some(code) => json!(code),
+        None => json!(format!("{:?}", e.kind())),
+    }
+}

@@ -1,0 +1,75 @@
+[package]
+name = "pitboard-probe"
+description = "Measures, on a Windows machine kept for it, the facts Pitboard for Windows is built on. Never published, never released."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The plain program, and three that differ from it only in the manifest built into them
+# (build.rs): two spellings of the console's allocation policy, for block E4, and the sparse
+# package's identity, for block K1. Each is the same command line.
+[[bin]]
+name = "pitboard-probe"
+path = "src/main.rs"
+
+[[bin]]
+name = "pitboard-probe-detached"
+path = "src/bin/detached.rs"
+
+[[bin]]
+name = "pitboard-probe-detached-asmv1"
+path = "src/bin/detached_asmv1.rs"
+
+[[bin]]
+name = "pitboard-probe-sparse"
+path = "src/bin/sparse.rs"
+
+[dependencies]
+clap.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+unicode-normalization.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Wdk_System_SystemServices",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_AppLocker",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Authorization",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Packaging_Appx",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# Task Scheduler's ITaskService is COM, which windows-sys does not wrap. Used by the task
+# subcommand alone.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_TaskScheduler",
+    "Win32_System_Variant",
+] }
+
+[lints]
+workspace = true

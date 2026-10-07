@@ -186,6 +186,43 @@ jobs:
       - run: cargo test --locked -p pitboard-core --lib -- host::windows release
       - run: cargo test --locked -p pitboard --test windows_refuses
       - run: cargo test --locked -p pitboard-sites -p pitboard-share-ffi
+      # The measurement probe (W11). It is built on both legs, so a Windows API it calls that
+      # moved is caught here, and its tests run as on every system. It is never built by
+      # release.yml (publish = false).
+      - run: cargo build --locked -p pitboard-probe
+      - run: cargo test --locked -p pitboard-probe
+      # The runner facts W12, W13, W16 and W17 are decided from, as the job's user on this
+      # disposable runner: the probe's safe blocks, the machine's policies, an exFAT and a
+      # FAT32 VHD made with diskpart, and a throwaway standard user started with
+      # Start-Process -Credential, with Developer Mode and then the symbolic-link right given
+      # for one run each. The script says what it changes and undoes it.
+      - name: Runner facts
+        shell: pwsh
+        env:
+          TRIPLE: ${{ matrix.triple }}
+        run: >
+          ./.github/scripts/runner-facts.ps1 -Probe target/debug/pitboard-probe.exe
+          -Triple $env:TRIPLE -Out (Join-Path $env:RUNNER_TEMP 'runner-facts.json')
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runner-facts-${{ matrix.triple }}
+          path: ${{ runner.temp }}/runner-facts.json
+          if-no-files-found: warn
+      # What the owner's VM session runs: the probe's four programs and the gated
+      # pitboard.exe a 0.x release is built as, which refuses everything. The VM fetches
+      # nothing itself, so the owner copies these in.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vm-session-${{ matrix.triple }}
+          path: |
+            target/debug/pitboard-probe.exe
+            target/debug/pitboard-probe-detached.exe
+            target/debug/pitboard-probe-detached-asmv1.exe
+            target/debug/pitboard-probe-sparse.exe
+            target/gated/debug/pitboard.exe
+          if-no-files-found: error
+          retention-days: 30
 
   # The floor the manifests promise, on Windows. ring compiles C against the target's own
   # headers, so a Windows check needs a Windows C toolchain: the MSVC this image has, never
