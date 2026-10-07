@@ -5,7 +5,7 @@
 
 use crate::host::fs;
 use crate::service::Permit;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -76,7 +76,7 @@ fn temp_owner(file_name: &str) -> Option<u32> {
 /// A new private file at `temp`. This process never reuses a name, so a file already there
 /// was left by an earlier process that had the same pid, as happens in containers.
 fn create_fresh(permit: Permit, temp: &Path) -> io::Result<File> {
-    let create = || fs::private(permit, OpenOptions::new().write(true).create_new(true)).open(temp);
+    let create = || fs::create_private(permit, temp);
     match create() {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
             remove_stale(permit, temp)?;

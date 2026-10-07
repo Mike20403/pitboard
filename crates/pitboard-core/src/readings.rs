@@ -114,15 +114,8 @@ fn fold(all: &mut HashMap<String, Snapshot>, readings: &[(String, Snapshot)], no
 /// around switches: a status line must never wait on a switch.
 pub(crate) fn exclusive(ctx: &Context, permit: Permit) -> Option<std::fs::File> {
     home::ensure(ctx, permit).ok()?;
-    let file = crate::host::fs::private(
-        permit,
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true),
-    )
-    .open(home::dir(ctx).join("usage.lock"))
-    .ok()?;
+    let file =
+        crate::host::fs::open_private_lock(permit, &home::dir(ctx).join("usage.lock")).ok()?;
     file.lock().ok()?;
     Some(file)
 }

@@ -5,7 +5,6 @@
 use crate::context::Context;
 use crate::service::Permit;
 use crate::{home, time};
-use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -48,9 +47,7 @@ fn append(ctx: &Context, permit: Permit, line: &str) -> std::io::Result<()> {
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > LIMIT_BYTES) {
         crate::host::fs::rename(permit, &path, &path.with_extension("log.1"))?;
     }
-    crate::host::fs::private(permit, OpenOptions::new().create(true).append(true))
-        .open(&path)?
-        .write_all(line.as_bytes())
+    crate::host::fs::open_private_append(permit, &path)?.write_all(line.as_bytes())
 }
 
 /// One recorded change, as `read` hands it back.

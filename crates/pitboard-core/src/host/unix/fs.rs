@@ -1,5 +1,8 @@
 //! Files only their owner can reach, the POSIX way: a mode, set when the file is created so
-//! it is never open for a moment, whatever the umask.
+//! it is never open for a moment, whatever the umask. The face creates each such file itself
+//! and hands it back open, rather than setting an option on a file its caller then opens, so
+//! how a file is made private is said here and nowhere else, and a face can refuse to make
+//! one.
 //!
 //! Every way Pitboard changes the disk outside [`crate::atomic::write`] is here too, and
 //! each takes the [`Permit`] only the one gate every change passes makes: creating a file
@@ -24,10 +27,37 @@ pub(crate) fn create_private_dir(_: Permit, path: &Path) -> io::Result<()> {
         .create(path)
 }
 
-/// `options`, made to create a file only its owner can read and write: 0600. A file that is
-/// already there keeps its own mode.
-pub(crate) fn private(_: Permit, options: &mut OpenOptions) -> &mut OpenOptions {
-    options.mode(0o600)
+/// A new file at `path`, open for writing, that only its owner can read or write: 0600.
+/// Fails where anything is there already, a link included, so nothing planted there is
+/// written through.
+pub(crate) fn create_private(_: Permit, path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+/// The file at `path`, open to add to its end, made where it is not there so only its owner
+/// can read or write it: 0600. A file already there keeps its own mode.
+pub(crate) fn open_private_append(_: Permit, path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+}
+
+/// The file at `path`, open for writing and left as it is, made where it is not there so
+/// only its owner can read or write it: 0600. What a lock is taken on: nothing is written to
+/// it, and a file already there keeps its own mode.
+pub(crate) fn open_private_lock(_: Permit, path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(path)
 }
 
 /// Give `temp` exactly the access the file at `existing` has, tighter or looser than
@@ -192,25 +222,60 @@ mod tests {
         std::fs::remove_dir_all(&scratch).unwrap();
     }
 
+    /// Each way the face makes a file makes it private. One to add to or to lock that is
+    /// there already is opened as it is, mode and contents, and a new one is refused where
+    /// anything is there, a link included.
     #[test]
     fn a_file_created_private_is_private_however_the_umask_is_set() {
+        use std::io::Write;
         let dir = scratch("file");
         let permit = Permit::for_a_test();
         create_private_dir(permit, &dir).unwrap();
-        let path = dir.join("state.lock");
-        private(permit, OpenOptions::new().write(true).create(true))
-            .open(&path)
-            .unwrap();
-        assert_eq!(mode(&path), 0o600);
-        assert_eq!(
-            access(&path),
-            Some(Access {
-                shared: false,
-                described: "mode 600".into()
-            })
+        let (fresh, history, lock) = (
+            dir.join(".state.json.1.0.pitboard"),
+            dir.join("history.jsonl"),
+            dir.join("state.lock"),
         );
-        testing::open_to_others(&path);
-        assert!(access(&path).unwrap().shared);
+        create_private(permit, &fresh).unwrap();
+        open_private_append(permit, &history).unwrap();
+        open_private_lock(permit, &lock).unwrap();
+        for made in [&fresh, &history, &lock] {
+            assert_eq!(
+                access(made),
+                Some(Access {
+                    shared: false,
+                    described: "mode 600".into()
+                }),
+                "{}",
+                made.display()
+            );
+        }
+
+        for there in [&history, &lock] {
+            std::fs::write(there, "one\n").unwrap();
+            testing::open_to_others(there);
+            assert!(access(there).unwrap().shared);
+        }
+        writeln!(open_private_append(permit, &history).unwrap(), "two").unwrap();
+        open_private_lock(permit, &lock).unwrap();
+        assert_eq!(std::fs::read_to_string(&history).unwrap(), "one\ntwo\n");
+        assert_eq!(std::fs::read_to_string(&lock).unwrap(), "one\n");
+        for there in [&history, &lock] {
+            assert_eq!(
+                mode(there),
+                0o644,
+                "a file already there keeps its own mode"
+            );
+        }
+
+        assert!(create_private(permit, &fresh).is_err(), "a file is there");
+        let planted = dir.join(".usage.json.1.0.pitboard");
+        testing::link(&dir.join("elsewhere"), &planted);
+        assert!(create_private(permit, &planted).is_err(), "a link is there");
+        assert!(
+            !dir.join("elsewhere").exists(),
+            "and nothing is written through it"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

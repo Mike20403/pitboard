@@ -140,12 +140,7 @@ pub fn record(ctx: &Context, permit: Permit, account_uuid: &str, snapshot: &Snap
         );
         return;
     }
-    if let Ok(mut file) = crate::host::fs::private(
-        permit,
-        std::fs::OpenOptions::new().create(true).append(true),
-    )
-    .open(&path)
-    {
+    if let Ok(mut file) = crate::host::fs::open_private_append(permit, &path) {
         let _ = writeln!(file, "{line}");
     }
 }

@@ -56,7 +56,9 @@ pages load, as a browser would.
     plain functions for what the system does whoever asks: private files and directories,
     every other change to the disk, whether a process is alive, the login name, whether
     this process runs as root, and the `PATH` the person's login shell builds, which
-    `unix/shell.rs` asks for. `program.rs` finds a program the way the
+    `unix/shell.rs` asks for. `fs` creates each private file itself and hands it back open
+    (`create_private`, `open_private_append` and `open_private_lock`), so how a file is made
+    private is the face's alone. `program.rs` finds a program the way the
     system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
     through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
     `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`, such
