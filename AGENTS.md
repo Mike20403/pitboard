@@ -36,6 +36,32 @@ guide; this file is what an agent needs before it touches anything.
   `lsregister -u` on each `Pitboard.app`; [The app](CONTRIBUTING.md#the-app) has the
   commands.
 
+### On Windows
+
+Pitboard for Windows is being built. [Windows](CONTRIBUTING.md#windows) says how to build
+and test it there.
+
+- Never write to, overwrite or delete a Credential Manager item that holds a real login:
+  `Claude Code-credentials` and every `Claude Code-credentials-<hash>`, each piece of them
+  included, Codex's `cli|*` and `secrets|*` targets, and anything under
+  `Codex MCP Credentials`. Never use `cmdkey /delete`, `vaultcmd` or PowerShell's credential
+  modules on those names.
+- Never read, copy, rewrite or delete `%USERPROFILE%\.claude`, `%USERPROFILE%\.claude.json`,
+  `%USERPROFILE%\.codex`, `%ProgramData%\OpenAI\Codex`, `C:\Program Files\ClaudeCode`, or
+  the `%LOCALAPPDATA%\Pitboard` of an account that holds real logins.
+- Never run a `pitboard.exe` built from a branch on a Windows account that holds real
+  logins, and never put one on a `PATH`, in `%LOCALAPPDATA%\Programs`, in WinGet's Links or
+  behind a Scoop shim. A test or a script points `USERPROFILE`, `HOME`, `APPDATA`,
+  `LOCALAPPDATA`, an existing `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and `PITBOARD_HOME` at fresh
+  folders, after building, since Cargo and rustup find their own homes through
+  `USERPROFILE`.
+- Never weaken or get around the release gate in a build anybody installs: no release,
+  script or package passes `--cfg pitboard_unreleased_windows`, `test-support` or
+  `fixture`. A Windows build of a 0.x release answers only `--version`, `--help`,
+  `completions` and `manpage`, and changes nothing.
+- Tests never touch Task Scheduler, the registry, the user `PATH` or DPAPI keys, and never
+  run elevated on a machine that holds logins.
+
 ## Check a change
 
 ```sh

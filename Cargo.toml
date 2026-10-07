@@ -72,6 +72,10 @@ url = "2.5"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+# `--cfg pitboard_unreleased_windows`, set in RUSTFLAGS, opens a Windows build before Windows
+# is released: CI's Windows jobs and a person working on Pitboard there set it. Never a
+# feature, which crates.io would offer to anybody (pitboard-core's release.rs says why).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(pitboard_unreleased_windows)"] }
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "warn"

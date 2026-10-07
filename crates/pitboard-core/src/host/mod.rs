@@ -37,20 +37,27 @@ pub mod memory;
 pub(crate) mod program;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(target_os = "linux")]
 use linux as os;
 #[cfg(target_os = "macos")]
 use macos as os;
+#[cfg(windows)]
+use windows as os;
 
 pub(crate) use administered::Administered;
 pub(crate) use os::{fs, proc, user};
 
-/// The operating systems Pitboard runs on.
+/// The operating systems Pitboard runs on. Windows only once it is released
+/// ([`crate::release`]): until then a Windows build of a release refuses everything, and its
+/// face, `host/windows`, refuses whatever is not built yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Os {
     MacOs,
     Linux,
+    Windows,
 }
 
 /// The system this build runs on.
@@ -66,12 +73,16 @@ impl Os {
     pub fn secrets_tool(self) -> Option<&'static str> {
         match self {
             Os::MacOs => Some(SECURITY),
-            Os::Linux => None,
+            // Credential Manager is called directly, through Windows' own API.
+            Os::Linux | Os::Windows => None,
         }
     }
 
     /// The command a person types on this system to make `paths` private to themselves.
-    pub fn make_private_command(self, kind: Kind, paths: &[&str]) -> String {
+    /// `None` where Pitboard cannot say one yet: on Windows, where a file is private through
+    /// its access control list, W15 says the command along with who may read a file, and
+    /// until then nothing asks, since the Windows face cannot tell who may.
+    pub fn make_private_command(self, kind: Kind, paths: &[&str]) -> Option<String> {
         match self {
             Os::MacOs | Os::Linux => {
                 let mode = match kind {
@@ -79,8 +90,9 @@ impl Os {
                     Kind::File => "600",
                     Kind::Any => "go-rwx",
                 };
-                format!("chmod {mode} {}", paths.join(" "))
+                Some(format!("chmod {mode} {}", paths.join(" ")))
             }
+            Os::Windows => None,
         }
     }
 
@@ -91,7 +103,8 @@ impl Os {
     ///
     /// macOS asks for the Desktop, Documents and Downloads folders, iCloud Drive and the
     /// folders of other cloud storage, under Privacy & Security's Files & Folders. Linux
-    /// asks nothing.
+    /// asks nothing. Which folders Windows asks about, if any, is W17's to say, with where an
+    /// app finds a program there; until then none is passed over.
     pub fn guarded_folders(self) -> &'static [&'static str] {
         match self {
             Os::MacOs => &[
@@ -101,7 +114,7 @@ impl Os {
                 "Library/Mobile Documents",
                 "Library/CloudStorage",
             ],
-            Os::Linux => &[],
+            Os::Linux | Os::Windows => &[],
         }
     }
 
@@ -112,41 +125,88 @@ impl Os {
     /// them where Homebrew installed Node, and `/usr/local/bin` where nodejs.org's installer
     /// did, so a global npm install of a tool is found there too: Claude Code 2.1.289 lists
     /// both among npm's places. Nothing on Linux looks, since no app runs there and the
-    /// command line has a shell's `PATH`, so none is said for it.
+    /// command line has a shell's `PATH`, so none is said for it. Where winget, Scoop and npm
+    /// put programs on Windows is W17's to read; until then none is looked in.
     pub fn package_bins(self) -> &'static [&'static str] {
         match self {
             Os::MacOs => &["/opt/homebrew/bin", "/usr/local/bin"],
-            Os::Linux => &[],
+            Os::Linux | Os::Windows => &[],
         }
     }
 
     /// Whether `a` and `b` are one path, as Pitboard compares the places a program runs
-    /// from: component by component, and exactly on macOS and Linux. Their process lists give
-    /// a program's path as it was started or as the file system has it, and the places a
+    /// from: component by component, exactly on macOS and Linux, and in any case on Windows,
+    /// whose file systems take `Codex.exe` and `codex.exe` for one file. Their process lists
+    /// give a program's path as it was started or as the file system has it, and the places a
     /// tool's holders name are named by their makers in one case. Every comparison of where
     /// a program runs from goes through this, so a system whose paths ignore case says so
     /// once.
     pub(crate) fn same_path(self, a: &Path, b: &Path) -> bool {
         match self {
             Os::MacOs | Os::Linux => a == b,
+            Os::Windows => same_path_in_any_case(a, b),
         }
     }
 
     /// The command line an app at `app` comes with, which is what its renewal schedule runs:
     /// the app itself is not one. A Mac app carries it at `Contents/Helpers/pitboard`, where
     /// `build-app.sh` puts it, and anything that is not an app bundle, such as a test or a
-    /// build directory, has none. No app runs on Linux.
+    /// build directory, has none. No app runs on Linux. Where the Windows app carries its
+    /// own is the app's to say, which it does not yet.
     pub fn app_command_line(self, app: &Path) -> Option<PathBuf> {
         match self {
             Os::MacOs => (app.extension() == Some("app".as_ref()))
                 .then(|| app.join("Contents/Helpers/pitboard")),
-            Os::Linux => None,
+            Os::Linux | Os::Windows => None,
         }
     }
 }
 
+/// Whether `a` and `b` are one path as Windows compares them: component by component, each
+/// name in any case ([`same_name_in_any_case`]). Said once, for every comparison of paths on
+/// Windows, the core's and an app's.
+pub fn same_path_in_any_case(a: &Path, b: &Path) -> bool {
+    let (mut a, mut b) = (a.components(), b.components());
+    loop {
+        match (a.next(), b.next()) {
+            (None, None) => return true,
+            (Some(one), Some(other))
+                if same_name_in_any_case(one.as_os_str(), other.as_os_str()) => {}
+            _ => return false,
+        }
+    }
+}
+
+/// Whether two names are one as Windows compares a file's name: each character in its upper
+/// case, one for one, and no other change, so `é` written as one character and as `e` with an
+/// accent are two names. A character whose upper case is more than one, such as `ß`, and one
+/// outside the Basic Multilingual Plane, which Windows compares a UTF-16 unit at a time, are
+/// compared as they are.
+fn same_name_in_any_case(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
+    fn upper(c: char) -> char {
+        if u32::from(c) > 0xFFFF {
+            return c;
+        }
+        let mut upper = c.to_uppercase();
+        match (upper.next(), upper.next()) {
+            (Some(one), None) => one,
+            _ => c,
+        }
+    }
+    let (a, b) = (a.to_string_lossy(), b.to_string_lossy());
+    a.chars().map(upper).eq(b.chars().map(upper))
+}
+
 /// What the person's login shell said its `PATH` is.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    windows,
+    allow(
+        dead_code,
+        reason = "only a login shell says or is late, and Windows has none; W17 says which \
+                  `PATH` an app finds programs on there"
+    )
+)]
 pub(crate) enum LoginPath {
     /// It said this.
     Said(String),
@@ -160,7 +220,8 @@ pub(crate) enum LoginPath {
 
 /// The `PATH` the person's own terminal has, which an app the system started does not: asked
 /// of their login shell where the system has one, which can take seconds, so never on an
-/// app's main thread. A system without a login shell answers with the environment's own.
+/// app's main thread. Windows has no login shell, and says nothing until W17 reads which
+/// `PATH` an app finds programs on there.
 pub(crate) fn login_path(env: &Environment) -> LoginPath {
     os::login_path(env)
 }
@@ -335,9 +396,15 @@ pub(crate) trait Scheduler: Send + Sync + std::fmt::Debug {
 /// Worked out from the home it is handed, never from this account's own, so a context made
 /// for a home of a test's own, or of an app's choosing, keeps Pitboard's files there. The
 /// daily renewal schedule belongs to this home and no other ([`crate::schedule`]).
+///
+/// On Windows it is the person's local application data, `%LOCALAPPDATA%\Pitboard`, which
+/// W14 finds from the home it is handed. Until then there is none: the empty path is refused
+/// as a home that is not a full path, so nothing is read or written anywhere Pitboard did not
+/// find, and `PITBOARD_HOME` has to name the folder.
 pub(crate) fn default_pitboard_home(home: &Path) -> PathBuf {
     match OS {
         Os::MacOs | Os::Linux => home.join(".pitboard"),
+        Os::Windows => PathBuf::new(),
     }
 }
 
@@ -367,6 +434,8 @@ mod tests {
             match OS {
                 Os::MacOs => Some(crate::store::Backend::Keychain),
                 Os::Linux => None,
+                // Credential Manager, which W23 offers.
+                Os::Windows => None,
             }
         );
         assert_eq!(
@@ -392,15 +461,39 @@ mod tests {
         }
     }
 
-    /// Every system Pitboard runs on has a scheduler of its own that Pitboard writes for.
+    /// On Windows a path is the same one in any case, and only as Windows changes a name's
+    /// case: a name written decomposed is another name, and so is one whose upper case is
+    /// longer than itself.
     #[test]
-    fn this_system_has_a_scheduler() {
-        assert!(current().scheduler().is_some());
+    fn paths_are_compared_in_any_case_on_windows() {
+        let same = |a: &str, b: &str| Os::Windows.same_path(Path::new(a), Path::new(b));
+        assert!(same("Codex.exe", "codex.EXE"));
+        assert!(same("/Programs/OpenAI/Codex/", "/programs//openai/CODEX"));
+        assert!(same(r"C:\Users\Dana\Codex.exe", r"c:\users\dana\codex.exe"));
+        assert!(same("Éclair", "éCLAIR"));
+        assert!(!same("e\u{301}clair", "\u{e9}clair"), "not normalised");
+        assert!(!same("Straße", "STRASSE"), "ß is upper case as it is");
+        assert!(!same("Codex.exe", "Codex"));
+        assert!(!same("/a/b", "/a/b/c"));
+    }
+
+    /// Pitboard writes for a scheduler of each system's own: launchd and a systemd user timer.
+    /// Task Scheduler is written for by W25, and until then Windows offers none.
+    #[test]
+    fn a_scheduler_is_offered_where_pitboard_writes_for_one() {
+        assert_eq!(
+            current().scheduler().is_some(),
+            match OS {
+                Os::MacOs | Os::Linux => true,
+                Os::Windows => false,
+            }
+        );
     }
 
     /// This system's host reads sudo from the environment the context was read from, which
     /// is where sudo says it, and root from the process itself. Set but empty, `SUDO_UID`
-    /// says nothing, as every variable Pitboard reads that way.
+    /// says nothing, as every variable Pitboard reads that way. Windows' face cannot tell
+    /// either until W12 reads the process's token.
     #[test]
     fn the_host_reads_sudo_from_the_context_and_root_from_the_process() {
         let under = |value: &str| {
@@ -410,7 +503,13 @@ mod tests {
             let ctx = Context::for_command_line(&env);
             ctx.host().elevation(&ctx)
         };
-        assert_eq!(under("501"), Elevation::Elevated { why: "with sudo" });
+        assert_eq!(
+            under("501"),
+            match OS {
+                Os::MacOs | Os::Linux => Elevation::Elevated { why: "with sudo" },
+                Os::Windows => Elevation::Unknown,
+            }
+        );
         let ctx = Context::for_unit_test();
         assert_eq!(
             ctx.host().elevation(&ctx),

@@ -46,7 +46,12 @@ impl Permit {
 /// Nor does one whose environment names a home that is empty or relative
 /// ([`crate::home::check_absolute`]): what it wrote would land under whichever folder it
 /// was run from. Asked after elevation, so `sudo` is what a run under it is told first.
+///
+/// Before either, a build that may do nothing at all changes nothing: a Windows build of a
+/// release made before Pitboard for Windows is released ([`crate::release`]). So no writer
+/// and no token exchange runs there, even for a caller that forgot to ask.
 pub(crate) fn gate(ctx: &Context) -> Result<Permit> {
+    crate::release::check()?;
     match ctx.host().elevation(ctx) {
         Elevation::Normal => {}
         Elevation::Elevated { why } => return Err(Error::Elevated { why: Some(why) }),

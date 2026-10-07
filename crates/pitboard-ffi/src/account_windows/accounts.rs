@@ -360,10 +360,16 @@ pub(crate) mod tests {
              claude.ai window keeps on this computer, its sign-in included. Using it again \
              needs a sign-in in your browser."
         );
+        assert_eq!(
+            forget_message_on(Os::Windows, &work(), &[work()]),
+            "Pitboard deletes the login it parked for this account, and everything its \
+             claude.ai window keeps on this PC, its sign-in included. Using it again needs a \
+             sign-in in your browser."
+        );
         let api = || unplaced("codex");
         let said = "Pitboard deletes the login it parked for this account. Using it again needs \
                     a sign-in in your browser.";
-        for os in [Os::MacOs, Os::Linux] {
+        for os in [Os::MacOs, Os::Linux, Os::Windows] {
             assert_eq!(forget_message_on(os, &api(), &[api()]), said);
         }
     }

@@ -21,6 +21,17 @@ bin-dir = "{ name }-v{ version }-{ target }/{ bin }{ binary-ext }"
 # install, and reports every install to a stats server.
 disabled-strategies = ["quick-install"]
 
+# No release before 1.0 carries a Windows archive, and a Windows build of one refuses
+# everything (pitboard-core's release gate). So on Windows binstall finds no archive and stops,
+# rather than compile that build from source. Read from cargo-binstall 1.25.2's binstalk-types
+# 0.10.8: an override is keyed by target triple, may name disabled-strategies, and adds them
+# to the package's own. A binstall that does not read them compiles the build that refuses.
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+disabled-strategies = ["quick-install", "compile"]
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+disabled-strategies = ["quick-install", "compile"]
+
 [dependencies]
 pitboard-core.workspace = true
 anstream.workspace = true

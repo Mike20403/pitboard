@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The ChatGPT app's bundle id, which is how the core's holder detection names it.
 pub(super) const CHATGPT: &str = "com.openai.codex";
@@ -781,7 +781,7 @@ impl Machine {
             Job::ReadSchedule { after_change } => {
                 self.schedule_reads += 1;
                 Answer::ScheduleRead {
-                    schedule: self.scheduled.clone(),
+                    schedule: Some(self.scheduled.clone()),
                     own: self.own,
                     after_change,
                 }
@@ -818,7 +818,7 @@ impl Machine {
             Job::Check => {
                 self.doctor_asks += 1;
                 Answer::Checked {
-                    checks: self.checks.clone(),
+                    checks: Some(self.checks.clone()),
                 }
             }
             Job::ReadLog { limit } => {
@@ -1135,7 +1135,9 @@ impl World {
     }
 
     /// Where the app looks for the `pitboard` a terminal would run, after the login shell's
-    /// `PATH`: `places`, and nothing of this machine's.
+    /// `PATH`: `places`, and nothing of this machine's. For the test that makes an app with a
+    /// command line inside it, as its own helpers are.
+    #[cfg(unix)]
     pub(super) fn looks_for_pitboard_in(
         &mut self,
         places: Vec<PathBuf>,
@@ -1535,7 +1537,7 @@ impl Drop for StandIn {
 /// before would otherwise take a process that has not started yet for one that has stopped.
 #[cfg(unix)]
 fn written_pid(path: &std::path::Path) -> u32 {
-    let asked = Instant::now();
+    let asked = std::time::Instant::now();
     loop {
         match std::fs::read_to_string(path) {
             Ok(pid) => {

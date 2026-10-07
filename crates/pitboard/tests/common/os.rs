@@ -21,20 +21,24 @@ pub enum Kept {
 }
 
 /// Where Claude Code keeps the login it uses: an item of the login keychain on macOS, and
-/// `.credentials.json` in its config directory on Linux.
+/// `.credentials.json` in its config directory on Linux. On Windows the harness says it once
+/// it runs there (W13): no test that plants a login runs on Windows before then.
 pub fn claude_code_login() -> Kept {
     match OS {
         Os::MacOs => Kept::InKeychain,
         Os::Linux => Kept::InFile,
+        Os::Windows => panic!("W13 says where the harness keeps Claude Code's login on Windows"),
     }
 }
 
 /// Where Pitboard parks a login: an item of the login keychain on macOS, and a file in the
-/// `vault` of its own directory on Linux.
+/// `vault` of its own directory on Linux. On Windows the harness says it once it runs there
+/// (W13), as above.
 pub fn parked_login() -> Kept {
     match OS {
         Os::MacOs => Kept::InKeychain,
         Os::Linux => Kept::InFile,
+        Os::Windows => panic!("W13 says where the harness keeps a parked login on Windows"),
     }
 }
 

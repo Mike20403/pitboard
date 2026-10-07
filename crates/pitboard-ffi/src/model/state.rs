@@ -396,10 +396,10 @@ pub(crate) enum Answer {
         repaired: Result<bool, PitboardError>,
         own: OwnCommandLine,
     },
-    /// The renewal schedule as the core reads it, with what the command line inside this copy
-    /// is.
+    /// The renewal schedule as the core reads it, or `None` where nothing may be read, with
+    /// what the command line inside this copy is.
     ScheduleRead {
-        schedule: Schedule,
+        schedule: Option<Schedule>,
         own: OwnCommandLine,
         after_change: bool,
     },
@@ -412,9 +412,9 @@ pub(crate) enum Answer {
     Renewed {
         renewals: Result<Vec<Renewed>, PitboardError>,
     },
-    /// Doctor's checks.
+    /// Doctor's checks, or `None` where this build makes none.
     Checked {
-        checks: Vec<Check>,
+        checks: Option<Vec<Check>>,
     },
     /// The newest changes Pitboard made, oldest first, as the core keeps them.
     Logged {
@@ -1531,7 +1531,7 @@ impl State {
                 after_change,
             } => self
                 .machine
-                .schedule_read(Some(schedule), Some(own), after_change),
+                .schedule_read(schedule, Some(own), after_change),
             Answer::ScheduleSet { own, outcome } => {
                 if self.machine.scheduled(own, outcome) {
                     jobs.push(Job::ReadSchedule { after_change: true });
@@ -1541,7 +1541,7 @@ impl State {
                 self.machine.renewals = Some(renewals);
                 self.read_after_renewal(now, jobs);
             }
-            Answer::Checked { checks } => self.machine.checked(Some(checks), now.epoch()),
+            Answer::Checked { checks } => self.machine.checked(checks, now.epoch()),
             Answer::Logged { changes } => self.machine.logged(changes),
             Answer::CommandLineFound { found, own } => {
                 self.machine.command_line = Some(found);

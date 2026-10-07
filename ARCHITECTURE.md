@@ -63,10 +63,17 @@ pages load, as a browser would.
     `pitboard_core::testing::fs`. `program.rs` finds a program the way the
     system's launcher does. `mod.rs` chooses the system, once: `macos/` (the keychain
     through `security`, `ps`, launchd) or `linux/` (`/proc`, systemd), each with what
-    `unix/` holds for both. A fact that differs by system is a `match` on `host::OS`, such
-    as the folders macOS asks about before an app may look in them, or
-    `default_pitboard_home`, where Pitboard keeps its files for a home when
-    `PITBOARD_HOME` names nowhere else.
+    `unix/` holds for both, or `windows/`, the face that refuses whatever of Windows is not
+    built yet: no store of secrets, a vault of `store::Backend::Unknown` whose every call
+    cannot be read, no process list, no scheduler, an elevation nobody can tell, no home of
+    the account's own, no file made and no program found. A fact that differs by system is
+    a `match` on `host::OS`, such as the folders macOS asks about before an app may look in
+    them, or `default_pitboard_home`, where Pitboard keeps its files for a home when
+    `PITBOARD_HOME` names nowhere else. `same_path_in_any_case` is how Windows compares
+    paths, for the core and the apps alike.
+  - `release.rs`: whether this build may do anything on its system. A Windows build of a
+    0.x release may not, unless it was compiled with `--cfg pitboard_unreleased_windows`,
+    which CI's Windows jobs set and no release does; macOS and Linux always may.
   - `home.rs`: Pitboard's own directory, and what every home must be before anything is
     read or written under it: a full path (`check_absolute`), and, for Pitboard's own, not
     in a folder that syncs (`check_location`). That is told by the text it always refused,
@@ -136,8 +143,11 @@ pages load, as a browser would.
   - `launch.rs` is the core the model's lanes call, `AppCore`, which nothing exports. It is
     made from the `AppLaunch` the app was started with, read as `AppContext::discover`
     reads it, the first time a lane needs it, and made once more a while after a login
-    shell too slow to answer. Beside it are what it answers that only the model reads, such
-    as what a switch or an enrolment came to, and `PitboardError`.
+    shell too slow to answer. Every read a lane makes with it asks first, as the command line
+    asks before every command, whether this build may do anything on its system and whether
+    every home is a full path, and answers that refusal, or nothing where it has no way to
+    say one. Beside it are what it answers that only the model reads, such as what a switch
+    or an enrolment came to, and `PitboardError`.
   - `sites.rs` gives both apps `pitboard-sites`' sites and links as records of their own,
     and says a site's sign-in steps as a window on this system can follow them: a window on
     a Mac cannot use a passkey.
@@ -148,7 +158,10 @@ pages load, as a browser would.
     dialogs say who asks (`pages.rs`), and what a download is called (`downloads.rs`). What
     differs by system there, such as how a copy of a file is numbered, which names are one
     file, or an alert's "on this Mac", is a `match` on `host::OS`, as what a window cannot
-    sign in with is in `sites.rs`. `records.rs` reads and writes the windows' records, the
+    sign in with is in `sites.rs`. Each takes the system as an argument, so every system's
+    answer is tested on every system: Windows says "this PC", numbers a copy
+    `report (1).pdf`, takes names in any case and in no other form for one file, and
+    promises no passkey. `records.rs` reads and writes the windows' records, the
     stores each Pitboard directory made and the page each window was last on, which the
     model keeps in `windows.json`.
   - `model/` is the app model the macOS app shows and the Windows app is to show. An app
@@ -374,7 +387,20 @@ pages load, as a browser would.
   folder Pitboard runs in.
 - Which system Pitboard runs on is decided in `host/mod.rs` and nowhere else. Anything
   that differs by system is either the host's to answer or a `match` on `host::OS`, so a
-  system added to `host::Os` does not compile until it is said for every one.
+  system added to `host::Os` does not compile until it is said for every one. No such
+  `match` has a `_` arm. Where a fact of Windows is not read yet, its arm refuses through
+  an answer its callers already have, never one that would let Pitboard act: each tool's
+  live chain on Windows is one store whose every call cannot be read (`store::Unbuilt`),
+  never Claude Code's file alone, and the Windows face answers as `host/windows` says.
+- A Windows build of a release before Pitboard for Windows is released does nothing
+  (`release.rs`). The gate every change passes asks first, so no file is written, no store
+  of logins changed and no token renewed even by a caller that forgot to ask; every read
+  of the account list asks too; the app's core asks before every read the model makes
+  (`launch.rs`), so an app reads none of Pitboard's files and no login; and the command
+  line asks before every command but `completions` and `manpage`. Only
+  `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` compile (`lib.rs`). The switch
+  that opens a Windows build early is a `cfg` set in `RUSTFLAGS`, never a Cargo feature,
+  since crates.io offers a published crate's features to anybody.
 - Outside a host's own face, a test or a fixture sets a file's mode, makes a file runnable
   or makes a link only through that face's `fs::testing` (`pitboard_core::testing::fs`),
   never through `std::os::unix`. A link to a directory is asked for as one, `link_dir`, apart
@@ -382,7 +408,11 @@ pages load, as a browser would.
   links a directory otherwise than a file, says how in its own face and nowhere else. The
   integration tests' harness says what differs by system in
   `crates/pitboard/tests/common/os.rs`, one `match` on `host::OS` for each fact: where
-  Claude Code keeps the login it uses and where Pitboard parks one.
+  Claude Code keeps the login it uses and where Pitboard parks one. Its Windows arms say
+  nothing yet, and stop a test that asks, since no test that plants a login runs on Windows
+  before the harness does. Until then Windows runs `windows_refuses`, which keeps apart from
+  the harness, and a test that cannot pass there until a later pull request says which with
+  `#[cfg_attr(windows, ignore = "W<n>: …")]`, the one way a test is put off there.
 - Every program the command line's tests and `pitboard-ffi`'s tests start in place of a
   tool, or put where one is looked for, is one compiled program, the `pitboard` crate's
   example `stand-in`, playing the script written beside its copy

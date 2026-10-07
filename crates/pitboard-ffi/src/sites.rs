@@ -71,6 +71,9 @@ fn sign_in_steps(os: Os, site: &pitboard_sites::Site) -> String {
         Os::MacOs => false,
         // No app runs on Linux, and nothing was measured there, so none is promised.
         Os::Linux => false,
+        // Whether WebView2 gives a page in an app's window a passkey is the Windows app's to
+        // measure, and until it has, none is promised.
+        Os::Windows => false,
     };
     if site.passkeys && !passkeys {
         format!(
@@ -260,11 +263,11 @@ mod tests {
     }
 
     /// The steps chatgpt.com's window gives, as `Site.swift` said them before they were Rust:
-    /// a passkey works in no window on a Mac. Whether one does is the system's to say, so
-    /// pitboard-sites holds the steps without it.
+    /// a passkey works in no window on a Mac, and none is promised in one on Windows. Whether
+    /// one does is the system's to say, so pitboard-sites holds the steps without it.
     #[test]
     fn a_window_says_a_passkey_does_not_work_where_it_does_not() {
-        for os in [Os::MacOs, Os::Linux] {
+        for os in [Os::MacOs, Os::Linux, Os::Windows] {
             assert_eq!(
                 sign_in_steps(os, &pitboard_sites::CHATGPT),
                 "Enter your email address, then its password or the code chatgpt.com emails \

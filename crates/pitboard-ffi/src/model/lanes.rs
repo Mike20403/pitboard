@@ -1492,10 +1492,11 @@ mod tests {
             another(&cargo),
             "the login shell could not be run"
         );
-        // No app runs on Linux, so nothing there has a command line inside it.
+        // No app runs on Linux, so nothing there has a command line inside it, and the
+        // Windows app does not say where its own is yet.
         let inside = match OS {
             Os::MacOs => true,
-            Os::Linux => false,
+            Os::Linux | Os::Windows => false,
         };
         assert_eq!(own.lasting(), inside, "{own:?}");
         let (from_a_build, own) = found(started_at(&world.dir(".build/debug")));

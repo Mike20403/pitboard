@@ -398,6 +398,11 @@ pub(crate) fn cannot_schedule(os: Os, temporary: bool) -> String {
         Os::Linux => "First move Pitboard to a folder it will stay in. Until then it runs \
                       from a temporary copy, which is gone once Pitboard quits."
             .into(),
+        // The Windows app is installed by its installer, and a copy run from anywhere else,
+        // such as from inside a zip, is the one a person is told to install.
+        Os::Windows => "Install Pitboard first. Until then Windows runs it from a temporary \
+                        copy, which is gone once Pitboard quits."
+            .into(),
     }
 }
 
@@ -411,6 +416,9 @@ pub(crate) fn cannot_link(os: Os) -> String {
         // No app runs on Linux, and nothing there runs one from a temporary copy.
         Os::Linux => "First move Pitboard to a folder it will stay in. Until then it runs \
                       from a temporary copy, and a link to that would break."
+            .into(),
+        Os::Windows => "Install Pitboard first. Until then Windows runs it from a temporary \
+                        copy, and a link to that would break."
             .into(),
     }
 }
@@ -895,6 +903,10 @@ mod tests {
             "Claude Code and Codex are not offered: Pitboard did not find claude or codex on \
              this computer."
         );
+        assert_eq!(
+            not_offered(Os::Windows, &["Codex"], &["codex"]),
+            "Codex is not offered: Pitboard did not find codex on this PC."
+        );
     }
 
     /// A clock time the person's own clock could not say is said in UTC and named so, from
@@ -1022,9 +1034,14 @@ mod tests {
             no_scheduler(Os::Linux),
             "This computer has no scheduler Pitboard knows how to write to."
         );
+        assert_eq!(
+            no_scheduler(Os::Windows),
+            "This PC has no scheduler Pitboard knows how to write to."
+        );
         assert_eq!(checking(Os::MacOs), "Checking this Mac…");
         assert_eq!(checking(Os::Linux), "Checking this computer…");
-        for os in [Os::MacOs, Os::Linux] {
+        assert_eq!(checking(Os::Windows), "Checking this PC…");
+        for os in [Os::MacOs, Os::Linux, Os::Windows] {
             assert_eq!(
                 cannot_schedule(os, false),
                 "This copy of Pitboard has no command line inside it to run on a schedule."
@@ -1050,10 +1067,25 @@ mod tests {
             "First move Pitboard to a folder it will stay in. Until then it runs from a \
              temporary copy, and a link to that would break."
         );
-        for linux in [cannot_schedule(Os::Linux, true), cannot_link(Os::Linux)] {
+        assert_eq!(
+            cannot_schedule(Os::Windows, true),
+            "Install Pitboard first. Until then Windows runs it from a temporary copy, which is \
+             gone once Pitboard quits."
+        );
+        assert_eq!(
+            cannot_link(Os::Windows),
+            "Install Pitboard first. Until then Windows runs it from a temporary copy, and a \
+             link to that would break."
+        );
+        for said in [
+            cannot_schedule(Os::Linux, true),
+            cannot_link(Os::Linux),
+            cannot_schedule(Os::Windows, true),
+            cannot_link(Os::Windows),
+        ] {
             assert!(
-                !linux.contains("macOS") && !linux.contains("Applications"),
-                "{linux}"
+                !said.contains("macOS") && !said.contains("Applications"),
+                "{said}"
             );
         }
     }

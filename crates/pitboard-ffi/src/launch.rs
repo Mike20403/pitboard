@@ -486,6 +486,10 @@ impl AppCore {
     /// The person's login shell is asked for its `PATH` when something first needs the core,
     /// never here: it can take seconds, and an app makes its model on its main thread. Each
     /// tool's program is looked for on that `PATH` and then where its installers put it.
+    ///
+    /// Nothing is read with it where nothing may be read here, as the command line reads
+    /// nothing then ([`AppCore::readable`]): every read the model's lanes make asks first, and
+    /// every change asks the gate the core's changes pass, which asks the same.
     pub(crate) fn for_app(environment: HashMap<String, String>, app: Option<String>) -> Arc<Self> {
         let environment: Environment = environment.into_iter().collect();
         let app = app.map(PathBuf::from);
@@ -518,13 +522,47 @@ impl AppCore {
         self.made.value()
     }
 
+    /// The core, once the app may read anything with it, as the command line asks before
+    /// every command. A build that may do nothing on its system, a Windows build of a release
+    /// before Pitboard for Windows is released (`pitboard_core::release`), is refused with
+    /// `windows_not_released` before the core is made. A home the environment names that is
+    /// empty or relative is refused with `home_not_absolute`: every read under it would land
+    /// in whichever folder the app was started from, `app.json` and `state.json` included.
+    ///
+    /// Every read the model's lanes make asks this first, and answers the refusal, or nothing
+    /// where it has no way to say one. A change asks the gate the core's changes pass, which
+    /// refuses the same before anything else.
+    fn readable(&self) -> Result<Arc<Made>, PitboardError> {
+        Self::may_read(|| self.core())
+    }
+
+    /// The same, where the core may be made once more first, as `Kept::value_asking_again`
+    /// says.
+    fn readable_asking_again(&self) -> Result<Arc<Made>, PitboardError> {
+        Self::may_read(|| self.made.value_asking_again())
+    }
+
+    /// The core `made` makes, once the release gate lets this build do anything, and then
+    /// once every home it names is a full path.
+    fn may_read(made: impl FnOnce() -> Arc<Made>) -> Result<Arc<Made>, PitboardError> {
+        pitboard_core::release::check()?;
+        let made = made();
+        made.core.check_homes()?;
+        Ok(made)
+    }
+
     /// What the app keeps in `file` in Pitboard's directory, as the model reads it: `None`
-    /// where it keeps nothing there, and an error where the file is there and cannot be read.
+    /// where it keeps nothing there, and an error where the file is there and cannot be read,
+    /// or where nothing may be read here ([`AppCore::readable`]), which the model takes alike:
+    /// what may be there is kept as it is, and never written over unread.
     pub(crate) fn app_file(
         &self,
         file: pitboard_core::app::AppFile,
     ) -> std::io::Result<Option<String>> {
-        self.core().core.app_file(file)
+        self.readable()
+            .map_err(std::io::Error::other)?
+            .core
+            .app_file(file)
     }
 
     /// Keeps `body` in the app's `file` in Pitboard's directory, as the core writes its own.
@@ -553,9 +591,11 @@ impl AppCore {
     /// The first `pitboard` a terminal would run, as `find_command_line` finds it: on the
     /// login shell's `PATH`, then where each way of installing Pitboard puts it, and whether
     /// it is the one inside this copy of the app. Looks along a search path, and may ask the
-    /// login shell again.
+    /// login shell again. None is found where nothing may be read here.
     pub(crate) fn command_line(&self) -> FoundCommandLine {
-        let made = self.made.value_asking_again();
+        let Ok(made) = self.readable_asking_again() else {
+            return FoundCommandLine::Nowhere;
+        };
         found_command_line(pitboard_core::app::find_command_line(
             made.search_path.as_deref().map(std::ffi::OsStr::new),
             &made.command_line_places,
@@ -565,9 +605,12 @@ impl AppCore {
 
     /// The tools whose program was named or found, in the order a listing shows them. A
     /// tool missing here may still be on some `PATH`, so this narrows what is offered and
-    /// never forbids anything. May ask the login shell again.
+    /// never forbids anything. May ask the login shell again. None where nothing may be read
+    /// here, where nothing could be enrolled either.
     pub(crate) fn installed(&self) -> Vec<Tool> {
-        let made = self.made.value_asking_again();
+        let Ok(made) = self.readable_asking_again() else {
+            return Vec::new();
+        };
         ProviderId::ALL
             .iter()
             .copied()
@@ -584,7 +627,7 @@ impl AppCore {
     /// once its tightest limit could have moved by a percentage point, which is what keeps
     /// the app and the command line to one request between them.
     pub(crate) fn status(&self, fresh: bool) -> Result<Status, PitboardError> {
-        Ok(status_of(self.core().core.status(fresh)?))
+        Ok(status_of(self.readable()?.core.status(fresh)?))
     }
 
     pub(crate) fn switch_to(&self, label: String) -> Result<Switched, PitboardError> {
@@ -652,7 +695,7 @@ impl AppCore {
     }
 
     /// When Pitboard's account index last changed, in epoch seconds, or 0 when there is
-    /// none.
+    /// none, or where nothing may be read here.
     ///
     /// One stat of one file, so the model asks often. A switch typed in a terminal used to
     /// leave the menu bar naming the account the person had just stopped using, for as
@@ -660,11 +703,11 @@ impl AppCore {
     /// The model polls this, and when it moves, reads `status_offline`: no network, and no
     /// keychain unless an interrupted switch is waiting.
     pub(crate) fn changed_at(&self) -> i64 {
-        self.core().core.changed_at()
+        self.readable().map_or(0, |made| made.core.changed_at())
     }
 
     /// When Pitboard's usage readings last changed, in epoch milliseconds, or 0 when there
-    /// are none.
+    /// are none, or where nothing may be read here.
     ///
     /// Every session's status line records what that session has seen, and a reading only
     /// moves forward, so what is remembered is the newest any front end has. The model polls
@@ -672,7 +715,8 @@ impl AppCore {
     /// no network, and no keychain unless an interrupted switch is waiting. Only the numbers:
     /// a reading moving says nothing about who is signed in, which is `changed_at`'s to say.
     pub(crate) fn readings_changed_at(&self) -> i64 {
-        self.core().core.readings_changed_at()
+        self.readable()
+            .map_or(0, |made| made.core.readings_changed_at())
     }
 
     /// The same report without asking anyone: the last numbers Pitboard measured, and who
@@ -682,7 +726,7 @@ impl AppCore {
     /// flight, rather than an empty panel and a spinner. It warns of an interrupted switch
     /// nothing can finish as `status` does, wherever that can be told without a request.
     pub(crate) fn status_offline(&self) -> Result<Status, PitboardError> {
-        Ok(status_of(self.core().core.status_offline()?))
+        Ok(status_of(self.readable()?.core.status_offline()?))
     }
 
     /// Give up on an interrupted switch that cannot be finished, keeping every login it
@@ -698,10 +742,13 @@ impl AppCore {
         }))
     }
 
-    /// What Pitboard has changed, newest last.
+    /// What Pitboard has changed, newest last: nothing where nothing may be read here, as
+    /// for a log that cannot be read.
     pub(crate) fn log(&self, limit: u32) -> Vec<Change> {
-        self.core()
-            .core
+        let Ok(made) = self.readable() else {
+            return Vec::new();
+        };
+        made.core
             .log(limit as usize)
             .into_iter()
             .map(|e| Change {
@@ -736,9 +783,10 @@ impl AppCore {
         Ok(self.core().core.permit()?)
     }
 
-    /// Whether anything keeps parked logins alive without a command being run.
-    pub(crate) fn schedule(&self) -> Schedule {
-        match self.core().core.schedule() {
+    /// Whether anything keeps parked logins alive without a command being run. `None` where
+    /// nothing may be read here, which is not a schedule that is absent.
+    pub(crate) fn schedule(&self) -> Option<Schedule> {
+        Some(match self.readable().ok()?.core.schedule() {
             pitboard_core::schedule::Installed::Yes {
                 path,
                 every_seconds,
@@ -748,7 +796,7 @@ impl AppCore {
             },
             pitboard_core::schedule::Installed::No => Schedule::Absent,
             pitboard_core::schedule::Installed::Unsupported => Schedule::Unsupported,
-        }
+        })
     }
 
     /// Ask this computer's own scheduler to renew parked logins daily. Opt-in, and the
@@ -778,13 +826,16 @@ impl AppCore {
 
     /// What is running `provider`'s tool with a login a switch would leave it on, by kind,
     /// for the model to say so or to offer to quit an app first. Empty where nothing is, for
-    /// a tool that follows a switch by itself, and for a provider code nobody knows. Reads
-    /// the process list and nothing else, so it answers at once.
+    /// a tool that follows a switch by itself, for a provider code nobody knows, and where
+    /// nothing may be read here, where no switch is made either. Reads the process list and
+    /// nothing else, so it answers at once.
     pub(crate) fn holding(&self, provider: String) -> Vec<Holding> {
+        let Ok(made) = self.readable() else {
+            return Vec::new();
+        };
         pitboard_core::provider::ProviderId::parse(&provider)
             .map(|which| {
-                self.core()
-                    .core
+                made.core
                     .holding(which)
                     .into_iter()
                     .map(Holding::from)
@@ -793,9 +844,14 @@ impl AppCore {
             .unwrap_or_default()
     }
 
-    /// Every check `pitboard doctor` makes.
-    pub(crate) fn doctor(&self) -> Vec<Check> {
-        self.core()
+    /// Every check `pitboard doctor` makes. `None` where this build may do nothing on its
+    /// system (`pitboard_core::release`), which makes no check, as `pitboard doctor` there
+    /// makes none. A home that is not a full path is doctor's own to say, as its `homes`
+    /// check, failed, and nothing else.
+    pub(crate) fn doctor(&self) -> Option<Vec<Check>> {
+        pitboard_core::release::check().ok()?;
+        let checks = self
+            .core()
             .core
             .doctor()
             .checks
@@ -811,7 +867,8 @@ impl AppCore {
                 detail: c.detail,
                 advice: c.advice,
             })
-            .collect()
+            .collect();
+        Some(checks)
     }
 }
 
@@ -946,13 +1003,80 @@ mod tests {
         };
         assert_eq!(code, "schedule_not_default_home");
         assert!(message.contains("unset PITBOARD_HOME"), "{message}");
-        assert_eq!(elsewhere.schedule(), Schedule::Absent);
+        assert_eq!(elsewhere.schedule(), Some(Schedule::Absent));
 
         let default = app(home.join(".pitboard"));
         default.schedule_install().expect("installed");
-        assert!(matches!(default.schedule(), Schedule::Installed { .. }));
+        assert!(matches!(
+            default.schedule(),
+            Some(Schedule::Installed { .. })
+        ));
         assert_eq!(elsewhere.schedule_uninstall().ok(), Some(true));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Where a home the environment names is empty or relative, the app's core reads nothing
+    /// under it, as the command line reads nothing: every read the model's lanes make answers
+    /// the refusal, or nothing where it has no way to say one, and never what lies under
+    /// whichever folder the app was started from. What the app keeps there reads as a file
+    /// that cannot be read, which the model never writes over. Doctor says it as its `homes`
+    /// check, and checks nothing else.
+    #[test]
+    fn the_apps_core_reads_nothing_under_a_home_that_is_not_a_full_path() {
+        for (home, pitboard, variable) in [
+            ("relative", "/elsewhere/.pitboard", "HOME"),
+            ("/Users/x", "pitboard", "PITBOARD_HOME"),
+            ("/Users/x", "", "PITBOARD_HOME"),
+        ] {
+            let host = pitboard_core::host::memory::MemoryHost::new();
+            let core = AppCore::asking(
+                move || {
+                    let mut made = made(Some("/nowhere/codex"), None);
+                    let ctx = Context::new(PathBuf::from(home))
+                        .with_pitboard_home(PathBuf::from(pitboard))
+                        .with_caller("app".into())
+                        .with_memory_stores(Arc::clone(&host));
+                    made.core = service::Pitboard::new(ctx);
+                    (made, false)
+                },
+                ASK_AGAIN_AFTER,
+            );
+            let refused = |read: Result<Status, PitboardError>| match read {
+                Err(PitboardError::Failed { code, message, .. }) => {
+                    assert_eq!(code, "home_not_absolute", "{variable}");
+                    assert!(message.starts_with(variable), "{message}");
+                }
+                Ok(_) => panic!("read under {variable} {pitboard:?}"),
+            };
+            refused(core.status(false));
+            refused(core.status_offline());
+            for file in [
+                pitboard_core::app::AppFile::Told,
+                pitboard_core::app::AppFile::Preferences,
+            ] {
+                let unread = core.app_file(file).expect_err("not read");
+                assert!(unread.to_string().starts_with(variable), "{unread}");
+            }
+            assert_eq!((core.changed_at(), core.readings_changed_at()), (0, 0));
+            assert!(core.log(500).is_empty());
+            assert_eq!(core.schedule(), None, "not a schedule that is absent");
+            assert!(core.holding("codex".into()).is_empty());
+            assert!(installed(&core).is_empty(), "{variable}");
+            assert_eq!(core.command_line(), FoundCommandLine::Nowhere);
+            let checks = core.doctor().expect("doctor's own to say");
+            let homes = checks
+                .iter()
+                .find(|check| check.code == "homes")
+                .expect("the homes check");
+            assert_eq!(homes.level, Level::Fail);
+            assert!(homes.detail.starts_with(variable), "{}", homes.detail);
+            assert!(
+                checks
+                    .iter()
+                    .all(|check| ["elevated", "homes"].contains(&check.code.as_str())),
+                "nothing else is checked"
+            );
+        }
     }
 
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never

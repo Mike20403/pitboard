@@ -21,7 +21,16 @@ anything public in `pitboard-core` is a new minor version, as Cargo reads one: 0
   tool's register says which systems each fact was read on, Windows among them.
   `service::Pitboard::renew`, part of the supported interface, returns a `Result`, so that
   a run refused as root says so, and what changes anything outside `service`, such as
-  `app::write_file`, takes a `service::Permit`.
+  `app::write_file`, takes a `service::Permit`. `host::Os` has a `Windows` variant, which
+  breaks an exhaustive `match` on it, and `host::Os::make_private_command` returns an
+  `Option`.
+- Every 0.x release from then on compiles on Windows, and its Windows build answers only
+  `--version`, `--help`, `completions` and `manpage`, saying "Pitboard for Windows is not
+  released yet. This build changes nothing." (`pitboard_core::release`). Its notes say that
+  Pitboard for Windows is not released. The crates' keywords and the README keep naming
+  macOS and Linux alone until Windows is released. No release builds anything for Windows
+  while the version's major is 0, and nothing a release builds, scripts or packages passes
+  `--cfg pitboard_unreleased_windows`, `test-support` or `fixture`.
 
 1. In CHANGELOG.md, add `## [<version>] - YYYY-MM-DD` directly under `## [Unreleased]`, so
    the entries there fall under the version. The guard looks for a line that starts

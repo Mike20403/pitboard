@@ -36,6 +36,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- A Windows build of Pitboard, from crates.io or from source, now compiles, for x64 and
+  ARM64 with Microsoft's toolchain. It says `Pitboard for Windows is not released yet. This
+  build changes nothing.`, with the code `windows_not_released` in `--json`, and reads and
+  changes nothing: only `--version`, `--help`, `completions` and `manpage` answer. Until now
+  it stopped compiling with the first of those sentences. On Windows,
+  `cargo binstall pitboard` finds no release to download and stops, rather than build this
+  one from source. macOS and Linux are unchanged.
 - The product is called Pitboard, with a capital P, everywhere it names itself: the app
   (its menus, About, Login Items and the Share menu entry, **Pitboard** and **Pitboard
   Debug**), the command line's messages and help, and the docs. The command is still
@@ -366,7 +373,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `pitboard schedule install` write the schedule's file there. Claude Code and Codex take a
   relative one from the folder each of them runs in, so the login Pitboard read and
   switched was the one under the folder Pitboard ran in. `pitboard doctor` fails a `homes`
-  check instead, and checks nothing else; the app's **This Mac** pane shows the same.
+  check instead, and checks nothing else; the app's **This Mac** pane shows the same. The
+  app reads nothing under such a home either. It shows the error where it shows your
+  accounts, finds no tool and no `pitboard`, and leaves its own files there unread and
+  unwritten.
 - A run of the daily renewal schedule renews the parked logins in `~/.pitboard` whatever
   `PITBOARD_HOME` says, empty or relative included, which other commands refuse as above.
   The schedule renews `~/.pitboard` alone, and its job is written without

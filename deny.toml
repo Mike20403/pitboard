@@ -4,6 +4,8 @@
 [graph]
 # What is actually shipped. The Linux releases are musl, and a musl build pulls in
 # different crates than a gnu one, so checking only gnu checks something nobody downloads.
+# Windows' two are the only Windows targets the core compiles for, and pull in crates of
+# their own, such as windows-sys under rustls' platform verifier.
 targets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
@@ -11,6 +13,8 @@ targets = [
   "aarch64-unknown-linux-gnu",
   "x86_64-unknown-linux-musl",
   "aarch64-unknown-linux-musl",
+  "x86_64-pc-windows-msvc",
+  "aarch64-pc-windows-msvc",
 ]
 # The C# bindings generator runs on a build machine and ships nothing of its own: what it
 # writes comes from its templates, and its dependencies (an old clap and askama among them)

@@ -97,10 +97,26 @@ impl Layer {
         matches!(self, Layer::Required | Layer::RequiredByPreference)
     }
 
+    /// Whether Pitboard reads this layer on `os`: every layer but this machine's own files,
+    /// which it reads only where it knows their folder ([`system_dir`]).
+    fn read_on(self, os: Os) -> bool {
+        match self {
+            Layer::System | Layer::Managed | Layer::Required => system_dir(os).is_some(),
+            Layer::Packaged
+            | Layer::Own
+            | Layer::CommandLine
+            | Layer::ManagedPreference
+            | Layer::RequiredByPreference => true,
+        }
+    }
+
     /// Where this layer is, as a person finds it, on `os`, with `own` the person's
     /// `config.toml`.
     fn place(self, os: Os, own: &Path) -> String {
-        let file = |name: &str| system_dir(os).join(name).display().to_string();
+        let file = |name: &str| match system_dir(os) {
+            Some(dir) => dir.join(name).display().to_string(),
+            None => format!("Codex's own {name} for this machine"),
+        };
         match self {
             Layer::Packaged => "Codex's default".into(),
             Layer::System => file("config.toml"),
@@ -119,9 +135,13 @@ impl Layer {
 }
 
 /// Where Codex keeps this machine's own configuration: `/etc/codex` on macOS and Linux.
-fn system_dir(os: Os) -> &'static Path {
+/// On Windows it is a folder under `%ProgramData%`, a folder Windows names for each machine,
+/// which W21 finds and reads (the register's pending `codex_store_layers`); until then none is
+/// named, and no layer of it is read ([`Layer::read_on`]).
+fn system_dir(os: Os) -> Option<&'static Path> {
     match os {
-        Os::MacOs | Os::Linux => Path::new("/etc/codex"),
+        Os::MacOs | Os::Linux => Some(Path::new("/etc/codex")),
+        Os::Windows => None,
     }
 }
 
@@ -130,6 +150,13 @@ fn system_dir(os: Os) -> &'static Path {
 /// Between the system's and the person's own, Codex has an enterprise's cloud layers, and
 /// over the person's, a profile's and a project's: none of the three is read here, as the
 /// module says.
+///
+/// On Windows, Codex 0.99.0's loader reads the same layers but `managed_config.toml`, with
+/// this machine's files in `%ProgramData%\OpenAI\Codex` (`load_config_layers_state` and
+/// `windows_codex_system_dir` in `codex-rs/core/src/config_loader/mod.rs`). 0.160.0's are
+/// the register's pending `codex_store_layers`, which W21 reads. Until then Pitboard reads
+/// none of this machine's files there, so the store is one nobody can tell, whatever the
+/// person's own `config.toml` says.
 pub(crate) fn config_layers(os: Os) -> &'static [Layer] {
     use Layer::{CommandLine, Managed, ManagedPreference, Own, Packaged, System};
     match os {
@@ -142,6 +169,7 @@ pub(crate) fn config_layers(os: Os) -> &'static [Layer] {
             ManagedPreference,
         ],
         Os::Linux => &[Packaged, System, Own, CommandLine, Managed],
+        Os::Windows => &[Packaged, System, Own, CommandLine],
     }
 }
 
@@ -149,19 +177,22 @@ pub(crate) fn config_layers(os: Os) -> &'static [Layer] {
 ///
 /// `/etc/codex/managed_config.toml` and its managed preference are requirements too, but only
 /// for approvals and the sandbox (`legacy_requirements_to_toml_value`), so they pin no store.
+/// On Windows the file of requirements is in this machine's folder Pitboard does not read
+/// yet, as [`config_layers`] says.
 pub(crate) fn requirement_layers(os: Os) -> &'static [Layer] {
     match os {
         Os::MacOs => &[Layer::Required, Layer::RequiredByPreference],
-        Os::Linux => &[Layer::Required],
+        Os::Linux | Os::Windows => &[Layer::Required],
     }
 }
 
 /// Whether Codex keeps a keychain store's login in its encrypted file of secrets when
 /// nothing says: `secret_auth_storage` is on by default only where `cfg!(windows)`, so off
-/// on macOS and Linux.
+/// on macOS and Linux, and on on Windows.
 fn secrets_by_default(os: Os) -> bool {
     match os {
         Os::MacOs | Os::Linux => false,
+        Os::Windows => true,
     }
 }
 
@@ -218,12 +249,24 @@ pub(crate) struct Store {
 struct Unknown {
     /// The layer that cannot be read as Codex reads it.
     layer: Layer,
-    /// What is wrong with it, in words that follow the layer's place.
+    /// What is wrong with it, in words that follow the layer's place: nothing where Pitboard
+    /// does not read it.
     why: String,
+    /// What Codex does over it.
+    then: Then,
+}
+
+/// What Codex does over the layer [`Unknown`] names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Then {
+    /// Codex 0.160.0 does not start.
+    Stops,
     /// The profile a `profile = "<name>"` line chooses where no table defines it, which
     /// 0.160.0 refuses as it refuses every such line, and 0.99.0 as one it cannot find.
-    /// `None` for anything else, which stops Codex 0.160.0 from starting.
-    profile: Option<String>,
+    NoProfile(String),
+    /// Nobody here can tell: Pitboard does not read the layer on this system yet
+    /// ([`Layer::read_on`]), which says nothing of Codex itself.
+    Unread,
 }
 
 impl Store {
@@ -274,21 +317,29 @@ impl Store {
     }
 
     /// Why the store cannot be told, for [`Backend::Unknown`]: the place that cannot be read
-    /// as Codex reads it, and what is wrong there.
+    /// as Codex reads it, and what is wrong there, or that Pitboard does not read Codex's
+    /// configuration on this system yet.
     pub(crate) fn why_unknown(&self) -> Option<String> {
-        self.unknown
-            .as_ref()
-            .map(|unknown| format!("{} {}", self.place(unknown.layer), unknown.why))
+        self.unknown.as_ref().map(|unknown| match unknown.then {
+            Then::Unread => {
+                "Pitboard does not read Codex's configuration on this system yet".into()
+            }
+            Then::Stops | Then::NoProfile(_) => {
+                format!("{} {}", self.place(unknown.layer), unknown.why)
+            }
+        })
     }
 
     /// What Codex does with what [`Store::why_unknown`] names, as sentences with no last full
     /// stop, for [`Backend::Unknown`]. Codex 0.160.0 does not start over any of it, and a
     /// `profile = "<name>"` line naming a profile no table defines is one 0.99.0, which
-    /// chooses a profile with the line, refuses as not found.
+    /// chooses a profile with the line, refuses as not found. A place Pitboard does not read
+    /// on this system yet says nothing of Codex.
     pub(crate) fn while_unknown(&self) -> Option<String> {
-        self.unknown.as_ref().map(|unknown| match &unknown.profile {
-            None => "Codex 0.160.0 does not start until that is put right".into(),
-            Some(name) => format!(
+        self.unknown.as_ref().map(|unknown| match &unknown.then {
+            Then::Stops => "Codex 0.160.0 does not start until that is put right".into(),
+            Then::Unread => "This says nothing about Codex itself".into(),
+            Then::NoProfile(name) => format!(
                 "Codex 0.160.0 does not start with that line, and an older Codex, such as \
                  0.99.0, which chooses a profile with it, refuses one no table defines: \
                  \"config profile `{name}` not found\""
@@ -326,7 +377,12 @@ fn read(
     command_line: Option<&str>,
 ) -> Administered {
     let host = ctx.host();
-    let file = |name: &str| host.administered_file(&system_dir(crate::host::OS).join(name));
+    // A layer of this machine's own files is not asked for where there is no folder named
+    // for them ([`Layer::read_on`]), and would be one nobody can read.
+    let file = |name: &str| match system_dir(crate::host::OS) {
+        Some(dir) => host.administered_file(&dir.join(name)),
+        None => Administered::Unreadable("is not read on this system yet".into()),
+    };
     match layer {
         Layer::Packaged => Administered::Set(PACKAGED.into()),
         Layer::System => file("config.toml"),
@@ -365,6 +421,8 @@ enum Says {
     Table(toml::Table),
     /// It is there and Codex cannot read it, which stops Codex from starting.
     Broken(String),
+    /// Pitboard does not read it on this system yet, so whatever it says nobody here can tell.
+    Unread,
 }
 
 impl Says {
@@ -389,7 +447,7 @@ impl Says {
     fn table(&self) -> Option<&toml::Table> {
         match self {
             Says::Table(table) => Some(table),
-            Says::Nothing | Says::Broken(_) => None,
+            Says::Nothing | Says::Broken(_) | Says::Unread => None,
         }
     }
 }
@@ -522,7 +580,14 @@ pub(crate) fn resolve(os: Os, own: &Path, read: &dyn Fn(Layer) -> Administered) 
     let read_all = |layers: &[Layer]| -> Vec<(Layer, Says)> {
         layers
             .iter()
-            .map(|&layer| (layer, Says::of(read(layer))))
+            .map(|&layer| {
+                let says = if layer.read_on(os) {
+                    Says::of(read(layer))
+                } else {
+                    Says::Unread
+                };
+                (layer, says)
+            })
             .collect()
     };
     let (required, config) = (
@@ -538,37 +603,35 @@ pub(crate) fn resolve(os: Os, own: &Path, read: &dyn Fn(Layer) -> Administered) 
         os,
         own: own.to_path_buf(),
     };
-    let unknown = |layer: Layer, why: String, profile: Option<String>| {
+    let unknown = |layer: Layer, why: String, then: Then| {
         store(
             Backend::Unknown,
             layer,
             Mode::File,
             None,
-            Some(Unknown {
-                layer,
-                why,
-                profile,
-            }),
+            Some(Unknown { layer, why, then }),
         )
     };
 
-    // A layer Codex cannot read stops it from starting, whatever the others say.
-    if let Some((layer, why)) =
+    // A layer Codex cannot read stops it from starting, whatever the others say, and one
+    // Pitboard does not read leaves nobody here able to tell, whatever the others say.
+    if let Some((layer, why, then)) =
         required
             .iter()
             .rev()
             .chain(config.iter().rev())
             .find_map(|(layer, says)| match says {
-                Says::Broken(why) => Some((*layer, why.clone())),
+                Says::Broken(why) => Some((*layer, why.clone(), Then::Stops)),
+                Says::Unread => Some((*layer, String::new(), Then::Unread)),
                 Says::Nothing | Says::Table(_) => None,
             })
     {
-        return unknown(layer, why, None);
+        return unknown(layer, why, then);
     }
 
     // Codex reads the configuration whole before a requirement replaces anything in it, so a
     // value it cannot take there stops it even under a requirement.
-    let refused = |layer, wrong: String| unknown(layer, format!("sets {wrong}"), None);
+    let refused = |layer, wrong: String| unknown(layer, format!("sets {wrong}"), Then::Stops);
     let configured = match highest(config.iter(), store_in) {
         Some((layer, Ok(mode))) => (layer, mode),
         Some((layer, Err(wrong))) => return refused(layer, wrong),
@@ -615,7 +678,7 @@ pub(crate) fn resolve(os: Os, own: &Path, read: &dyn Fn(Layer) -> Administered) 
                             "sets `profile = \"{name}\"`, a profile no `[profiles.{name}]` \
                              table defines"
                         ),
-                        Some(name),
+                        Then::NoProfile(name),
                     );
                 }
             }
@@ -1335,7 +1398,45 @@ mod tests {
                 (Backend::Ephemeral, Layer::ManagedPreference)
             ),
             Os::Linux => assert_eq!(store.backend, Backend::File),
+            // Windows has no managed preferences, and none of this machine's files is read
+            // there until W21.
+            Os::Windows => assert_eq!(store.backend, Backend::Unknown),
         }
+    }
+
+    /// On Windows Pitboard does not read this machine's own files of Codex's configuration
+    /// yet, so the store is one nobody can tell, whatever the person's own `config.toml` or a
+    /// `-c` says, and never Codex's default: the file is then no answer, and doctor fails it
+    /// as a store nobody can tell rather than passing it as the file. It says nothing of
+    /// Codex itself, which is not stopped by it as by a layer it cannot read.
+    #[test]
+    fn on_windows_the_store_is_one_nobody_can_tell_whatever_the_layers_say() {
+        for holds in [
+            &[][..],
+            &[(Layer::Own, FILE)],
+            &[(Layer::Own, KEYRING)],
+            &[(Layer::Own, FILE), (Layer::CommandLine, FILE_STORE)],
+            &[(Layer::System, KEYRING), (Layer::Required, FILE)],
+        ] {
+            let store = machine(Os::Windows, holds);
+            assert_eq!(store.backend, Backend::Unknown, "{holds:?}");
+            assert_eq!(
+                store.why_unknown().as_deref(),
+                Some("Pitboard does not read Codex's configuration on this system yet"),
+                "{holds:?}"
+            );
+            assert_eq!(
+                store.while_unknown().as_deref(),
+                Some("This says nothing about Codex itself"),
+                "{holds:?}"
+            );
+        }
+        let host = crate::host::memory::MemoryHost::new();
+        let ctx = Context::for_unit_test().with_memory_stores(host);
+        let signing_in = resolve(Os::Windows, Path::new(OWN), &|layer| {
+            read(&ctx, layer, None, Some(FILE_STORE))
+        });
+        assert_eq!(signing_in.backend, Backend::Unknown, "a sign-in's too");
     }
 
     /// Canonical standard base64 only, as the base64 crate's `BASE64_STANDARD` decodes it.

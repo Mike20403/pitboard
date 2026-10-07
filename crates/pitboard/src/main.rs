@@ -149,6 +149,14 @@ impl Command {
         }
     }
 
+    /// Whether the command asks first whether this build may do anything here: a Windows
+    /// build of a release before Pitboard for Windows is released may not
+    /// ([`pitboard_core::release`]). Every command does but the two that print a generated
+    /// file; `--version` and `--help` are answered before a command is read.
+    fn asks_whether_this_build_may_run(&self) -> bool {
+        !matches!(self, Command::Completions { .. } | Command::Manpage)
+    }
+
     /// Whether the command is refused here where a home the environment names is not a
     /// full path. Every one reads or writes under the homes but the two that print a
     /// generated file; `doctor` says so as a check of its own and checks nothing else; and
@@ -884,6 +892,14 @@ fn main() -> ExitCode {
         offline: false,
         fresh: false,
     });
+    // A build that may do nothing here says so before it reads anything, its environment
+    // included. The core refuses it too, at the gate every change passes and wherever it
+    // reads Pitboard's accounts.
+    if command.asks_whether_this_build_may_run()
+        && let Err(refused) = pitboard_core::release::check()
+    {
+        return emit(Report::failed(Some(command.name()), refused), cli.json);
+    }
     let ctx = Context::from_env();
     // The schedule's job on Linux says so by the marker, rather than by what systemd passes.
     let ctx = match command {
@@ -1158,6 +1174,49 @@ mod tests {
         );
         assert!(there.contains(renews_only), "{there}");
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A build that may do nothing here, a Windows build of a release before Windows is
+    /// released, answers only what prints a generated file, `completions` and `manpage`,
+    /// besides `--version` and `--help`, which clap answers before a command is read. Every
+    /// other command asks the release gate first, reading included.
+    #[test]
+    fn every_command_but_a_generated_file_asks_whether_this_build_may_run() {
+        let asks = |args: &[&str]| {
+            let cli = Cli::try_parse_from(std::iter::once("pitboard").chain(args.iter().copied()))
+                .unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            cli.command
+                .unwrap_or(Command::Status {
+                    offline: false,
+                    fresh: false,
+                })
+                .asks_whether_this_build_may_run()
+        };
+        for args in [
+            &[][..],
+            &["status", "--offline"],
+            &["enroll", "work"],
+            &["enroll", "codex/work", "--sign-in"],
+            &["use", "work"],
+            &["forget", "work", "-y"],
+            &["abandon"],
+            &["repair"],
+            &["adopt"],
+            &["renew"],
+            &["renew", "--scheduled"],
+            &["schedule", "install"],
+            &["schedule", "status"],
+            &["schedule", "uninstall"],
+            &["log"],
+            &["uninstall", "-y"],
+            &["rename", "work", "job"],
+            &["doctor"],
+            &["statusline"],
+        ] {
+            assert!(asks(args), "{args:?}");
+        }
+        assert!(!asks(&["completions", "bash"]));
+        assert!(!asks(&["manpage"]));
     }
 
     #[test]

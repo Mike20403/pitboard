@@ -145,7 +145,9 @@ CI also runs:
 - clippy and the tests on both macOS and Linux, and both again for `pitboard-ffi` with its
   fixtures
 - `cargo check --workspace --all-targets --locked` on Rust 1.91, and again for `pitboard-ffi`
-  with its fixtures
+  with its fixtures, on Linux and on Windows
+- the Windows job, on x64 and ARM64: the release gate proved on a build made as a release is,
+  then clippy and the tests [Windows](#windows) lists
 - the app job: `swift format lint --strict`, `./apps/macos/scripts/build-app.sh`, a check that
   the command line inside the app runs and holds both architectures, then
   `./apps/macos/scripts/build-xcframework.sh --fixture`, `swift test` and the UI tests
@@ -298,6 +300,55 @@ One test starts a fixture's model and waits for it to tell a listener written in
 accounts. Against a library built without the `fixture` feature it is skipped, and says so.
 To run it, build the library with `cargo build --locked -p pitboard-ffi --features fixture`
 before `dotnet test`; the bindings need not be generated again.
+
+## Windows
+
+Pitboard for Windows is being built, a pull request at a time, and reaches people as 1.0.0.
+Until then a Windows build of a 0.x release compiles, answers only `--version`, `--help`,
+`completions` and `manpage`, refuses everything else with `windows_not_released`, and
+changes nothing. The gate is `pitboard_core::release`: the core asks it at the gate every
+change passes and wherever it reads the account list, the app's core before every read the
+model makes, and the command line before every other command. Only `x86_64-pc-windows-msvc`
+and `aarch64-pc-windows-msvc` compile.
+
+A build for working on Pitboard on Windows is opened to it before its release with
+`--cfg pitboard_unreleased_windows` in `RUSTFLAGS`, and with nothing else. It is not a Cargo
+feature, because crates.io lists a published crate's features and anybody could turn one on
+with `cargo install`. No release, script or package ever passes it. The core's own unit
+tests are opened by `cfg(test)`. An opened build reaches the Windows face,
+`crates/pitboard-core/src/host/windows`, which refuses whatever is not built yet through
+errors its callers already have: nobody can tell whether it runs elevated, so every change
+is refused, and no file is made, no process listed and no store read.
+
+On Windows 11 24H2 or later, x64 or ARM64, with Rust's MSVC toolchain, and on ARM64 the
+clang ring compiles its C with there, follow [AGENTS.md](AGENTS.md#on-windows), then run, in
+PowerShell:
+
+```powershell
+$env:RUSTFLAGS = "-D warnings -C target-feature=+crt-static --cfg pitboard_unreleased_windows"
+cargo clippy --workspace --all-targets --locked
+cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
+cargo test --locked -p pitboard-core --lib -- host::windows release
+cargo test --locked -p pitboard --test windows_refuses
+cargo test --locked -p pitboard-sites -p pitboard-share-ffi
+```
+
+`RUSTFLAGS` replaces every target's own rustflags, so it names the static C runtime the
+releases are built with. Until the integration tests run on Windows, these are the tests
+that need no part of the Windows face still to be built. A test that cannot pass on Windows
+until a later pull request says which, with `#[cfg_attr(windows, ignore = "W<n>: <what it
+waits on>")]`, and in no other way.
+
+From a Mac or Linux, `cargo check --target x86_64-pc-windows-msvc` checks only
+`pitboard-sites` and `pitboard-share-ffi`: ring's build script compiles C against MSVC's
+headers. CI's `windows` job runs the commands above on `windows-2025` and `windows-11-arm`.
+First it checks that Rust there builds for that leg's own triple. Then it builds
+`pitboard.exe` the way a release is built, without the cfg, and checks that it is a program
+for that machine, that `--version` answers, that the program carries its C runtime, and that
+`status`, `use`, `renew` and `schedule install` each refuse with `windows_not_released` and
+leave every folder they are pointed at empty. `windows_refuses` runs against a build without
+the cfg as well, which refuses every one of its commands that way. `windows-msrv` checks the
+workspace there with Rust 1.91.
 
 ## Tool registers
 

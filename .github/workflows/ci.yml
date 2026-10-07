@@ -56,6 +56,160 @@ jobs:
       - if: runner.os == 'macOS'
         run: cargo test --locked -p pitboard --test keychain_write_is_harmless writing_preserves_attributes
 
+  # Windows, where the core compiles and refuses whatever is not built yet. Each image is
+  # named, never windows-latest, so a new image is a change made on purpose.
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            triple: x86_64-pc-windows-msvc
+            machine: AMD64
+          - os: windows-11-arm
+            triple: aarch64-pc-windows-msvc
+            machine: ARM64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # RUSTFLAGS replaces every target's own rustflags, so the static C runtime a Windows
+      # release is built with is named here. The cfg opens the build to Windows before Windows
+      # is released, for the lints and the tests (pitboard-core's release.rs); the gate is
+      # checked below on a build without it.
+      RUSTFLAGS: -D warnings -C target-feature=+crt-static --cfg pitboard_unreleased_windows
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # ring compiles its C with clang on ARM64 Windows, and nothing else, so the image's clang
+      # is said first.
+      - if: runner.arch == 'ARM64'
+        run: clang --version
+      - run: rustup toolchain install
+      # Every build below is for the machine Rust says it runs on, so that must be this leg's:
+      # an x64 Rust that an ARM64 image ran under emulation would build, check and test x64.
+      - name: Rust builds for this leg's machine
+        env:
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          echo "Rust's host is $host"
+          test "$host" = "$TRIPLE"
+      # What the image is, for the record of each image's facts: its Windows build, Rust,
+      # LLVM and Visual Studio. Said, never relied on.
+      - name: This image
+        shell: pwsh
+        run: |
+          cmd /c ver
+          rustc -vV
+          Get-Command clang, llvm-readobj -ErrorAction SilentlyContinue | Select-Object Name, Source
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -latest -products * -property catalog_productDisplayVersion
+            & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          }
+          exit 0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # What a release builds: no test-support and no cfg, so the release gate is closed. In a
+      # folder of its own, so the lints and tests below keep theirs.
+      - env:
+          RUSTFLAGS: -D warnings -C target-feature=+crt-static
+          CARGO_TARGET_DIR: target/gated
+        run: cargo build --locked -p pitboard
+      # That build is a program for this leg's machine, answers --version, holds its C runtime,
+      # and refuses every command with windows_not_released, leaving every folder it is
+      # pointed at empty. Its folders are set in this step alone, since Cargo and rustup find
+      # their own homes through USERPROFILE.
+      - name: A Windows build of a 0.x release changes nothing
+        shell: pwsh
+        env:
+          MACHINE: ${{ matrix.machine }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'target\gated\debug\pitboard.exe').Path
+          $readobj = Get-Command llvm-readobj -ErrorAction SilentlyContinue
+          $readobj = if ($readobj) { $readobj.Source } else { "$env:ProgramFiles\LLVM\bin\llvm-readobj.exe" }
+          $headers = & $readobj --file-headers $exe | Out-String
+          if ($headers -notmatch "Machine: IMAGE_FILE_MACHINE_$env:MACHINE\b") {
+            Write-Output $headers
+            throw "pitboard.exe is not a program for $env:MACHINE"
+          }
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw '--version did not answer' }
+          $imports = & $readobj --coff-imports $exe | Out-String
+          if ($imports -match '(?i)vcruntime|api-ms-win-crt') {
+            Write-Output $imports
+            throw 'pitboard.exe takes its C runtime from a DLL: it was built without +crt-static'
+          }
+          $root = Join-Path $env:RUNNER_TEMP 'release-gate'
+          $folders = 'USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'PITBOARD_HOME'
+          foreach ($folder in $folders) {
+            $path = Join-Path $root $folder
+            New-Item -ItemType Directory -Force -Path $path | Out-Null
+            Set-Item -Path "env:$folder" -Value $path
+          }
+          $commands = @(
+            @('status', '--json'),
+            @('use', 'x', '--json'),
+            @('renew', '--json'),
+            @('schedule', 'install', '--json')
+          )
+          foreach ($command in $commands) {
+            $printed = & $exe @command | Out-String
+            $exit = $LASTEXITCODE
+            $code = ($printed | ConvertFrom-Json).error.code
+            if ($exit -ne 1 -or $code -ne 'windows_not_released') {
+              throw "pitboard $($command -join ' ') exited $exit with $code`: $printed"
+            }
+          }
+          foreach ($folder in $folders) {
+            $left = @(Get-ChildItem -Force -Path (Join-Path $root $folder))
+            if ($left.Count -ne 0) { throw "$folder holds $($left.Name -join ', ')" }
+          }
+          # The runner ends a PowerShell step with the last program's exit code, which here is
+          # a refusal's.
+          exit 0
+      # windows_refuses as it runs against a build that is not opened: every one of its
+      # changes and reads refuses with windows_not_released, and every folder stays empty.
+      - env:
+          RUSTFLAGS: -D warnings -C target-feature=+crt-static
+          CARGO_TARGET_DIR: target/gated
+        run: cargo test --locked -p pitboard --test windows_refuses
+      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
+      # Until the integration tests run here (W13), these are the tests that need no part of
+      # the Windows face not built yet: the gate, the face's own refusals, a Windows build run
+      # in scratch folders, and the two crates that read links and touch nothing.
+      - run: cargo test --locked -p pitboard-core --lib -- host::windows release
+      - run: cargo test --locked -p pitboard --test windows_refuses
+      - run: cargo test --locked -p pitboard-sites -p pitboard-share-ffi
+
+  # The floor the manifests promise, on Windows. ring compiles C against the target's own
+  # headers, so a Windows check needs a Windows C toolchain: the MSVC this image has, never
+  # a cross-check from Linux.
+  windows-msrv:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      RUSTFLAGS: -D warnings -C target-feature=+crt-static --cfg pitboard_unreleased_windows
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          floor=$(sed -n '/^\[workspace.package\]/,/^\[/s/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$floor" --profile minimal
+          echo "FLOOR=$floor" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo "+$FLOOR" check --workspace --all-targets --locked
+      - run: cargo "+$FLOOR" check -p pitboard-ffi --all-targets --locked --features fixture
+
   apple:
     runs-on: macos-latest
     # A test waiting on a stand-in sign-in that never answers ignores its own time limit, and
