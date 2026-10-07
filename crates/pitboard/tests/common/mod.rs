@@ -12,22 +12,14 @@ pub mod os;
 
 use os::Kept;
 use pitboard_core::testing::fs as files;
+use pitboard_core::testing::stand_in::{self, Script, Step};
 
-/// Write a program a test then runs, and make it runnable.
-///
-/// A separate process writes it, so this process never holds the file open for writing.
-/// Tests run on threads, and on Linux a thread that starts a process while another holds
-/// such a descriptor gives the child a copy of it; running the file then fails with
-/// ETXTBSY, "Text file busy", until that child has started its own program. CI met it on
-/// Linux (run 36457687750): the test that ran a fake `codex` it had just written.
-pub fn write_program(path: &Path, contents: &str) {
-    let status = std::process::Command::new("/bin/sh")
-        .args(["-c", "printf %s \"$2\" > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .arg(contents)
-        .status()
-        .expect("sh runs");
-    assert!(status.success(), "could not write {}", path.display());
+/// Put a program at `path` that plays `script`: the compiled stand-in, the same on every
+/// system, which `pitboard_core::testing::stand_in` says how to write a script for. A test
+/// run alone, which builds no example, is told how to build it.
+pub fn put_stand_in(path: &Path, script: &Script) {
+    stand_in::install(path, script)
+        .unwrap_or_else(|e| panic!("no stand-in at {}: {e}", path.display()));
 }
 
 /// What every command a test runs is given of the environment the tests run in: who is
@@ -358,30 +350,53 @@ impl Env {
         self.run(&["enroll", label, "--sign-in", "--json"])
     }
 
+    /// Stand in for `claude auth login`: stores `credential` where Claude Code keeps the
+    /// login of whichever `CLAUDE_CONFIG_DIR` it is run with, the private directory Pitboard
+    /// makes for a sign-in, and does nothing else. Started any other way, it refuses.
     pub fn install_fake_claude(&self, credential: &str) {
+        self.install_fake_claude_waiting(credential, std::time::Duration::ZERO);
+    }
+
+    /// `install_fake_claude`, whose sign-in waits `waiting` before it stores the login, as
+    /// a person takes a while in the browser.
+    pub fn install_fake_claude_waiting(&self, credential: &str, waiting: std::time::Duration) {
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let store = match os::claude_code_login() {
-            Kept::InKeychain => format!(
-                r#"hash=$(printf %s "$CLAUDE_CONFIG_DIR" | shasum -a 256 | cut -c1-8)
-/usr/bin/security add-generic-password -U -a "{account}" -s "Claude Code-credentials-$hash" -w '{credential}'"#,
-                account = account(),
-            ),
+            // The item Claude Code makes for the directory, written through `security` as the
+            // script this replaced wrote it. The stand-in refuses the two names that hold a
+            // real login here, the ones `guard_not_live` refuses, before it asks the keychain
+            // anything.
+            Kept::InKeychain => Step::StoresInKeychain {
+                under: "CLAUDE_CONFIG_DIR".into(),
+                account: account(),
+                contents: credential.into(),
+                never: vec![
+                    pitboard_core::testing::LIVE_SERVICE.into(),
+                    pitboard_core::testing::live_service(&ctx()),
+                ],
+            },
             // 0600, and by the same route Claude Code takes: write, then chmod. A shim
             // that leaves the umask to decide writes a login anybody can read, which
             // `doctor` is right to fail on and which Claude Code does not do.
-            Kept::InFile => format!(
-                r#"printf %s '{credential}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
-chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
-            ),
+            Kept::InFile => Step::WritesLogin {
+                under: "CLAUDE_CONFIG_DIR".into(),
+                name: ".credentials.json".into(),
+                contents: credential.into(),
+            },
         };
-        write_program(
+        let waits = u64::try_from(waiting.as_millis()).expect("a wait a test can make");
+        put_stand_in(
             &bin.join("claude"),
             // Talks on stdout like the real one, and can be made to wait like a person does.
-            &format!(
-                "#!/bin/sh\n[ \"$1 $2\" = \"auth login\" ] || exit 64\n\
-                 echo 'Opening browser to sign in'\nsleep \"${{FAKE_SIGN_IN_SECONDS:-0}}\"\n{store}\n"
-            ),
+            &Script::Plays {
+                args: Some(vec!["auth".into(), "login".into()]),
+                steps: vec![
+                    Step::Says("Opening browser to sign in\n".into()),
+                    Step::Waits(waits),
+                    store,
+                ],
+            },
         );
     }
 
@@ -548,9 +563,9 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     pub fn install_fake_codex_login(&self, login: &serde_json::Value) {
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let script = bin.join("codex");
-        let _ = std::fs::remove_file(&script);
-        write_program(&script, &format!("#!/bin/sh\n{}", fake_codex_login(login)));
+        let program = bin.join("codex");
+        let _ = std::fs::remove_file(&program);
+        put_stand_in(&program, &fake_codex_login(login));
     }
 
     /// `install_fake_codex_login` laid out the way npm installs Codex, in a prefix of this
@@ -558,9 +573,9 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
     ///
     /// npm links `<prefix>/bin/codex` to a script inside `lib/node_modules` whose first line
     /// is `#!/usr/bin/env node`, and puts the `node` that installed it in `<prefix>/bin`.
-    /// Here that is `fakenode`, which runs the script with `sh`, so a real `node` on this
-    /// machine can never be the one found: the script starts only where `PATH` has its
-    /// prefix's `bin`.
+    /// Here that is `fakenode`, a stand-in that interprets the script it is given, whose
+    /// script is the stand-in for `codex login`. So a real `node` on this machine can never
+    /// be the one found: the script starts only where `PATH` has its prefix's `bin`.
     ///
     /// The layout npm makes on macOS and Linux alone. On Windows npm puts a `codex.cmd`
     /// shim in the prefix instead, which W13 of the Windows work lays out as a fixture of its
@@ -572,11 +587,13 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
         let package = prefix.join("lib/node_modules/@openai/codex/bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&package).unwrap();
-        write_program(&bin.join("fakenode"), "#!/bin/sh\nexec /bin/sh \"$@\"\n");
-        write_program(
+        put_stand_in(&bin.join("fakenode"), &Script::Interprets);
+        let script = serde_json::to_string(&fake_codex_login(login)).expect("a script");
+        stand_in::write_program(
             &package.join("codex.js"),
-            &format!("#!/usr/bin/env fakenode\n{}", fake_codex_login(login)),
-        );
+            &format!("#!/usr/bin/env fakenode\n{script}\n"),
+        )
+        .unwrap_or_else(|e| panic!("no codex.js: {e}"));
         let program = bin.join("codex");
         let _ = std::fs::remove_file(&program);
         files::link(
@@ -616,9 +633,9 @@ chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json""#
             .join(format!("{version}-test-target"))
             .join("bin/codex");
         std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
-        write_program(
+        put_stand_in(
             &installed,
-            "#!/bin/sh\necho 'a test stand-in for codex, not meant to run' >&2\nexit 64\n",
+            &Script::refusing("a test stand-in for codex, not meant to run\n"),
         );
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
@@ -844,20 +861,29 @@ pub fn codex_login(account: &str, email: &str, refresh: &str) -> serde_json::Val
     })
 }
 
-/// What a stand-in for `codex login` does once started, whatever line starts it: store
-/// `login` in whichever `CODEX_HOME` it is run with, and nothing else.
+/// What a stand-in for `codex login` does once started: store `login` in whichever
+/// `CODEX_HOME` it is run with, private to its owner, say so on stderr, and nothing else.
+/// Without a `CODEX_HOME` it stores nothing and exits 65.
 ///
 /// It runs only as Pitboard runs Codex's sign-in, `codex -c cli_auth_credentials_store="file"
-/// login`, and fails otherwise, so every test that signs in to Codex checks the `-c` that keeps
-/// a setting of `/etc/codex` or of a project from sending the new login to the keychain.
-fn fake_codex_login(login: &serde_json::Value) -> String {
-    format!(
-        "[ \"$1 $2 $3\" = '-c cli_auth_credentials_store=\"file\" login' ] || exit 64\n\
-         [ -n \"$CODEX_HOME\" ] || exit 65\n\
-         cat > \"$CODEX_HOME/auth.json\" <<'LOGIN'\n{login}\nLOGIN\n\
-         chmod 600 \"$CODEX_HOME/auth.json\"\n\
-         echo 'Successfully logged in' >&2\n"
-    )
+/// login`, and exits 64 otherwise, so every test that signs in to Codex checks the `-c` that
+/// keeps a setting of `/etc/codex` or of a project from sending the new login to the keychain.
+fn fake_codex_login(login: &serde_json::Value) -> Script {
+    Script::Plays {
+        args: Some(vec![
+            "-c".into(),
+            "cli_auth_credentials_store=\"file\"".into(),
+            "login".into(),
+        ]),
+        steps: vec![
+            Step::WritesLogin {
+                under: "CODEX_HOME".into(),
+                name: "auth.json".into(),
+                contents: format!("{login}\n"),
+            },
+            Step::Warns("Successfully logged in\n".into()),
+        ],
+    }
 }
 
 /// Unpadded base64url, which is how every part of a JWT is written.

@@ -96,6 +96,19 @@ cargo test --locked -p pitboard-ffi --features fixture
 cargo clippy -p pitboard-ffi --all-targets --locked --features fixture
 ```
 
+Every program a test starts in place of `claude`, `codex` or any other tool is one compiled
+stand-in, the `pitboard` crate's example `stand-in`, which plays a script written beside it,
+the same on every system. `cargo test` with no target named, and `cargo test -p pitboard`,
+build it. Neither a test run alone with `--test` nor a run of `pitboard-ffi`'s tests does, so
+build it first, with the `--release` or `--target` the tests use:
+
+```sh
+cargo build --locked -p pitboard --example stand-in
+cargo test --locked -p pitboard --test switch_round_trip
+```
+
+A test that does not find it fails, and its message names that command.
+
 The readFailure world makes its account index unreadable with file modes, so its tests fail,
 saying why, where the user can read a file of mode `000`: as root, in a container running as
 root, or on a file system without Unix modes. So do two of the core's tests that make a

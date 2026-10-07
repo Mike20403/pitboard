@@ -68,6 +68,11 @@ pub(crate) mod pending;
 pub(crate) mod proxy;
 pub(crate) mod readings;
 pub(crate) mod sessions;
+/// The program the tests start in place of a tool, reached as `testing::stand_in`. Its own
+/// tests run with the core's.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub mod stand_in;
 pub(crate) mod store;
 
 /// What the integration tests reach into: they plant and inspect parked logins in the real
@@ -83,6 +88,9 @@ pub mod testing {
     pub use crate::host::memory::MemoryHost;
     pub use crate::provider::claude::paths::live_service;
     pub use crate::provider::claude::slot::{LIVE_SERVICE, dir_hash, service_for_dir};
+    /// The program the integration tests, the model's tests and the fixtures' tests start in
+    /// place of `claude`, `codex` and every other program they run, on every system.
+    pub use crate::stand_in;
     pub use crate::store::memory::{Fault, MemoryStore};
     pub use crate::store::vault_read;
     pub use crate::switch::{ScriptedSignIn, SignInScript};

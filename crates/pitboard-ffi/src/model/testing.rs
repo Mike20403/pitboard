@@ -1218,20 +1218,22 @@ impl World {
         self.host.live().plant(&live, &renewed);
     }
 
-    /// A stand-in for `claude`, a script of the test's own that this machine's core runs as
-    /// `claude auth login` from now on. It writes what 2.1.289 writes before it opens the
-    /// browser, then reads each line typed back as the register's `sign_in_output` and
-    /// `sign_in_takes_another_code` hold: one that is not `<code>#<state>` with both halves it
-    /// refuses on stderr and reads on, and the first that is it takes, and ends signed in. It
-    /// stores no login: `signed_in_privately` plants the one it would have. A shell script, so
-    /// it runs only where `/bin/sh` does, and so do the tests that use it.
+    /// A stand-in for `claude`, the compiled one the tests start in place of every program,
+    /// which this machine's core runs as `claude auth login` from now on. It writes what
+    /// 2.1.289 writes before it opens the browser, then reads each line typed back as the
+    /// register's `sign_in_output` and `sign_in_takes_another_code` hold: one that is not
+    /// `<code>#<state>` with both halves it refuses on stderr and reads on, and the first that
+    /// is it takes, and ends signed in. It stores no login: `signed_in_privately` plants the
+    /// one it would have.
     ///
     /// It writes down its process id before it says anything, and every line typed back to
     /// it, each file whole: under a name of its own, then moved into place, so a test reading
     /// one as it is written never finds it half there. Written in place, its process id was
-    /// read empty, as CI met on Linux (run 37437853042). Moving is the one command it starts,
-    /// `/bin/mv` by its path, since the core runs it with this machine's empty search path, and
-    /// with none of its output, so nothing it starts outlives it holding its output open.
+    /// read empty, as CI met on Linux (run 37437853042).
+    ///
+    /// The stand-in runs on every system. The tests that use it, and [`StandIn`], are still
+    /// macOS's and Linux's, since whether it runs is asked of the shell's `kill -0`; W19 of
+    /// the Windows work asks Windows.
     #[cfg(unix)]
     pub(super) fn claude_stand_in(&mut self) -> StandIn {
         self.a_claude_stand_in(false)
@@ -1250,6 +1252,7 @@ impl World {
 
     #[cfg(unix)]
     fn a_claude_stand_in(&mut self, holding: bool) -> StandIn {
+        use pitboard_core::testing::stand_in::{self, Script, Step};
         let bin = self.root.join("bin");
         std::fs::create_dir_all(&bin).expect("a scratch bin");
         let stand_in = StandIn {
@@ -1258,55 +1261,36 @@ impl World {
             holder: self.root.join("holder.pid"),
             holding: self.root.join("holding"),
         };
-        // A shell of its own that holds the output it was started with for as long as
-        // `holding` is there, and writes down its process id whole. Only the first run starts
-        // one, so each test has one to let go of.
-        let holder = if holding {
-            format!(
-                "[ -e '{holder}' ] || {{ : > '{flag}'; \
-                 ( while [ -e '{flag}' ]; do /bin/sleep 0.05; done ) & \
-                 echo $! > '{holder}.part' && whole '{holder}'; }}\n",
-                holder = stand_in.holder.display(),
-                flag = stand_in.holding.display(),
-            )
-        } else {
-            String::new()
-        };
+        let mut steps = vec![Step::WritesItsPid(stand_in.pid.clone())];
+        // Another of itself, which holds the output it was started with for as long as
+        // `holding` is there, and whose process id it writes down whole. Only the first run
+        // starts one, so each test has one to let go of.
+        if holding {
+            steps.push(Step::HoldsOutput {
+                while_present: stand_in.holding.clone(),
+                pid: stand_in.holder.clone(),
+            });
+        }
+        steps.extend([
+            Step::Says("Opening browser to sign in\u{2026}\n".into()),
+            Step::Says(
+                "If the browser didn't open, visit: \
+                 https://claude.com/cai/oauth/authorize?code=true&state=s\n"
+                    .into(),
+            ),
+            Step::Says("Paste code here if prompted > ".into()),
+            Step::ReadsCodes {
+                typed: stand_in.typed.clone(),
+                takes: "Login successful.\n".into(),
+                refuses: "Invalid code. Please make sure the full code was copied.\n".into(),
+            },
+        ]);
         let program = bin.join("claude");
-        let script = format!(
-            "#!/bin/sh\n\
-             [ \"$1 $2\" = \"auth login\" ] || exit 64\n\
-             whole() {{ /bin/mv -f \"$1.part\" \"$1\" </dev/null >/dev/null 2>&1; }}\n\
-             echo $$ > '{pid}.part' && whole '{pid}'\n\
-             {holder}\
-             printf 'Opening browser to sign in\u{2026}\\n'\n\
-             printf \"If the browser didn't open, visit: \
-             https://claude.com/cai/oauth/authorize?code=true&state=s\\n\"\n\
-             printf 'Paste code here if prompted > '\n\
-             typed=''\n\
-             while IFS= read -r line; do\n\
-             \x20 typed=\"$typed$line\n\"\n\
-             \x20 printf '%s' \"$typed\" > '{typed}.part' && whole '{typed}'\n\
-             \x20 case \"$line\" in\n\
-             \x20   ?*'#'?*) printf 'Login successful.\\n'; exit 0 ;;\n\
-             \x20   *) printf 'Invalid code. Please make sure the full code was copied.\\n' >&2 ;;\n\
-             \x20 esac\n\
-             done\n\
-             exit 1\n",
-            pid = stand_in.pid.display(),
-            typed = stand_in.typed.display(),
-        );
-        // Written by another process, so this one never holds it open for writing while a
-        // test on another thread starts a program: on Linux that child would hold a copy, and
-        // starting the stand-in would fail with ETXTBSY, as CI met it on Linux in the command
-        // line's tests (run 36457687750), whose `write_program` writes theirs the same way.
-        let written = std::process::Command::new("/bin/sh")
-            .args(["-c", "printf %s \"$2\" > \"$1\" && chmod 755 \"$1\"", "sh"])
-            .arg(&program)
-            .arg(script)
-            .status()
-            .expect("sh runs");
-        assert!(written.success(), "the stand-in could not be written");
+        let script = Script::Plays {
+            args: Some(vec!["auth".into(), "login".into()]),
+            steps,
+        };
+        stand_in::install(&program, &script).unwrap_or_else(|e| panic!("no stand-in: {e}"));
         self.ctx = self.ctx.clone().with_claude_program(program);
         stand_in
     }
@@ -1620,13 +1604,18 @@ fn whether_the_stand_in_runs_is_answered_once_it_has_written_its_process_id() {
     writing.join().expect("the writer");
 }
 
-/// A program at `path` that anybody may run, with the directories it needs.
+/// A program at `path` that anybody may run, with the directories it needs: the compiled
+/// stand-in, there to be found, which refuses to do anything were it run.
 #[cfg(unix)]
 pub(super) fn a_program_at(path: &std::path::Path) {
+    use pitboard_core::testing::stand_in::{self, Script};
     let dir = path.parent().expect("a program's directory");
     std::fs::create_dir_all(dir).expect("a scratch directory");
-    std::fs::write(path, "#!/bin/sh\n").expect("a program");
-    pitboard_core::testing::fs::make_runnable(path).expect("a program's mode");
+    stand_in::install(
+        path,
+        &Script::refusing("a test's program, never meant to run\n"),
+    )
+    .unwrap_or_else(|e| panic!("no program at {}: {e}", path.display()));
 }
 
 fn epoch_now() -> i64 {

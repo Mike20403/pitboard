@@ -3,6 +3,7 @@
 //! empty `CLAUDE_CONFIG_DIR`, which Claude Code takes as the folder it runs in, is refused
 //! by the command line itself.
 
+use pitboard_core::testing::stand_in::{self, Script};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -113,8 +114,9 @@ fn a_program_the_environment_names_is_the_one_the_command_line_runs() {
     let codex = home.join("elsewhere/codex/releases/9.9.8-aarch64-apple-darwin/bin/codex");
     for program in [&claude, &codex] {
         std::fs::create_dir_all(program.parent().expect("its directory")).unwrap();
-        std::fs::write(program, "#!/bin/sh\nexit 64\n").unwrap();
-        pitboard_core::testing::fs::make_runnable(program).unwrap();
+        let never = Script::refusing("a test's stand-in, never meant to run\n");
+        stand_in::install(program, &never)
+            .unwrap_or_else(|e| panic!("no stand-in at {}: {e}", program.display()));
     }
 
     let named = doctor(

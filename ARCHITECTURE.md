@@ -114,7 +114,10 @@ pages load, as a browser would.
     C# tests do. Clock times are not in it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
-  `json.rs` is the one writer of that JSON, for every command and every error.
+  `json.rs` is the one writer of that JSON, for every command and every error. Its example
+  `stand-in` is the program every test starts in place of a tool. Its code is
+  `pitboard-core`'s `stand_in.rs`, compiled with test-support, and it plays the script
+  written beside each copy of it. Nothing installs or ships it.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app. An app reaches the core through the
   model alone.
@@ -380,6 +383,22 @@ pages load, as a browser would.
   integration tests' harness says what differs by system in
   `crates/pitboard/tests/common/os.rs`, one `match` on `host::OS` for each fact: where
   Claude Code keeps the login it uses and where Pitboard parks one.
+- Every program the command line's tests and `pitboard-ffi`'s tests start in place of a
+  tool, or put where one is looked for, is one compiled program, the `pitboard` crate's
+  example `stand-in`, playing the script written beside its copy
+  (`pitboard_core::testing::stand_in`): never a shell script, so it is the same on every
+  system. That covers `claude` and `codex` signing in, holding their output open, refusing
+  a code and recording how they were started, npm's interpreter, a `systemctl`, and every
+  program that is there to be found and never run, a fixture's tools in `pitboard-ffi`'s
+  own tests among them. The stand-in makes each copy itself, so no test thread ever holds a
+  program open for writing. A test finds it beside its own `deps` and refuses, naming
+  `cargo build -p pitboard --example stand-in`, where it is not built, since only `cargo
+  test` with no target named, or `cargo test -p pitboard`, builds examples; it is never
+  built on demand, so a test binary run outside Cargo finds it too. Not it: the core's own
+  tests, which cannot reach another crate's example, start no program a test wrote but the
+  login shell's, in `host/unix/shell.rs`, whose `/bin/sh` is what they test, and the files
+  they put where a lookup looks are never run; and a fixture an app's debug build launches
+  into, which no stand-in comes with, writes its never-run programs as scripts.
 - A read never settles an interrupted switch. Every change settles one first, under
   Pitboard's lock. Where that change would stop at it as `recovery_undetermined`,
   `status`, `status_offline` and `doctor` say so in its words, from the same reads and the
@@ -610,8 +629,8 @@ pages load, as a browser would.
   listener written in C# or Swift, from a thread of its own, against a library built with
   the `fixture` feature. Every `AppControl` a test hands the model is a stand-in that records
   what it was asked, never one that reaches a real app, and its `Notifications` keeps what
-  it is given and posts nothing. A test that signs in runs a stand-in for `claude`, a shell
-  script of its own in its scratch home, and plants the login it would have stored in
+  it is given and posts nothing. A test that signs in runs the compiled stand-in as
+  `claude`, in its scratch home, and plants the login it would have stored in
   `MemoryHost`'s keychain, or plays the tool's sign-in through the core's `SignInScript`,
   as a fixture does, which starts no program: never a real `claude` or `codex`. A test that
   schedules renewal does it through `MemoryHost`'s pretend scheduler, which writes its job
