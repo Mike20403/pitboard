@@ -94,10 +94,48 @@ pub struct Facts {
     pub claude_present: bool,
     /// The daily renewal schedule, where this home has one installed.
     pub schedule: Option<ScheduleFact>,
+    /// How Pitboard's requests leave this machine, as its environment says.
+    pub network: NetworkFact,
+    /// Whether this is the app's doctor, whose environment is the one the system started the
+    /// app with, not a shell's: the schedule's runs are started the same way, and given a
+    /// shell's proxy only where it was installed from one.
+    pub in_the_app: bool,
     /// Whether this process runs as the person themselves, as the host says, which is what
     /// the gate every change passes asks.
     pub elevation: crate::host::Elevation,
     pub now: i64,
+}
+
+/// How Pitboard's requests leave this machine: directly, or through the HTTP proxy its
+/// environment names, read as ureq 3.4.2 reads one from a process's environment. A SOCKS
+/// proxy, which Pitboard does not use yet, fails each request it would have carried.
+pub struct NetworkFact {
+    /// The proxy the environment names, where it names one Pitboard can read.
+    pub proxy: Option<ProxyFact>,
+    /// The variables before it set to something that is not a proxy's address, which
+    /// Pitboard passes over, in the order it reads them.
+    pub passed_over: Vec<&'static str>,
+}
+
+/// The proxy the environment names.
+pub struct ProxyFact {
+    /// The variable that names it.
+    pub variable: &'static str,
+    /// Its scheme, host and port, with `***` for a user name or a password it holds.
+    pub address: String,
+    /// Its host and port, `proxy.example.com:3128`, as `address` shows them: the part of it
+    /// that can name the company whose network it is.
+    pub server: String,
+    /// Whether its host is loopback, this machine itself, which names nothing beyond it.
+    pub on_loopback: bool,
+    /// Whether it is a SOCKS proxy, which Pitboard does not use yet: a request to a host it
+    /// does not exempt fails before anything is sent, and one to a host it exempts goes out
+    /// directly.
+    pub socks: bool,
+    /// `NO_PROXY` or `no_proxy`, whichever is read, where either is set.
+    pub exempting: Option<&'static str>,
+    /// The hosts Pitboard calls that it exempts, which Pitboard reaches directly.
+    pub exempt: Vec<String>,
 }
 
 /// The daily renewal schedule as it is installed, read from the file Pitboard wrote and
@@ -109,6 +147,12 @@ pub struct ScheduleFact {
     pub program: Option<PathBuf>,
     /// Whether that Pitboard is still there to be run.
     pub program_found: bool,
+    /// How its runs send requests, as the proxy variables its file gives them say: those of
+    /// the Pitboard that installed it, read as this run's are ([`Facts::network`]).
+    pub network: NetworkFact,
+    /// Whether its runs send requests another way than this run does: through another proxy
+    /// or none, with another user name or password, or with other hosts exempt.
+    pub network_differs: bool,
 }
 
 /// What is read about Codex CLI on this machine.
@@ -304,8 +348,29 @@ pub fn gather(ctx: &Context) -> Facts {
         interrupted: switch::interrupted(ctx),
         service,
         schedule: schedule_fact(ctx),
+        network: network_fact(&ctx.proxy),
+        in_the_app: ctx.caller == "app",
         elevation: ctx.host().elevation(ctx),
         now: ctx.now(),
+    }
+}
+
+/// How the context's requests leave this machine, as its environment says.
+fn network_fact(proxies: &crate::proxy::Proxies) -> NetworkFact {
+    NetworkFact {
+        proxy: proxies
+            .variable()
+            .zip(proxies.address())
+            .map(|(variable, address)| ProxyFact {
+                variable,
+                address,
+                server: proxies.server().unwrap_or_default(),
+                on_loopback: proxies.on_loopback(),
+                socks: proxies.socks(),
+                exempting: proxies.exempting(),
+                exempt: proxies.exempt_hosts(),
+            }),
+        passed_over: proxies.passed_over().to_vec(),
     }
 }
 
@@ -318,10 +383,13 @@ fn schedule_fact(ctx: &Context) -> Option<ScheduleFact> {
         return None;
     };
     let program = crate::schedule::installed_program(ctx);
+    let proxies = crate::schedule::installed_proxies(ctx).unwrap_or_default();
     Some(ScheduleFact {
         program_found: program.as_deref().is_some_and(std::path::Path::is_file),
         program,
         path,
+        network: network_fact(&proxies),
+        network_differs: !proxies.same_way(&ctx.proxy),
     })
 }
 
@@ -913,9 +981,11 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
     checks.push(judge_daemon(facts));
     checks.push(judge_pending(facts));
     checks.extend(judge_schedule(facts));
+    checks.extend(judge_schedule_proxy(facts));
     checks.push(judge_claude_version(facts));
     checks.push(judge_auth(facts));
     checks.push(judge_asking(facts));
+    checks.push(judge_network(&facts.network));
     checks.extend(
         claude_parks
             .iter()
@@ -1227,6 +1297,107 @@ fn judge_asking(facts: &Facts) -> Check {
     }
 }
 
+/// How Pitboard's requests leave this machine: directly, or through the HTTP proxy the
+/// environment names, and from which variable, with the hosts Pitboard calls that the
+/// variable exempting hosts sends around it. It warns where Pitboard passes over a variable
+/// that holds no proxy's address, since its requests then go where the person may have meant
+/// them not to.
+///
+/// A SOCKS proxy, which Pitboard does not use yet, is named in the words a request fails
+/// with, then the proxy, and warns, since each request to a host Pitboard calls that the
+/// variable exempting hosts does not name fails. With every one of them exempt, nothing
+/// fails, and it does not warn for that.
+fn judge_network(network: &NetworkFact) -> Check {
+    const NAME: &str = "network";
+    let (passed, set_right) = match network.passed_over.as_slice() {
+        [] => (None, ""),
+        [one] => (
+            Some(format!(
+                "{one} holds no proxy's address Pitboard can read, so it is passed over"
+            )),
+            "Set it to a proxy's address, such as http://proxy.example.com:8080, or unset it.",
+        ),
+        many => (
+            Some(format!(
+                "{} hold no proxy's address Pitboard can read, so they are passed over",
+                words::listed(many.iter().map(|n| (*n).to_string()).collect())
+            )),
+            "Set each to a proxy's address, such as http://proxy.example.com:8080, or unset them.",
+        ),
+    };
+    let Some(proxy) = &network.proxy else {
+        return match passed {
+            None => ok("network", NAME, "direct: no variable names a proxy"),
+            Some(passed) => warn("network", NAME, format!("direct: {passed}"), set_right),
+        };
+    };
+    let fails = requests_fail(proxy);
+    let mut detail = if !proxy.socks {
+        format!("through {}, from {}", proxy.address, proxy.variable)
+    } else {
+        format!(
+            "{}: {}, {}",
+            if fails { "requests fail" } else { "direct" },
+            crate::proxy::refused(proxy.variable),
+            proxy.address
+        )
+    };
+    for clause in exempting(proxy).iter().chain(&passed) {
+        detail.push_str(&format!("; {clause}"));
+    }
+    if fails {
+        let (each, them) = if network.passed_over.is_empty() {
+            (proxy.variable.to_string(), "it")
+        } else {
+            let mut names: Vec<String> = network
+                .passed_over
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect();
+            names.push(proxy.variable.to_string());
+            (format!("each of {}", words::listed(names)), "them")
+        };
+        return warn(
+            "network",
+            NAME,
+            detail,
+            format!(
+                "Pitboard goes through HTTP and HTTPS proxies only. For its requests to go \
+                 out, set {each} to an HTTP proxy's address, such as \
+                 http://proxy.example.com:8080, or unset {them}."
+            ),
+        );
+    }
+    match passed {
+        None => ok("network", NAME, detail),
+        Some(_) => warn("network", NAME, detail, set_right),
+    }
+}
+
+/// Whether each request through `proxy` to a host Pitboard calls that the variable exempting
+/// hosts does not name fails: whether it is a SOCKS proxy, which Pitboard does not use yet,
+/// and any host Pitboard calls is not exempt from it.
+fn requests_fail(proxy: &ProxyFact) -> bool {
+    proxy.socks && proxy.exempt.len() < crate::proxy::called().len()
+}
+
+/// What the variable exempting hosts does with the hosts Pitboard calls, where one is set:
+/// "NO_PROXY exempts api.anthropic.com, which Pitboard reaches directly".
+fn exempting(proxy: &ProxyFact) -> Option<String> {
+    proxy.exempting.map(|exempting| {
+        if proxy.exempt.is_empty() {
+            format!("{exempting} exempts none of the hosts Pitboard calls")
+        } else if proxy.exempt.len() == crate::proxy::called().len() {
+            format!("{exempting} exempts every host Pitboard calls, which it reaches directly")
+        } else {
+            format!(
+                "{exempting} exempts {}, which Pitboard reaches directly",
+                words::listed(proxy.exempt.clone())
+            )
+        }
+    })
+}
+
 /// Whether moving the stored login would change anything a session sees.
 ///
 /// Claude Code resolves this from layered settings, so a managed policy or a line in a
@@ -1342,6 +1513,102 @@ fn judge_schedule(facts: &Facts) -> Option<Check> {
             again,
         ),
     })
+}
+
+/// The system starts the schedule's runs with its own environment, not the person's shell,
+/// so they are given the proxy variables of the Pitboard that installed it. Where those send
+/// requests another way than this run does, through another proxy or none, with another user
+/// name or password, or with other hosts exempt, that is said, credentials as `***`. Nothing
+/// is said where they go the same way, or where there is no schedule.
+///
+/// From a terminal it is a warning: the terminal's proxy is the one the person works with,
+/// and installing the schedule again from there gives it that proxy. Where that proxy is a
+/// SOCKS one whose requests fail, the advice is to change the variable naming it first, so
+/// the schedule is not given a proxy that fails its requests too. In the app it is no
+/// warning.
+/// The app is started with the system's environment as the schedule's runs are, which on
+/// macOS names no proxy unless `launchctl setenv` set one, so a schedule installed from a terminal with
+/// a proxy differs from it for good, and the app's switch, the one way it installs the
+/// schedule, would give the schedule the app's proxy variables and take the terminal's away.
+/// There the line says what each goes through, and how each way of installing it chooses.
+fn judge_schedule_proxy(facts: &Facts) -> Option<Check> {
+    let schedule = facts.schedule.as_ref()?;
+    if !schedule.network_differs {
+        return None;
+    }
+    let here = if facts.in_the_app {
+        "the app"
+    } else {
+        "this run"
+    };
+    let installed = match &schedule.network.proxy {
+        None => "the schedule was installed with no proxy".to_string(),
+        Some(proxy) => format!("the schedule was installed with {}", proxy_named(proxy)),
+    };
+    // A SOCKS proxy is not gone through, so it is said to be given, and the network check
+    // says what becomes of the requests.
+    let this_run = match &facts.network.proxy {
+        None => format!("{here} goes directly"),
+        Some(proxy) if proxy.socks => format!("{here} is given {}", proxy_named(proxy)),
+        Some(proxy) => format!("{here} goes through {}", proxy_named(proxy)),
+    };
+    let detail = match (&schedule.network.proxy, &facts.network.proxy) {
+        // Everything shown is the same, so what differs is what is never shown.
+        (Some(its), Some(mine)) if proxy_named(its) == proxy_named(mine) => format!(
+            "the schedule was installed with {here}'s proxy, {}, but with another user name \
+             or password",
+            proxy_named(its)
+        ),
+        _ => format!("{installed}; {this_run}"),
+    };
+    if facts.in_the_app {
+        return Some(Check {
+            code: "schedule_proxy",
+            name: "renewal schedule's proxy".into(),
+            level: Level::Ok,
+            detail,
+            advice: "The app runs with the environment the system started it with, not a \
+                     terminal's. Turning daily renewal off and on in Settings gives the \
+                     schedule the app's proxy variables; `pitboard schedule install` in a \
+                     terminal gives it that terminal's."
+                .into(),
+        });
+    }
+    // Installed again from here, the schedule would be given a SOCKS proxy that fails its
+    // requests, so the variable is to be changed first.
+    let advice = match &facts.network.proxy {
+        Some(proxy) if requests_fail(proxy) => format!(
+            "The schedule's runs are given the proxy variables it was installed with. \
+             Installed again from here, they would be given this run's SOCKS proxy, which \
+             Pitboard does not use yet, and their requests would fail. Set {} to an HTTP \
+             proxy's address, or unset it, then install it again with `pitboard schedule \
+             install`, which takes the proxy variables set where it runs.",
+            proxy.variable
+        ),
+        _ => "The schedule's runs are given the proxy variables it was installed with. To give \
+              them this run's, install it again from here with `pitboard schedule install`, \
+              which takes the proxy variables set where it runs."
+            .to_string(),
+    };
+    Some(warn(
+        "schedule_proxy",
+        "renewal schedule's proxy",
+        detail,
+        advice,
+    ))
+}
+
+/// A proxy as the schedule's line names it: its address, the variable it came from, and the
+/// hosts Pitboard calls that go around it, where any do.
+fn proxy_named(proxy: &ProxyFact) -> String {
+    let named = format!("{}, from {}", proxy.address, proxy.variable);
+    match proxy.exempting {
+        Some(exempting) if !proxy.exempt.is_empty() => format!(
+            "{named}, {exempting} exempting {}",
+            words::listed(proxy.exempt.clone())
+        ),
+        _ => named,
+    }
 }
 
 /// How to write the schedule again. There is an app only on macOS.
@@ -1739,6 +2006,19 @@ fn redaction_for(ctx: &Context, facts: &Facts) -> crate::redact::Sheet {
                 .hide(held.service.clone(), "park");
         }
     }
+    // A proxy's host can name the company whose network it is, as an organisation's name
+    // does. Its port goes with it, so that a host that is also a word, such as `proxy`, is
+    // hidden where it is the host and nowhere else. One on loopback names nothing. The one
+    // the schedule was installed with is hidden the same way.
+    let schedules = facts
+        .schedule
+        .as_ref()
+        .and_then(|s| s.network.proxy.as_ref());
+    for proxy in facts.network.proxy.iter().chain(schedules) {
+        if !proxy.on_loopback {
+            sheet = sheet.hide(proxy.server.clone(), "proxy");
+        }
+    }
     sheet
 }
 
@@ -1757,6 +2037,14 @@ mod tests {
         Access {
             shared: mode & 0o077 != 0,
             described: format!("mode {mode:o}"),
+        }
+    }
+
+    /// A network whose requests go out directly, as no variable names a proxy.
+    fn direct() -> NetworkFact {
+        NetworkFact {
+            proxy: None,
+            passed_over: Vec::new(),
         }
     }
 
@@ -1807,6 +2095,8 @@ mod tests {
             codex: no_codex(),
             claude_present: true,
             schedule: None,
+            network: direct(),
+            in_the_app: false,
             elevation: crate::host::Elevation::Normal,
             now: NOW,
         }
@@ -2223,6 +2513,8 @@ mod tests {
             path: PathBuf::from("/home/x/Library/LaunchAgents/com.datlechin.pitboard.renew.plist"),
             program: Some(PathBuf::from("/opt/homebrew/bin/pitboard")),
             program_found: true,
+            network: direct(),
+            network_differs: false,
         });
         let checks = evaluate(&f);
         let found = check(&checks, "schedule");
@@ -2242,6 +2534,8 @@ mod tests {
                 "/Applications/Pitboard.app/Contents/MacOS/Pitboard",
             )),
             program_found: true,
+            network: direct(),
+            network_differs: false,
         });
         let checks = evaluate(&f);
         let the_app = check(&checks, "schedule");
@@ -2326,6 +2620,236 @@ mod tests {
         );
     }
 
+    /// A schedule that runs a Pitboard still there, installed with `network`.
+    fn scheduled(network: NetworkFact, network_differs: bool) -> ScheduleFact {
+        ScheduleFact {
+            path: PathBuf::from("/home/x/.config/systemd/user/pitboard-renew.timer"),
+            program: Some(PathBuf::from("/usr/local/bin/pitboard")),
+            program_found: true,
+            network,
+            network_differs,
+        }
+    }
+
+    /// A network whose requests go through `proxy`.
+    fn by(proxy: ProxyFact) -> NetworkFact {
+        NetworkFact {
+            proxy: Some(proxy),
+            passed_over: Vec::new(),
+        }
+    }
+
+    /// The schedule's runs are given the proxy variables of the Pitboard that installed it.
+    /// Where those send requests another way than this run's, doctor says so, with what each
+    /// goes through and the user name and password as `***`, and says how to give the
+    /// schedule this run's. Where they go the same way, nothing is said.
+    #[test]
+    fn a_schedule_whose_proxy_differs_from_this_runs_is_said() {
+        let mut f = facts();
+        f.schedule = Some(scheduled(direct(), false));
+        assert!(
+            evaluate(&f).iter().all(|c| c.code != "schedule_proxy"),
+            "nothing is said where they go the same way"
+        );
+
+        f.schedule = Some(scheduled(by(through(None, &[])), true));
+        let checks = evaluate(&f);
+        let line = check(&checks, "schedule_proxy");
+        assert_eq!(
+            (line.level, line.name.as_str(), line.detail.as_str()),
+            (
+                Level::Warn,
+                "renewal schedule's proxy",
+                "the schedule was installed with http://***:***@proxy.example.com:3128, from \
+                 HTTPS_PROXY; this run goes directly"
+            )
+        );
+        assert!(
+            line.advice.contains("`pitboard schedule install`"),
+            "{}",
+            line.advice
+        );
+
+        let on_loopback = || ProxyFact {
+            variable: "ALL_PROXY",
+            address: "http://127.0.0.1:3128".into(),
+            server: "127.0.0.1:3128".into(),
+            on_loopback: true,
+            ..through(Some("NO_PROXY"), &["chatgpt.com"])
+        };
+        f.network = by(on_loopback());
+        f.schedule = Some(scheduled(direct(), true));
+        assert_eq!(
+            check(&evaluate(&f), "schedule_proxy").detail,
+            "the schedule was installed with no proxy; this run goes through \
+             http://127.0.0.1:3128, from ALL_PROXY, NO_PROXY exempting chatgpt.com"
+        );
+
+        // A SOCKS proxy, which Pitboard does not use yet, is given, not gone through. Installing
+        // the schedule again from here would give it that proxy, and its requests would fail
+        // too, so the advice is to change the variable first.
+        let socks = || ProxyFact {
+            address: "socks5h://127.0.0.1:1080".into(),
+            server: "127.0.0.1:1080".into(),
+            socks: true,
+            ..on_loopback()
+        };
+        f.network = by(socks());
+        let checks = evaluate(&f);
+        let line = check(&checks, "schedule_proxy");
+        assert_eq!(
+            (line.detail.as_str(), line.advice.as_str()),
+            (
+                "the schedule was installed with no proxy; this run is given \
+                 socks5h://127.0.0.1:1080, from ALL_PROXY, NO_PROXY exempting chatgpt.com",
+                "The schedule's runs are given the proxy variables it was installed with. \
+                 Installed again from here, they would be given this run's SOCKS proxy, which \
+                 Pitboard does not use yet, and their requests would fail. Set ALL_PROXY to an \
+                 HTTP proxy's address, or unset it, then install it again with `pitboard \
+                 schedule install`, which takes the proxy variables set where it runs."
+            )
+        );
+        // With every host Pitboard calls exempt from it, nothing fails, and installing the
+        // schedule again from here is the advice as for any other proxy.
+        f.network = by(ProxyFact {
+            exempt: [
+                "api.anthropic.com",
+                "platform.claude.com",
+                "auth.openai.com",
+                "chatgpt.com",
+            ]
+            .map(String::from)
+            .to_vec(),
+            ..socks()
+        });
+        let checks = evaluate(&f);
+        let advice = &check(&checks, "schedule_proxy").advice;
+        assert!(
+            advice.starts_with(
+                "The schedule's runs are given the proxy variables it was installed with. To \
+                 give them this run's, install it again from here"
+            ),
+            "{advice}"
+        );
+
+        f.network = by(through(None, &[]));
+        f.schedule = Some(scheduled(by(through(None, &[])), true));
+        assert_eq!(
+            check(&evaluate(&f), "schedule_proxy").detail,
+            "the schedule was installed with this run's proxy, \
+             http://***:***@proxy.example.com:3128, from HTTPS_PROXY, but with another user \
+             name or password"
+        );
+    }
+
+    /// In the app, whose environment is the system's and names no proxy a shell set, a
+    /// schedule installed from a terminal with a proxy differs from it for good, and the
+    /// app's switch would take that proxy away. So the line is no warning there: it says what
+    /// each goes through, and how each way of installing the schedule chooses its proxy.
+    #[test]
+    fn in_the_app_a_schedules_other_proxy_is_said_without_a_warning() {
+        let mut f = facts();
+        f.in_the_app = true;
+        f.schedule = Some(scheduled(direct(), false));
+        assert!(evaluate(&f).iter().all(|c| c.code != "schedule_proxy"));
+
+        f.schedule = Some(scheduled(by(through(None, &[])), true));
+        let checks = evaluate(&f);
+        let line = check(&checks, "schedule_proxy");
+        assert_eq!(
+            (line.level, line.name.as_str(), line.detail.as_str()),
+            (
+                Level::Ok,
+                "renewal schedule's proxy",
+                "the schedule was installed with http://***:***@proxy.example.com:3128, from \
+                 HTTPS_PROXY; the app goes directly"
+            )
+        );
+        for said in ["Settings", "`pitboard schedule install` in a terminal"] {
+            assert!(line.advice.contains(said), "{said}: {}", line.advice);
+        }
+
+        f.network = by(through(None, &[]));
+        assert_eq!(
+            check(&evaluate(&f), "schedule_proxy").detail,
+            "the schedule was installed with the app's proxy, \
+             http://***:***@proxy.example.com:3128, from HTTPS_PROXY, but with another user \
+             name or password"
+        );
+    }
+
+    /// What the line above is given, read off a real disk: a schedule `pitboard schedule
+    /// install` wrote with a proxy, against runs with the same proxy, the same one with
+    /// another password, and none. The report a person pastes hides the proxy's host, as it
+    /// does this run's.
+    #[test]
+    fn the_schedules_proxy_is_read_from_what_install_wrote() {
+        let root = std::env::temp_dir().join(format!(
+            "pitboard-doctor-schedule-proxy-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _guard = Scratch(root.clone());
+        let program = root.join("bin/pitboard");
+        std::fs::create_dir_all(root.join("bin")).expect("a bin");
+        std::fs::write(&program, "").expect("a Pitboard");
+        let machine = crate::host::memory::MemoryHost::new();
+        let home = root.to_string_lossy().into_owned();
+        let run = |proxy: Option<&str>| {
+            let env: crate::context::Environment = [("HOME", home.as_str())]
+                .into_iter()
+                .chain(proxy.map(|address| ("HTTPS_PROXY", address)))
+                .collect();
+            Context::for_command_line(&env)
+                .with_memory_stores(std::sync::Arc::clone(&machine))
+                .with_schedule_program(program.clone())
+        };
+        let gathered = |ctx: &Context| {
+            let mut f = facts();
+            f.schedule = schedule_fact(ctx);
+            f.network = network_fact(&ctx.proxy);
+            f
+        };
+        let installer = run(Some("http://alice:s3cret@proxy.example.com:3128"));
+        crate::schedule::install(&installer, Permit::for_a_test()).expect("installed");
+
+        let same = gathered(&installer);
+        assert!(!same.schedule.as_ref().expect("installed").network_differs);
+        assert!(evaluate(&same).iter().all(|c| c.code != "schedule_proxy"));
+
+        let changed = gathered(&run(Some("http://alice:changed@proxy.example.com:3128")));
+        let detail = check(&evaluate(&changed), "schedule_proxy").detail.clone();
+        assert!(
+            detail.ends_with("but with another user name or password"),
+            "{detail}"
+        );
+        for secret in ["alice", "s3cret", "changed"] {
+            assert!(!detail.contains(secret), "{secret}: {detail}");
+        }
+
+        let direct = run(None);
+        let f = gathered(&direct);
+        let detail = check(&evaluate(&f), "schedule_proxy").detail.clone();
+        assert_eq!(
+            detail,
+            "the schedule was installed with http://***:***@proxy.example.com:3128, from \
+             HTTPS_PROXY; this run goes directly"
+        );
+        let hidden = redaction_for(&direct, &f).over(&detail);
+        assert!(
+            hidden.starts_with("the schedule was installed with http://***:***@<proxy ")
+                && !hidden.contains("proxy.example.com"),
+            "{hidden}"
+        );
+    }
+
     #[test]
     fn every_failure_and_warning_tells_the_user_something() {
         let mut f = facts();
@@ -2348,6 +2872,278 @@ mod tests {
         f.readable_by_others = vec![("/home/a/.claude/.credentials.json".into(), mode(0o644))];
         for c in evaluate(&f) {
             assert!(!c.advice.contains("  "), "{}: {:?}", c.code, c.advice);
+        }
+    }
+
+    /// A proxy `HTTPS_PROXY` names, exempting the hosts Pitboard calls that `exempt` lists.
+    fn through(exempting: Option<&'static str>, exempt: &[&str]) -> ProxyFact {
+        ProxyFact {
+            variable: "HTTPS_PROXY",
+            address: "http://***:***@proxy.example.com:3128".into(),
+            server: "proxy.example.com:3128".into(),
+            on_loopback: false,
+            socks: false,
+            exempting,
+            exempt: exempt.iter().map(|host| (*host).to_string()).collect(),
+        }
+    }
+
+    /// The network check, for a network that is `proxy`, passing over `passed_over`.
+    fn network(proxy: Option<ProxyFact>, passed_over: &[&'static str]) -> Check {
+        let mut f = facts();
+        f.network = NetworkFact {
+            proxy,
+            passed_over: passed_over.to_vec(),
+        };
+        let checks = evaluate(&f);
+        let found = check(&checks, "network");
+        Check {
+            code: found.code,
+            name: found.name.clone(),
+            level: found.level,
+            detail: found.detail.clone(),
+            advice: found.advice.clone(),
+        }
+    }
+
+    /// doctor says how Pitboard's requests leave this machine: directly, or through which
+    /// proxy and from which variable, and which of the hosts Pitboard calls go around it. It
+    /// had no such check, while ureq read the variables itself, so nobody could tell.
+    #[test]
+    fn the_network_check_names_the_proxy_and_the_variable_it_came_from() {
+        let direct = network(None, &[]);
+        assert_eq!(
+            (direct.level, direct.name.as_str(), direct.detail.as_str()),
+            (Level::Ok, "network", "direct: no variable names a proxy")
+        );
+        for (exempting, exempt, said) in [
+            (None, &[][..], ""),
+            (
+                Some("NO_PROXY"),
+                &[],
+                "; NO_PROXY exempts none of the hosts Pitboard calls",
+            ),
+            (
+                Some("no_proxy"),
+                &["api.anthropic.com"],
+                "; no_proxy exempts api.anthropic.com, which Pitboard reaches directly",
+            ),
+            (
+                Some("NO_PROXY"),
+                &["api.anthropic.com", "platform.claude.com"],
+                "; NO_PROXY exempts api.anthropic.com and platform.claude.com, which Pitboard \
+                 reaches directly",
+            ),
+            (
+                Some("NO_PROXY"),
+                &[
+                    "api.anthropic.com",
+                    "platform.claude.com",
+                    "auth.openai.com",
+                    "chatgpt.com",
+                ],
+                "; NO_PROXY exempts every host Pitboard calls, which it reaches directly",
+            ),
+        ] {
+            let check = network(Some(through(exempting, exempt)), &[]);
+            assert_eq!(check.level, Level::Ok, "{said}");
+            assert_eq!(
+                check.detail,
+                format!("through http://***:***@proxy.example.com:3128, from HTTPS_PROXY{said}")
+            );
+            assert!(check.advice.is_empty(), "{}", check.advice);
+        }
+    }
+
+    /// The network check of a context read from `pairs`, and nothing else of the environment
+    /// but a home.
+    fn network_read_from(pairs: &[(&'static str, &str)]) -> Check {
+        let env: crate::context::Environment = pairs
+            .iter()
+            .copied()
+            .chain([("HOME", "/nowhere")])
+            .collect();
+        let fact = network_fact(&Context::for_command_line(&env).proxy);
+        network(fact.proxy, &fact.passed_over)
+    }
+
+    /// A SOCKS proxy, which Pitboard does not use yet, is a warning. The check says so in the
+    /// words a request fails with, naming the variable that named the proxy, then the proxy,
+    /// and says what to set. A host the variable exempting hosts names still goes out
+    /// directly; with every host Pitboard calls exempt, nothing fails, and it is no warning.
+    ///
+    /// It named a SOCKS proxy as one Pitboard went through, like any other, while Pitboard
+    /// spoke SOCKS itself.
+    #[test]
+    fn a_socks_proxy_is_a_warning_naming_its_variable() {
+        let socks = network_read_from(&[("all_proxy", "socks5://127.0.0.1:7890")]);
+        assert_eq!(
+            (socks.level, socks.detail.as_str(), socks.advice.as_str()),
+            (
+                Level::Warn,
+                "requests fail: Pitboard does not use SOCKS proxies yet, and all_proxy names \
+                 one, socks5://127.0.0.1:7890",
+                "Pitboard goes through HTTP and HTTPS proxies only. For its requests to go \
+                 out, set all_proxy to an HTTP proxy's address, such as \
+                 http://proxy.example.com:8080, or unset it."
+            )
+        );
+
+        let some = network_read_from(&[
+            ("ALL_PROXY", "socks5h://alice:s3cret@p.example"),
+            ("NO_PROXY", "chatgpt.com"),
+        ]);
+        assert_eq!(
+            (some.level, some.detail.as_str()),
+            (
+                Level::Warn,
+                "requests fail: Pitboard does not use SOCKS proxies yet, and ALL_PROXY names \
+                 one, socks5h://***:***@p.example:1080; NO_PROXY exempts chatgpt.com, which \
+                 Pitboard reaches directly"
+            )
+        );
+
+        let passed = network_read_from(&[
+            ("ALL_PROXY", "not a proxy"),
+            ("HTTPS_PROXY", "socks://p.example"),
+        ]);
+        assert_eq!(
+            (passed.level, passed.detail.as_str(), passed.advice.as_str()),
+            (
+                Level::Warn,
+                "requests fail: Pitboard does not use SOCKS proxies yet, and HTTPS_PROXY \
+                 names one, socks5://p.example:1080; ALL_PROXY holds no proxy's address \
+                 Pitboard can read, so it is passed over",
+                "Pitboard goes through HTTP and HTTPS proxies only. For its requests to go \
+                 out, set each of ALL_PROXY and HTTPS_PROXY to an HTTP proxy's address, such \
+                 as http://proxy.example.com:8080, or unset them."
+            )
+        );
+
+        let every = network_read_from(&[("HTTPS_PROXY", "socks4://10.0.0.1"), ("no_proxy", "*")]);
+        assert_eq!(
+            (every.level, every.detail.as_str(), every.advice.as_str()),
+            (
+                Level::Ok,
+                "direct: Pitboard does not use SOCKS proxies yet, and HTTPS_PROXY names one, \
+                 socks4://10.0.0.1:1080; no_proxy exempts every host Pitboard calls, which it \
+                 reaches directly",
+                ""
+            )
+        );
+    }
+
+    /// Where Pitboard passes over a variable that holds no proxy's address, the check warns
+    /// and says what to set.
+    #[test]
+    fn a_variable_pitboard_cannot_read_is_a_warning() {
+        let passed = network(None, &["HTTPS_PROXY"]);
+        assert_eq!(passed.level, Level::Warn);
+        assert_eq!(
+            passed.detail,
+            "direct: HTTPS_PROXY holds no proxy's address Pitboard can read, so it is passed \
+             over"
+        );
+        assert_eq!(
+            passed.advice,
+            "Set it to a proxy's address, such as http://proxy.example.com:8080, or unset it."
+        );
+        let both = ProxyFact {
+            variable: "HTTP_PROXY",
+            address: "http://proxy.example.com:8080".into(),
+            ..through(None, &[])
+        };
+        let passed = network(Some(both), &["ALL_PROXY", "HTTPS_PROXY"]);
+        assert_eq!(passed.level, Level::Warn);
+        assert_eq!(
+            passed.detail,
+            "through http://proxy.example.com:8080, from HTTP_PROXY; ALL_PROXY and HTTPS_PROXY \
+             hold no proxy's address Pitboard can read, so they are passed over"
+        );
+        assert_eq!(
+            passed.advice,
+            "Set each to a proxy's address, such as http://proxy.example.com:8080, or unset \
+             them."
+        );
+    }
+
+    /// The report a person pastes shows a digest in place of the proxy's host and port,
+    /// which can name the company whose network it is, as it does an organisation's name.
+    /// A proxy on loopback names nothing beyond this machine, and is shown. The report a
+    /// person reads on their own machine hides neither.
+    #[test]
+    fn a_proxys_host_is_redacted_from_a_report_unless_it_is_on_loopback() {
+        let ctx = Context::new(PathBuf::from("/home/x"));
+        let mut f = facts();
+        f.network.proxy = Some(through(None, &[]));
+        let detail = check(&evaluate(&f), "network").detail.clone();
+        let hidden = redaction_for(&ctx, &f).over(&detail);
+        assert!(detail.contains("proxy.example.com:3128"), "{detail}");
+        assert!(!hidden.contains("proxy.example.com"), "{hidden}");
+        assert!(!hidden.contains("3128"), "{hidden}");
+        assert!(
+            hidden.starts_with("through http://***:***@<proxy ")
+                && hidden.contains("from HTTPS_PROXY"),
+            "{hidden}"
+        );
+
+        f.network.proxy = Some(ProxyFact {
+            address: "http://127.0.0.1:7890".into(),
+            server: "127.0.0.1:7890".into(),
+            on_loopback: true,
+            ..through(None, &[])
+        });
+        let detail = check(&evaluate(&f), "network").detail.clone();
+        assert_eq!(redaction_for(&ctx, &f).over(&detail), detail);
+    }
+
+    /// What doctor is given is read from the context, as the agent's proxy is, with the
+    /// user name and password in the address hidden, and the hosts exempt judged by ureq.
+    #[test]
+    fn the_network_is_read_from_the_context() {
+        let env: crate::context::Environment = [
+            ("HOME", "/nowhere"),
+            ("HTTPS_PROXY", "http://alice:s3cret@proxy.example.com:3128"),
+            ("NO_PROXY", ".anthropic.com,localhost"),
+        ]
+        .into_iter()
+        .collect();
+        let fact = network_fact(&Context::for_command_line(&env).proxy);
+        let proxy = fact.proxy.expect("a proxy");
+        assert_eq!(proxy.variable, "HTTPS_PROXY");
+        assert_eq!(proxy.address, "http://***:***@proxy.example.com:3128");
+        assert_eq!(proxy.server, "proxy.example.com:3128");
+        assert!(!proxy.on_loopback && !proxy.socks);
+        assert_eq!(proxy.exempting, Some("NO_PROXY"));
+        assert_eq!(proxy.exempt, ["api.anthropic.com"]);
+        assert!(fact.passed_over.is_empty());
+
+        let unit = network_fact(&Context::for_unit_test().proxy);
+        assert!(unit.proxy.is_none() && unit.passed_over.is_empty());
+
+        for (address, shown, on_loopback) in [
+            ("socks5://localhost:7890", "socks5://localhost:7890", true),
+            ("socks4://127.0.0.1", "socks4://127.0.0.1:1080", true),
+            ("socks5h://[::1]:1080", "socks5h://[::1]:1080", true),
+            ("socks4a://10.0.0.1", "socks4a://10.0.0.1:1080", false),
+            ("socks://p.example", "socks5://p.example:1080", false),
+            (
+                "https://Proxy.Example.com",
+                "https://Proxy.Example.com:443",
+                false,
+            ),
+        ] {
+            let env: crate::context::Environment = [("HOME", "/nowhere"), ("ALL_PROXY", address)]
+                .into_iter()
+                .collect();
+            let proxy = network_fact(&Context::for_command_line(&env).proxy)
+                .proxy
+                .expect("a proxy");
+            assert_eq!(
+                (proxy.address.as_str(), proxy.on_loopback, proxy.socks),
+                (shown, on_loopback, shown.starts_with("socks")),
+                "{address}"
+            );
         }
     }
 

@@ -300,13 +300,26 @@ pub(crate) trait Scheduler: Send + Sync + std::fmt::Debug {
     /// writes it.
     fn program(&self, ctx: &Context) -> Option<PathBuf>;
 
-    /// Schedule `program renew`, and ask the system to start it.
+    /// The variables the schedule's job is given, by name, as [`Scheduler::put`] wrote them,
+    /// read back. Empty where nothing is installed, and where what is there gives none the way
+    /// `put` writes them. The system can give a job more of its own, which this does not say.
+    fn environment(&self, ctx: &Context) -> Vec<(String, String)>;
+
+    /// Schedule `program renew`, given `environment`, each variable by name, besides what the
+    /// system gives every job, and ask the system to start it. What is written can hold a
+    /// proxy's password, so only the person can read it, whatever was there before.
     ///
     /// Where the system will not start it, what was there goes back as it was, and is
     /// started again. The status, doctor and the app all read what is there, so a schedule
     /// left written that nothing runs would say renewal is on while it is not, which is the
     /// failure nobody would notice until the parked logins had run out.
-    fn put(&self, ctx: &Context, permit: Permit, program: &Path) -> Result<()>;
+    fn put(
+        &self,
+        ctx: &Context,
+        permit: Permit,
+        program: &Path,
+        environment: &[(String, String)],
+    ) -> Result<()>;
 
     /// Stop the schedule and take it away. `false` when nothing was there.
     fn remove(&self, ctx: &Context, permit: Permit) -> Result<bool>;

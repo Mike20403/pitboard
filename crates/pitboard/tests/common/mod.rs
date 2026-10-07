@@ -299,12 +299,27 @@ impl Env {
     }
 
     pub fn run(&self, args: &[&str]) -> (String, String, i32) {
-        let out = self.command(args).output().expect("run Pitboard");
+        self.run_with(args, &[])
+    }
+
+    /// `run`, with `vars` set besides, over what the harness sets or withholds.
+    pub fn run_with(&self, args: &[&str], vars: &[(&str, &str)]) -> (String, String, i32) {
+        let mut command = self.command(args);
+        for (name, value) in vars {
+            command.env(name, value);
+        }
+        let out = command.output().expect("run Pitboard");
         (
             String::from_utf8_lossy(&out.stdout).into_owned(),
             String::from_utf8_lossy(&out.stderr).into_owned(),
             out.status.code().unwrap_or(-1),
         )
+    }
+
+    /// Where the stand-in for Anthropic listens, as `host:port`, which is what a proxy is
+    /// asked to connect to for a request to it.
+    pub fn api_address(&self) -> String {
+        self.server.host_with_port()
     }
 
     /// Enroll another account through `--sign-in`, the way a user would, with a stand-in

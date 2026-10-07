@@ -31,6 +31,8 @@ To fix it, see [Sign in to an account again](/guides/sign-in-again). To prevent 
 
 If the message says `Pitboard could not confirm`, check the connection and run the command again.
 
+If it also says `Pitboard does not use SOCKS proxies yet, and ALL_PROXY names one`, the variable it names holds a SOCKS proxy's address. Pitboard does not go through SOCKS proxies, and sends nothing around one. Set that variable to an HTTP proxy's address, or unset it, then run the command again. `pitboard doctor` names the proxy on its `network` line.
+
 If it says `session has expired`, run the program it names once, then run the command again.
 
 ## Claude Code still shows the previous account
@@ -102,6 +104,16 @@ Turn **Renew parked logins daily** off and on in **Settings** > **General**, or 
 pitboard schedule uninstall
 pitboard schedule install
 ```
+
+### The schedule's proxy differs
+
+`pitboard doctor` warns with `renewal schedule's proxy` when daily renewal goes through another proxy than the one your shell names, or through none. Daily renewal keeps the proxy it was installed with. From a shell where the proxy variables are as you want them, run:
+
+```sh
+pitboard schedule install
+```
+
+The app's **This Mac** pane shows the same line without a warning. The app compares with its own proxy variables, which macOS gives it, and those name no proxy unless `launchctl setenv` set one. Turning **Renew parked logins daily** off and on in the app gives daily renewal the app's variables, so it would drop a proxy that a shell gave it.
 
 ## A file was written by a newer Pitboard
 

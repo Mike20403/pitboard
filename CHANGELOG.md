@@ -6,6 +6,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `pitboard doctor` has a `network` check, which the app's **This Mac** pane shows too. It
+  says whether Pitboard's requests go out directly or through a proxy, names the proxy and
+  the variable it came from, such as
+  `through http://***:***@proxy.example.com:3128, from HTTPS_PROXY`, and lists the hosts
+  Pitboard calls that `NO_PROXY` exempts. Neither report shows the user name or password
+  in a proxy's address, and `--json` shows a digest in place of its host and port, as it
+  does an organisation's name, unless the proxy is on loopback. It warns when the proxy is
+  a SOCKS one, which Pitboard does not go through, in the words a request then fails with,
+  unless `NO_PROXY` exempts every host Pitboard calls. It also warns when a variable holds
+  no proxy address Pitboard can read, which Pitboard passes over.
+- The daily renewal schedule goes through the proxy of the Pitboard that installs it.
+  `pitboard schedule install`, and turning on **Renew parked logins daily** in the app,
+  write `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, in whichever case each is
+  set, into the LaunchAgent's `EnvironmentVariables` or the systemd service's
+  `Environment=` lines, as they write `PITBOARD_NO_ARGV`. launchd and systemd start the
+  schedule without your shell's environment, so its requests went out directly, unless
+  they gave every job a proxy. Install it again after your proxy changes. On macOS,
+  `pitboard schedule install` refuses a variable holding a character a LaunchAgent cannot
+  hold, such as the control character U+0001, and names it. `pitboard doctor` has a
+  `schedule_proxy` check, which warns when the schedule's proxy differs from the one the
+  run sees, with each user name and password as `***`. Where the run's proxy is a SOCKS
+  one that fails its requests, it says to change that variable before installing the
+  schedule again, which would give the schedule that proxy too. In the app's **This Mac**
+  pane the same line is not a warning: the app runs with the variables macOS gives it, not
+  your shell's, and it says that the app's switch would give the schedule the app's.
+
 ### Changed
 
 - The product is called Pitboard, with a capital P, everywhere it names itself: the app
@@ -156,6 +184,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `~/.pitboard`, and with nothing installed it says to unset `PITBOARD_HOME` before
   `pitboard schedule install`. It said to run `pitboard schedule install`, which is
   refused there.
+- Pitboard refuses every SOCKS proxy: `socks4://`, `socks4a://`, `socks5://`, `socks5h://`
+  and `socks://`, which is `socks5://`. Pitboard takes its proxy from the first of
+  `ALL_PROXY`, `HTTPS_PROXY` and `HTTP_PROXY`, each read before its lower-case spelling,
+  that holds an address it can read. While that variable names a SOCKS proxy, each request
+  to Anthropic or OpenAI fails before anything is sent, with the cause `unreachable` and
+  the reason `Pitboard does not use SOCKS proxies yet, and ALL_PROXY names one`, naming
+  that variable. Requests with a `socks4://`, `socks5://` or `socks://` proxy no longer go
+  out directly, around the proxy you set. Requests with a `socks4a://` or `socks5h://` one
+  failed with `Connection refused`, and fail with that reason instead. A host `NO_PROXY`
+  names is still reached directly, without the proxy's own name being looked up, and a
+  redirect from it is not followed while a SOCKS proxy is named. Pitboard does not go
+  through SOCKS proxies because ureq 3.4.2, the library it sends requests with, waits past
+  the request's 5 seconds on one that never answers, and looks the proxy up before it asks
+  `NO_PROXY`.
+- Pitboard writes the daily renewal schedule's files, the LaunchAgent and the systemd
+  service and timer, so that only you can read them, mode 600, whatever mode a file
+  already there had. They can hold a proxy's user name and password. A file Pitboard wrote
+  where none was there was already 600, and one already there kept its own mode, such as
+  644.
 - In `pitboard-core`, `service::Pitboard::check_homes` and
   `service::Pitboard::schedule_renews_this_home`, the errors `Error::HomeNotAbsolute` and
   `Error::ScheduleNotDefaultHome`, `Context::started_by_the_schedule` and
@@ -184,6 +231,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `holder::AppId`, in place of `bundle_id`. `AppId::MacBundle` holds a Mac app's bundle id,
   and `AppId::as_str` gives the id as its system writes it. `holder::AppId`,
   `service::Warning::SessionsUnknown` and `service::Warning::SessionsUnknownAfterSignIn` are
+  new. These change the crate's public API.
+- Pitboard reads `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, and their
+  lower-case spellings, from the environment it was started with, by the rules ureq 3.4.2
+  reads them with, and gives ureq the proxy. ureq read them itself, from the process, so
+  each request goes through the same HTTP or HTTPS proxy as before. In `pitboard-core`, a
+  context made with `Context::new` names no proxy, where its requests went through the one
+  the process's environment named; a context read from an environment, as the command
+  line's and the app's are, goes through the one that environment names. `doctor::Facts`
+  has the fields `network` and `in_the_app`, `doctor::ScheduleFact` has the fields
+  `network` and `network_differs`, and `doctor::NetworkFact` and `doctor::ProxyFact` are
   new. These change the crate's public API.
 
 ### Fixed

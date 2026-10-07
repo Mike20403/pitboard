@@ -87,7 +87,10 @@ impl Control for Pretend {
     }
 }
 
-/// Write one of the job's files, keeping the mode one that is there already has.
+/// Write one of the job's files, private to the person whatever was there: a job is given
+/// the proxy variables of the Pitboard that installed it, and a proxy's address can hold a
+/// user name and password. A file already there kept its own mode until then, while a new
+/// one was private already, since [`crate::atomic::write`] creates each file private.
 pub(crate) fn write(permit: Permit, path: &Path, body: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         crate::host::fs::create_dir_all(permit, parent).map_err(|source| {
@@ -97,16 +100,12 @@ pub(crate) fn write(permit: Permit, path: &Path, body: &str) -> Result<()> {
             }
         })?;
     }
-    crate::atomic::write(
-        permit,
-        path,
-        body.as_bytes(),
-        crate::atomic::Perms::MatchExisting,
+    crate::atomic::write(permit, path, body.as_bytes(), crate::atomic::Perms::Secret).map_err(
+        |source| Error::HomeUnwritable {
+            path: path.to_path_buf(),
+            source,
+        },
     )
-    .map_err(|source| Error::HomeUnwritable {
-        path: path.to_path_buf(),
-        source,
-    })
 }
 
 /// Put a file back the way it was before this run wrote it: its old contents, or not there.

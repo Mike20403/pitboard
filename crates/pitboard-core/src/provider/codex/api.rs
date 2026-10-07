@@ -14,8 +14,8 @@ use serde_json::Value;
 /// client can only be renewed as it.
 pub(crate) const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
-const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-const USAGE_BASE: &str = "https://chatgpt.com/backend-api";
+pub(crate) const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+pub(crate) const USAGE_BASE: &str = "https://chatgpt.com/backend-api";
 
 fn token_url(ctx: &Context) -> String {
     test_base(ctx).map_or_else(
@@ -137,7 +137,7 @@ fn ask_renew(ctx: &Context, _: Permit, refresh_token: &str) -> Result<Fresh, Pro
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
     });
-    let mut response = agent()
+    let mut response = agent(ctx)
         .post(token_url(ctx))
         .header("Content-Type", "application/json")
         .send(body.to_string())
@@ -216,7 +216,7 @@ fn ask_usage(
     account_id: &str,
     now: i64,
 ) -> Result<Snapshot, ProviderError> {
-    let mut response = agent()
+    let mut response = agent(ctx)
         .get(usage_url(ctx))
         .header("Authorization", format!("Bearer {access_token}"))
         .header("ChatGPT-Account-ID", account_id)

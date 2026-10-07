@@ -65,6 +65,7 @@ pub mod host;
 pub(crate) mod lock;
 pub(crate) mod park;
 pub(crate) mod pending;
+pub(crate) mod proxy;
 pub(crate) mod readings;
 pub(crate) mod sessions;
 pub(crate) mod store;
