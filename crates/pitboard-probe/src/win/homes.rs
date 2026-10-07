@@ -11,11 +11,11 @@ use crate::report::Report;
 use serde_json::{Map, Value, json};
 use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
-use windows_sys::Win32::UI::Shell::{GetProfileType, GetUserProfileDirectoryW};
+use windows_sys::Win32::UI::Shell::GetProfileType;
 
 const TAG_A: &str = "pitboard-probe-path-a";
 const TAG_B: &str = "pitboard-probe-path-b";
@@ -165,11 +165,9 @@ fn os_build() -> Value {
 
 fn user_profile_directory() -> Option<String> {
     let token = Token::current().ok()?;
-    let mut buf = vec![0u16; 1024];
-    let mut len = buf.len() as u32;
-    // SAFETY: `token` is open for query; `buf` holds `len` units.
-    let ok = unsafe { GetUserProfileDirectoryW(token.raw(), buf.as_mut_ptr(), &mut len) };
-    (ok != 0).then(|| ffi::from_wide_buf(&buf))
+    ffi::user_profile_directory(&token)
+        .ok()
+        .map(|p| p.display().to_string())
 }
 
 /// B3: `GetProfileType`'s flags.
@@ -214,7 +212,9 @@ fn tag_of(value: Option<OsString>) -> &'static str {
     }
 }
 
-/// The child B4 starts: which spellings it got, and which value each lookup returns.
+/// The child B4 starts: which spellings it got, and which value each lookup returns. Keys
+/// never differ only in case (a report may not hold such keys), so the all-capitals `PATH`
+/// is `all_caps` and the title-case `Path` is `title_case`.
 pub fn env_child() -> Report {
     let logon = logon_now();
     let spellings: Vec<Value> = std::env::vars_os()
@@ -226,12 +226,14 @@ pub fn env_child() -> Report {
         logon,
         json!({
             "spellings": spellings,
-            "var_os_PATH": tag_of(std::env::var_os("PATH")),
-            "var_os_Path": tag_of(std::env::var_os("Path")),
+            "var_os_all_caps": tag_of(std::env::var_os("PATH")),
+            "var_os_title_case": tag_of(std::env::var_os("Path")),
         }),
     )
 }
 
+/// B4. `PATH` carries tag `a` and `Path` tag `b` wherever both are set, so a child's answer
+/// says which one it got.
 pub fn path_vars(scratch: &Path) -> Report {
     let logon = logon_now();
     if let Some(reason) = ffi::refuse_write(scratch) {
@@ -241,14 +243,14 @@ pub fn path_vars(scratch: &Path) -> Report {
     let a = scratch.join(TAG_A);
     let b = scratch.join(TAG_B);
     let exe = std::env::current_exe().unwrap_or_default();
-    let mut data = json!({ "this_process": path_spellings() });
+    let pid = std::process::id();
+    let mut data = json!({
+        "this_process": path_spellings(),
+        "tags": { "a": "PATH", "b": "Path" },
+    });
 
     // std's Command, told PATH then Path.
-    let out = scratch.join(format!(
-        "{}env-std-{}.json",
-        crate::PROBE_PREFIX,
-        std::process::id()
-    ));
+    let out = scratch.join(format!("{}env-std-{pid}.json", crate::PROBE_PREFIX));
     let status = std::process::Command::new(&exe)
         .arg("--out")
         .arg(&out)
@@ -258,32 +260,27 @@ pub fn path_vars(scratch: &Path) -> Report {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
-    data["std_command_path_then_Path"] = json!({
+    data["std_command_all_caps_then_title_case"] = json!({
         "exit": status.ok().and_then(|s| s.code()),
         "child": take_child_report(&out),
     });
 
     // A raw environment block holding both names, in each order.
-    for (label, first, second) in [
-        ("raw_block_PATH_first", ("PATH", &a), ("Path", &b)),
-        ("raw_block_Path_first", ("Path", &b), ("PATH", &a)),
-    ] {
-        let out = scratch.join(format!(
-            "{}env-{label}-{}.json",
-            crate::PROBE_PREFIX,
-            std::process::id()
-        ));
+    let raw = |first: (&str, &PathBuf), second: (&str, &PathBuf), stem: &str| -> Value {
+        let out = scratch.join(format!("{}env-{stem}-{pid}.json", crate::PROBE_PREFIX));
         let block = env_block(&[first, second]);
         let args: [&OsStr; 3] = [
             OsStr::new("--out"),
             out.as_os_str(),
             OsStr::new("env-child"),
         ];
-        data[label] = match ffi::spawn(None, &exe, &args, CREATE_NO_WINDOW, Some(&block)) {
+        match ffi::spawn(None, &exe, &args, CREATE_NO_WINDOW, Some(&block)) {
             Ok(child) => json!({ "exit": child.wait_ms(30_000), "child": take_child_report(&out) }),
             Err(code) => json!({ "spawn_error": code }),
-        };
-    }
+        }
+    };
+    data["raw_block_all_caps_first"] = raw(("PATH", &a), ("Path", &b), "raw-caps-first");
+    data["raw_block_title_case_first"] = raw(("Path", &b), ("PATH", &a), "raw-title-first");
     Report::ok("path-vars", logon, data)
 }
 

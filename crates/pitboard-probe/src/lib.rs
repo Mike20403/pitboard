@@ -16,18 +16,22 @@
 //! What the probe may never do is written into the report half, so a test proves it:
 //!
 //! - every subcommand that writes refuses unless the Windows account carries the throwaway
-//!   marker the owner creates, and refuses a scratch path that is relative or lies, in any
-//!   spelling, inside the real profile's `.claude`, `.codex` or `%LOCALAPPDATA%\Pitboard`
-//!   ([`guard`]);
+//!   marker the owner creates, and refuses a scratch path that is relative or keeps a `..`
+//!   (nothing is resolved against the working folder), or that is, in any spelling or by
+//!   the identity of a folder it passes through, the real profile's `.claude`,
+//!   `.claude.json`, `.codex` or `%LOCALAPPDATA%\Pitboard` or inside one ([`guard`]);
 //! - it writes, reads or deletes only Credential Manager items, tasks, registry keys and
 //!   files it made itself under a `pitboard-probe-*` name or in a scratch folder it was
-//!   given; `credman-names` asks Credential Manager only for the live login families and
+//!   given, and every file it is named (`--out`, `dpapi --file`, `swap`) carries that
+//!   prefix; `credman-names` asks Credential Manager only for the live login families and
 //!   `pitboard-*` names, and never reads a blob out ([`names`]);
 //! - it names processes only when they are the tools', their runtimes', Pitboard's, the
 //!   probe's or a browser's ([`images`]);
 //! - it prints principals as their relation to the token (self, SYSTEM, Administrators,
 //!   other), never a SID, and every path with the profile and the account name replaced
-//!   ([`redact`]).
+//!   ([`redact`]);
+//! - no object in a report holds two keys that differ only in case, which PowerShell's
+//!   `ConvertFrom-Json` refuses ([`report`]).
 
 // The probe reads the environment on purpose: `PATH`, `USERPROFILE`, `CODEX_HOME` and the
 // rest are what the homes and exe-lookup blocks measure, and it is not Pitboard's engine, so
@@ -61,6 +65,10 @@ pub const PROBE_PREFIX: &str = "pitboard-probe-";
 /// write there.
 pub const MARKER_FILE: &str = "pitboard-probe-throwaway.marker";
 
+/// The local stand-in page block F2 opens in the default browser: the only page the probe
+/// ever opens, and no site.
+pub const STANDIN_PAGE: &str = "pitboard-probe-standin.html";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +77,6 @@ mod tests {
     fn the_marker_is_named_for_the_probe() {
         assert!(MARKER_FILE.starts_with(PROBE_PREFIX));
         assert_eq!(PROBE_PREFIX, PROBE_PREFIX.to_lowercase());
+        assert!(guard::is_probe_file_name(STANDIN_PAGE));
     }
 }

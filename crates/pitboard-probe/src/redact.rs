@@ -3,7 +3,9 @@
 //! [`Redactor`] first: each form of the profile folder (long, 8.3 short, verbatim) becomes
 //! `<profile>`, and a path component that is the account's name, in either form, becomes
 //! `<user>`. What a block needs to know about the name itself, such as whether it is ASCII
-//! or survives NFC, it reports as facts, not as the name.
+//! or survives NFC, it reports as facts, not as the name. An address-shaped run becomes
+//! `<address>` ([`mask_addresses`]), and a SID becomes `<sid>` for this account or a
+//! numbered `<other_sid_N>` for any other ([`SidRedactor`]).
 
 /// Replaces the profile folder and the account name in text the probe prints.
 #[derive(Debug, Clone, Default)]
@@ -66,6 +68,133 @@ impl Redactor {
             component.to_string()
         }
     }
+
+    /// `value` with every string in it, at any depth, passed through [`Redactor::redact`]
+    /// and [`mask_addresses`]; keys, numbers and the shape are kept. For values copied from a
+    /// file a tool wrote, whose fields the probe does not know in advance.
+    pub fn redact_json(&self, value: &serde_json::Value) -> serde_json::Value {
+        use serde_json::Value;
+        match value {
+            Value::String(s) => Value::String(mask_addresses(&self.redact(s))),
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|v| self.redact_json(v)).collect())
+            }
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(k, v)| (k.clone(), self.redact_json(v)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+}
+
+/// `text` with every run that holds an `@` replaced by `<address>`, a run ending at a space,
+/// a separator, `|`, `#`, `:` or `=`: an address-shaped user name inside a Credential
+/// Manager target or a tool's field is a sign-in's, so only its shape is printed.
+pub fn mask_addresses(text: &str) -> String {
+    let is_break = |c: char| c.is_whitespace() || matches!(c, '/' | '\\' | '|' | '#' | ':' | '=');
+    let mut out = String::with_capacity(text.len());
+    let mut run = String::new();
+    let flush = |run: &mut String, out: &mut String| {
+        if run.contains('@') {
+            out.push_str("<address>");
+        } else {
+            out.push_str(run);
+        }
+        run.clear();
+    };
+    for c in text.chars() {
+        if is_break(c) {
+            flush(&mut run, &mut out);
+            out.push(c);
+        } else {
+            run.push(c);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
+/// Replaces SIDs in text the probe prints: this account's becomes `<sid>`, and each other
+/// account's becomes `<other_sid_N>`, numbered in the order they are first met, so two other
+/// accounts' items stay apart without either SID being printed.
+#[derive(Debug, Clone, Default)]
+pub struct SidRedactor {
+    own: Option<String>,
+    others: Vec<String>,
+}
+
+impl SidRedactor {
+    pub fn new(own: Option<&str>) -> Self {
+        SidRedactor {
+            own: own.map(str::to_uppercase),
+            others: Vec::new(),
+        }
+    }
+
+    /// `text` with every SID-shaped run (`S-1-` then dash-separated numbers) replaced.
+    pub fn redact(&mut self, text: &str) -> String {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::with_capacity(text.len());
+        let mut i = 0;
+        while i < chars.len() {
+            match sid_at(&chars, i) {
+                Some(end) => {
+                    let sid: String = chars[i..end].iter().collect::<String>().to_uppercase();
+                    if self.own.as_deref() == Some(sid.as_str()) {
+                        out.push_str("<sid>");
+                    } else {
+                        let n = match self.others.iter().position(|o| *o == sid) {
+                            Some(n) => n,
+                            None => {
+                                self.others.push(sid);
+                                self.others.len() - 1
+                            }
+                        };
+                        out.push_str(&format!("<other_sid_{}>", n + 1));
+                    }
+                    i = end;
+                }
+                None => {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The end of a SID that starts at `i` (`S-1-` and at least two more dash-separated
+/// numbers, not inside a longer word), or `None`.
+fn sid_at(chars: &[char], i: usize) -> Option<usize> {
+    if i > 0 && chars[i - 1].is_ascii_alphanumeric() {
+        return None;
+    }
+    let head: String = chars.get(i..i + 4)?.iter().collect();
+    if !head.eq_ignore_ascii_case("s-1-") {
+        return None;
+    }
+    let mut j = i + 4;
+    let mut parts = 0;
+    loop {
+        let start = j;
+        while j < chars.len() && chars[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j == start {
+            return None;
+        }
+        parts += 1;
+        if j + 1 < chars.len() && chars[j] == '-' && chars[j + 1].is_ascii_digit() {
+            j += 1;
+        } else {
+            break;
+        }
+    }
+    let ends_cleanly = chars.get(j).is_none_or(|c| !c.is_ascii_alphanumeric());
+    (parts >= 2 && ends_cleanly).then_some(j)
 }
 
 /// Whether two strings are equal ignoring case across Unicode.
@@ -157,5 +286,62 @@ mod tests {
     fn an_empty_redactor_changes_nothing() {
         let r = Redactor::default();
         assert_eq!(r.redact(r"C:\Users\dana"), r"C:\Users\dana");
+    }
+
+    #[test]
+    fn json_from_a_tool_is_redacted_at_every_depth_with_its_keys_kept() {
+        let r = dana();
+        let v = serde_json::json!({
+            "startedBy": r"C:\Users\dana\.local\bin\claude.exe",
+            "startTime": 133_000_000_000u64,
+            "nested": [{ "who": "dana@example.com" }],
+        });
+        assert_eq!(
+            r.redact_json(&v),
+            serde_json::json!({
+                "startedBy": r"<profile>\.local\bin\claude.exe",
+                "startTime": 133_000_000_000u64,
+                "nested": [{ "who": "<address>" }],
+            })
+        );
+    }
+
+    #[test]
+    fn an_address_inside_a_target_name_is_masked() {
+        assert_eq!(
+            mask_addresses("Codex MCP Credentials/linear|dana@example.com#0"),
+            "Codex MCP Credentials/linear|<address>#0"
+        );
+        assert_eq!(
+            mask_addresses("Claude Code-credentials-e80beed8"),
+            "Claude Code-credentials-e80beed8"
+        );
+    }
+
+    #[test]
+    fn sids_become_this_account_or_a_numbered_other() {
+        let own = "S-1-5-21-1004336348-1177238915-682003330-1001";
+        let other = "S-1-5-21-1004336348-1177238915-682003330-1002";
+        let third = "S-1-5-21-1004336348-1177238915-682003330-1003";
+        let mut r = SidRedactor::new(Some(own));
+        assert_eq!(
+            r.redact(&format!("pitboard-probe-e1-{own}")),
+            "pitboard-probe-e1-<sid>"
+        );
+        assert_eq!(
+            r.redact(&format!("pitboard-probe-e1-{other}")),
+            "pitboard-probe-e1-<other_sid_1>"
+        );
+        assert_eq!(
+            r.redact(&format!("pitboard-probe-e1-{third} and {other}")),
+            "pitboard-probe-e1-<other_sid_2> and <other_sid_1>"
+        );
+        // Not a SID: too short, or part of a longer word.
+        assert_eq!(r.redact("S-1-5"), "S-1-5");
+        assert_eq!(r.redact("XS-1-5-21-1"), "XS-1-5-21-1");
+        assert_eq!(r.redact("pitboard-probe-e1"), "pitboard-probe-e1");
+        // Without this account's SID, every SID is another's.
+        let mut none = SidRedactor::new(None);
+        assert_eq!(none.redact(own), "<other_sid_1>");
     }
 }

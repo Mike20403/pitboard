@@ -272,12 +272,15 @@ pages load, as a browser would.
   PE reader), so that half is unit tested on every system. One subcommand per measurement
   the VM sessions and the runner facts need; `.github/scripts/runner-facts.ps1` runs the
   safe ones on both Windows CI legs. Every writing subcommand refuses unless the account
-  carries a throwaway marker, and refuses a scratch path that lies, in any spelling Windows
-  opens, inside a real login folder. `credman-names` asks Credential Manager only for the
-  live login families' and `pitboard-*` prefixes and never reads a blob out. Reports name
-  principals by their relation to the token rather than by SID, and print paths with the
-  profile folder and the account name replaced. `helpers/` holds the Bun and Node scripts,
-  and `sparse/` the sparse-package manifests and script, that the owner runs in the VM.
+  carries a throwaway marker, and refuses a scratch path that is relative or keeps a `..`,
+  or that reaches a real login folder or file, in any spelling Windows opens or by the
+  identity of a folder on the way; every file it is named carries the `pitboard-probe-`
+  prefix. `credman-names` asks Credential Manager only for the live login families' and
+  `pitboard-*` prefixes and never reads a blob out. Reports name principals by their
+  relation to the token rather than by SID, print paths with the profile folder and the
+  account name replaced, and never hold two keys that differ only in case, which
+  PowerShell's `ConvertFrom-Json` refuses. `helpers/` holds the Bun and Node scripts, and
+  `sparse/` the sparse-package manifests, script and steps, that the owner runs in the VM.
 - `apps/`: the native apps, one directory for each system.
 - `apps/windows/`: the Windows app. `Pitboard.Core` is the core's C# bindings as an
   assembly of their own, generated into `Generated/` and not committed, and

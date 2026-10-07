@@ -2,7 +2,9 @@
 //! gives. Every principal is named by its relation to the token (self, system,
 //! administrators, other_account and so on), never by SID or name. Only security
 //! descriptors are read, never a file's contents, and the login folders are read only in a
-//! marked throwaway account.
+//! marked throwaway account. `--open` alone opens a probe file in a scratch folder and
+//! changes nothing, so it needs only the scratch check, and H7 can run it from a restricted
+//! token that cannot see the marker.
 
 use super::ffi::{self, Owned, Token};
 use super::logon_now;
@@ -169,6 +171,19 @@ pub fn acl(
     let own = own.as_deref();
     let mut data = json!({});
 
+    // H7: --open alone only opens a probe file in a scratch folder, and changes nothing, so
+    // it needs the scratch check and not the marker, which a restricted token such as Codex's
+    // sandbox may not see.
+    if let (Some(file), false, None) = (open, create, remove) {
+        let Some(scratch) = scratch else {
+            return Report::refused("acl", logon, "--open needs --scratch");
+        };
+        return match probe_file_in(file, scratch) {
+            Ok(()) => Report::ok("acl", logon, json!({ "opened": try_opens(file) })),
+            Err(reason) => Report::refused("acl", logon, reason),
+        };
+    }
+
     // C1: the login folders' access. The marker is required, since this reads the security
     // descriptors of folders a tool may have made.
     if !ffi::marker_present() {
@@ -218,16 +233,8 @@ pub fn acl(
     }
     for (label, file) in [("opened", open), ("removed", remove)] {
         let Some(file) = file else { continue };
-        let is_probe_file = file
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with(crate::PROBE_PREFIX));
-        if !is_probe_file || !ffi::lies_in(file, scratch) {
-            return Report::refused(
-                "acl",
-                logon,
-                "--open and --remove take a pitboard-probe-* file under --scratch",
-            );
+        if let Err(reason) = probe_file_in(file, scratch) {
+            return Report::refused("acl", logon, reason);
         }
         data[label] = if label == "opened" {
             try_opens(file)
@@ -239,6 +246,20 @@ pub fn acl(
         };
     }
     Report::ok("acl", logon, data)
+}
+
+/// Whether `file` is one `--open` and `--remove` may take: a `pitboard-probe-*` file inside
+/// `scratch`, both passing the scratch check.
+fn probe_file_in(file: &Path, scratch: &Path) -> Result<(), String> {
+    let is_probe_file = file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(crate::guard::is_probe_file_name);
+    if !is_probe_file || !ffi::lies_in(file, scratch) {
+        return Err("--open and --remove take a pitboard-probe-* file under --scratch".into());
+    }
+    ffi::scratch_check(scratch)?;
+    ffi::scratch_check(file)
 }
 
 /// C2: a file with a protected DACL granting this user, SYSTEM and Administrators, and no

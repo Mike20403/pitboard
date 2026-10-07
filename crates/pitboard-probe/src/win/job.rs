@@ -9,8 +9,8 @@ use super::ffi::{self, Owned};
 use super::processes::{open_query, snapshot};
 use super::{io_code, logon_now};
 use crate::cli::{Chain, JobEnd, Outcome};
-use crate::images;
 use crate::report::Report;
+use crate::{guard, images};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::windows::io::AsRawHandle;
@@ -188,8 +188,14 @@ pub fn job(scratch: &Path, chain: Chain, rounds: u32) -> Report {
     )
 }
 
+/// Exit code of a hidden helper given a job name or page that is not the probe's.
+const NOT_THE_PROBES: u8 = 3;
+
 /// The leaf: whether this process is in the named job, as its exit code.
 pub fn job_leaf(job_name: &str) -> Outcome {
+    if !guard::is_probe_object_name(job_name) {
+        return Outcome::Code(NOT_THE_PROBES);
+    }
     let w = ffi::wide(job_name);
     // SAFETY: `w` is NUL-terminated; the handle is owned below.
     let Some(job) = Owned::new(unsafe { OpenJobObjectW(JOB_OBJECT_QUERY, 0, w.as_ptr()) }) else {
@@ -205,6 +211,9 @@ pub fn job_leaf(job_name: &str) -> Outcome {
 
 /// The middle of the exe chain: start the leaf and pass its answer on.
 pub fn job_mid(job_name: &str) -> Outcome {
+    if !guard::is_probe_object_name(job_name) {
+        return Outcome::Code(NOT_THE_PROBES);
+    }
     let probe = std::env::current_exe().unwrap_or_default();
     let status = Command::new(probe)
         .args(["job-leaf", "--job-name", job_name])
@@ -220,8 +229,21 @@ pub fn job_mid(job_name: &str) -> Outcome {
     )
 }
 
-/// F2's opener: once in the named job, open the page with the default browser.
+/// F2's opener: once in the named job, open the page with the default browser. It opens
+/// only the probe's own stand-in page, by an absolute path, so the shell's "open" can never
+/// start a program or reach a site; and only in a job the probe named.
 pub fn job_open_page(page: &Path, job_name: &str, linger_seconds: u64) -> Outcome {
+    let is_standin = page
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case(crate::STANDIN_PAGE));
+    if !guard::is_probe_object_name(job_name)
+        || !is_standin
+        || !guard::is_absolute_without_parent(page)
+        || !page.is_file()
+    {
+        return Outcome::Code(NOT_THE_PROBES);
+    }
     let w = ffi::wide(job_name);
     // SAFETY: `w` is NUL-terminated; the handle is owned below.
     let job = Owned::new(unsafe { OpenJobObjectW(JOB_OBJECT_QUERY, 0, w.as_ptr()) });
@@ -306,7 +328,7 @@ pub fn job_browser(scratch: &Path, end: JobEnd, wait_seconds: u64) -> Report {
     if let Err(r) = guarded("job-browser", scratch) {
         return r;
     }
-    let page = scratch.join(format!("{}standin.html", crate::PROBE_PREFIX));
+    let page = scratch.join(crate::STANDIN_PAGE);
     let _ = std::fs::write(
         &page,
         "<!doctype html><title>pitboard-probe stand-in</title><p>A local stand-in page. No site is loaded.</p>",

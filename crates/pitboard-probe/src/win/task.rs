@@ -1,6 +1,7 @@
 //! E1-E4 and D2: register, run, read, list and delete probe tasks through `ITaskService`.
 //! Every task is named `pitboard-probe-<label>` (optionally with the account's SID after it,
-//! printed as `<sid>`), its action runs one of the probe's own programs, and it is
+//! printed as `<sid>`, and another account's, which a list may see, as `<other_sid_N>`),
+//! its action runs one of the probe's own programs, and it is
 //! registered with an interactive token at the least privilege. The folder is the probe's
 //! own `\pitboard-probe\` unless E1 asks for W25's candidate `\Pitboard\` or the root; a
 //! folder the probe made is removed again when its last probe task goes, and a `\Pitboard\`
@@ -142,10 +143,10 @@ pub fn task(req: &Request) -> Report {
         (true, None) => return Report::refused("task", logon, "cannot read the account's SID"),
         (false, _) => format!("{PROBE_PREFIX}{}", req.label),
     };
-    let shown = |n: &str| match &sid {
-        Some(s) => n.replace(s.as_str(), "<sid>"),
-        None => n.to_string(),
-    };
+    // Every SID a printed name holds: this account's as `<sid>`, another's (a task another
+    // user registered with --sid-suffix, which list sees) as a numbered `<other_sid_N>`.
+    let mut sids = crate::redact::SidRedactor::new(sid.as_deref());
+    let mut shown = |n: &str| sids.redact(n);
     let writes = !matches!(req.action, TaskAction::Read | TaskAction::List);
     let scratch = match (writes, req.scratch) {
         (true, None) => return Report::refused("task", logon, "this action needs --scratch"),
@@ -177,7 +178,7 @@ pub fn task(req: &Request) -> Report {
             }
             if let Some(list) = v.get_mut("tasks").and_then(Value::as_array_mut) {
                 for t in list {
-                    if let Some(n) = t.get("name").and_then(Value::as_str).map(shown) {
+                    if let Some(n) = t.get("name").and_then(Value::as_str).map(&mut shown) {
                         t["name"] = json!(n);
                     }
                 }
@@ -213,7 +214,10 @@ fn register(
 ) -> Result<Value, String> {
     let exe = exec_path(req.exec);
     if !exe.is_file() {
-        return Err(format!("{} is not built beside the probe", exe.display()));
+        return Err(format!(
+            "{} is not built beside the probe",
+            exe.file_name().unwrap_or_default().to_string_lossy()
+        ));
     }
     let target = folder(service, req.folder, scratch)?;
     // SAFETY: `service` is connected; every call is on a live interface it returned.

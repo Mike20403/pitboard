@@ -4,7 +4,9 @@
 //! kept file and says whether it gave back the dummy, so a password change, an
 //! administrator reset, a task or another token can be tried between the two. The calls
 //! are made in any logon, and the report names the logon beside the result. Neither the
-//! sealed bytes nor the dummy are ever printed.
+//! sealed bytes nor the dummy are ever printed. `round-trip` and `seal` write, so they need
+//! the throwaway marker; `unseal` only reads a `pitboard-probe-*` file in a scratch folder
+//! that passes the guard, so a restricted token that cannot see the marker can be measured.
 
 use super::ffi;
 use super::logon_now;
@@ -96,14 +98,20 @@ fn unseal(sealed: &[u8], service: &str) -> Result<Vec<u8>, u32> {
 
 pub fn dpapi(scratch: &Path, action: DpapiAction, file: &str) -> Report {
     let logon = logon_now();
-    if !file.starts_with(crate::PROBE_PREFIX) {
-        return Report::refused("dpapi", logon, "--file must be a pitboard-probe-* name");
-    }
-    let path = match ffi::scratch_file(scratch, file) {
+    // unseal only reads a file the probe sealed earlier, so it needs the scratch check and
+    // not the marker: a restricted token (Codex's sandbox, D2b) may not see the profile's
+    // marker, and is exactly the token D2b measures.
+    let path = match action {
+        DpapiAction::Unseal => ffi::scratch_file_to_read(scratch, file),
+        DpapiAction::RoundTrip | DpapiAction::Seal => ffi::scratch_file(scratch, file),
+    };
+    let path = match path {
         Ok(p) => p,
         Err(reason) => return Report::refused("dpapi", logon, reason),
     };
-    if let Err(e) = std::fs::create_dir_all(scratch) {
+    if action != DpapiAction::Unseal
+        && let Err(e) = std::fs::create_dir_all(scratch)
+    {
         return Report::refused(
             "dpapi",
             logon,

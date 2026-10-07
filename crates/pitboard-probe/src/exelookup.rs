@@ -22,6 +22,19 @@ pub fn is_probe_name(name: &str) -> bool {
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
+/// Whether `path` is one the hidden `exe-lookup-host` may put first on its child's `PATH`:
+/// an absolute path, with no `..`, to the probe's own child-path folder.
+pub fn is_child_path_folder(path: &std::path::Path) -> bool {
+    let text = path.to_string_lossy();
+    let leaf = text
+        .trim_end_matches(['\\', '/'])
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or_default();
+    crate::guard::is_absolute_without_parent(path)
+        && leaf.eq_ignore_ascii_case(Place::ChildPath.folder())
+}
+
 /// The places a stand-in sits in, each a folder named for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Place {
@@ -132,6 +145,21 @@ mod tests {
             "x-pitboard-probe-y",
         ] {
             assert!(!is_probe_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_host_takes_only_the_probes_child_path_folder() {
+        assert!(is_child_path_folder(std::path::Path::new(
+            r"C:\t\pitboard-probe-lookup\pitboard-probe-lookup-child-path"
+        )));
+        for bad in [
+            r"C:\Windows\System32",
+            r"pitboard-probe-lookup-child-path",
+            r"C:\t\..\pitboard-probe-lookup-child-path",
+            r"C:\t\pitboard-probe-lookup-child-path\x",
+        ] {
+            assert!(!is_child_path_folder(std::path::Path::new(bad)), "{bad}");
         }
     }
 
