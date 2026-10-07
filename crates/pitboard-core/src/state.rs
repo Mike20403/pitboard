@@ -482,6 +482,7 @@ pub fn load(ctx: &Context) -> Result<State> {
 /// presenting one ends the login for both.
 pub(crate) fn load_any_machine(ctx: &Context) -> Result<(State, bool)> {
     let path = file(ctx);
+    home::check_absolute(ctx)?;
     home::check_location(&home::dir(ctx))?;
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
@@ -596,6 +597,7 @@ fn three_to_four(document: &mut serde_json::Value) {
 }
 
 pub(crate) fn save(ctx: &Context, permit: Permit, state: &State) -> Result<()> {
+    home::check_absolute(ctx)?;
     home::check_location(&home::dir(ctx))?;
     let mut state = state.clone();
     for &tool in ProviderId::ALL {

@@ -1,12 +1,26 @@
 //! Proves the environment is read the way Claude Code reads it, by the binary itself: the
-//! combinations are unit-tested in `claude.rs`, and this checks that an empty
-//! `CLAUDE_CONFIG_DIR` reaches the file opened and the slot read as unset.
+//! combinations are unit-tested in `provider/claude/paths.rs`, and this checks that an
+//! empty `CLAUDE_CONFIG_DIR`, which Claude Code takes as the folder it runs in, is refused
+//! by the command line itself.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// `pitboard doctor --json`, with `vars` set besides, and the envelope it printed.
 fn doctor(home: &Path, config_dir: Option<&str>, vars: &[(&str, &Path)]) -> serde_json::Value {
+    let (envelope, _) = pitboard(&["doctor"], home, config_dir, vars);
+    assert_eq!(envelope["command"], "doctor");
+    envelope
+}
+
+/// `pitboard <args> --json`, with `vars` set besides, and the envelope it printed and the
+/// status it exited with.
+fn pitboard(
+    args: &[&str],
+    home: &Path,
+    config_dir: Option<&str>,
+    vars: &[(&str, &Path)],
+) -> (serde_json::Value, Option<i32>) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_pitboard"));
     // Nothing real is read, and nothing Pitboard reads is taken from whoever runs the tests.
     // The slot under test is the default one, so the keychain account is a name nobody has
@@ -16,7 +30,9 @@ fn doctor(home: &Path, config_dir: Option<&str>, vars: &[(&str, &Path)]) -> serd
         command.env_remove(name);
     }
     command
-        .args(["doctor", "--json"])
+        .args(args)
+        .arg("--json")
+        .current_dir(home)
         .env("HOME", home)
         .env("USER", "pitboard-test-nobody")
         .env("PITBOARD_HOME", home.join("pitboard"))
@@ -30,10 +46,9 @@ fn doctor(home: &Path, config_dir: Option<&str>, vars: &[(&str, &Path)]) -> serd
     }
     let out = command.output().expect("run Pitboard");
     let envelope: serde_json::Value =
-        serde_json::from_slice(&out.stdout).expect("doctor --json should be valid JSON");
+        serde_json::from_slice(&out.stdout).expect("--json should be valid JSON");
     assert_eq!(envelope["v"], 1, "the contract version must be present");
-    assert_eq!(envelope["command"], "doctor");
-    envelope
+    (envelope, out.status.code())
 }
 
 fn environment(home: &Path, config_dir: Option<&str>) -> serde_json::Value {
@@ -48,20 +63,42 @@ fn scratch(name: &str) -> PathBuf {
     p
 }
 
+/// Claude Code 2.1.289 reads an empty `CLAUDE_CONFIG_DIR` as unset for its config file and
+/// its credential slot, but as the empty path for its config dir, so it keeps its settings,
+/// the lock around its login and, where there is no keychain, the login itself in whatever
+/// folder it runs in. No one folder holds that login. Pitboard read an empty one as unset,
+/// and so took the lock and, on Linux, switched the login in `~/.claude`, where no Claude
+/// Code started with it looks. It refuses one now as a home that is not a full path: every
+/// command says so, and `doctor` fails its `homes` check and checks nothing else.
 #[test]
-fn an_empty_config_dir_means_unset() {
+fn an_empty_config_dir_is_refused() {
     let home = scratch("empty");
     let unset = environment(&home, None);
-    let empty = environment(&home, Some(""));
+    assert_eq!(unset["credential_service"], "Claude Code-credentials");
 
-    assert_eq!(
-        empty["config_file"], unset["config_file"],
-        "an empty CLAUDE_CONFIG_DIR must resolve exactly as an unset one"
-    );
-    assert_eq!(
-        empty["credential_service"], "Claude Code-credentials",
-        "and must leave Pitboard on the default credential slot"
-    );
+    let empty = doctor(&home, Some(""), &[]);
+    let checks = empty["data"]["checks"].as_array().expect("its checks");
+    assert_eq!(checks.len(), 1, "nothing else is checked: {empty}");
+    assert_eq!(checks[0]["code"], "homes");
+    assert_eq!(checks[0]["level"], "fail");
+    assert_eq!(checks[0]["detail"], "CLAUDE_CONFIG_DIR is empty");
+
+    for args in [&["status"][..], &["status", "--offline"], &["use", "work"]] {
+        let (refused, code) = pitboard(args, &home, Some(""), &[]);
+        assert_eq!(code, Some(1), "{args:?}: {refused}");
+        assert_eq!(refused["error"]["code"], "home_not_absolute", "{args:?}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|said| said.starts_with("CLAUDE_CONFIG_DIR is empty, ")),
+            "{refused}"
+        );
+    }
+    let left: Vec<_> = std::fs::read_dir(&home)
+        .expect("the scratch home")
+        .map(|entry| entry.expect("an entry").file_name())
+        .collect();
+    assert_eq!(left, [".claude.json"], "nothing is written");
     let _ = std::fs::remove_dir_all(&home);
 }
 

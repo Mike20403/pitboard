@@ -76,6 +76,7 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 
 | Code | Exit | Meaning | What to do |
 | --- | --- | --- | --- |
+| `home_not_absolute` | 1 | `HOME`, `PITBOARD_HOME` or `CLAUDE_CONFIG_DIR` is empty, or one of them, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` holds a path that does not start at the root, such as `pitboard`. The folder it names would depend on where each program runs, so Pitboard reads and changes nothing. | Set the variable the message names to a full path, or unset it. |
 | `state_on_synced_drive` | 1 | Pitboard's directory, `~/.pitboard` unless `PITBOARD_HOME` is set, is inside a folder that syncs to other machines, such as Dropbox or iCloud Drive. | Set `PITBOARD_HOME` to a local folder. See [Pitboard refuses a folder that syncs](/troubleshooting#pitboard-refuses-a-folder-that-syncs). |
 | `state_unreadable` | 1 | Pitboard could not read its account list, `state.json`. | Check that you can read the file the message names. |
 | `state_corrupt` | 1 | The account list is not valid. | Delete the file the message names and enrol your accounts again. Their parked logins are lost. |
@@ -115,6 +116,7 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 | Code | Exit | Meaning | What to do |
 | --- | --- | --- | --- |
 | `schedule_unsupported` | 1 | This system is neither macOS nor Linux, and Pitboard has no scheduler to write for it. | Run `pitboard renew` yourself from time to time. |
+| `schedule_not_default_home` | 1 | `PITBOARD_HOME` names a directory other than `~/.pitboard`, and daily renewal renews only the parked logins in `~/.pitboard`. Pitboard compares the two as paths, so a link to `~/.pitboard` counts as another directory. Nothing was scheduled. | Unset `PITBOARD_HOME`, then [turn on daily renewal](/guides/renewal#turn-on-daily-renewal) again. To renew the parked logins in the other directory, run `pitboard renew` with `PITBOARD_HOME` set. |
 | `schedule_refused` | 1 | `launchctl` on macOS, or `systemctl` on Linux, refused the schedule. The message gives its answer. | Fix what it names, then [turn on daily renewal](/guides/renewal#turn-on-daily-renewal) again. |
 | `schedule_program_missing` | 1 | The app only: the command line inside the app, which the schedule would run, is not there. Nothing was scheduled. | Install the app again. |
 | `schedule_program_temporary` | 1 | The app only: it runs from a temporary copy macOS made, which is gone once the app quits. | Move Pitboard to your Applications folder, open it from there, and turn on daily renewal again. |

@@ -150,6 +150,11 @@ private func delete(_ janitor: StoreJanitor, _ asks: [StoreDeletion], said: Said
 /// were when the app worked the directory out itself, so an update keeps every store and page
 /// it recorded. The core gives the path as the environment does, `.`, `..` and trailing `/`
 /// included, and the key is that path without them.
+///
+/// Without `HOME`, a library an app ships takes the account's own home, where Foundation
+/// finds it. A library built with the fixtures, as CI builds the one these tests run, is told
+/// there is none, so nothing it is given reaches a real home: its directory is then
+/// `.pitboard` alone, which the core refuses as a home that is not a full path.
 @Test func theRecordsAreKeptUnderTheCoresDirectoryStandardised() {
     let dotted = ["PITBOARD_HOME": "/Users/dana/./work/../pitboard/"]
     #expect(pitboardDirectory(environment: dotted) == "/Users/dana/./work/../pitboard/")
@@ -160,11 +165,17 @@ private func delete(_ janitor: StoreJanitor, _ asks: [StoreDeletion], said: Said
     #expect(
         WebEnvironment.recordKey(environment: ["HOME": "/Users/dana/"])
             == "/Users/dana/.pitboard")
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    #expect(
-        WebEnvironment.recordKey(environment: [:])
-            == home.appendingPathComponent(".pitboard").standardizedFileURL.path,
-        "without HOME, the account's own, where Foundation found it")
+    if fixtureNames().isEmpty {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        #expect(
+            WebEnvironment.recordKey(environment: [:])
+                == home.appendingPathComponent(".pitboard").standardizedFileURL.path,
+            "without HOME, the account's own, where Foundation found it")
+    } else {
+        #expect(
+            pitboardDirectory(environment: [:]) == ".pitboard",
+            "a library with fixtures names no home of its own")
+    }
 }
 
 /// The records are kept in the app's own folder in Application Support, named by its bundle

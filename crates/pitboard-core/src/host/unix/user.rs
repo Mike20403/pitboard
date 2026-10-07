@@ -17,8 +17,69 @@ pub(crate) fn login_name() -> Option<String> {
 
 /// This user's home directory, as the passwd database names it: where a home is when the
 /// environment names none, as Foundation finds it for an app.
+///
+/// Never in a build for tests, so a test that gives no home of its own reaches nothing
+/// real. A unit test that asks panics, unless it says through
+/// [`testing::reaching_the_real_home`] that this lookup is what it tests. Any other build
+/// for tests, such as the command line the integration tests run or an app built with the
+/// fixtures, is told there is none, and Pitboard refuses the empty home that leaves as a
+/// home that is not a full path.
 pub(crate) fn home() -> Option<PathBuf> {
+    #[cfg(test)]
+    assert!(
+        testing::reaches_the_real_home(),
+        "a unit test asked for this account's real home: give it a home of its own, as \
+         Context::for_unit_test does"
+    );
+    if cfg!(all(feature = "test-support", not(test))) {
+        return None;
+    }
+    passwd_home()
+}
+
+/// [`home`], asked of the passwd database whatever the build.
+fn passwd_home() -> Option<PathBuf> {
     entry(|passwd| path(passwd, passwd.pw_dir))
+}
+
+/// Whether `path` is this account's own home, as the passwd database names it, for a build
+/// for tests to refuse to act on. Compared as the file system resolves both, so a link to
+/// the home is the home.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn is_the_accounts_own_home(path: &std::path::Path) -> bool {
+    let resolved = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
+    passwd_home().is_some_and(|own| resolved(&own) == resolved(path))
+}
+
+/// The one way a unit test reaches this account's real home.
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::cell::Cell;
+
+    thread_local! {
+        static REACHES: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// While what this returns is kept, [`super::home`] answers this thread's test with the
+    /// account's real home: for a test of the lookup itself, or of what reads it where the
+    /// environment names no home. Nothing else may.
+    pub(crate) fn reaching_the_real_home() -> Reaching {
+        REACHES.with(|reaches| reaches.set(true));
+        Reaching(())
+    }
+
+    /// What [`reaching_the_real_home`] returns.
+    pub(crate) struct Reaching(());
+
+    impl Drop for Reaching {
+        fn drop(&mut self) {
+            REACHES.with(|reaches| reaches.set(false));
+        }
+    }
+
+    pub(super) fn reaches_the_real_home() -> bool {
+        REACHES.with(Cell::get)
+    }
 }
 
 /// This user's login shell, as the passwd database names it: the one to ask when the
@@ -184,11 +245,35 @@ mod tests {
     #[test]
     fn this_account_has_a_name_and_a_home() {
         assert!(login_name().is_some_and(|name| !name.is_empty()));
+        let _real = testing::reaching_the_real_home();
         assert!(
             home().is_some_and(|home| home.is_absolute()),
             "{:?}",
             home()
         );
+        assert_eq!(home(), passwd_home());
+        assert!(is_the_accounts_own_home(&home().expect("a home")));
+        assert!(!is_the_accounts_own_home(&std::env::temp_dir()));
+    }
+
+    /// A unit test that forgets to give a home of its own is stopped where it would have
+    /// read the account's real one, rather than reading it.
+    #[test]
+    #[should_panic(expected = "a unit test asked for this account's real home")]
+    fn a_unit_test_never_reaches_the_real_home() {
+        let _ = home();
+    }
+
+    /// Reaching it is said for one test's thread and as long as it is kept, and no longer.
+    #[test]
+    fn reaching_the_real_home_is_said_for_one_thread_while_it_is_kept() {
+        {
+            let _real = testing::reaching_the_real_home();
+            assert!(testing::reaches_the_real_home());
+            let other = std::thread::spawn(testing::reaches_the_real_home);
+            assert!(!other.join().expect("it answers"), "another thread");
+        }
+        assert!(!testing::reaches_the_real_home(), "once it is dropped");
     }
 
     /// Under sudo is said before root, since `sudo pitboard` is both and the way out is to

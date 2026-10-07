@@ -353,9 +353,14 @@ mod tests {
 
     /// One account holding one park, written the way a switch would have written it.
     fn with_park(m: &Machine, label: &str, refresh: &str, access_expires_at: i64) -> Park {
-        let service = park::reserve(&m.ctx, Permit::for_a_test(), "acc").expect("a free name");
+        park_in(&m.ctx, label, refresh, access_expires_at)
+    }
+
+    /// The same, in the Pitboard directory `ctx` names.
+    fn park_in(ctx: &Context, label: &str, refresh: &str, access_expires_at: i64) -> Park {
+        let service = park::reserve(ctx, Permit::for_a_test(), "acc").expect("a free name");
         let park = park::store_at(
-            &m.ctx,
+            ctx,
             Permit::for_a_test(),
             crate::provider::ProviderId::Claude,
             &service,
@@ -374,7 +379,7 @@ mod tests {
             },
             parked: Some(park.clone()),
         });
-        state::save(&m.ctx, Permit::for_a_test(), &state).expect("saved");
+        state::save(ctx, Permit::for_a_test(), &state).expect("saved");
         park
     }
 
@@ -582,6 +587,122 @@ mod tests {
         let outcomes = renew_parked(&m.ctx, Permit::for_a_test());
 
         assert_eq!(outcome(&outcomes, "work"), "renewed");
+    }
+
+    /// The schedule belongs to the default home, and `launchctl setenv` or a systemd user
+    /// environment can still give its job a `PITBOARD_HOME`. A run the schedule started
+    /// renews the default home's parked logins and no other's, and a run by hand renews the
+    /// ones in the home `PITBOARD_HOME` names. It renewed that home on every run, and on
+    /// Linux nothing told a run of the schedule apart. Told both ways it is told: by the
+    /// job the scheduler says started this process, which a test says here as launchd's
+    /// `XPC_SERVICE_NAME` or systemd's unit would name it, and by the marker the systemd
+    /// unit runs Pitboard with.
+    #[test]
+    fn a_run_the_schedule_started_renews_the_default_home_whatever_pitboard_home_says() {
+        use crate::host::{OS, Os};
+        use crate::service::Pitboard;
+        let job = match OS {
+            Os::MacOs => "com.datlechin.pitboard.renew",
+            Os::Linux => "pitboard-renew.service",
+        };
+        type Told = fn(Context, &str) -> Context;
+        let ways: [(&str, Told); 2] = [
+            ("as the scheduler says", |ctx, job| {
+                ctx.with_scheduled_job(job.into())
+            }),
+            ("by the marker", |ctx, _| ctx.started_by_the_schedule()),
+        ];
+        for (way, scheduled) in ways {
+            let m = machine(&format!("scheduled-{}", way.len()));
+            let default = m.ctx.clone().with_pitboard_home(m.home.join(".pitboard"));
+            let elsewhere = m.ctx.clone().with_pitboard_home(m.home.join("elsewhere"));
+            park_in(&default, "work", "default-old", NOW - 1);
+            park_in(&elsewhere, "other", "elsewhere-old", NOW - 1);
+            m.api.renews("default-old", fresh("default-new"));
+            m.api.renews("elsewhere-old", fresh("elsewhere-new"));
+            let renewed = |outcomes: Vec<(Key, Renewal)>| -> Vec<(String, String)> {
+                outcomes
+                    .into_iter()
+                    .map(|(key, outcome)| (key.label, outcome.code().to_string()))
+                    .collect()
+            };
+
+            let run = Pitboard::new(scheduled(elsewhere.clone(), job))
+                .renew()
+                .expect("a run");
+            assert_eq!(renewed(run), [("work".into(), "renewed".into())], "{way}");
+            assert_eq!(
+                m.api.asked(),
+                [Question::Renew("default-old".into())],
+                "{way}"
+            );
+            assert_eq!(
+                crate::audit::read(&default, 10)
+                    .iter()
+                    .map(|e| (e.verb.as_str(), e.outcome.as_str()))
+                    .collect::<Vec<_>>(),
+                [("renew", "renewed")],
+                "{way}: recorded in the home it renewed"
+            );
+
+            let by_hand = Pitboard::new(elsewhere).renew().expect("a run");
+            assert_eq!(
+                renewed(by_hand),
+                [("other".into(), "renewed".into())],
+                "{way}"
+            );
+        }
+    }
+
+    /// A run of the schedule takes no notice of a `PITBOARD_HOME` that is empty or relative
+    /// either, which every other run refuses: it renews the default home, and the gate it
+    /// asks is asked of that home. By hand, the same `PITBOARD_HOME` is refused with
+    /// `home_not_absolute`, having asked nobody.
+    #[test]
+    fn a_run_the_schedule_started_renews_the_default_home_where_pitboard_home_is_not_full() {
+        use crate::service::Pitboard;
+        for named in ["", "relative"] {
+            let m = machine(&format!("scheduled-not-full-{}", named.len()));
+            let default = m.ctx.clone().with_pitboard_home(m.home.join(".pitboard"));
+            park_in(&default, "work", "default-old", NOW - 1);
+            m.api.renews("default-old", fresh("default-new"));
+            let given = m.ctx.clone().with_pitboard_home(named.into());
+
+            let by_hand = Pitboard::new(given.clone()).renew();
+            assert!(
+                matches!(by_hand, Err(Error::HomeNotAbsolute { .. })),
+                "{named:?}: {by_hand:?}"
+            );
+            assert_eq!(m.api.asked(), [], "{named:?}");
+
+            let run = Pitboard::new(given.started_by_the_schedule())
+                .renew()
+                .expect("a run");
+            assert_eq!(
+                run.iter()
+                    .map(|(key, outcome)| (key.label.as_str(), outcome.code()))
+                    .collect::<Vec<_>>(),
+                [("work", "renewed")],
+                "{named:?}"
+            );
+        }
+    }
+
+    /// A build for tests that runs as the schedule with this account's own home is stopped
+    /// before it reads anything, since it would renew the real Pitboard directory: a test
+    /// gives a run of the schedule a home of its own. Nothing here reads or writes the home;
+    /// the context is all that is made.
+    #[test]
+    #[should_panic(expected = "with this account's own home")]
+    fn a_run_the_schedule_started_in_a_build_for_tests_never_renews_the_real_home() {
+        let own = {
+            let _real = crate::host::user::testing::reaching_the_real_home();
+            crate::host::user::home().expect("this account has a home")
+        };
+        let ctx = Context::new(own)
+            .with_memory_stores(MemoryHost::new())
+            .started_by_the_schedule();
+        let _ = crate::schedule::for_its_run(&ctx);
     }
 
     /// The failure this module's comments describe and no test could reach: Anthropic has

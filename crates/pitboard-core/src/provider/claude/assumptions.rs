@@ -302,7 +302,8 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         // Read on 2026-10-06 from the macOS, Linux and Windows builds of 2.1.289, x64 and
         // arm64, whose code for both paths is the same.
         verified_against: "2.1.289",
-        depends: "claude::config_file",
+        depends: "claude::config_file and claude::config_dir, which read CLAUDE_CONFIG_DIR \
+                  the two ways, and home::check_absolute, which refuses an empty one",
         probe: &[".config.json", "CLAUDE_CONFIG_DIR"],
         absent: &[],
     },

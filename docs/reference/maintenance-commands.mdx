@@ -63,9 +63,11 @@ Usage: pitboard schedule [OPTIONS] <COMMAND>
 
 The job runs `renew` from the full path of the Pitboard program that installed it. If nothing is at that path any more, `pitboard doctor` fails its `renewal schedule` check. For the fix, see [Daily renewal stopped working](/troubleshooting#daily-renewal-stopped-working).
 
-The job does not carry `PITBOARD_HOME`, the variable that moves Pitboard's directory, so it always renews the parked logins of the accounts in `~/.pitboard`. `pitboard schedule uninstall` removes the job whatever `PITBOARD_HOME` is set to.
+The job always renews the parked logins of the accounts in `~/.pitboard`, whatever `PITBOARD_HOME`, the variable that moves Pitboard's directory, says, empty or relative included. That holds even where `launchctl setenv` or systemd's user environment gives the job that variable. On Linux the job runs `pitboard renew --scheduled`, which is how Pitboard tells a run of it, rather than by what systemd passes the job. A timer installed by an earlier Pitboard runs `pitboard renew` until you run `pitboard schedule install` again. If you go back to an earlier Pitboard on Linux, run its `pitboard schedule install` too: an earlier Pitboard does not take `--scheduled`, so until then the timer fails every day.
 
-`pitboard schedule status` checks only that the job's file exists. It does not ask launchd or systemd whether the job is loaded.
+`pitboard schedule install` refuses while `PITBOARD_HOME` names a directory other than `~/.pitboard`, with `schedule_not_default_home`, and installs nothing: unset `PITBOARD_HOME`, then run it again. Pitboard compares the two as paths, so it also refuses a `PITBOARD_HOME` that is a link to `~/.pitboard`. `pitboard schedule uninstall` removes the job whatever `PITBOARD_HOME` is set to.
+
+`pitboard schedule status` checks only that the job's file exists. It does not ask launchd or systemd whether the job is loaded. While `PITBOARD_HOME` names another directory, it adds that the job renews only the parked logins in `~/.pitboard`.
 
 | Command | Output begins |
 | --- | --- |
@@ -232,6 +234,7 @@ When Codex's checks appear and Claude Code is absent, `doctor` leaves out most o
   | Code | Name | What it checks |
   | --- | --- | --- |
   | `elevated` | `runs as` | Only when Pitboard runs as root or with `sudo`, or cannot tell whether it does. Always fails, because Pitboard then changes nothing. See [Pitboard changes nothing as root](/troubleshooting#pitboard-changes-nothing-as-root). |
+  | `homes` | `homes` | Only when `HOME`, `PITBOARD_HOME` or `CLAUDE_CONFIG_DIR` is empty, or one of them, `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` holds a path that does not start at the root. Always fails, and `doctor` then checks nothing else, because everything it reads is under these folders. |
   | `security_tool` | `security tool` | macOS only. `/usr/bin/security`, which Pitboard reads the keychain with, is there. |
   | `config_file` | `config file` | Claude Code's config file can be read. Fails where Claude Code has never run. |
   | `identity` | `identity` | Claude Code's config names a signed-in account. |

@@ -12,7 +12,7 @@ Pitboard's directory is `~/.pitboard`, or the path in `PITBOARD_HOME`. The comma
 
 Pitboard creates each directory at mode 0700 and each file at 0600, except those in `backups/`. An existing directory keeps its mode.
 
-Pitboard refuses a directory whose path contains `Dropbox`, `Google Drive`, `OneDrive`, `com~apple~CloudDocs` or `Sync`, because parked logins belong to one machine.
+Pitboard refuses a directory that a sync client copies to other machines, because parked logins belong to one machine. It refuses one whose path contains `Dropbox`, `Google Drive`, `OneDrive`, `com~apple~CloudDocs` or `Sync`, written so. It also refuses one inside `~/Library/CloudStorage` or `~/Library/Mobile Documents`, and one inside a folder with one of these names, in any case and wherever it is in the path, your home's own folders included: `OneDrive`, `OneDrive - <organisation>`, `OneDrive-<kind>`, `Dropbox`, `Dropbox (<team>)`, `Google Drive`, `GoogleDrive-<account>`, `com~apple~CloudDocs` or `Sync`.
 
 | File | Holds | Written by |
 | --- | --- | --- |
@@ -69,7 +69,7 @@ For how a switch changes these files, see [How switching works](/concepts/switch
 | Files | `~/Library/LaunchAgents/com.datlechin.pitboard.renew.plist` | `~/.config/systemd/user/pitboard-renew.service` and `~/.config/systemd/user/pitboard-renew.timer`, even when `XDG_CONFIG_HOME` is set |
 | Name | launchd label `com.datlechin.pitboard.renew` | unit `pitboard-renew.timer` |
 | Program | The `pitboard` that installed it, by the path it was started with, such as Homebrew's link, so an upgrade does not break it. From the app: `Pitboard.app/Contents/Helpers/pitboard` | The `pitboard` that installed it, by the path it was started with, such as Homebrew's link, so an upgrade does not break it |
-| Runs | `<program> renew` | `<program> renew` |
+| Runs | `<program> renew` | `<program> renew --scheduled`, where a timer installed by an earlier Pitboard runs `<program> renew` |
 | When | Once a day, first a day after it is written: `StartInterval` 86400, `RunAtLoad` false | Once a day: `OnUnitActiveSec=86400`, `OnStartupSec=900` |
 
 ## The app
@@ -124,13 +124,15 @@ A folder that another Pitboard directory also recorded is kept, and only the rec
 
 Opened from Finder, the app does not see your shell's variables, so the defaults apply. Daily renewal runs with the scheduler's environment, not your shell's.
 
+Pitboard refuses an empty `HOME`, `PITBOARD_HOME` or `CLAUDE_CONFIG_DIR`, and a path that does not start at the root in any of them or in `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME`, with the error `home_not_absolute`. The folder such a path names depends on where each program runs.
+
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `HOME` | Both | Your home directory, the `~` in every path here. |
-| `PITBOARD_HOME` | Both | Pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`. |
+| `PITBOARD_HOME` | Both | Pitboard's directory, in place of `~/.pitboard`. Daily renewal always renews `~/.pitboard`, even when its job is given this variable, and Pitboard refuses to turn it on while this names another directory. |
 | `PITBOARD_NO_ARGV` | Both | On macOS, when it is `1`, Pitboard refuses to write a large login on `security`'s argument line, and does not renew a parked login it could not write back. A renewal schedule installed while it is set keeps it. See [Large logins on macOS](/security#large-logins-on-macos). |
 | `PITBOARD_API_BASE` | Command line | For Pitboard's tests. Sends the requests meant for Anthropic and OpenAI to this URL, if it is an `http` URL whose host is a loopback IP address, such as `http://127.0.0.1:8080`. |
-| `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Empty counts as unset. |
+| `CLAUDE_CONFIG_DIR` | Both | Claude Code's config directory, in place of `~/.claude`. The config file becomes `$CLAUDE_CONFIG_DIR/.claude.json`, and the keychain item's name gets a suffix. Set but empty, Claude Code keeps its config directory in whatever folder it runs in, so Pitboard refuses it. |
 | `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Both | The directory that picks Claude Code's keychain item, `.credentials.json` and lock, in place of the config directory. Set but empty, it picks `~/.claude` and `Claude Code-credentials`. |
 | `USER` | Both | macOS: the keychain account of Claude Code's item and of parked logins. Unset or empty, your login name is used. A name with characters other than letters, digits, `.`, `_` and `-` becomes `claude-code-user`. |
 | `CLAUDE_CODE_CUSTOM_OAUTH_URL` | Command line | Not empty: Pitboard refuses every change to a Claude Code account, `abandon` of a Claude Code switch, `repair` and `uninstall`, with the error `custom_oauth_endpoint`. Claude Code then keeps its login under a name Pitboard does not read. The command line and the app also read it from an `env` block in Claude Code's settings. |

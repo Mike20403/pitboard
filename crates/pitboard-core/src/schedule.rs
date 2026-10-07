@@ -64,13 +64,62 @@ pub fn status(ctx: &Context) -> Installed {
     }
 }
 
+/// The arguments the schedule's job runs Pitboard with where what the system's scheduler
+/// says of the job it started is not to be relied on: `pitboard renew --scheduled`. systemd
+/// passes a service a timer started `$TRIGGER_UNIT` only from version 252, and
+/// systemd.exec(5) calls it best effort, lossy and not to be relied on; a service started
+/// by hand gets none. So the unit's `ExecStart` carries the marker, and the command line,
+/// started with it, says so through [`Context::started_by_the_schedule`]. launchd names its
+/// job in `XPC_SERVICE_NAME`, so the LaunchAgent runs plain `renew`.
+pub const SCHEDULED_RUN: [&str; 2] = ["renew", "--scheduled"];
+
 /// Whether the schedule is this context's to look after.
 ///
-/// The scheduler starts `renew` without `PITBOARD_HOME`, so the schedule always renews the
-/// default `~/.pitboard`. A Pitboard pointed at another home has none of its own: the one
-/// there is belongs to the default home.
+/// The schedule always renews the default home, `~/.pitboard`
+/// ([`crate::host::default_pitboard_home`]), whatever `PITBOARD_HOME` its job is given
+/// ([`for_its_run`]). A Pitboard pointed at another home has none of its own: the one there
+/// is belongs to the default home, and [`install`] refuses to put one there from it.
+///
+/// The two are compared as paths, as written, so `~/.pitboard/` is the default home, while
+/// a link to it, or the same directory spelled in another case on a file system that
+/// ignores case, is another directory.
 pub(crate) fn serves(ctx: &Context) -> bool {
-    crate::home::dir(ctx) == ctx.home().join(".pitboard")
+    crate::home::dir(ctx) == crate::host::default_pitboard_home(ctx.home())
+}
+
+/// Whether this process is a run the schedule itself started: as the system's scheduler
+/// says, where it says, or as the marker its job is started with says
+/// ([`SCHEDULED_RUN`]).
+pub(crate) fn started_this_run(ctx: &Context) -> bool {
+    ctx.marked_as_scheduled()
+        || scheduler(ctx).is_some_and(|s| s.started_this_process(ctx.scheduled_job()))
+}
+
+/// The context a renewal runs in: where the schedule started this run, the default home's,
+/// whatever `PITBOARD_HOME` says, and otherwise `ctx` as it is.
+///
+/// The schedule belongs to the default home alone ([`serves`]), whichever home installed
+/// it. Its job is never written with `PITBOARD_HOME`, but the system can still hand it one:
+/// `launchctl setenv` gives a variable to every job launchd starts, and a systemd user
+/// environment, from `systemctl --user set-environment` or `environment.d`, to every unit.
+/// A run that followed it renewed another home's parked logins and left the default home's
+/// to run out.
+///
+/// In a build for tests, a run the schedule started whose home is this account's own is
+/// stopped here, before it reads anything: it would renew the real `~/.pitboard`, and a
+/// test gives a run of the schedule a home of its own.
+pub(crate) fn for_its_run(ctx: &Context) -> Context {
+    if !started_this_run(ctx) {
+        return ctx.clone();
+    }
+    #[cfg(any(test, feature = "test-support"))]
+    assert!(
+        !crate::host::user::is_the_accounts_own_home(ctx.home()),
+        "a build for tests ran as the daily renewal schedule with this account's own home, \
+         where it would renew the real Pitboard directory: give it a HOME of its own"
+    );
+    ctx.clone()
+        .with_pitboard_home(crate::host::default_pitboard_home(ctx.home()))
 }
 
 /// The Pitboard the schedule should run: the one the context names, or this one, by the
@@ -123,7 +172,19 @@ pub fn installed_program(ctx: &Context) -> Option<PathBuf> {
 }
 
 /// Install it, and ask the system to start it. Returns where it went.
+///
+/// Refused with [`Error::ScheduleNotDefaultHome`] where this context is not the default
+/// home's ([`serves`]): the schedule renews `~/.pitboard` alone, so installing it while
+/// `PITBOARD_HOME` names another directory would leave that directory's parked logins to
+/// run out while seeming to keep them alive. `uninstall` and `repair` are not refused for
+/// it, so a schedule can always be taken away.
 pub fn install(ctx: &Context, permit: Permit) -> Result<PathBuf> {
+    if !serves(ctx) {
+        return Err(Error::ScheduleNotDefaultHome {
+            home: crate::home::dir(ctx),
+            default: crate::host::default_pitboard_home(ctx.home()),
+        });
+    }
     let path = put(ctx, permit, &program(ctx)?)?;
     crate::audit::record(ctx, permit, "schedule", "install", "ok");
     Ok(path)
@@ -142,10 +203,7 @@ pub fn install(ctx: &Context, permit: Permit) -> Result<PathBuf> {
 /// when it unloads the job, which a repair does before loading it again, so nothing would be
 /// left to load it back.
 pub fn repair(ctx: &Context, permit: Permit) -> Result<bool> {
-    let Some(scheduler) = scheduler(ctx) else {
-        return Ok(false);
-    };
-    if scheduler.started_this_process(ctx.scheduled_job()) {
+    if scheduler(ctx).is_none() || started_this_run(ctx) {
         return Ok(false);
     }
     let Some(named) = ctx.schedule_program() else {
@@ -585,6 +643,56 @@ mod tests {
         assert!(!serves(
             &ctx.with_pitboard_home(PathBuf::from("/tmp/elsewhere"))
         ));
+    }
+
+    /// The schedule renews the default home alone, so it is installed only from there. With
+    /// `PITBOARD_HOME` naming any other directory, `install` is refused with
+    /// `schedule_not_default_home`, which says what the schedule renews and how to install
+    /// it, and nothing is written or started. `PITBOARD_HOME` naming the default home, however
+    /// it spells it, installs as before. Neither `uninstall` nor `repair` is refused for it:
+    /// a schedule can always be taken away, from whichever home.
+    #[test]
+    fn a_schedule_is_installed_only_where_pitboard_home_is_the_default_home() {
+        let home = Scratch::new("default-home");
+        std::fs::create_dir_all(home.0.join(".pitboard")).expect("a Pitboard home");
+        let program = home.0.join("bin/pitboard");
+        a_program_at(&program);
+        let ctx = home.ctx().with_schedule_program(program);
+        let default = home.0.join(".pitboard");
+        let elsewhere = home.0.join("elsewhere");
+        let another = ctx.clone().with_pitboard_home(elsewhere.clone());
+
+        home.1.refuse_next_start();
+        let refused = install(&another, Permit::for_a_test()).expect_err("another home");
+        assert_eq!(refused.code(), "schedule_not_default_home");
+        assert_eq!(refused.exit_code(), 1);
+        assert_eq!(
+            refused.to_string(),
+            format!(
+                "the renewal schedule renews only the parked logins in {}, not those in {}, \
+                 which PITBOARD_HOME names. Nothing was scheduled. To schedule it for {}, \
+                 unset PITBOARD_HOME and install it again.",
+                default.display(),
+                elsewhere.display(),
+                default.display()
+            )
+        );
+        assert_eq!(status(&ctx), Installed::No, "nothing was written");
+        assert!(crate::audit::read(&another, 10).is_empty(), "nor logged");
+
+        let spelled = PathBuf::from(format!("{}/", default.display()));
+        let refused = install(
+            &ctx.clone().with_pitboard_home(spelled),
+            Permit::for_a_test(),
+        )
+        .expect_err("the default home reaches the scheduler, which refuses this once");
+        assert_eq!(refused.code(), "schedule_refused");
+        install(&ctx, Permit::for_a_test()).expect("installed from the default home");
+        assert!(matches!(status(&ctx), Installed::Yes { .. }));
+
+        assert!(!repair(&another, Permit::for_a_test()).expect("not refused"));
+        assert!(uninstall(&another, Permit::for_a_test()).expect("taken away from another home"));
+        assert_eq!(status(&ctx), Installed::No);
     }
 
     /// A real context's scheduler is never asked from a test: the system's own service

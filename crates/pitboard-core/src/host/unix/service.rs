@@ -24,15 +24,17 @@ pub(crate) trait Control: Send + Sync + std::fmt::Debug {
 pub(crate) struct System;
 
 impl Control for System {
-    /// Never from a test. A test's home is a scratch directory, but the manager it would ask
-    /// is the person's own: launchd finds a job by the label inside its file, so booting out
-    /// a scratch copy stops their real schedule, and `systemctl --user` reaches the one
+    /// Never from a build for tests: a unit test, the `pitboard` the integration tests run,
+    /// or an app built with the fixtures. A test's home is a scratch directory, but the
+    /// manager it would ask is the person's own: launchd finds a job by the label inside its
+    /// file, so booting out a scratch copy stops their real schedule and bootstrapping it
+    /// has their launchd run the test's build daily, and `systemctl --user` reaches the one
     /// session there is. A test gives its context a `MemoryHost`, whose scheduler asks
     /// [`Pretend`], and this refuses the rest.
     fn run(&self, _: Permit, program: &str, args: &[&str]) -> Result<()> {
-        if cfg!(test) {
+        if cfg!(any(test, feature = "test-support")) {
             return Err(Error::ScheduleRefused {
-                detail: format!("a test asked {program} itself"),
+                detail: format!("a build for tests asked {program} itself"),
             });
         }
         let out = std::process::Command::new(program)

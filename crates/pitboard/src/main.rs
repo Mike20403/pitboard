@@ -80,7 +80,16 @@ enum Command {
     /// Take over a Pitboard directory another computer wrote, keeping the accounts
     Adopt,
     /// Renew every parked login that is due, and nothing else
-    Renew,
+    Renew {
+        // The marker the daily renewal schedule's job runs this with on Linux, where what
+        // systemd passes a job is not to be relied on. Hidden from help and the man page,
+        // since a person has no reason to type it, but clap_complete writes hidden
+        // arguments into every shell's completions, so the line below is what they show,
+        // as written: it has no Markdown for that reason.
+        /// Renew as the daily renewal schedule does: ~/.pitboard, whatever PITBOARD_HOME says
+        #[arg(long, hide = true)]
+        scheduled: bool,
+    },
     /// Keep parked logins alive without running anything yourself
     Schedule {
         #[command(subcommand)]
@@ -116,6 +125,44 @@ enum Command {
     /// Print the man page
     #[command(hide = true)]
     Manpage,
+}
+
+impl Command {
+    /// The name the command's envelope gives, as each command's own report names it.
+    fn name(&self) -> &'static str {
+        match self {
+            Command::Status { .. } => "status",
+            Command::Enroll { .. } => "enroll",
+            Command::Use { .. } => "use",
+            Command::Forget { .. } => "forget",
+            Command::Abandon => "abandon",
+            Command::Repair => "repair",
+            Command::Adopt => "adopt",
+            Command::Renew { .. } => "renew",
+            Command::Schedule { .. } => "schedule",
+            Command::Log { .. } => "log",
+            Command::Uninstall { .. } => "uninstall",
+            Command::Rename { .. } => "rename",
+            Command::Doctor => "doctor",
+            Command::Statusline => "statusline",
+            Command::Completions { .. } | Command::Manpage => "generate",
+        }
+    }
+
+    /// Whether the command is refused here where a home the environment names is not a
+    /// full path. Every one reads or writes under the homes but the two that print a
+    /// generated file; `doctor` says so as a check of its own and checks nothing else; and
+    /// `renew` is refused by the gate it asks, of the homes it renews in, since a run of the
+    /// schedule renews `~/.pitboard` whatever `PITBOARD_HOME` says, empty or relative too.
+    fn refuses_a_home_that_is_not_a_full_path(&self) -> bool {
+        !matches!(
+            self,
+            Command::Completions { .. }
+                | Command::Manpage
+                | Command::Doctor
+                | Command::Renew { .. }
+        )
+    }
 }
 
 /// A label is typed on the command line from then on, so it cannot be empty or hold spaces.
@@ -553,6 +600,11 @@ fn renew(pitboard: &Pitboard) -> Report {
 
 fn schedule(pitboard: &Pitboard, what: &ScheduleCommand) -> Report {
     use pitboard_core::schedule::Installed;
+    // From any home but the default one, the schedule is not this home's, and installing
+    // it is refused until PITBOARD_HOME is unset.
+    let renews_this_home = pitboard.schedule_renews_this_home();
+    let renews_only = "The renewal schedule renews only the parked logins in ~/.pitboard, not \
+                       those in the directory PITBOARD_HOME names.";
     let say = |installed: &Installed| match installed {
         Installed::Yes {
             path,
@@ -564,17 +616,30 @@ fn schedule(pitboard: &Pitboard, what: &ScheduleCommand) -> Report {
                 "every_seconds": every_seconds,
             }),
             format!(
-                "Parked logins are renewed every {} by this computer's own scheduler.\n{}\n",
+                "Parked logins are renewed every {} by this computer's own scheduler.\n{}\n{}",
                 pitboard_core::words::span(i64::from(*every_seconds)),
-                path.display()
+                path.display(),
+                if renews_this_home {
+                    String::new()
+                } else {
+                    format!("{renews_only}\n")
+                }
             ),
         ),
         Installed::No => (
             json!({"installed": false}),
-            "Nothing is keeping parked logins alive here. They are renewed when you run \
-             `pitboard`, and otherwise not.\nRun `pitboard schedule install` to change \
-             that.\n"
-                .to_string(),
+            format!(
+                "Nothing is keeping parked logins alive here. They are renewed when you run \
+                 `pitboard`, and otherwise not.\n{}\n",
+                if renews_this_home {
+                    "Run `pitboard schedule install` to change that.".to_string()
+                } else {
+                    format!(
+                        "{renews_only} To turn it on for ~/.pitboard, unset PITBOARD_HOME, \
+                         then run `pitboard schedule install`."
+                    )
+                }
+            ),
         ),
         Installed::Unsupported => (
             json!({"installed": false, "supported": false}),
@@ -815,11 +880,28 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(exit) => return exit,
     };
-    let pitboard = Pitboard::new(Context::from_env());
-    let report = match cli.command.unwrap_or(Command::Status {
+    let command = cli.command.unwrap_or(Command::Status {
         offline: false,
         fresh: false,
-    }) {
+    });
+    let ctx = Context::from_env();
+    // The schedule's job on Linux says so by the marker, rather than by what systemd passes.
+    let ctx = match command {
+        Command::Renew { scheduled: true } => ctx.started_by_the_schedule(),
+        _ => ctx,
+    };
+    let pitboard = Pitboard::new(ctx);
+    // A home that is empty or relative is refused before a command reads or writes under
+    // it, rather than taken to be under the folder this was run from. The core refuses it
+    // too, wherever it reads Pitboard's accounts or is asked to change anything; this also
+    // covers `log`, `schedule status` and the status line. `renew` is left to the core,
+    // which asks of the homes a run of the schedule renews in.
+    if command.refuses_a_home_that_is_not_a_full_path()
+        && let Err(refused) = pitboard.check_homes()
+    {
+        return emit(Report::failed(Some(command.name()), refused), cli.json);
+    }
+    let report = match command {
         Command::Status { offline, fresh } => status(&pitboard, offline, fresh),
         Command::Doctor => doctor(&pitboard),
         Command::Statusline => statusline(&pitboard),
@@ -859,7 +941,7 @@ fn main() -> ExitCode {
         Command::Abandon => abandon(&pitboard),
         Command::Repair => repair(&pitboard),
         Command::Adopt => adopt(&pitboard),
-        Command::Renew => renew(&pitboard),
+        Command::Renew { .. } => renew(&pitboard),
         Command::Schedule { ref what } => schedule(&pitboard, what),
         Command::Log { lines } => log(&pitboard, lines),
         Command::Uninstall { yes } => {
@@ -958,6 +1040,126 @@ mod tests {
         }
     }
 
+    /// What the schedule's job runs, as the core writes it into the systemd unit, is a
+    /// command line this one takes, and the marker in it is said only where it is given.
+    /// It is hidden: a person has no reason to type it.
+    #[test]
+    fn the_schedules_marker_is_a_run_of_renew_this_command_line_takes() {
+        let scheduled = std::iter::once("pitboard").chain(pitboard_core::schedule::SCHEDULED_RUN);
+        assert!(matches!(
+            Cli::try_parse_from(scheduled).expect("parsed").command,
+            Some(Command::Renew { scheduled: true })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["pitboard", "renew"])
+                .expect("parsed")
+                .command,
+            Some(Command::Renew { scheduled: false })
+        ));
+        let help = Cli::command()
+            .find_subcommand_mut("renew")
+            .expect("renew")
+            .render_long_help()
+            .to_string();
+        assert!(!help.contains("--scheduled"), "{help}");
+    }
+
+    /// The shells' completions offer `--scheduled`, as they offer the hidden `manpage`:
+    /// clap_complete writes hidden arguments and commands into every shell's file. Where a
+    /// shell shows a description, it is the marker's help, which says what such a run
+    /// renews, since that is all a person who picks it gets, in plain text, since a shell
+    /// shows Markdown as written.
+    #[test]
+    fn the_completions_offer_the_schedules_marker_and_say_what_it_renews() {
+        use clap_complete::Shell;
+        let said = "Renew as the daily renewal schedule does";
+        for (shell, offered, described) in [
+            (Shell::Bash, "--scheduled", false),
+            (Shell::Zsh, "'--scheduled[", true),
+            (Shell::Fish, "-l scheduled", true),
+        ] {
+            let mut out = Vec::new();
+            clap_complete::generate(shell, &mut Cli::command(), "pitboard", &mut out);
+            let file = String::from_utf8(out).expect("text");
+            let line = file
+                .lines()
+                .find(|line| line.contains(offered))
+                .unwrap_or_else(|| panic!("{shell}: {file}"));
+            assert_eq!(line.contains(said), described, "{shell}: {line}");
+            assert!(
+                !line.contains('`'),
+                "{shell} shows Markdown as written: {line}"
+            );
+            assert!(
+                file.contains("manpage"),
+                "{shell}: as the hidden command is"
+            );
+            assert!(!file.contains("systemd"), "{shell}: {file}");
+        }
+    }
+
+    /// `schedule status` run while `PITBOARD_HOME` names another directory says that the
+    /// schedule renews only the parked logins in `~/.pitboard`. With nothing installed it
+    /// says to unset `PITBOARD_HOME` before `pitboard schedule install`, which is refused
+    /// until then, rather than to run it as it is. From the default home it says what it
+    /// said. On a machine in memory, whose scheduler asks nobody.
+    #[test]
+    fn schedule_status_from_another_home_says_what_the_schedule_renews() {
+        use pitboard_core::testing::MemoryHost;
+        let home = std::env::temp_dir().join(format!(
+            "pitboard-cli-schedule-status-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let program = home.join("bin/pitboard");
+        std::fs::create_dir_all(program.parent().expect("its folder")).expect("made");
+        std::fs::write(&program, "").expect("a command line");
+        let ctx = Context::new(home.clone())
+            .with_schedule_program(program)
+            .with_memory_stores(MemoryHost::new());
+        let default = Pitboard::new(ctx.clone());
+        let elsewhere = Pitboard::new(ctx.with_pitboard_home(home.join("elsewhere")));
+        let said = |pitboard: &Pitboard| schedule(pitboard, &ScheduleCommand::Status).human;
+        let renews_only = "renews only the parked logins in ~/.pitboard, not those in the \
+                           directory PITBOARD_HOME names";
+
+        let here = said(&default);
+        assert!(
+            here.ends_with("Run `pitboard schedule install` to change that.\n"),
+            "{here}"
+        );
+        assert!(!here.contains(renews_only), "{here}");
+        let there = said(&elsewhere);
+        assert!(there.starts_with("Nothing is keeping"), "{there}");
+        assert!(
+            !there.contains("Run `pitboard schedule install`"),
+            "{there}"
+        );
+        assert!(there.contains(renews_only), "{there}");
+        assert!(
+            there.ends_with("unset PITBOARD_HOME, then run `pitboard schedule install`.\n"),
+            "{there}"
+        );
+
+        default
+            .schedule_install()
+            .expect("installed from the default home");
+        let here = said(&default);
+        assert!(
+            here.starts_with("Parked logins are renewed every"),
+            "{here}"
+        );
+        assert!(!here.contains(renews_only), "{here}");
+        let there = said(&elsewhere);
+        assert!(
+            there.starts_with("Parked logins are renewed every"),
+            "{there}"
+        );
+        assert!(there.contains(renews_only), "{there}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn no_arguments_means_status() {
         assert!(Cli::try_parse_from(["pitboard"]).unwrap().command.is_none());
@@ -1008,6 +1210,10 @@ mod tests {
             "the hidden command is shown"
         );
         assert!(!page.contains("pitboard help"), "clap's own help is shown");
+        assert!(
+            !page.contains("scheduled"),
+            "the schedule's marker is shown"
+        );
         assert!(
             page.contains(".SH SYNOPSIS") && page.contains(".SH VERSION"),
             "{page}"

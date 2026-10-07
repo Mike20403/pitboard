@@ -107,6 +107,14 @@ pub enum Error {
     )]
     StateOnSyncedDrive { path: PathBuf, marker: String },
 
+    /// A home the environment names is empty or relative, so what it leads to would depend
+    /// on the folder each program runs in. `variable` is the one that named it.
+    #[error("{}", not_absolute(variable, path))]
+    HomeNotAbsolute {
+        variable: &'static str,
+        path: PathBuf,
+    },
+
     #[error(
         "the login for `{label}` needs {bytes} bytes and `security` reads {limit} from \
          stdin, so it can only be written on the argument line, which PITBOARD_NO_ARGV \
@@ -191,6 +199,19 @@ pub enum Error {
 
     #[error("the scheduler refused: {detail}")]
     ScheduleRefused { detail: String },
+
+    /// The schedule renews the default home alone, so it is installed only where
+    /// `PITBOARD_HOME` names that home or nothing. `home` is the directory it names, and
+    /// `default` the default home, `~/.pitboard`.
+    #[error(
+        "the renewal schedule renews only the parked logins in {}, not those in {}, which \
+         PITBOARD_HOME names. Nothing was scheduled. To schedule it for {}, unset \
+         PITBOARD_HOME and install it again.",
+        default.display(),
+        home.display(),
+        default.display()
+    )]
+    ScheduleNotDefaultHome { home: PathBuf, default: PathBuf },
 
     #[error("the renewal schedule would run {path}, which is not there. Nothing was scheduled.")]
     ScheduleProgramMissing { path: PathBuf },
@@ -578,6 +599,7 @@ impl Error {
         use Error::*;
         match self {
             StateOnSyncedDrive { .. } => "state_on_synced_drive",
+            HomeNotAbsolute { .. } => "home_not_absolute",
             ProgramMissing { tool, .. } => match tool {
                 ProviderId::Claude => "claude_program_missing",
                 ProviderId::Codex => "codex_program_missing",
@@ -593,6 +615,7 @@ impl Error {
             StateWriteFailed { .. } => "state_write_failed",
             ScheduleUnsupported => "schedule_unsupported",
             ScheduleRefused { .. } => "schedule_refused",
+            ScheduleNotDefaultHome { .. } => "schedule_not_default_home",
             ScheduleProgramMissing { .. } => "schedule_program_missing",
             ScheduleProgramTemporary { .. } => "schedule_program_temporary",
             ScheduleProgramUnnamed => "schedule_program_unnamed",
@@ -709,6 +732,21 @@ fn elevated(why: Option<&str>) -> &'static str {
              Run it as yourself."
         }
     }
+}
+
+/// What Pitboard says of a home that is not a full path: which variable named it, and what
+/// it holds.
+fn not_absolute(variable: &str, path: &std::path::Path) -> String {
+    let holds = if path.as_os_str().is_empty() {
+        "empty".to_string()
+    } else {
+        format!("`{}`, which is not a full path", path.display())
+    };
+    format!(
+        "{variable} is {holds}, so the folder it names would depend on where each program \
+         runs. Set it to a full path, or unset it; Pitboard reads and changes nothing until \
+         then."
+    )
 }
 
 /// What makes a tool's live login readable again, where it could not be read.

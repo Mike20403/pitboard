@@ -95,7 +95,8 @@ impl Environment {
 
     /// The person's home: `HOME`, or, where it is unset, the account's own, as the passwd
     /// database names it and Foundation finds it for an app. Set, even empty, it is what the
-    /// person said.
+    /// person said, and an empty or relative one is refused where it is used
+    /// ([`crate::home::check_absolute`]), never taken to be the folder Pitboard runs in.
     pub fn home(&self) -> PathBuf {
         self.path("HOME")
             .map(PathBuf::from)
@@ -103,12 +104,13 @@ impl Environment {
             .unwrap_or_default()
     }
 
-    /// Pitboard's own directory: `PITBOARD_HOME`, or `.pitboard` in [`Environment::home`].
-    /// The path as the environment gives it, with any `.`, `..` or trailing `/` it holds.
+    /// Pitboard's own directory: `PITBOARD_HOME`, or the system's default for
+    /// [`Environment::home`], `.pitboard` there on macOS and Linux. The path as the
+    /// environment gives it, with any `.`, `..` or trailing `/` it holds.
     pub fn pitboard_home(&self) -> PathBuf {
         self.path("PITBOARD_HOME")
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.home().join(".pitboard"))
+            .unwrap_or_else(|| crate::host::default_pitboard_home(&self.home()))
     }
 
     /// Every variable, as a program started in this environment is given them.
@@ -117,6 +119,25 @@ impl Environment {
             .iter()
             .map(|(name, value)| (name.as_os_str(), value.as_os_str()))
     }
+}
+
+/// The one folder every home of [`Context::for_unit_test`] names for the test running on
+/// this thread: one per test, since the test harness names each test's thread after the
+/// test, under the temporary directory, and never made by anything here.
+#[cfg(test)]
+fn unit_test_sentinel() -> PathBuf {
+    let thread = std::thread::current();
+    let test = thread.name().map_or_else(
+        || format!("{:?}", thread.id()),
+        |name| {
+            name.chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect()
+        },
+    );
+    std::env::temp_dir()
+        .join(format!("pitboard-unit-test-{}", std::process::id()))
+        .join(test)
 }
 
 impl<K: Into<OsString>, V: Into<OsString>> FromIterator<(K, V)> for Environment {
@@ -134,9 +155,11 @@ impl<K: Into<OsString>, V: Into<OsString>> FromIterator<(K, V)> for Environment 
 pub struct Context {
     pub(crate) home: PathBuf,
     pub(crate) pitboard_home: PathBuf,
-    /// `CLAUDE_CONFIG_DIR`, held only when it is set and not empty. Claude Code reads an
-    /// empty value as unset for its config file and its credential slot's name, but not for
-    /// its config dir, as the register's `config_file_location` says.
+    /// `CLAUDE_CONFIG_DIR`, held as it is set, empty included. Claude Code reads an empty
+    /// value as unset for its config file and its credential slot's name, but takes it as
+    /// the empty path for its config dir, which then is whatever folder it runs in, as the
+    /// register's `config_file_location` says. So an empty one is a home that is not a full
+    /// path, and refused as one ([`crate::home::check_absolute`]).
     pub(crate) claude_config_dir: Option<String>,
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR`, which Claude Code reads with `!== undefined`:
     /// empty is set, and pins the default credential slot.
@@ -180,6 +203,10 @@ pub struct Context {
     /// The scheduler's job this process runs as, where a test says. `None` is whatever the
     /// scheduler said when it started this process.
     pub(crate) scheduled_job: Option<String>,
+    /// Whether this process was started with the marker the schedule's job carries where
+    /// what the system says of the job it started is not to be relied on
+    /// ([`crate::schedule::SCHEDULED_RUN`]), as the front end it was started as read it.
+    pub(crate) marked_as_scheduled: bool,
     /// Whether this process was started under sudo, which sets `SUDO_UID`. Part of what the
     /// host answers when the one gate every change passes asks whether this process runs as
     /// the person themselves.
@@ -233,10 +260,11 @@ impl Context {
 
     /// Claude Code's defaults for a person whose home is `home`: `~/.pitboard`, `~/.claude`,
     /// the default credential slot, `claude` looked up on `PATH`. An app starts here and sets
-    /// only what differs.
+    /// only what differs. Pitboard's own directory is the system's default for `home`, the
+    /// home handed in and never this account's own.
     pub fn new(home: PathBuf) -> Context {
         Context {
-            pitboard_home: home.join(".pitboard"),
+            pitboard_home: crate::host::default_pitboard_home(&home),
             home,
             claude_config_dir: None,
             secure_storage_dir: None,
@@ -253,6 +281,7 @@ impl Context {
             schedule_program: None,
             search_path: None,
             scheduled_job: None,
+            marked_as_scheduled: false,
             sudo: false,
             clock: Arc::new(SystemClock),
             host: crate::host::current(),
@@ -278,11 +307,12 @@ impl Context {
         self
     }
 
-    /// Empty means unset, as Claude Code reads `CLAUDE_CONFIG_DIR` for its config file and
-    /// its credential slot's name. Its config dir reads an empty value as the empty path, as
-    /// the register's `config_file_location` says.
+    /// Claude Code's config directory, as `CLAUDE_CONFIG_DIR` names it. Empty is kept, as
+    /// Claude Code keeps it: unset for its config file and its credential slot's name, but
+    /// the empty path for its config dir, as the register's `config_file_location` says,
+    /// which is refused as a home that is not a full path.
     pub fn with_claude_config_dir(mut self, dir: String) -> Context {
-        self.claude_config_dir = Some(dir).filter(|d| !d.is_empty());
+        self.claude_config_dir = Some(dir);
         self
     }
 
@@ -395,6 +425,21 @@ impl Context {
         self
     }
 
+    /// Say this process is a run of the daily renewal schedule, as the marker its job is
+    /// started with says where what the system says of the job it started is not to be
+    /// relied on: the command line does this for `pitboard renew --scheduled`. Such a run
+    /// renews the default home whatever `PITBOARD_HOME` says
+    /// ([`crate::schedule::SCHEDULED_RUN`]).
+    pub fn started_by_the_schedule(mut self) -> Context {
+        self.marked_as_scheduled = true;
+        self
+    }
+
+    /// Whether this process was started with the schedule's marker.
+    pub(crate) fn marked_as_scheduled(&self) -> bool {
+        self.marked_as_scheduled
+    }
+
     /// The program named for this tool, found or not.
     pub fn program_for(&self, tool: ProviderId) -> &std::path::Path {
         match tool {
@@ -426,10 +471,19 @@ impl Context {
     /// variable Pitboard reads, so what the person running the tests exported changes
     /// nothing a test checks. `PITBOARD_NO_ARGV=1` would fail a keychain test, and
     /// `PITBOARD_CLAUDE` would name the program a test runs.
+    ///
+    /// Every home is this test's sentinel ([`unit_test_sentinel`]): the person's home,
+    /// Pitboard's own directory, Claude Code's config directory and Codex's home. So a test
+    /// that forgets to make a scratch home of its own reads nothing real, and anything it
+    /// writes lands in a folder of its own. Taking the home from the environment, as this
+    /// did, gave every such test the real `~/.pitboard`, `~/.claude` and `~/.codex`.
     #[cfg(test)]
     pub(crate) fn for_unit_test() -> Context {
+        let sentinel = unit_test_sentinel().into_os_string();
+        let homes = ["HOME", "PITBOARD_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
         let kept: Environment = std::env::vars_os()
             .filter(|(name, _)| !variables().any(|read| name == read))
+            .chain(homes.map(|home| (home.into(), sentinel.clone())))
             .collect();
         Context::for_command_line(&kept)
     }
@@ -452,7 +506,7 @@ impl Context {
         Context {
             pitboard_home: env.pitboard_home(),
             home,
-            claude_config_dir: owned("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()),
+            claude_config_dir: owned("CLAUDE_CONFIG_DIR"),
             secure_storage_dir: owned("CLAUDE_SECURESTORAGE_CONFIG_DIR"),
             user: owned("USER"),
             custom_oauth: env.set("CLAUDE_CODE_CUSTOM_OAUTH_URL"),
@@ -472,6 +526,7 @@ impl Context {
             // Unset is nowhere, as it is to the shell: nothing is found on an empty `PATH`.
             search_path: Some(env.path("PATH").unwrap_or_default().to_os_string()),
             scheduled_job: None,
+            marked_as_scheduled: false,
             sudo: env.set("SUDO_UID"),
             clock: Arc::new(SystemClock),
             host: crate::host::current(),
@@ -551,19 +606,44 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// An empty `CLAUDE_CONFIG_DIR` is kept, by the builder as by the environment, since
+    /// Claude Code takes it as the empty path for its config dir; the context is then
+    /// refused as one whose home is not a full path. It was read as unset, which pointed
+    /// Pitboard at `~/.claude`, where no Claude Code started with it keeps anything.
     #[test]
     fn an_explicit_context_reads_claude_codes_settings_the_way_the_environment_does() {
         let ctx = Context::new(PathBuf::from("/home/x"))
             .with_claude_config_dir(String::new())
             .with_secure_storage_dir(String::new());
         assert_eq!(ctx.pitboard_home, PathBuf::from("/home/x/.pitboard"));
-        assert_eq!(ctx.claude_config_dir, None, "empty means unset");
+        assert_eq!(
+            ctx.claude_config_dir.as_deref(),
+            Some(""),
+            "empty is the empty path for the config dir"
+        );
         assert_eq!(
             ctx.secure_storage_dir.as_deref(),
             Some(""),
             "empty is set, and pins the default slot"
         );
         assert_eq!(ctx.claude_program, PathBuf::from("claude"));
+        let env: Environment = [("HOME", "/home/x"), ("CLAUDE_CONFIG_DIR", "")]
+            .into_iter()
+            .collect();
+        let read = Context::for_command_line(&env);
+        assert_eq!(read.claude_config_dir, ctx.claude_config_dir);
+        for ctx in [ctx, read] {
+            assert!(
+                matches!(
+                    crate::home::check_absolute(&ctx),
+                    Err(crate::error::Error::HomeNotAbsolute {
+                        variable: "CLAUDE_CONFIG_DIR",
+                        ..
+                    })
+                ),
+                "refused"
+            );
+        }
     }
 
     /// What a fixture asks of the context it made: whether it reaches nothing but the machine
@@ -645,8 +725,9 @@ mod tests {
         assert_eq!(ctx.search_path(), "/opt/tools/bin:/usr/bin");
         assert_eq!(ctx.pitboard_home, PathBuf::from("/Users/x/.pitboard"));
         assert_eq!(ctx.caller, "cli");
+        let no_path: Environment = [("HOME", "/Users/x")].into_iter().collect();
         assert_eq!(
-            Context::for_command_line(&Environment::default()).search_path(),
+            Context::for_command_line(&no_path).search_path(),
             "",
             "no PATH is nowhere, not this process's"
         );
@@ -666,6 +747,7 @@ mod tests {
     /// so kept its files in `.pitboard` wherever it was run from.
     #[test]
     fn without_home_the_home_is_the_accounts_own() {
+        let _real = crate::host::user::testing::reaching_the_real_home();
         let own = crate::host::user::home().expect("this account has a home");
         let ctx = Context::for_command_line(&Environment::default());
         assert_eq!(ctx.home, own);
@@ -678,11 +760,48 @@ mod tests {
         );
     }
 
+    /// A unit test's context names one folder for every home, its own, under the temporary
+    /// directory, and makes nothing there, so a test that forgets to give a scratch home of
+    /// its own reads none of the real ones and writes only there. It took the person's real
+    /// home from the passwd database, and every home under it.
+    #[test]
+    fn a_unit_tests_homes_are_a_folder_of_its_own_that_nothing_makes() {
+        let ctx = Context::for_unit_test();
+        let sentinel = ctx.home.clone();
+        assert!(
+            sentinel.starts_with(std::env::temp_dir()),
+            "{}",
+            sentinel.display()
+        );
+        assert!(!sentinel.exists(), "{}", sentinel.display());
+        assert_eq!(ctx.pitboard_home, sentinel);
+        assert_eq!(
+            crate::provider::claude::paths::config_dir(&ctx),
+            sentinel,
+            "Claude Code's"
+        );
+        assert_eq!(
+            crate::provider::codex::paths::home(&ctx),
+            sentinel,
+            "Codex's"
+        );
+        assert_eq!(Context::for_unit_test().home, sentinel, "the same test's");
+        let another = std::thread::Builder::new()
+            .name("another::test".into())
+            .spawn(|| Context::for_unit_test().home)
+            .expect("a thread")
+            .join()
+            .expect("its context");
+        assert_ne!(another, sentinel, "another test's");
+        assert!(another.ends_with("another--test"), "{}", another.display());
+    }
+
     /// The home and Pitboard directory an app asks of the environment it was started with
     /// are the ones the context it is given reads, path for path, so an app that keys records
     /// of its own by Pitboard's directory keys them by the core's.
     #[test]
     fn the_homes_an_app_asks_for_are_the_contexts() {
+        let _real = crate::host::user::testing::reaching_the_real_home();
         let cases: [&[(&str, &str)]; 5] = [
             &[],
             &[("HOME", "/Users/x")],

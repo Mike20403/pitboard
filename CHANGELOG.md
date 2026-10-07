@@ -142,6 +142,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `app::write_file`, `audit::record`, `schedule::install`, `status::gather`,
   `switch::settle` and `statusline::read`, which takes an `Option<Permit>` and writes
   nothing without one. `host::Elevation` is new. These change the crate's public API.
+- `pitboard schedule install`, and turning on **Renew parked logins daily** in the app's
+  settings, refuse while `PITBOARD_HOME` names a directory other than `~/.pitboard`, with
+  the error code `schedule_not_default_home`, and install nothing. The schedule renews the
+  parked logins in `~/.pitboard` alone, so it would leave those in that directory to run
+  out. Both installed it all the same, and it renewed `~/.pitboard`. To turn on daily
+  renewal, unset `PITBOARD_HOME`. To renew the parked logins in another directory, run
+  `pitboard renew` with `PITBOARD_HOME` set. `pitboard schedule uninstall`, and turning
+  the switch off in the app, still remove the schedule whatever `PITBOARD_HOME` says.
+  Pitboard compares the two as paths, so a `PITBOARD_HOME` that is a link to
+  `~/.pitboard` is refused too. While `PITBOARD_HOME` names another directory,
+  `pitboard schedule status` adds that the schedule renews only the parked logins in
+  `~/.pitboard`, and with nothing installed it says to unset `PITBOARD_HOME` before
+  `pitboard schedule install`. It said to run `pitboard schedule install`, which is
+  refused there.
+- In `pitboard-core`, `service::Pitboard::check_homes` and
+  `service::Pitboard::schedule_renews_this_home`, the errors `Error::HomeNotAbsolute` and
+  `Error::ScheduleNotDefaultHome`, `Context::started_by_the_schedule` and
+  `schedule::SCHEDULED_RUN` are new, and `Context::with_claude_config_dir` keeps an empty
+  value, which it dropped as unset.
 
 ### Fixed
 
@@ -210,6 +229,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - With `HOME` unset, the command line used the folder it was run from as your home: it kept
   its files in a `.pitboard` there, and looked for Claude Code's and Codex's beside it. It
   now uses your account's home directory, as the app does.
+- With `HOME` or `PITBOARD_HOME` empty, or with it, `CLAUDE_CONFIG_DIR`,
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CODEX_HOME` set to a path that does not start at
+  the root, such as `pitboard`, Pitboard refuses every command but `completions`,
+  `manpage` and `doctor` with the error code `home_not_absolute`, which names the variable:
+  `HOME is empty, so the folder it names would depend on where each program runs. Set it
+  to a full path, or unset it; Pitboard reads and changes nothing until then.` Pitboard
+  took such a path to be under the folder it was run from: an empty `HOME` or
+  `PITBOARD_HOME` kept its files there, and an empty `HOME` had
+  `pitboard schedule install` write the schedule's file there. Claude Code and Codex take a
+  relative one from the folder each of them runs in, so the login Pitboard read and
+  switched was the one under the folder Pitboard ran in. `pitboard doctor` fails a `homes`
+  check instead, and checks nothing else; the app's **This Mac** pane shows the same.
+- A run of the daily renewal schedule renews the parked logins in `~/.pitboard` whatever
+  `PITBOARD_HOME` says, empty or relative included, which other commands refuse as above.
+  The schedule renews `~/.pitboard` alone, and its job is written without
+  `PITBOARD_HOME`, but a `PITBOARD_HOME` set with `launchctl setenv` on macOS, or in
+  systemd's user environment on Linux, through `systemctl --user set-environment` or
+  `environment.d`, reached the job. The job then renewed that directory's parked logins
+  and left those in `~/.pitboard` to run out. On macOS Pitboard tells a run of the
+  schedule by the job's name, which launchd gives it in `XPC_SERVICE_NAME`. On Linux it
+  does not rely on what systemd passes a job, which systemd itself calls best effort, so
+  the timer's service runs `pitboard renew --scheduled`. A timer installed by an earlier
+  Pitboard runs `pitboard renew`, which renews the directory `PITBOARD_HOME` names as
+  before, until you run `pitboard schedule install` again, which rewrites it. If you go
+  back to an earlier Pitboard on Linux, run its `pitboard schedule install` as well: an
+  earlier Pitboard does not take `--scheduled`, so until then the timer fails every day.
+- With `CLAUDE_CONFIG_DIR` set but empty, Pitboard refuses as above, with
+  `home_not_absolute`: `CLAUDE_CONFIG_DIR is empty, so the folder it names would depend on
+  where each program runs.` Claude Code reads an empty one as unset for `~/.claude.json`
+  and for which keychain item holds its login, but as the folder it runs in for its
+  config directory, so its settings, the lock around its login and, on Linux, the login in
+  `.credentials.json` are in whatever folder each session started in. Pitboard read an
+  empty one as unset, so it took that lock, and on Linux switched that login, in
+  `~/.claude`, where no Claude Code started with it looks. On macOS such a switch did move
+  the login, which is in the default keychain item, and took only the lock in the wrong
+  folder; it is refused all the same. To keep switching, unset `CLAUDE_CONFIG_DIR`.
 - The command line takes a `claude` or `codex` to be the tool's program only when it is a
   regular file you may run, as the system judges it when it starts one, and otherwise looks
   further on `PATH`. It took a file only others may run, and then failed to start it.
@@ -237,6 +292,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- Pitboard refuses more folders that sync to other machines as its directory, with
+  `state_on_synced_drive`: any folder inside `~/Library/CloudStorage`, where macOS keeps
+  the folders of cloud storage apps such as Box and Google Drive, or inside
+  `~/Library/Mobile Documents`, where iCloud Drive keeps each app's folder; and any folder
+  named `Dropbox`, `Dropbox (<team>)`, `Google Drive`, `GoogleDrive-<account>`,
+  `OneDrive`, `OneDrive - <organisation>`, `OneDrive-<kind>`, `com~apple~CloudDocs` or
+  `Sync`. A name counts in any case, so `~/dropbox` is refused as `~/Dropbox` was, and
+  wherever it is in the path, your home's own folders included: with a home of
+  `/home/sync` or `/home/dropbox`, `~/.pitboard` is refused though nothing syncs it, and
+  `PITBOARD_HOME` can name a folder outside it. On Linux the parked logins are files in
+  that directory, which such a folder would copy to every machine it syncs to. Every
+  folder Pitboard refused before is still refused, `SyncAdmin` and `OneDriveTools` among
+  them, though they sync nothing.
 - Pitboard refuses a site's sign-in link from outside however its path is written. It took
   `claude.ai/magic-link/%FF` and `chatgpt.com/api/auth/%C3`, whose paths hold a byte that is
   not text, and `claude.ai/magic-link/%CC%81`, whose path has a combining mark after a

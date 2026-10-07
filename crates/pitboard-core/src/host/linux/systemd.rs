@@ -4,7 +4,7 @@ use super::super::unix::service::{self, Control};
 use crate::context::Context;
 use crate::error::Result;
 use crate::host::Scheduler;
-use crate::schedule::EVERY_SECONDS;
+use crate::schedule::{EVERY_SECONDS, SCHEDULED_RUN};
 use crate::service::Permit;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -38,13 +38,20 @@ impl Scheduler for Systemd {
         self.location(ctx).is_file()
     }
 
+    /// Read from the service's `ExecStart`, as [`unit_file`] writes it, or as Pitboard wrote
+    /// it before its job carried the marker: `<program> renew`.
     fn program(&self, ctx: &Context) -> Option<PathBuf> {
         if !self.installed(ctx) {
             return None;
         }
         let body = std::fs::read_to_string(Self::units(ctx).join(SERVICE)).ok()?;
+        let marked = format!(" {}", SCHEDULED_RUN.join(" "));
         body.lines()
-            .find_map(|line| line.strip_prefix("ExecStart=")?.strip_suffix(" renew"))
+            .find_map(|line| {
+                let run = line.strip_prefix("ExecStart=")?;
+                run.strip_suffix(marked.as_str())
+                    .or_else(|| run.strip_suffix(" renew"))
+            })
             .map(PathBuf::from)
     }
 
@@ -88,15 +95,22 @@ impl Scheduler for Systemd {
         Ok(true)
     }
 
-    /// Never asked for here. A repair on Linux stops nothing: it rewrites the units and
+    /// Nothing systemd passes is read here, only what a test says the job is: what it
+    /// passes is not to be relied on ([`SCHEDULED_RUN`]), so the service's runs are told
+    /// apart by the marker its `ExecStart` carries, which the command line started with it
+    /// passes on. A repair on Linux stops nothing either way: it rewrites the units and
     /// enables the timer again, so a run of the schedule is not in its way.
-    fn started_this_process(&self, _said: Option<&str>) -> bool {
-        false
+    fn started_this_process(&self, said: Option<&str>) -> bool {
+        said == Some(SERVICE)
     }
 }
 
 /// systemd's own format. `argument_line` is as for the launchd job: the service runs with
 /// systemd's environment, so a `PITBOARD_NO_ARGV` the installing Pitboard has is given to it.
+/// It runs `<program> renew --scheduled`, the marker a run of the schedule is told apart by,
+/// rather than by what systemd passes it. A Pitboard from before the marker rejects the
+/// flag, so after going back to one the timer fails every day until that Pitboard's
+/// `schedule install` rewrites the unit, which the CHANGELOG says.
 fn unit_file(program: &Path, argument_line: bool) -> String {
     format!(
         "[Unit]\n\
@@ -106,13 +120,14 @@ fn unit_file(program: &Path, argument_line: bool) -> String {
          [Service]\n\
          Type=oneshot\n\
          {}\
-         ExecStart={} renew\n",
+         ExecStart={} {}\n",
         if argument_line {
             ""
         } else {
             "Environment=PITBOARD_NO_ARGV=1\n"
         },
-        program.display()
+        program.display(),
+        SCHEDULED_RUN.join(" ")
     )
 }
 
@@ -135,6 +150,9 @@ fn timer() -> String {
 mod tests {
     use super::*;
 
+    use crate::host::memory::MemoryHost;
+    use crate::schedule::{install, installed_program};
+
     #[test]
     fn the_unit_keeps_a_refusal_of_the_argument_line() {
         let program = Path::new("/usr/local/bin/pitboard");
@@ -143,17 +161,75 @@ mod tests {
             refusing.contains("Environment=PITBOARD_NO_ARGV=1\n"),
             "{refusing}"
         );
-        assert!(refusing.contains("ExecStart=/usr/local/bin/pitboard renew"));
+        assert!(refusing.contains("ExecStart=/usr/local/bin/pitboard renew --scheduled\n"));
         assert!(!unit_file(program, true).contains("Environment="));
     }
 
+    /// The service runs one verb, with the marker a run of the schedule is told apart by,
+    /// rather than by what systemd passes it.
     #[test]
     fn the_unit_runs_one_verb_and_the_timer_survives_a_machine_being_off() {
         let unit = unit_file(Path::new("/usr/local/bin/pitboard"), true);
-        assert!(unit.contains("ExecStart=/usr/local/bin/pitboard renew"));
+        assert!(
+            unit.contains("ExecStart=/usr/local/bin/pitboard renew --scheduled\n"),
+            "{unit}"
+        );
         assert!(!unit.contains("status"));
         let timer = timer();
         assert!(timer.contains("Persistent=true"));
         assert!(timer.contains("WantedBy=timers.target"));
+    }
+
+    /// A unit Pitboard wrote before its job carried the marker still names the Pitboard it
+    /// runs, and installing again writes the marker in. A test says the job by the unit's
+    /// own name; nothing systemd passes is read.
+    #[test]
+    fn a_unit_written_without_the_marker_still_names_its_program_and_install_adds_it() {
+        let home = std::env::temp_dir().join(format!(
+            "pitboard-systemd-marker-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let program = home.join("bin/pitboard");
+        std::fs::create_dir_all(program.parent().expect("its directory")).expect("made");
+        std::fs::write(&program, "").expect("a program");
+        let ctx = Context::new(home.clone())
+            .with_memory_stores(MemoryHost::new())
+            .with_schedule_program(program.clone());
+        let units = Systemd::units(&ctx);
+        std::fs::create_dir_all(&units).expect("made");
+        std::fs::write(units.join(TIMER), timer()).expect("written");
+        std::fs::write(
+            units.join(SERVICE),
+            format!(
+                "[Service]\nType=oneshot\nExecStart={} renew\n",
+                program.display()
+            ),
+        )
+        .expect("written");
+        assert_eq!(installed_program(&ctx), Some(program.clone()), "as before");
+
+        install(&ctx, Permit::for_a_test()).expect("installed again");
+        let written = std::fs::read_to_string(units.join(SERVICE)).expect("the service");
+        assert!(
+            written.contains(&format!(
+                "ExecStart={} renew --scheduled\n",
+                program.display()
+            )),
+            "{written}"
+        );
+        assert_eq!(installed_program(&ctx), Some(program));
+
+        let systemd = Systemd::new(Arc::new(service::Pretend {
+            refuse_start: Arc::default(),
+        }));
+        assert!(systemd.started_this_process(Some(SERVICE)));
+        assert!(!systemd.started_this_process(Some(TIMER)));
+        assert!(
+            !systemd.started_this_process(None),
+            "what systemd passes is not read"
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

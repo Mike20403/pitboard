@@ -905,6 +905,54 @@ mod tests {
         assert_eq!(code, "elevated");
     }
 
+    /// The app turns on daily renewal through the core's own install, so it is refused as
+    /// the command line's is while `PITBOARD_HOME` names a directory other than the default
+    /// home, which is all the schedule renews, and the pretend scheduler is left with nothing
+    /// installed. The same app with its default home installs it.
+    #[test]
+    fn the_app_schedules_nothing_where_pitboard_home_is_another_directory() {
+        let home = std::env::temp_dir().join(format!(
+            "pitboard-app-schedule-home-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        let helper = home.join("Applications/Pitboard.app/Contents/Helpers/pitboard");
+        std::fs::create_dir_all(helper.parent().expect("its folder")).expect("made");
+        std::fs::write(&helper, "").expect("a command line");
+        let app = |pitboard: PathBuf| {
+            let (home, helper) = (home.clone(), helper.clone());
+            let host = pitboard_core::host::memory::MemoryHost::new();
+            AppCore::asking(
+                move || {
+                    let mut made = made(None, Some(&helper));
+                    let ctx = Context::new(home.clone())
+                        .with_pitboard_home(pitboard.clone())
+                        .with_caller("app".into())
+                        .with_schedule_program(helper.clone())
+                        .with_memory_stores(Arc::clone(&host));
+                    made.core = service::Pitboard::new(ctx);
+                    (made, false)
+                },
+                ASK_AGAIN_AFTER,
+            )
+        };
+
+        let elsewhere = app(home.join("elsewhere"));
+        let Err(PitboardError::Failed { code, message, .. }) = elsewhere.schedule_install() else {
+            panic!("the app scheduled the default home's renewal from another home");
+        };
+        assert_eq!(code, "schedule_not_default_home");
+        assert!(message.contains("unset PITBOARD_HOME"), "{message}");
+        assert_eq!(elsewhere.schedule(), Schedule::Absent);
+
+        let default = app(home.join(".pitboard"));
+        default.schedule_install().expect("installed");
+        assert!(matches!(default.schedule(), Schedule::Installed { .. }));
+        assert_eq!(elsewhere.schedule_uninstall().ok(), Some(true));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     /// Repairing at launch is a no-op wherever there is nothing to repair, and never
     /// reaches a scheduler to find that out: in a core made as the app launches, which
     /// outside an app names no command line, and in one that names this test's own program,
