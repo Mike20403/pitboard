@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- The same policy in a spelling the reference does not document: a plain application and
+     windowsSettings in the asm.v1 namespace, the policy element alone in the 2024 namespace.
+     Embedded into pitboard-probe-detached-asmv1 by build.rs, so block E4 can tell whether
+     only the documented spelling is honoured. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application>
+    <windowsSettings>
+      <consoleAllocationPolicy xmlns="http://schemas.microsoft.com/SMI/2024/WindowsSettings">detached</consoleAllocationPolicy>
+    </windowsSettings>
+  </application>
+</assembly>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A sparse package with an external location, in the form Microsoft's "Grant package
+     identity by packaging with external location" documents: Executable= with
+     uap10:RuntimeBehavior="win32App" and uap10:TrustLevel="mediumIL". Write virtualization
+     is left as Windows sets it. VM block K1 only; k1.ps1 packs, signs and registers it.
+     Identity Name, Publisher and Application Id must equal manifests/sparse-identity.manifest
+     (packageName, publisher, applicationId), which is embedded in pitboard-probe-sparse.exe.
+     ProcessorArchitecture is the VM's: arm64 on the Windows 11 ARM64 VM, x64 on an x64 one. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 rescap">
+
+  <Identity Name="PitboardProbe" Publisher="CN=PitboardProbe" Version="1.0.0.0"
+    ProcessorArchitecture="arm64" />
+
+  <Properties>
+    <DisplayName>Pitboard Probe</DisplayName>
+    <PublisherDisplayName>Pitboard Probe</PublisherDisplayName>
+    <Logo>Assets\probe.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0"
+      MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="Probe" Executable="pitboard-probe-sparse.exe"
+      uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="Pitboard Probe"
+        Description="Pitboard's Windows measurement probe, VM block K1 only"
+        BackgroundColor="transparent" Square150x150Logo="Assets\probe.png"
+        Square44x44Logo="Assets\probe.png" />
+    </Application>
+  </Applications>
+</Package>

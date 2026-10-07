@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Ties pitboard-probe-sparse.exe to the sparse probe package of block K1 (sparse/), so a
+     run from the package's external location carries that package's identity. publisher,
+     packageName and applicationId must equal the AppxManifest's Identity Publisher, Identity
+     Name and Application Id. Embedded by build.rs. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" name="PitboardProbe.Sparse" />
+  <msix xmlns="urn:schemas-microsoft-com:msix.v1"
+        publisher="CN=PitboardProbe"
+        packageName="PitboardProbe"
+        applicationId="Probe" />
+</assembly>
