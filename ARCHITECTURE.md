@@ -116,9 +116,8 @@ pages load, as a browser would.
     `usage_level`, the steps at which a limit's colour changes. A thing said both in a
     column and in a sentence has a function for each form. The command line calls these
     functions directly, and so does `pitboard-ffi`'s `present/` as it makes the snapshot,
-    which carries what an app shows of them. No app calls the free functions of the same
-    name that `pitboard-ffi` exports for each but `span` and `parked_life_column`; only the
-    C# tests do. Clock times are not in it.
+    which carries what an app shows of them. The bindings export none of them. Clock times
+    are not in it.
 - `crates/pitboard`: the command line. Arguments, rendering for people, the man page, and
   the `--json` contract, pinned by the snapshots in `crates/pitboard/tests/snapshots`.
   `json.rs` is the one writer of that JSON, for every command and every error. Its example
@@ -130,24 +129,23 @@ pages load, as a browser would.
   model alone.
   - `lib.rs` declares what the bindings export beside the model and the account windows'
     rules: the records a snapshot carries of what the core answered, such as `Status`,
-    `Account` and `Abandoned`, and free functions. The macOS app calls three of them, none
-    as it draws: `app_command_line`, for the command line inside its bundle, as it starts
-    and as it links that one; `can_run`, whether that one runs, as it links it; and
+    `Account` and `Abandoned`, and three free functions, which the macOS app calls, none as
+    it draws: `app_command_line`, for the command line inside its bundle, as it starts and
+    as it links that one; `can_run`, whether that one runs, as it links it; and
     `pitboard_directory`, for where `app.json` is and the key the account windows' records
-    are kept under, as it starts. No app calls the rest, only the C# tests: `tools`,
-    `sign_in_view`, `command_line_places`, `find_command_line`, `home_directory`,
-    `usage_level`, the words of `words.rs` and `same_reset`. What an app shows of them the
-    snapshot carries, made by `present/` and the model's lanes. `Check` and `Renewed` are
-    exported only as what `doctor_summary` and `renewal_note` take: the model holds them of
-    doctor's checks and a renewal run, and no export answers either.
+    are kept under, as it starts. The snapshot carries what an app shows of the tools, a
+    sign-in, the command line a terminal runs, a limit, an account's runway, a parked login,
+    a renewal run and doctor's checks, made by `present/` and the model's lanes, so no free
+    function says it again. The helpers `present/` makes it with here, `tools`,
+    `usage_level`, `runway`, `renewal_note` and `doctor_summary`, are the crate's own.
   - `launch.rs` is the core the model's lanes call, `AppCore`, which nothing exports. It is
     made from the `AppLaunch` the app was started with, read as `AppContext::discover`
     reads it, the first time a lane needs it, and made once more a while after a login
     shell too slow to answer. Every read a lane makes with it asks first, as the command line
     asks before every command, whether this build may do anything on its system and whether
     every home is a full path, and answers that refusal, or nothing where it has no way to
-    say one. Beside it are what it answers that only the model reads, such as what a switch
-    or an enrolment came to, and `PitboardError`.
+    say one. Beside it are what it answers that only the model reads, such as what a switch,
+    an enrolment or a renewal came to, doctor's checks, and `PitboardError`.
   - `sites.rs` gives both apps `pitboard-sites`' sites and links as records of their own,
     and says a site's sign-in steps as a window on this system can follow them: a window on
     a Mac cannot use a passkey.
@@ -514,21 +512,19 @@ pages load, as a browser would.
   only for the actor to take what is already in its mailbox and for each sign-in under way
   to stop, and the core, a tool's sign-in and the app's `AppControl`, `Notifications` and
   `LocalTime` are called on the model's own threads. The free functions block on nothing,
-  and an app may make them where it likes: `tools`, `sign_in_view`, `name_to_save`, the rule
-  `same_reset` from `usage.rs`, and `usage_level` and the sentences and column words of
-  `words.rs` the apps show, which read only what they are given; `sites`, `sites_for`,
-  `site_names`, `site_link`, `read_pitboard_link`, `pitboard_link` and
-  `link_refusal_reason`, which are `pitboard-sites`' and read only what they are given too;
-  the account windows' rules, such as `store_id`, `window_accounts`, `decide_navigation` and
-  `window_note`, which read only what they are given as well, so a web view's delegate asks
-  them as it is asked; `download_destination`, which asks the file system whether each name
-  it tries is taken; `command_line_places` and `app_command_line`, which only join paths;
-  `can_run`, which asks the file system about one path; and `home_directory` and
-  `pitboard_directory`, which read the environment they are given and, without `HOME`, this
-  account's passwd entry; and `fixture_names` and `fixture_page`, which read only what they
-  are given. `find_command_line` looks along a search path, so a caller makes it off the main
-  thread. `PitboardModel::fixture` and `PitboardModel::fixture_in` make the fixture's world
-  in its folder before they answer, files in a temporary directory and nothing slower.
+  and an app may make them where it likes: `name_to_save` and `downloads_quit_question`,
+  which read only what they are given; `sites`, `sites_for`, `site_names`, `site_link`,
+  `read_pitboard_link`, `pitboard_link` and `link_refusal_reason`, which are
+  `pitboard-sites`' and read only what they are given too; the account windows' rules, such
+  as `store_id`, `window_accounts`, `decide_navigation` and `window_note`, which read only
+  what they are given as well, so a web view's delegate asks them as it is asked;
+  `download_destination`, which asks the file system whether each name it tries is taken;
+  `app_command_line`, which only joins paths; `can_run`, which asks the file system about
+  one path; `pitboard_directory`, which reads the environment it is given and, without
+  `HOME`, this account's passwd entry; and `fixture_names` and `fixture_page`, which read
+  only what they are given. `PitboardModel::fixture` and `PitboardModel::fixture_in` make
+  the fixture's world in its folder before they answer, files in a temporary directory and
+  nothing slower.
 - What a snapshot says is made by `present`, which reads the state and the moment and asks
   nothing of anyone but the app's `LocalTime`, for each clock time and whether a moment is
   on another day than now, and for each date and time of the activity log. Where that cannot

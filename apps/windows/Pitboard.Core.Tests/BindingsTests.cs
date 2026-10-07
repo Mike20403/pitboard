@@ -9,15 +9,13 @@ namespace Pitboard.Core.Tests;
 public sealed class BindingsTests
 {
     private static readonly string[] Codes = ["claude", "codex"];
-    private static readonly string[] Names = ["Claude Code", "Codex"];
 
     [TestMethod]
     public void TheBindingsLoadTheCoreAndAgreeWithIt()
     {
-        var tools = PitboardFfiMethods.Tools();
+        var sites = PitboardFfiMethods.Sites();
 
-        CollectionAssert.AreEqual(Codes, tools.Select(tool => tool.Code).ToArray());
-        CollectionAssert.AreEqual(Names, tools.Select(tool => tool.Name).ToArray());
+        CollectionAssert.AreEqual(Codes, sites.Select(site => site.Provider).ToArray());
     }
 
     /// <summary>
@@ -25,8 +23,10 @@ public sealed class BindingsTests
     /// The objects the macOS app called before it ran on the model, whose calls waited on the
     /// keychain, the network and the person's login shell, are not offered, nor what only
     /// they took, answered or threw, nor the two account windows' calls whose answers the
-    /// snapshot carries now. uniffi-bindgen-cs writes an exported object as a class with an
-    /// interface of its own, named `I` and the class's name.
+    /// snapshot carries now. Nor are the free functions no app called, whose answers the
+    /// snapshot carries too, such as a sign-in's address, a limit's names or doctor's summary,
+    /// nor what only they took or answered. uniffi-bindgen-cs writes an exported object as a
+    /// class with an interface of its own, named `I` and the class's name.
     /// </summary>
     [TestMethod]
     public void TheBindingsOfferTheModelAndNothingOlder()
@@ -40,9 +40,15 @@ public sealed class BindingsTests
         [
             "Pitboard", "SignIn", "Settings", "PitboardException", "Cause", "Switched", "Switch",
             "Adoption", "Enrolled", "EnrolledAs", "Changed", "Holding", "Remedy", "Diagnosis", "Change",
+            "SignInView", "Check", "Renewed",
         ];
         var stillOffered = exported.Select(type => type.Name).Intersect(older).Order(StringComparer.Ordinal);
-        string[] olderCalls = ["WindowsOf", "ForgetMessage"];
+        string[] olderCalls =
+        [
+            "WindowsOf", "ForgetMessage", "Tools", "CommandLinePlaces", "SignInView", "FindCommandLine",
+            "HomeDirectory", "LimitColumn", "LimitName", "UsageLevel", "Resets", "Runway", "ParkedLife",
+            "RenewalNote", "DoctorSummary", "SameReset",
+        ];
         var stillCalled = typeof(PitboardFfiMethods).GetMethods()
             .Select(method => method.Name)
             .Intersect(olderCalls)
@@ -54,50 +60,18 @@ public sealed class BindingsTests
     }
 
     /// <summary>
-    /// A sign-in is read by the core in its tool's own words, so the Windows app offers the
-    /// address and the code field the macOS app does: the `https` address Codex prints after
-    /// its loopback one, and no code, since Codex reads none.
-    /// </summary>
-    [TestMethod]
-    public void ASignInIsReadAsTheCoreReadsIt()
-    {
-        const string said =
-            "Starting local login server on http://localhost:1455.\n"
-            + "If your browser did not open, navigate to this URL to authenticate:\n\n"
-            + "https://auth.openai.com/oauth/authorize?state=x\n";
-
-        var codex = PitboardFfiMethods.SignInView("codex", said, false);
-        var claude = PitboardFfiMethods.SignInView("claude", "Paste code here if prompted > ", false);
-
-        Assert.AreEqual(new SignInView("https://auth.openai.com/oauth/authorize?state=x", false), codex);
-        Assert.IsTrue(claude.WantsCode);
-    }
-
-    /// <summary>
-    /// Where the command line is looked for crosses the bindings in the shape the core gives
-    /// it: a search path and places in, one of three answers out, here the one found nowhere.
-    /// </summary>
-    [TestMethod]
-    public void ACommandLineFoundNowhereIsSaidToBeNowhere()
-    {
-        var found = PitboardFfiMethods.FindCommandLine("/nowhere/at/all", ["/nowhere/else"], null);
-
-        Assert.IsInstanceOfType<FoundCommandLine.Nowhere>(found);
-        Assert.AreEqual("/home/x/.cargo/bin", PitboardFfiMethods.CommandLinePlaces("/home/x")[0]);
-    }
-
-    /// <summary>
-    /// Where the app's home and Pitboard's directory are, and whether a path is a program, are
-    /// the core's to say, so the app has no rule of its own for either: the environment goes
-    /// in as the app was given it, and the answer comes out as the core reads it.
+    /// Where Pitboard's directory is, which command line an app comes with, and whether a path
+    /// is a program, are the core's to say, so the app has no rule of its own for any of them:
+    /// what the app was given goes in as it was given, and the answer comes out as the core
+    /// reads it.
     /// </summary>
     [TestMethod]
     public void TheAppAsksTheCoreWhereThingsAreAndWhatRuns()
     {
         var environment = new Dictionary<string, string> { ["HOME"] = "/home/x" };
 
-        Assert.AreEqual("/home/x", PitboardFfiMethods.HomeDirectory(environment));
         Assert.AreEqual("/home/x/.pitboard", PitboardFfiMethods.PitboardDirectory(environment));
+        Assert.IsNull(PitboardFfiMethods.AppCommandLine("/home/x/pitboard"));
         Assert.IsFalse(PitboardFfiMethods.CanRun("/nowhere/at/all"));
     }
 }
