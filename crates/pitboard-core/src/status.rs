@@ -180,15 +180,22 @@ pub struct Row {
     pub parked: Option<Park>,
     pub usage: Option<Snapshot>,
     pub stale: Option<Stale>,
-    /// How long this account lasts, from what its limits have been doing.
-    ///
-    /// The question this whole tool exists to answer is which account to use next, and two
-    /// instantaneous percentages do not answer it: 73% of a weekly limit means nothing
-    /// without knowing whether it was 40% this morning.
-    pub runway: crate::history::Runway,
 }
 
 impl Row {
+    /// How long this account lasts as of `now`, from its limits' paces: the question this
+    /// whole tool exists to answer is which account to use next, and a share alone does not
+    /// answer it. 73% of a weekly limit is plenty on Saturday and a warning on Monday. An
+    /// account not in use is not being used, so it lasts until its first reset.
+    pub fn lasts(&self, now: i64) -> Option<crate::pace::Lasts<'_>> {
+        let usage = self.usage.as_ref()?;
+        if self.signed_in {
+            crate::pace::lasts(&usage.windows, usage.observed_at.unwrap_or(now), now)
+        } else {
+            crate::pace::until_reset(&usage.windows, now)
+        }
+    }
+
     /// Whether `pitboard use` would switch to it now.
     pub fn switchable(&self, now: i64) -> bool {
         !self.signed_in && self.parked.as_ref().is_some_and(|p| p.restorable_at(now))
@@ -379,7 +386,6 @@ pub fn gather_offline(ctx: &Context, state: &State) -> Report {
             state,
             &facts,
             |uuid| remembered.get(uuid).cloned(),
-            |uuid| crate::history::runway_for(ctx, uuid, ctx.now()),
             ctx.now(),
         ),
         signed_in: recorded.get(&crate::label::DEFAULT).map_or_else(
@@ -708,18 +714,8 @@ pub fn gather(ctx: &Context, permit: crate::service::Permit, state: &State, fres
         parked_usage: parked_asked.into_iter().map(|(usage, _)| usage).collect(),
         claude_code_cache: config.as_ref().and_then(crate::usage::from_config_cache),
     };
-    let rows = assemble(
-        state,
-        &facts,
-        |uuid| remembered.get(uuid).cloned(),
-        |uuid| crate::history::runway_for(ctx, uuid, now),
-        now,
-    );
-    for row in &rows {
-        if let Some(live) = row.usage.as_ref().filter(|u| u.source == Source::Live) {
-            crate::history::record(ctx, permit, &row.account_uuid, live);
-        }
-    }
+    let rows = assemble(state, &facts, |uuid| remembered.get(uuid).cloned(), now);
+    crate::home::remove_retired(ctx, permit);
     readings::remember(
         ctx,
         permit,
@@ -769,7 +765,6 @@ fn assemble(
     state: &State,
     facts: &Facts,
     recall: impl Fn(&str) -> Option<Snapshot>,
-    lasting: impl Fn(&str) -> crate::history::Runway,
     now: i64,
 ) -> Vec<Row> {
     // Per tool, because an account is signed in to its own tool or to nothing. Comparing
@@ -840,7 +835,6 @@ fn assemble(
                 parked: account.parked.clone(),
                 usage,
                 stale,
-                runway: lasting(uuid),
             }
         })
         .collect();
@@ -874,7 +868,6 @@ fn assemble(
                 parked: None,
                 usage,
                 stale,
-                runway: lasting(&owner.account_uuid),
             });
             continue;
         }
@@ -895,7 +888,6 @@ fn assemble(
                 parked: None,
                 usage: None,
                 stale: live.usage().err(),
-                runway: crate::history::Runway::Unknown,
             });
         }
     }
@@ -1024,7 +1016,7 @@ mod tests {
             parked_usage: vec![Err(Stale::Unreachable), Err(Stale::Unreachable)],
             claude_code_cache: None,
         };
-        let rows = assemble(&state, &facts, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&state, &facts, nothing_remembered, NOW);
         let a = rows
             .iter()
             .find(|r| r.account_uuid == "alpha-uuid")
@@ -1039,10 +1031,6 @@ mod tests {
 
     fn nothing_remembered(_: &str) -> Option<Snapshot> {
         None
-    }
-
-    fn nothing_known(_: &str) -> crate::history::Runway {
-        crate::history::Runway::Unknown
     }
 
     #[test]
@@ -1109,7 +1097,7 @@ mod tests {
             vec![Err(Stale::NothingParked)],
         );
         f.claude_code_cache = Some(reading(2.0, Source::ClaudeCodeCache, Some("work-uuid")));
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         let usage = rows[0].usage.as_ref().unwrap();
         assert_eq!(usage.source, Source::Live);
         assert_eq!(usage.windows[0].percent, 30.0);
@@ -1125,7 +1113,7 @@ mod tests {
             vec![Err(Stale::NothingParked)],
         );
         f.claude_code_cache = Some(reading(2.0, Source::ClaudeCodeCache, Some("work-uuid")));
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         assert_eq!(
             rows[0].usage.as_ref().unwrap().source,
             Source::ClaudeCodeCache
@@ -1148,14 +1136,14 @@ mod tests {
         f.asked = false;
         f.claude_code_cache = Some(reading(20.0, Source::ClaudeCodeCache, Some("work-uuid")));
         let recorded = |_: &str| Some(reading(22.0, Source::Remembered, Some("work-uuid")));
-        let rows = assemble(&s, &f, recorded, nothing_known, NOW);
+        let rows = assemble(&s, &f, recorded, NOW);
         let usage = rows[0].usage.as_ref().unwrap();
         assert_eq!(usage.windows[0].percent, 22.0);
         assert_eq!(usage.source, Source::Remembered);
         assert_eq!(rows[0].stale, Some(Stale::NotAsked));
 
         f.claude_code_cache = Some(reading(25.0, Source::ClaudeCodeCache, Some("work-uuid")));
-        let rows = assemble(&s, &f, recorded, nothing_known, NOW);
+        let rows = assemble(&s, &f, recorded, NOW);
         let usage = rows[0].usage.as_ref().unwrap();
         assert_eq!(
             usage.windows[0].percent, 25.0,
@@ -1180,7 +1168,7 @@ mod tests {
             since.observed_at = Some(NOW - 60);
             Some(since)
         };
-        let rows = assemble(&s, &f, recorded, nothing_known, NOW);
+        let rows = assemble(&s, &f, recorded, NOW);
         assert_eq!(rows[0].usage.as_ref().unwrap().windows[0].percent, 22.0);
         assert_eq!(rows[0].stale, None);
 
@@ -1189,10 +1177,7 @@ mod tests {
             Ok(reading(30.0, Source::Live, None)),
             vec![Err(Stale::NothingParked)],
         );
-        let usage = assemble(&s, &f, recorded, nothing_known, NOW)[0]
-            .usage
-            .clone()
-            .unwrap();
+        let usage = assemble(&s, &f, recorded, NOW)[0].usage.clone().unwrap();
         assert_eq!(usage.windows[0].percent, 30.0);
         assert_eq!(
             usage.source,
@@ -1211,10 +1196,7 @@ mod tests {
         answered.observed_at = Some(NOW);
         let f = facts("work-uuid", Ok(answered), vec![Err(Stale::NothingParked)]);
         let recorded = |_: &str| Some(reading(100.0, Source::Remembered, Some("work-uuid")));
-        let usage = assemble(&s, &f, recorded, nothing_known, NOW)[0]
-            .usage
-            .clone()
-            .unwrap();
+        let usage = assemble(&s, &f, recorded, NOW)[0].usage.clone().unwrap();
         assert_eq!(usage.windows[0].percent, 14.0);
         assert_eq!(usage.source, Source::Live);
     }
@@ -1228,11 +1210,7 @@ mod tests {
             vec![Err(Stale::NothingParked)],
         );
         f.claude_code_cache = Some(reading(99.0, Source::ClaudeCodeCache, Some("someone-else")));
-        assert!(
-            assemble(&s, &f, nothing_remembered, nothing_known, NOW)[0]
-                .usage
-                .is_none()
-        );
+        assert!(assemble(&s, &f, nothing_remembered, NOW)[0].usage.is_none());
     }
 
     #[test]
@@ -1246,7 +1224,7 @@ mod tests {
                 Ok(reading(12.0, Source::Live, None)),
             ],
         );
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         let personal = rows
             .iter()
             .find(|r| r.label.as_deref() == Some("personal"))
@@ -1321,7 +1299,7 @@ mod tests {
         let remembered = |uuid: &str| {
             (uuid == "personal-uuid").then(|| reading(44.0, Source::Remembered, Some(uuid)))
         };
-        let rows = assemble(&s, &f, remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, remembered, NOW);
         let personal = rows
             .iter()
             .find(|r| r.label.as_deref() == Some("personal"))
@@ -1338,7 +1316,7 @@ mod tests {
             Ok(reading(5.0, Source::Live, None)),
             vec![Err(Stale::NothingParked), Err(Stale::NothingParked)],
         );
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         assert_eq!(rows[0].label.as_deref(), Some("beta"));
         assert!(rows[0].signed_in && !rows[0].switchable(NOW));
         assert!(!rows[1].signed_in);
@@ -1437,7 +1415,7 @@ mod tests {
             parked_usage: vec![Err(Stale::Unreachable)],
             claude_code_cache: None,
         };
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         assert_eq!(rows[0].explanation(), Some("OpenAI could not be reached"));
     }
 
@@ -1486,7 +1464,7 @@ mod tests {
             parked_usage: vec![Err(Stale::NothingParked)],
             claude_code_cache: None,
         };
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         assert_eq!(rows.len(), 2, "one row per tool");
         assert_eq!(rows[0].provider, ProviderId::Claude);
         assert_eq!(rows[0].label.as_deref(), Some("same"));
@@ -1521,11 +1499,10 @@ mod tests {
             parked_usage: vec![Err(Stale::NothingParked); 4],
             claude_code_cache: None,
         };
-        let order: Vec<(ProviderId, String, bool)> =
-            assemble(&s, &f, nothing_remembered, nothing_known, NOW)
-                .into_iter()
-                .map(|r| (r.provider, r.label.unwrap_or_default(), r.signed_in))
-                .collect();
+        let order: Vec<(ProviderId, String, bool)> = assemble(&s, &f, nothing_remembered, NOW)
+            .into_iter()
+            .map(|r| (r.provider, r.label.unwrap_or_default(), r.signed_in))
+            .collect();
         assert_eq!(
             order,
             [
@@ -1551,7 +1528,7 @@ mod tests {
             claude_code_cache: None,
         };
         f.claude_code_cache = Some(reading(77.0, Source::ClaudeCodeCache, Some("work-acc")));
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         assert!(rows[0].signed_in);
         assert!(rows[0].usage.is_none(), "{:?}", rows[0].usage);
     }
@@ -1595,7 +1572,7 @@ mod tests {
             parked_usage: vec![Err(Stale::NothingParked), Err(Stale::NothingParked)],
             claude_code_cache: None,
         };
-        let rows = assemble(&s, &f, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &f, nothing_remembered, NOW);
         let alpha = rows
             .iter()
             .find(|r| r.provider == ProviderId::Claude)
@@ -1685,7 +1662,7 @@ mod tests {
             vec![Err(Stale::NotAsked), Err(Stale::NothingParked)],
         );
 
-        let rows = assemble(&s, &facts, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &facts, nothing_remembered, NOW);
         let beta = rows
             .iter()
             .find(|r| r.label.as_deref() == Some("beta"))
@@ -1698,7 +1675,7 @@ mod tests {
             live("alpha-uuid", Ok(reading(5.0, Source::Live, None))),
             vec![Err(Stale::NotAsked), Err(Stale::NothingParked)],
         );
-        let rows = assemble(&s, &readable, nothing_remembered, nothing_known, NOW);
+        let rows = assemble(&s, &readable, nothing_remembered, NOW);
         let beta = rows
             .iter()
             .find(|r| r.label.as_deref() == Some("beta"))
@@ -1734,13 +1711,7 @@ mod tests {
         };
 
         let claude_only = state(&["alpha"]);
-        let rows = assemble(
-            &claude_only,
-            &facts_with(1),
-            nothing_remembered,
-            nothing_known,
-            NOW,
-        );
+        let rows = assemble(&claude_only, &facts_with(1), nothing_remembered, NOW);
         assert_eq!(
             rows.len(),
             1,
@@ -1749,13 +1720,7 @@ mod tests {
 
         let mut both = state(&["alpha"]);
         both.accounts.push(codex_account("work", "work-acc"));
-        let rows = assemble(
-            &both,
-            &facts_with(2),
-            nothing_remembered,
-            nothing_known,
-            NOW,
-        );
+        let rows = assemble(&both, &facts_with(2), nothing_remembered, NOW);
         let said = rows
             .iter()
             .find(|r| r.provider == ProviderId::Codex && r.label.is_none())
@@ -2099,7 +2064,6 @@ mod tests {
             parked: None,
             usage: None,
             stale: Some(Stale::LoginUnreadable),
-            runway: crate::history::Runway::Unknown,
         };
         assert!(row.unplaced());
         row.stale = Some(Stale::LoginUnusable);

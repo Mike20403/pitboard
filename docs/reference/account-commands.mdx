@@ -44,15 +44,14 @@ pitboard status --offline
 
 ```text
 ● personal  me@example.com  signed in
-    5h    ██████░░░░   59%  resets in 1h 10m
-    week  ███████░░░   73%  resets in 5d 18h
-          about 48m left at this rate
+    5h    ██████░│░░   59%  resets in 1h 10m  18% under pace
+    week  █│█████░░░   73%  resets in 5d 18h  55% over pace
+          weekly limit runs out in 11h 05m at this pace
           measured 14:02, 3m ago · read without asking Anthropic
 
 ○ work      me@company.com  ready · good for 26d 4h
-    5h    █░░░░░░░░░   12%  resets in 3h 02m
-    week  ████░░░░░░   40%  resets in 2d 4h
-          resets in 3h 02m
+    5h    █░░│░░░░░░   12%  resets in 3h 02m  27% under pace
+    week  ████░░│░░░   40%  resets in 2d 4h   29% under pace
           measured 14:02, 3m ago · read without asking Anthropic
 ```
 
@@ -164,7 +163,7 @@ Drop an account and its parked login
 Usage: pitboard forget [OPTIONS] <LABEL>
 ```
 
-`pitboard forget` drops an account from Pitboard's list. It deletes the account's parked login, its last usage reading and its usage history. Deleting a parked login does not revoke it; see [Security and privacy](/security#what-pitboard-protects-against).
+`pitboard forget` drops an account from Pitboard's list. It deletes the account's parked login and its last usage reading. Deleting a parked login does not revoke it; see [Security and privacy](/security#what-pitboard-protects-against).
 
 The menu bar app then deletes the account's [window](/reference/app#account-windows) data, sign-in included, at its next successful read of the accounts.
 
@@ -206,7 +205,7 @@ Change the label an account is enrolled under
 Usage: pitboard rename [OPTIONS] <FROM> <TO>
 ```
 
-`pitboard rename` changes only the label. The account keeps its parked login and its usage history, because Pitboard files both under the account's id, not its label. An account in use stays in use.
+`pitboard rename` changes only the label. The account keeps its parked login and its last usage reading, because Pitboard files both under the account's id, not its label. An account in use stays in use.
 
 | Argument | Description |
 | --- | --- |

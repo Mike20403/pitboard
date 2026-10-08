@@ -81,8 +81,6 @@ pub(super) fn account(
         }),
         stale: None,
         stale_explanation: None,
-        lasts_seconds: None,
-        lasts_burning: false,
     }
 }
 

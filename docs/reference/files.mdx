@@ -26,7 +26,6 @@ Pitboard refuses a directory that a sync client copies to other machines, becaus
 | `vault/` | Linux only: parked logins, one file each | Switches, sign-ins and renewals |
 | `usage.json` | The newest usage reading for each account | Reading usage, and the status line |
 | `usage.lock` | The lock around `usage.json` and `sessions.json` | Reading usage, and the status line |
-| `readings/` | One file per account, with 14 days of readings, to work out how long the account lasts | Reading usage |
 | `asking.json` | When Pitboard last asked Anthropic or OpenAI for each account's usage, and how long to wait before asking again | Reading usage |
 | `sessions.json` | The usage each Claude Code session last gave `pitboard statusline`, and the account in use then. A session not seen for 7 days is dropped. | The status line |
 | `backups/` | Copies of Claude Code's config from before each switch rewrote it. Each is named after the time it was made, in seconds since 1 January 1970, such as `claude.json.1790000000`. The 10 newest are kept. They hold no login, but do hold your email address, your Anthropic account and organisation identifiers, and the path of each project Claude Code has opened. Each keeps the mode of Claude Code's file. | A Claude Code switch |

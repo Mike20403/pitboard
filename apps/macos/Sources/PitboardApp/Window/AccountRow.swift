@@ -63,8 +63,8 @@ struct AccountRow: View {
     }
 
     /// What is worth knowing beyond the limits: why it cannot be used, why its numbers are
-    /// not new, how long the account in use lasts at this rate, and how long a parked login
-    /// stays usable.
+    /// not new, which limit of the account in use runs out first at its pace, and how long a
+    /// parked login stays usable.
     private var notes: [String] {
         [item.problem, item.staleNote, item.pace, item.parkedNote].compactMap { $0 }
     }

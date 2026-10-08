@@ -113,9 +113,8 @@ impl Provider for Codex {
         // pair names one login's quota, so the pair is the identity.
         //
         // Joined with `_`, which appears in neither half and is safe everywhere an account
-        // id goes: a park's name, which on Linux is a file name the vault checks, and the
-        // name of its usage history. A `:` there made every real Codex park unwritable on
-        // Linux and every Codex history unrecorded.
+        // id goes, such as a park's name, which on Linux is a file name the vault checks. A
+        // `:` there made every real Codex park unwritable on Linux.
         let person = jwt::claim(&claims, &[OPENAI, "chatgpt_user_id"])
             .or_else(|| jwt::claim(&claims, &[OPENAI, "user_id"]));
         Ok(Identity {

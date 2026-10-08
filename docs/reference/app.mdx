@@ -38,6 +38,7 @@ The accounts are under a heading per tool once both tools have accounts. A check
 | Line | Meaning |
 | --- | --- |
 | **5-hour 42%, weekly 12%** | How much of each limit the account has used. |
+| **weekly 73% (runs out in 11h 05m)** | For the account in use, the limit that runs out first at its [pace](/concepts/usage#pace), and when. |
 | **5-hour used up until 22:12** | The limit is used up until it resets at 22:12. A reset on a later day adds the weekday, as in **Tue 09:00**. |
 | **5-hour used up** | The limit was used up when last read, and its reset time has passed since. |
 | **Switching** | A switch to the account is running. |
@@ -108,8 +109,8 @@ Each account's row has these parts:
 | --- | --- |
 | Name | A symbol, the account's label and its email address. |
 | Right side | **In Use**, or a button: **Use** or **Sign In Again**. |
-| A line per limit | The limit's short name, such as **5h** or **week**, then a bar and the percentage used. Last is when it resets, such as **resets in 2h 10m**, or **resetting now** once that time has come. The bar is green under 70%, orange from 70% and red from 90%. |
-| Notes | In this order: why the account cannot be used, why its numbers are old, how long it lasts at the rate it has been used and how long its parked login lasts. The last appears only for a Claude Code account not in use. |
+| A line per limit | The limit's short name, such as **5h** or **week**, then a bar and the percentage used, when it resets, such as **resets in 2h 10m**, or **resetting now** once that time has come, and its [pace](/concepts/usage#pace), such as **27% over pace**. The bar is green under 70%, orange from 70% and red from 90%. A red mark across it where the limit is over pace, or a green one where under, shows where an even pace would be by now. Holding the pointer over the bar says what an even pace would have used. |
+| Notes | In this order: why the account cannot be used, why its numbers are old, which limit of the account in use runs out first at its pace, and how long its parked login lasts. The last appears only for a Claude Code account not in use. |
 
 For what each line means, see [Check what each account has left](/guides/usage#read-the-lines-under-each-account).
 

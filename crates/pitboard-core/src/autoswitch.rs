@@ -495,7 +495,6 @@ pub(crate) fn look(ctx: &Context, state: &State, threshold: Threshold) -> Next {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::Runway;
     use crate::state::Park;
     use crate::switch::harness::{NOW, account, window};
     use crate::usage::Source;
@@ -528,7 +527,6 @@ mod tests {
                 source: Source::Remembered,
             }),
             stale: None,
-            runway: Runway::Unknown,
         }
     }
 

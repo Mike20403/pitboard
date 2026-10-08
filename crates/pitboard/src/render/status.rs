@@ -2,6 +2,7 @@
 
 use crate::ui::{self, BAD, BOLD, DIM, GOOD, WARN, pad, paint};
 use pitboard_core::doctor::renewal_due;
+use pitboard_core::pace::Lasts;
 use pitboard_core::provider::ProviderId;
 use pitboard_core::state::Key;
 use pitboard_core::status::{Report, Row, Stale};
@@ -132,6 +133,14 @@ pub fn human(report: &Report) -> String {
         .map(|w| ui::columns(&window_name(w)))
         .max()
         .unwrap_or(0);
+    // So the paces after them line up, where there are any.
+    let resets_width = report
+        .rows
+        .iter()
+        .flat_map(|r| r.usage.iter().flat_map(|u| u.windows.iter()))
+        .filter_map(|w| w.resets_at.map(|at| ui::columns(&words::resets(at, now))))
+        .max()
+        .unwrap_or(0);
 
     let mut blocks = Vec::new();
     let mut heading: Option<ProviderId> = None;
@@ -161,6 +170,11 @@ pub fn human(report: &Report) -> String {
         ));
 
         let windows: Vec<&Window> = row.usage.iter().flat_map(|u| u.windows.iter()).collect();
+        let read_at = row
+            .usage
+            .as_ref()
+            .and_then(|u| u.observed_at)
+            .unwrap_or(now);
         let why = row.explanation();
         if windows.is_empty() {
             block.push_str(&format!(
@@ -178,20 +192,37 @@ pub fn human(report: &Report) -> String {
                 let resets = w
                     .resets_at
                     .map_or_else(String::new, |at| words::resets(at, now));
+                let pace = w.pace(read_at, now);
+                let after = match &pace {
+                    Some(pace) => format!(
+                        "{}  {}",
+                        paint(DIM, pad(&resets, resets_width)),
+                        paint(ui::pace(pace.standing), words::pace_column(pace))
+                    ),
+                    None => paint(DIM, resets),
+                };
                 block.push_str(&format!(
-                    "    {}  {}  {}  {}\n",
+                    "    {}  {}  {}  {after}\n",
                     pad(&window_name(w), name_width),
-                    ui::bar(w.percent, 10),
+                    ui::bar(w.percent, pace.as_ref(), 10),
                     paint(ui::level(w.percent), format!("{:>3.0}%", w.percent)),
-                    paint(DIM, resets)
                 ));
             }
-            // The answer to the question the whole tool exists for, where there is one.
-            if let Some(lasts) = words::runway(row.runway) {
+            // The answer to the question the whole tool exists for, where there is one: for
+            // the account in use, since a parked one is not being used and nothing of it
+            // runs out.
+            if row.signed_in
+                && let Some(Lasts::RunsOut { limit, in_seconds }) = row.lasts(now)
+            {
+                let name = words::scoped_limit_name(
+                    &limit.kind,
+                    limit.length_seconds,
+                    limit.scope.as_deref(),
+                );
                 block.push_str(&format!(
                     "    {}  {}\n",
                     pad("", name_width),
-                    paint(DIM, lasts)
+                    paint(BAD, words::runs_out(&name, in_seconds))
                 ));
             }
             let note = row.usage.as_ref().and_then(|u| provenance(u, now));
@@ -248,6 +279,14 @@ fn email(row: &Row) -> String {
     }
 }
 
+/// A limit as `--json` gives it: as its service said it, with its pace as read at `at`
+/// and told at `now` beside, null where that means nothing.
+fn window(limit: &Window, at: i64, now: i64) -> Value {
+    let mut value = json!(limit);
+    value["pace"] = json!(limit.pace(at, now));
+    value
+}
+
 pub fn json(report: &Report) -> Value {
     json!({
         // Which slot this answer is about. Accounts and their parked logins belong to the
@@ -274,21 +313,23 @@ pub fn json(report: &Report) -> Value {
                 "access_expires_at": p.access_expires_at,
                 "refresh_expires_at": p.refresh_expires_at,
             })),
-            // How long this account lasts, from what its limits have been doing. Null when
-            // there is not enough to go on: a wrong runway tells somebody to switch when
-            // they need not, which is worse than no runway.
-            "lasts": r.runway.seconds().map(|seconds| json!({
-                "seconds": seconds,
-                "why": match r.runway {
-                    pitboard_core::history::Runway::Burning(_) => "filling",
-                    pitboard_core::history::Runway::Resting(_) => "resets",
-                    pitboard_core::history::Runway::Unknown => "unknown",
+            // How long this account lasts, from its limits' paces: until one runs out at its
+            // pace, or else until the first reset. Null where no limit says when it resets.
+            "lasts": r.lasts(report.now).map(|lasts| json!({
+                "seconds": lasts.seconds(),
+                "why": match lasts {
+                    Lasts::RunsOut { .. } => "filling",
+                    Lasts::UntilReset { .. } => "resets",
                 },
             })),
             "usage": r.usage.as_ref().map(|u| json!({
                 "source": u.source,
                 "observed_at": u.observed_at,
-                "windows": u.windows,
+                "windows": u
+                    .windows
+                    .iter()
+                    .map(|w| window(w, u.observed_at.unwrap_or(report.now), report.now))
+                    .collect::<Vec<_>>(),
             })),
             "stale": r.stale,
             // Which tool the account is for, and its name as it would be typed with the
@@ -339,7 +380,6 @@ mod tests {
         let name = label.unwrap_or("someone");
         Row {
             provider: ProviderId::Claude,
-            runway: pitboard_core::history::Runway::Unknown,
             label: label.map(str::to_owned),
             email: format!("{name}@example.com"),
             account_uuid: format!("{name}-uuid"),
@@ -382,22 +422,109 @@ mod tests {
         );
     }
 
-    /// Under a minute, how long an account lasts is said in words, as the app says it,
-    /// rather than as a span of "<1m".
+    const HOUR: i64 = 3_600;
+    const WEEK: i64 = 7 * 86_400;
+
+    /// A limit of `length` with `gone` of it gone by.
+    fn timed(kind: &str, percent: f64, gone: i64, length: i64) -> Window {
+        Window {
+            kind: kind.into(),
+            scope: None,
+            percent,
+            resets_at: Some(NOW + length - gone),
+            is_active: true,
+            severity: None,
+            length_seconds: Some(length),
+        }
+    }
+
+    /// A five-hour limit four hours in at 30%, and a week ten hours in at 33%, read just now.
+    fn busy(label: &str, signed_in: bool) -> Row {
+        let mut row = row(Some(label), signed_in);
+        let usage = row.usage.as_mut().unwrap();
+        usage.observed_at = Some(NOW);
+        usage.windows = vec![
+            timed("session", 30.0, 4 * HOUR, 5 * HOUR),
+            timed("weekly_all", 33.0, 10 * HOUR, WEEK),
+        ];
+        row
+    }
+
+    /// Each limit says beside its reset how far it is from an even pace, and its bar marks
+    /// where an even pace would be. The account in use says which of its limits runs out
+    /// first, and when; a parked one is not being used, so nothing of it runs out.
     #[test]
-    fn under_a_minute_an_account_is_about_to_run_out() {
-        let lasting = |runway| {
-            let mut work = row(Some("work"), true);
-            work.runway = runway;
-            plain(&human(&report(vec![work])))
+    fn a_limit_says_its_pace_and_the_account_in_use_when_it_runs_out() {
+        let text = plain(&human(&report(vec![
+            busy("work", true),
+            busy("personal", false),
+        ])));
+        let block = |email: &str| {
+            text.split("\n\n")
+                .find(|b| b.contains(email))
+                .expect(&text)
+                .to_string()
         };
-        let says = |text: &str, line: &str| text.lines().any(|l| l.trim() == line);
-        let burning = lasting(pitboard_core::history::Runway::Burning(30));
-        assert!(says(&burning, "about to run out"), "{burning}");
-        let resting = lasting(pitboard_core::history::Runway::Resting(30));
-        assert!(says(&resting, "resets any moment"), "{resting}");
-        let later = lasting(pitboard_core::history::Runway::Burning(3_900));
-        assert!(says(&later, "about 1h 05m left at this rate"), "{later}");
+        let line = |block: &str, name: &str| {
+            block
+                .lines()
+                .find(|l| l.trim_start().starts_with(name))
+                .expect(block)
+                .to_string()
+        };
+        let work = block("work@");
+        assert!(line(&work, "5h").contains("50% under pace"), "{work}");
+        assert!(line(&work, "5h").contains('│'), "{work}");
+        assert!(line(&work, "week").contains("27% over pace"), "{work}");
+        assert!(
+            work.lines()
+                .any(|l| l.trim() == "weekly limit runs out in 20h 18m at this pace"),
+            "{work}"
+        );
+        let personal = block("personal@");
+        assert!(
+            line(&personal, "week").contains("27% over pace"),
+            "{personal}"
+        );
+        assert!(!personal.contains("runs out"), "{personal}");
+    }
+
+    /// Under a minute, a limit running out is said in words rather than as "<1m".
+    #[test]
+    fn under_a_minute_a_limit_is_about_to_run_out() {
+        let mut work = row(Some("work"), true);
+        work.usage.as_mut().unwrap().windows = vec![timed("weekly_all", 99.9, 10 * HOUR, WEEK)];
+        let text = plain(&human(&report(vec![work])));
+        assert!(
+            text.lines()
+                .any(|l| l.trim() == "weekly limit is about to run out"),
+            "{text}"
+        );
+    }
+
+    /// In `--json`, each limit has its pace, null where it means nothing, and an account
+    /// says how long it lasts from those paces: until a limit runs out at its pace, or else
+    /// until its first reset.
+    #[test]
+    fn the_json_gives_each_limit_its_pace_and_an_account_how_long_it_lasts() {
+        let value = json(&report(vec![busy("work", true), row(Some("plain"), false)]));
+        let work = &value["accounts"][0];
+        let windows = &work["usage"]["windows"];
+        assert_eq!(windows[0]["pace"]["standing"], "under");
+        assert_eq!(windows[1]["pace"]["standing"], "over");
+        assert_eq!(windows[1]["pace"]["runs_out_in"], 73_090);
+        assert_eq!(windows[1]["kind"], "weekly_all", "the limit is as it was");
+        assert_eq!(work["lasts"], json!({"seconds": 73_090, "why": "filling"}));
+        let plain = &value["accounts"][1];
+        assert!(plain["usage"]["windows"][0]["pace"].is_null());
+        assert_eq!(plain["lasts"], json!({"seconds": 3_600, "why": "resets"}));
+
+        // Over pace and not in use: nothing of it is being used, so it lasts until its first
+        // reset, as `pitboard status` and the app say nothing of it running out.
+        let parked = json(&report(vec![busy("spare", false)]));
+        let parked = &parked["accounts"][0];
+        assert_eq!(parked["usage"]["windows"][1]["pace"]["standing"], "over");
+        assert_eq!(parked["lasts"], json!({"seconds": HOUR, "why": "resets"}));
     }
 
     #[test]
@@ -562,7 +689,7 @@ mod tests {
     }
 
     /// Two tools' accounts can share a label, so with both on screen the tool is said.
-    /// With one, nothing is added: see [`a_claude_code_machine_reads_exactly_as_it_did`].
+    /// With one, nothing is added: see [`a_claude_code_machine_reads_exactly_as_pinned`].
     #[test]
     fn with_two_tools_each_gets_a_heading() {
         let mut work = codex(Some("work"), true);
@@ -763,16 +890,17 @@ mod tests {
         report
     }
 
-    /// A machine with only Claude Code on it reads exactly as it did before a row knew its
-    /// tool: every character, and every colour. Pinned from the renderer as it was, because
-    /// "nothing changed for one tool" is a promise and a promise needs a test.
+    /// A machine with only Claude Code on it reads exactly as pinned here: every character,
+    /// and every colour. Pinned before there was a second tool, because "nothing changed for
+    /// one tool" is a promise and a promise needs a test, and again when each limit came to
+    /// say its pace.
     #[test]
-    fn a_claude_code_machine_reads_exactly_as_it_did() {
+    fn a_claude_code_machine_reads_exactly_as_pinned() {
         let expected = "\
 ● work      work@example.com      signed in
     5h            ███░░░░░░░   30%  resets in 1h 00m
-    week          ████░░░░░░   40%  resets in 3d 0h
-    week · Fable  ░░░░░░░░░░    0%  resets in 1d 0h
+    week          ████░│░░░░   40%  resets in 3d 0h   16% under pace
+    week · Fable  ░░░░░░░░│░    0%  resets in 1d 0h   85% under pace
 
 ○ personal  personal@example.com  ready · good for 20d 0h
     5h            ████░░░░░░   44%  resets in 1h 00m
@@ -790,33 +918,32 @@ mod tests {
 for the credential slot Claude Code-credentials
 ";
         assert_eq!(plain(&human(&every_claude_row())), expected);
-        assert_eq!(
-            human(&every_claude_row()),
-            STYLED_BEFORE,
-            "the colours moved"
-        );
+        assert_eq!(human(&every_claude_row()), STYLED, "the colours moved");
     }
 
-    /// What [`a_claude_code_machine_reads_exactly_as_it_did`] renders, escape codes and
-    /// all, as the renderer wrote it before there was a second tool.
-    const STYLED_BEFORE: &str = "\u{1b}[32m●\u{1b}[0m \u{1b}[1mwork    \u{1b}[0m  \u{1b}[2mwork@example.com    \u{1b}\
-        [0m  \u{1b}[32msigned in\u{1b}[0m\n    5h            \u{1b}[32m███\u{1b}[0m\u{1b}\
-        [2m░░░░░░░\u{1b}[0m  \u{1b}[32m 30%\u{1b}[0m  \u{1b}[2mresets in 1h 00m\u{1b}[0m\
-        \n    week          \u{1b}[32m████\u{1b}[0m\u{1b}[2m░░░░░░\u{1b}[0m  \u{1b}[32m \
-        40%\u{1b}[0m  \u{1b}[2mresets in 3d 0h\u{1b}[0m\n    week · Fable  \u{1b}[32m\u{1b}\
-        [0m\u{1b}[2m░░░░░░░░░░\u{1b}[0m  \u{1b}[32m  0%\u{1b}[0m  \u{1b}[2mresets in 1d \
-        0h\u{1b}[0m\n\n\u{1b}[2m○\u{1b}[0m \u{1b}[1mpersonal\u{1b}[0m  \u{1b}[2mpersonal\
-        @example.com\u{1b}[0m  \u{1b}[32mready\u{1b}[0m \u{1b}[2m· good for 20d 0h\u{1b}\
-        [0m\n    5h            \u{1b}[32m████\u{1b}[0m\u{1b}[2m░░░░░░\u{1b}[0m  \u{1b}[3\
-        2m 44%\u{1b}[0m  \u{1b}[2mresets in 1h 00m\u{1b}[0m\n                  \u{1b}[33\
-        mAnthropic could not be reached\u{1b}[0m\n\n\u{1b}[2m○\u{1b}[0m \u{1b}[1mempty   \
-        \u{1b}[0m  \u{1b}[2mempty@example.com   \u{1b}[0m  \u{1b}[33mnothing parked · pi\
-        tboard enroll empty --sign-in\u{1b}[0m\n    \u{1b}[2mno usage known yet\u{1b}[0m\
-        \n\n\u{1b}[2m○\u{1b}[0m \u{1b}[1mexpired \u{1b}[0m  \u{1b}[2mexpired@example.com \
-        \u{1b}[0m  \u{1b}[31mlogin expired · pitboard enroll expired --sign-in\u{1b}[0m\n    \
-        \u{1b}[2mno usage known yet\u{1b}[0m\n\n\u{1b}[32m●\u{1b}[0m \u{1b}[1m        \u{1b}\
-        [0m  \u{1b}[2msomeone@example.com \u{1b}[0m  \u{1b}[32msigned in\u{1b}[0m \u{1b}\
-        [33m· not enrolled: pitboard enroll <label>\u{1b}[0m\n    \u{1b}[2mno usage know\
-        n · Claude Code's session has expired; `claude` renews it\u{1b}[0m\n\n\u{1b}[2mf\
-        or the credential slot Claude Code-credentials\u{1b}[0m\n";
+    /// What [`a_claude_code_machine_reads_exactly_as_pinned`] renders, escape codes and
+    /// all.
+    const STYLED: &str = "\u{1b}[32m●\u{1b}[0m \u{1b}[1mwork    \u{1b}[0m  \u{1b}[2mwork@example.com    \
+        \u{1b}[0m  \u{1b}[32msigned in\u{1b}[0m\n    5h            \u{1b}[32m███\u{1b}\
+        [0m\u{1b}[2m░░░░░░░\u{1b}[0m  \u{1b}[32m 30%\u{1b}[0m  \u{1b}[2mresets in 1h \
+        00m\u{1b}[0m\n    week          \u{1b}[32m████\u{1b}[0m\u{1b}[2m░\u{1b}[0m\u{1b}\
+        [32m│\u{1b}[0m\u{1b}[2m░░░░\u{1b}[0m  \u{1b}[32m 40%\u{1b}[0m  \u{1b}[2mrese\
+        ts in 3d 0h \u{1b}[0m  \u{1b}[32m16% under pace\u{1b}[0m\n    week · Fable  \
+        \u{1b}[2m░░░░░░░░\u{1b}[0m\u{1b}[32m│\u{1b}[0m\u{1b}[2m░\u{1b}[0m  \u{1b}[32\
+        m  0%\u{1b}[0m  \u{1b}[2mresets in 1d 0h \u{1b}[0m  \u{1b}[32m85% under pace\
+        \u{1b}[0m\n\n\u{1b}[2m○\u{1b}[0m \u{1b}[1mpersonal\u{1b}[0m  \u{1b}[2mperson\
+        al@example.com\u{1b}[0m  \u{1b}[32mready\u{1b}[0m \u{1b}[2m· good for 20d 0h\
+        \u{1b}[0m\n    5h            \u{1b}[32m████\u{1b}[0m\u{1b}[2m░░░░░░\u{1b}[0m  \
+        \u{1b}[32m 44%\u{1b}[0m  \u{1b}[2mresets in 1h 00m\u{1b}[0m\n                  \
+        \u{1b}[33mAnthropic could not be reached\u{1b}[0m\n\n\u{1b}[2m○\u{1b}[0m \u{1b}\
+        [1mempty   \u{1b}[0m  \u{1b}[2mempty@example.com   \u{1b}[0m  \u{1b}[33mnoth\
+        ing parked · pitboard enroll empty --sign-in\u{1b}[0m\n    \u{1b}[2mno usage \
+        known yet\u{1b}[0m\n\n\u{1b}[2m○\u{1b}[0m \u{1b}[1mexpired \u{1b}[0m  \u{1b}\
+        [2mexpired@example.com \u{1b}[0m  \u{1b}[31mlogin expired · pitboard enroll \
+        expired --sign-in\u{1b}[0m\n    \u{1b}[2mno usage known yet\u{1b}[0m\n\n\u{1b}\
+        [32m●\u{1b}[0m \u{1b}[1m        \u{1b}[0m  \u{1b}[2msomeone@example.com \u{1b}\
+        [0m  \u{1b}[32msigned in\u{1b}[0m \u{1b}[33m· not enrolled: pitboard enroll \
+        <label>\u{1b}[0m\n    \u{1b}[2mno usage known · Claude Code's session has ex\
+        pired; `claude` renews it\u{1b}[0m\n\n\u{1b}[2mfor the credential slot Claud\
+        e Code-credentials\u{1b}[0m\n";
 }

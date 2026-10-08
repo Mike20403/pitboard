@@ -54,11 +54,11 @@ mod present;
 pub use present::{
     AccountItem, AccountSection, AccountWindowsShown, AccountsShown, ActivityLine, ActivityShown,
     AutoSwitchShown, CheckLine, ChecksShown, Choice, CommandLineShown, DownloadShown,
-    DownloadState, EmptyList, Footing, ItemAction, ItemOffer, LimitRow, LinkPicker, MachineShown,
-    MenuBarText, MenuEntry, MenuNotices, NoticeAction, OpenWindow, PageLoad, PanelNotice,
-    PickerAccount, PickerShown, Question, RenewalShown, ScheduleShown, SetupStep, Severity,
-    SheetText, SheetTool, SigningInText, StoreDeletion, WaitingShown, WindowOffer, WindowWaiting,
-    downloads_quit_question, name_to_save,
+    DownloadState, EmptyList, Footing, ItemAction, ItemOffer, LimitPace, LimitRow, LinkPicker,
+    MachineShown, MenuBarText, MenuEntry, MenuNotices, NoticeAction, OpenWindow, PaceStanding,
+    PageLoad, PanelNotice, PickerAccount, PickerShown, Question, RenewalShown, ScheduleShown,
+    SetupStep, Severity, SheetText, SheetTool, SigningInText, StoreDeletion, WaitingShown,
+    WindowOffer, WindowWaiting, downloads_quit_question, name_to_save,
 };
 
 mod account_windows;
@@ -258,15 +258,6 @@ pub struct Account {
     pub stale: Option<String>,
     /// What to tell a person about `stale`, when it is worth a word.
     pub stale_explanation: Option<String>,
-    /// How long this account lasts, in seconds: until its tightest limit fills at the rate
-    /// it has been filling, or until that limit resets, whichever comes first.
-    ///
-    /// `None` until there is enough to go on. A wrong runway tells somebody to switch when
-    /// they need not, which is worse than none.
-    pub lasts_seconds: Option<i64>,
-    /// Whether `lasts_seconds` is a limit filling or a limit resetting, which is the
-    /// difference between "about an hour left" and "whole again in an hour".
-    pub lasts_burning: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -311,19 +302,6 @@ pub(crate) fn usage_level(percent: f64) -> UsageLevel {
     }
 }
 
-/// How long an account lasts, from an `Account`'s `lasts_seconds` and `lasts_burning`:
-/// "about 1h 30m left at this rate", "resets in 1h 30m", and under a minute "about to run
-/// out" or "resets any moment". `None` where `lasts_seconds` is, until there is enough to go
-/// on.
-pub(crate) fn runway(seconds: Option<i64>, burning: bool) -> Option<String> {
-    use pitboard_core::history::Runway;
-    words::runway(match seconds {
-        None => Runway::Unknown,
-        Some(seconds) if burning => Runway::Burning(seconds),
-        Some(seconds) => Runway::Resting(seconds),
-    })
-}
-
 /// What a renewal run did, from what renewing each due login came to: "No parked login was
 /// due.", "Renewed one.", "Renewed 1 of 2; the rest are tried again next time.".
 pub(crate) fn renewal_note(renewals: &[Renewed]) -> String {
@@ -347,28 +325,6 @@ pub(crate) fn doctor_summary(checks: &[Check]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// An account's runway reaches the apps as seconds and whether its limit is filling,
-    /// and reads the way `pitboard status` says it. Without the seconds there is nothing to
-    /// say, whichever way the account is going.
-    #[test]
-    fn a_runway_is_said_from_an_accounts_two_fields() {
-        assert_eq!(
-            runway(Some(5_400), true).as_deref(),
-            Some("about 1h 30m left at this rate")
-        );
-        assert_eq!(
-            runway(Some(3_900), false).as_deref(),
-            Some("resets in 1h 05m")
-        );
-        assert_eq!(runway(Some(30), true).as_deref(), Some("about to run out"));
-        assert_eq!(
-            runway(Some(30), false).as_deref(),
-            Some("resets any moment")
-        );
-        assert_eq!(runway(None, true), None);
-        assert_eq!(runway(None, false), None);
-    }
 
     /// Only a renewal that renewed counts as one: a deferred or refused one was due and
     /// was not renewed.

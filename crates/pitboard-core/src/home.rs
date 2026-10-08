@@ -80,6 +80,34 @@ pub fn dir(ctx: &Context) -> PathBuf {
     ctx.pitboard_home.clone()
 }
 
+/// Removes what an older Pitboard kept here and this one does not: `readings/`, a
+/// fortnight of readings per account that how long an account lasts was once worked out
+/// from, before [`crate::pace`] took it from one reading. Only the files it wrote, one
+/// `<account id>.ndjson` each, and then the folder where nothing else is in it:
+/// `PITBOARD_HOME` can name a folder of somebody's own. Gone already is the ordinary answer.
+pub(crate) fn remove_retired(ctx: &Context, permit: Permit) {
+    let readings = dir(ctx).join("readings");
+    let Ok(entries) = std::fs::read_dir(&readings) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        let written_by_pitboard = path.extension().is_some_and(|e| e == "ndjson")
+            && path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| {
+                    !stem.is_empty()
+                        && stem
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                });
+        if written_by_pitboard {
+            let _ = crate::host::fs::remove_file(permit, &path);
+        }
+    }
+    let _ = crate::host::fs::remove_dir(permit, &readings);
+}
+
 pub fn ensure(ctx: &Context, permit: Permit) -> io::Result<PathBuf> {
     let path = dir(ctx);
     crate::host::fs::create_private_dir(permit, &path)?;
@@ -164,6 +192,44 @@ mod tests {
             Err(Error::HomeNotAbsolute { variable, path }) => Some((variable, path)),
             Err(other) => panic!("{other}"),
         }
+    }
+
+    /// The readings an older Pitboard kept to work out a rate from go, and nothing beside
+    /// them does: not the files around them, and not a file in that folder Pitboard never
+    /// wrote, which keeps the folder too. `PITBOARD_HOME` can name a folder of somebody's
+    /// own.
+    #[test]
+    fn what_an_older_pitboard_kept_and_this_one_does_not_is_removed() {
+        let root = std::env::temp_dir().join(format!(
+            "pitboard-home-retired-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let ctx = Context::new(root.clone()).with_pitboard_home(root.join(".pitboard"));
+        let readings = dir(&ctx).join("readings");
+        std::fs::create_dir_all(&readings).expect("a readings folder");
+        std::fs::write(readings.join("acc.ndjson"), "{}\n").expect("a reading");
+        std::fs::write(dir(&ctx).join("usage.json"), "{}").expect("usage");
+
+        remove_retired(&ctx, crate::service::Permit::for_a_test());
+        assert!(!readings.exists());
+        assert!(
+            dir(&ctx).join("usage.json").exists(),
+            "only what is retired"
+        );
+        remove_retired(&ctx, crate::service::Permit::for_a_test());
+
+        std::fs::create_dir_all(&readings).expect("a readings folder");
+        std::fs::write(readings.join("acc.ndjson"), "{}\n").expect("a reading");
+        std::fs::write(readings.join("notes.txt"), "mine").expect("somebody's own");
+        std::fs::write(readings.join("my data.ndjson"), "mine").expect("not an account id");
+        remove_retired(&ctx, crate::service::Permit::for_a_test());
+        assert!(!readings.join("acc.ndjson").exists());
+        assert!(readings.join("notes.txt").exists());
+        assert!(readings.join("my data.ndjson").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Each home the environment names is a full path or refused, by the variable that

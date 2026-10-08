@@ -1113,35 +1113,28 @@ fn asking_for_a_fresh_reading_asks_anthropic_again() {
     env.assert_usage_requests();
 }
 
-/// The data this tool needs to answer its own question, kept rather than thrown away. One
-/// snapshot per account in a map that every write replaced could never say whether 73% of a
-/// weekly limit was 40% this morning.
+/// The fortnight of readings per account an older Pitboard kept, to work out how long an
+/// account lasts, goes the first time this one reads usage: pace needs one reading. Only
+/// what Pitboard wrote goes, and a file somebody else put there keeps the folder.
 #[test]
-fn what_each_accounts_limits_have_been_doing_is_kept() {
-    let env = two_accounts("history");
+fn the_readings_an_older_pitboard_kept_go_and_nothing_else_does() {
+    let env = two_accounts("retired-readings");
+    let readings = env.root.join("pitboard/readings");
+    std::fs::create_dir_all(&readings).expect("an older Pitboard's readings");
+    let series = readings.join(format!("{}.ndjson", env.uuid('a')));
+    std::fs::write(&series, "{\"at\":1,\"windows\":[[\"five_hour\",12.0]]}\n").expect("a series");
+
     let (_, err, code) = env.run(&["status", "--json"]);
     assert_eq!(code, 0, "{err}");
+    assert!(!readings.exists(), "nothing but Pitboard's own was there");
 
-    let readings = env.root.join("pitboard/readings");
-    let kept: Vec<String> = std::fs::read_dir(&readings)
-        .expect("a readings directory")
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(kept.len(), 2, "one series per account: {kept:?}");
-
-    let alpha = readings.join(format!("{}.ndjson", env.uuid('a')));
-    let body = std::fs::read_to_string(&alpha).expect("alpha's series");
-    let line: serde_json::Value =
-        serde_json::from_str(body.lines().next().expect("a reading")).expect("json");
-    assert!(line["at"].is_i64());
-    assert_eq!(line["windows"][0][0], "five_hour");
-    assert_eq!(line["windows"][0][1], 12.0);
-
-    // And it goes when the account does.
-    let (_, err, code) = env.run(&["forget", "beta", "-y"]);
+    std::fs::create_dir_all(&readings).expect("readings again");
+    std::fs::write(&series, "{}\n").expect("a series");
+    std::fs::write(readings.join("notes.txt"), "mine").expect("somebody's own file");
+    let (_, err, code) = env.run(&["status", "--json"]);
     assert_eq!(code, 0, "{err}");
-    assert!(!readings.join(format!("{}.ndjson", env.uuid('b'))).exists());
+    assert!(!series.exists());
+    assert!(readings.join("notes.txt").exists());
 }
 
 /// A label written by 0.1.x could contain a slash. Every message about its lapsed login

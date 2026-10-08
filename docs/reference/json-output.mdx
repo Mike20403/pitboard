@@ -139,7 +139,7 @@ Each object in `accounts` has these fields:
 | `signed_in` | boolean | `true` for the account its tool is using. |
 | `switchable` | boolean | `true` when `pitboard use` can switch to it: it is not in use, and its parked login can still be restored. |
 | `parked` | object or null | The parked login's `parked_at`, `access_expires_at` and `refresh_expires_at`. `null` when nothing is parked. Each expiry is `null` when unknown, and `refresh_expires_at` is always `null` for Codex. |
-| `lasts` | object or null | `seconds` until the account's tightest limit fills at its recent rate (`why` is `filling`) or resets (`why` is `resets`), whichever comes first. `null` until there are enough readings, as [How long an account lasts](/concepts/usage#how-long-an-account-lasts) explains. |
+| `lasts` | object or null | `seconds` until the first of the account's limits runs out at its [pace](/concepts/usage#pace) (`why` is `filling`), or where none runs out before it resets, until the first of them resets (`why` is `resets`). For an account not in use, which nothing is using, always until the first reset. `null` when no limit says when it resets. |
 | `usage` | object or null | The last reading: `source`, `observed_at` (when it was taken) and `windows`. `null` when no usage is known. |
 | `stale` | string or null | Why the reading is not live, as listed in [Stale codes](/reference/json-output#stale-codes). |
 | `provider` | string | `claude` or `codex`. |
@@ -158,6 +158,7 @@ Each object in `windows` is one limit:
 | `is_active` | boolean | `true` when the service says the account is working against this limit. Always `true` for Codex. |
 | `severity` | string or null | Anthropic's own grade of the limit, or `null` when it gives none, as for every Codex limit. |
 | `length_seconds` | integer | How long the limit's window runs, such as `18000`. Left out when unknown. |
+| `pace` | object or null | How the limit's use compared with an even [pace](/concepts/usage#pace) when it was read, at `observed_at`: `expected`, the percentage an even pace would have used by then, `delta`, `percent` less `expected` in percentage points, and `standing`, `over`, `under` or `even` within 5 points. Over pace adds `runs_out_in`, the seconds from now until the limit runs out at the rate since its window began. `null` for a reading taken in the first 3% of a window, for a limit used up, for one that has reset since, and when its reset or length is unknown. |
 
 ## Watch events
 

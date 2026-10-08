@@ -1,19 +1,30 @@
 //! `pitboard statusline` as the one line Claude Code draws.
 
 use crate::ui::{self, BOLD, DIM, paint};
-use pitboard_core::statusline::{Shares, StatusLine};
+use pitboard_core::pace::Standing;
+use pitboard_core::statusline::{Paces, Shares, StatusLine};
 use pitboard_core::words;
 
-fn shares(shares: Shares) -> String {
-    let one = |share: Option<f64>| match share {
-        Some(p) => paint(ui::level(p), format!("{p:.0}%")),
-        None => paint(DIM, "?"),
+/// A limit's share, and where its pace is said, a triangle for it: rising over pace,
+/// falling under, in the colours `pitboard status` says them in.
+fn share(share: Option<f64>, pace: Option<Standing>) -> String {
+    let Some(p) = share else {
+        return paint(DIM, "?");
     };
+    let mark = match pace {
+        Some(standing @ Standing::Over { .. }) => paint(ui::pace(standing), "▲"),
+        Some(standing @ Standing::Under) => paint(ui::pace(standing), "▼"),
+        Some(Standing::Even) | None => String::new(),
+    };
+    format!("{}{mark}", paint(ui::level(p), format!("{p:.0}%")))
+}
+
+fn shares(shares: Shares, pace: Paces) -> String {
     format!(
         "{}{}{}",
-        one(shares.five_hour),
+        share(shares.five_hour, pace.five_hour),
         paint(DIM, "·"),
-        one(shares.weekly)
+        share(shares.weekly, pace.weekly)
     )
 }
 
@@ -21,7 +32,7 @@ pub fn human(line: &StatusLine) -> String {
     let mut parts = vec![format!(
         "{} {}",
         paint(BOLD, line.current.as_deref().unwrap_or("unenrolled")),
-        shares(line.session)
+        shares(line.session, line.pace)
     )];
     for other in &line.others {
         let age = other
@@ -31,7 +42,7 @@ pub fn human(line: &StatusLine) -> String {
         parts.push(format!(
             "{} {}{age}",
             paint(DIM, &other.label),
-            shares(other.shares)
+            shares(other.shares, Paces::default())
         ));
     }
     parts.join("  ")
@@ -40,6 +51,7 @@ pub fn human(line: &StatusLine) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::{BAD, GOOD};
     use pitboard_core::statusline::Entry;
 
     fn shares(five_hour: f64, weekly: f64) -> Shares {
@@ -58,6 +70,7 @@ mod tests {
         let line = StatusLine {
             current: Some("work".into()),
             session: shares(46.4, 70.0),
+            pace: Paces::default(),
             others: vec![
                 Entry {
                     label: "personal".into(),
@@ -82,8 +95,37 @@ mod tests {
         let line = StatusLine {
             current: None,
             session: Shares::default(),
+            pace: Paces::default(),
             others: Vec::new(),
         };
         assert_eq!(plain(&human(&line)), "unenrolled ?·?");
+    }
+
+    /// The account in use marks a limit over pace with a red rising triangle and one under
+    /// with a green falling one, and nothing at an even pace or where it means nothing.
+    #[test]
+    fn the_account_in_use_marks_its_pace_on_each_limit() {
+        let line = |pace| StatusLine {
+            current: Some("work".into()),
+            session: shares(46.4, 70.0),
+            pace,
+            others: vec![Entry {
+                label: "personal".into(),
+                shares: shares(12.0, 40.0),
+                age: None,
+            }],
+        };
+        let paced = line(Paces {
+            five_hour: Some(Standing::Under),
+            weekly: Some(Standing::Over { runs_out_in: 3_600 }),
+        });
+        assert_eq!(plain(&human(&paced)), "work 46%▼·70%▲  personal 12%·40%");
+        assert!(human(&paced).contains(&paint(BAD, "▲")));
+        assert!(human(&paced).contains(&paint(GOOD, "▼")));
+        let even = line(Paces {
+            five_hour: Some(Standing::Even),
+            weekly: None,
+        });
+        assert_eq!(plain(&human(&even)), "work 46%·70%  personal 12%·40%");
     }
 }

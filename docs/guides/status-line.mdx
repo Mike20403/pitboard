@@ -27,7 +27,7 @@ Claude Code runs the command after each response. With `refreshInterval`, Claude
 Each session then shows a line such as:
 
 ```text
-personal 59%·73%  work 12%·40%
+personal 59%▼·73%▲  work 12%·40%
 ```
 
 ## Read the line
@@ -38,6 +38,7 @@ The account in use comes first, in bold, then every other Claude Code account yo
 | --- | --- |
 | `personal 59%·73%` | `personal` has used 59% of its five-hour limit and 73% of its weekly limit. |
 | A green, yellow or red percentage | Green under 70%, yellow from 70%, red from 90%. |
+| A red `▲` or a green `▼` after a percentage of the account in use | That limit is used faster than an even [pace](/concepts/usage#pace), or slower. Nothing within 5 points of even, in the first 3% of a window, or where Pitboard does not know when the window resets. `pitboard` says how far, and when a limit over pace runs out. |
 | `?` | Pitboard has no reading of that limit. Run `pitboard` to read every account. |
 | `(3h 00m)` after another account | That account's numbers are 3 hours old. Numbers under 15 minutes old show no age. The account in use never shows an age. |
 | `unenrolled` in place of the first label | Claude Code is not signed in to an account you enrolled. See [Add and manage accounts](/guides/accounts#add-the-account-you-are-signed-in-to). |
