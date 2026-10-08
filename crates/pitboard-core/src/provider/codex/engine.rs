@@ -304,6 +304,11 @@ impl Provider for Codex {
         Vec::new()
     }
 
+    /// Codex keeps its login in one store, with nothing behind it.
+    fn fallback_login(&self, _ctx: &Context) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// Nothing follows on its own.
     ///
     /// A running Codex holds its login in memory for the life of the process, watches no

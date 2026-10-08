@@ -153,6 +153,24 @@ pub const PER_SYSTEM: &[PerSystem] = &[
         "windows_plaintext_write: how Claude Code writes `.credentials.json` on Windows, and \
          what keeps others out of it there",
     ),
+    PerSystem {
+        name: "locked_keychain_keeps_last_login",
+        macos: Read("2.1.294"),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: NO_KEYCHAIN_ON_WINDOWS,
+    },
+    PerSystem {
+        name: "locked_sign_in_writes_fallback",
+        macos: Read("2.1.294"),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: NO_KEYCHAIN_ON_WINDOWS,
+    },
+    PerSystem {
+        name: "fallback_outlives_keychain_writes",
+        macos: Read("2.1.294"),
+        linux: NO_KEYCHAIN_ON_LINUX,
+        windows: NO_KEYCHAIN_ON_WINDOWS,
+    },
 ];
 
 pub const ASSUMPTIONS: &[Assumption] = &[
@@ -217,8 +235,8 @@ pub const ASSUMPTIONS: &[Assumption] = &[
                failed read to a write once this process has seen the item \
                (`failureIfTransient`, from 2.1.281), and a failed read outright only when a \
                caller asks for that. Any other exit is a failed read. `show-keychain-info` \
-               exiting 36 only adds an unlock hint. Pitboard reads 36 as unreadable on \
-               purpose, the strict end of that",
+               exiting 36 only adds an unlock hint. Pitboard reads 36 as a locked keychain, \
+               never as absent, the strict end of that",
         read_from: "the keychain backend's read path",
         verified_against: VERIFIED_AGAINST,
         depends: "host::macos::keychain::classify",
@@ -466,6 +484,59 @@ pub const ASSUMPTIONS: &[Assumption] = &[
             ".credentials.json",
             "Warning: Storing credentials in plaintext.",
         ],
+        absent: &[],
+    },
+    Assumption {
+        name: "locked_keychain_keeps_last_login",
+        fact: "a keychain read that fails, as one of a locked keychain does, leaves a session \
+               serving the login it last read, cached again for another 30 seconds; a session \
+               that has read none reads the keychain as empty and the file behind it. So while \
+               the keychain is locked a running session keeps its account and follows no \
+               switch, and one started then signs in with `.credentials.json` or is signed out",
+        read_from: "the keychain backend's `read`, which logs the probe and serves its cache \
+                    when `security` fails, and its `readAsync`, which keeps the cached login \
+                    when `find-generic-password` exits 36 and answers absent",
+        // Read on 2026-10-08 from the macOS builds of 2.1.291 to 2.1.294, whose code here is
+        // the same.
+        verified_against: "2.1.294",
+        depends: "doctor's credential check, which says what a session does while the \
+                  keychain is locked",
+        probe: &["[keychain] read failed; serving stale cache"],
+        absent: &[],
+    },
+    Assumption {
+        name: "locked_sign_in_writes_fallback",
+        fact: "a sign-in in a session that cannot read the keychain, and has not read its item, \
+               fails the keychain write with exit 36, which is not transient there, writes the \
+               login to `.credentials.json`, and leaves the keychain item as it was, because \
+               the keychain read as empty before the write. The keychain then holds one login \
+               and the file another",
+        read_from: "the fallback wrapper's `update`, which deletes the primary after writing \
+                    the fallback only when the primary read non-empty first, and the keychain \
+                    backend's `update`, which calls exit 36 transient only once this process \
+                    has seen the item; and measured on 2026-10-08 with 2.1.294 under a herdr \
+                    server started over SSH: `/login` made a `.credentials.json` of mode 0600 \
+                    twice, and the app's two switches after the first went on reading and \
+                    writing the keychain item",
+        verified_against: "2.1.294",
+        depends: "doctor's fallback_login check and the warning a change gives about it",
+        probe: &["plaintext_fallback_used"],
+        absent: &[],
+    },
+    Assumption {
+        name: "fallback_outlives_keychain_writes",
+        fact: "a keychain write that lands deletes `.credentials.json` only where the keychain \
+               held nothing before it. Where both hold a login, every later keychain write, a \
+               token refresh, a sign-in from a desktop session and a switch alike, leaves the \
+               file's in place",
+        read_from: "the fallback wrapper's `update`: after a primary write that lands it \
+                    deletes the fallback only when its read of the primary before the write was \
+                    null",
+        verified_against: "2.1.294",
+        depends: "doctor's fallback_login check, whose advice is to delete the file, and the \
+                  warning a change gives while it is there",
+        // Behaviour, with no literal of its own.
+        probe: &[],
         absent: &[],
     },
 ];

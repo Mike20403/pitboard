@@ -91,12 +91,21 @@ impl RawStore for Unbuilt {
     }
 }
 
+/// Why a locked keychain stops Pitboard, and what to do, wherever a failure says why.
+pub(crate) const LOCKED: &str = "the keychain is locked and cannot ask to be unlocked from \
+                                 here; unlock it with `security unlock-keychain`, or run \
+                                 Pitboard from a desktop session";
+
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
     /// The store could not be interrogated. Never treat this as "no credential".
     #[error("the credential store could not be read: {0}")]
     Unreadable(String),
+    /// The keychain is locked and cannot ask to be unlocked from where this runs, as over
+    /// SSH. Never "no credential" either, and nothing is wrong with what it holds.
+    #[error("the credential store could not be read: {LOCKED}")]
+    Locked,
     #[error("the stored credential is not valid JSON: {0}")]
     Malformed(String),
     #[error("writing the credential failed: {0}")]
@@ -109,6 +118,7 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Error::Unreadable(_) => "credential_store_unreadable",
+            Error::Locked => "credential_store_locked",
             Error::Malformed(_) => "credential_not_json",
             Error::Write(_) => "credential_write_failed",
             Error::NotDurable(_) => "credential_not_durable",
@@ -269,6 +279,27 @@ pub fn resolve(live: &Live, service: &str) -> Result<Backend, Error> {
     })
 }
 
+/// What the backends after the one holding `service` hold under it, in chain order.
+fn behind_in(chain: &[&dyn RawStore], service: &str) -> Result<Vec<String>, Error> {
+    let mut behind = Vec::new();
+    let mut in_use = false;
+    for backend in chain {
+        if in_use {
+            behind.extend(backend.read(service)?);
+        } else {
+            in_use = backend.contains(service)?;
+        }
+    }
+    Ok(behind)
+}
+
+/// Logins in the backends after the one holding the login in use: what a reader that cannot
+/// reach that backend signs in with instead, and what no write to it reaches. Empty where
+/// the login in use is in the last backend, or nowhere.
+pub fn behind(live: &Live, service: &str) -> Result<Vec<String>, Error> {
+    with_live(live, |chain| behind_in(chain, service))
+}
+
 pub fn read_raw(live: &Live, service: &str) -> Result<Option<String>, Error> {
     with_live(live, |chain| match resolve_in(chain, service)? {
         Some(backend) => backend.read(service),
@@ -361,6 +392,32 @@ mod tests {
         let s = store(kind);
         s.plant(service, value);
         s
+    }
+
+    /// What the backends after the one in use hold is what a reader that cannot reach that
+    /// one gets instead. Nothing is behind a login that is in the last backend, or in none.
+    #[test]
+    fn what_is_behind_the_login_in_use_is_read_from_every_later_backend() {
+        let keychain = store(Backend::Keychain);
+        let plaintext = store(Backend::File);
+        let chain: [&dyn RawStore; 2] = [&keychain, &plaintext];
+        assert_eq!(behind_in(&chain, "svc").unwrap(), Vec::<String>::new());
+
+        plaintext.plant("svc", "left");
+        assert_eq!(
+            behind_in(&chain, "svc").unwrap(),
+            Vec::<String>::new(),
+            "the file is the login when the keychain holds none"
+        );
+
+        keychain.plant("svc", "in use");
+        assert_eq!(behind_in(&chain, "svc").unwrap(), ["left"]);
+
+        keychain.fault("svc", Fault::Locked);
+        assert!(
+            matches!(behind_in(&chain, "svc"), Err(Error::Locked)),
+            "which backend is in use cannot be told, so neither can what is behind it"
+        );
     }
 
     #[test]

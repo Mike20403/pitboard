@@ -223,6 +223,13 @@ impl Provider for Claude {
             .collect()
     }
 
+    fn fallback_login(&self, ctx: &Context) -> Option<PathBuf> {
+        live::fallback_login(ctx)
+            .ok()
+            .flatten()
+            .map(|_| live::credential_file(ctx))
+    }
+
     fn adoption(&self) -> Adoption {
         Adoption::PollingWithin(ADOPTION_SECONDS)
     }

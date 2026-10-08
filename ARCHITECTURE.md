@@ -1324,7 +1324,7 @@ treated, and only the macOS build shows it. The run reads both builds since.
   output is the login; exit 0 with nothing, 44, or output that is not JSON is absent. Exit
   36, a locked keychain, is absent to an ordinary read, a failed read to a write once the
   process has seen its item (from 2.1.281), and a failed read outright only when a caller
-  asks. Pitboard reads 36 as unreadable on purpose, the strict end of that.
+  asks. Pitboard reads 36 as a locked keychain, never as empty, the strict end of that.
   `security show-keychain-info` exiting 36 only adds an unlock hint.
 - On macOS the live chain is the keychain, with the plaintext file `.credentials.json`
   behind it. The successor backend, behind the `tengu_hover_rest` flag, replaces only the
@@ -1333,6 +1333,18 @@ treated, and only the macOS build shows it. The run reads both builds since.
 - Claude Code demotes to the plaintext file when a keychain write fails for good, and
   deletes the keychain item when it does. A locked keychain after the item was seen is not
   failing for good, from 2.1.281.
+- Read in 2.1.294, and the same from 2.1.291: the keychain item is deleted on a demotion only
+  when the keychain read non-empty before the write. A locked keychain reads empty to a
+  session that has not seen the item, so a sign-in there, such as `/login` over SSH, writes
+  `.credentials.json` and leaves the keychain's login in place. Measured on 8 October 2026.
+- A keychain write that lands deletes `.credentials.json` only when the keychain held
+  nothing before it. Once both hold a login, the file's outlives every token refresh, every
+  sign-in from a desktop session and every switch, and a session that cannot read the
+  keychain signs in with it. `doctor` names it as `fallback_login`, and every change to a
+  Claude Code account warns while it is there.
+- While the keychain is locked, a session keeps serving the login it last read, cached again
+  every 30 seconds, and follows no switch. One that has read none reads the keychain as
+  empty and signs in with the file, or is signed out.
 - The supervisor daemon records itself in `<config dir>/daemon.lock`, with its pid and the
   Claude Code version that started it. It leaves the file behind when it stops.
 - Claude Code's storage backends are `keychain`, `plaintext` and `windows-credman`, the

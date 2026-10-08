@@ -25,6 +25,9 @@ pub enum Fault {
     /// Every read says it could not tell. Never the same answer as "nothing is there":
     /// reading a locked keychain as empty is what would tell someone to sign in again.
     Unreadable(String),
+    /// Every read says the keychain is locked, as one does where it cannot ask to be
+    /// unlocked.
+    Locked,
     /// The item is gone from this call onwards, as if something else had deleted it.
     Vanish,
     /// Reads work until the first write is attempted; the write fails, and every read after
@@ -211,10 +214,11 @@ impl RawStore for Arc<MemoryStore> {
 
     fn read(&self, service: &str) -> Result<Option<String>, Error> {
         if self.has_locked(service) {
-            return Err(Error::Unreadable("the keychain is locked".into()));
+            return Err(Error::Locked);
         }
         match self.fault_for(service) {
             Some(Fault::Unreadable(why)) => Err(Error::Unreadable(why)),
+            Some(Fault::Locked) => Err(Error::Locked),
             Some(Fault::Vanish) => Ok(None),
             _ => Ok(self.peek(service)),
         }
@@ -227,6 +231,7 @@ impl RawStore for Arc<MemoryStore> {
         match self.fault_for(service) {
             Some(Fault::FailWrite(why)) => return Err(Error::Write(why)),
             Some(Fault::Unreadable(why)) => return Err(Error::Unreadable(why)),
+            Some(Fault::Locked) => return Err(Error::Write("the keychain is locked".into())),
             Some(Fault::LocksOnWrite) => {
                 self.lock_now(service);
                 return Err(Error::Write("the keychain is locked".into()));
@@ -234,7 +239,7 @@ impl RawStore for Arc<MemoryStore> {
             Some(Fault::LocksAfterWrite) => {
                 self.plant(service, contents);
                 self.lock_now(service);
-                return Err(Error::Unreadable("the keychain is locked".into()));
+                return Err(Error::Locked);
             }
             Some(Fault::CorruptWrite(instead)) => self.plant(service, &instead),
             Some(Fault::DeletedAfterWrite) => {
@@ -354,7 +359,7 @@ mod tests {
             Err(Error::Write(_))
         ));
         assert!(
-            matches!(s.read("svc"), Err(Error::Unreadable(_))),
+            matches!(s.read("svc"), Err(Error::Locked)),
             "once it is locked it cannot answer at all"
         );
         assert_eq!(

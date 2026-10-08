@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `pitboard doctor` warns with `fallback login` on macOS when `~/.claude/.credentials.json`
+  holds a Claude Code login besides the one in the keychain, and each change to a Claude
+  Code account warns with `fallback_login`, which the app shows as **Another login is left
+  in a file**. A `/login` run where the keychain is locked, as over SSH, leaves that file,
+  and Claude Code 2.1.294 keeps it through every later keychain write. A session that
+  cannot read the keychain signs in with it, so it stayed on another account than the one
+  Pitboard showed, whatever Pitboard switched to. See [Claude Code over SSH uses another
+  account](https://docs.usepitboard.com/troubleshooting#claude-code-over-ssh-uses-another-account).
+
+### Changed
+
+- A keychain that is locked where it cannot ask for its password stops a command with the
+  error `credential_store_locked`, in place of `credential_store_unreadable`. The message is
+  the same.
+
+### Fixed
+
+- `pitboard doctor` and the app's **This Mac** pane say a locked keychain once, as a failed
+  `credential` check, with what Claude Code sessions do until it is unlocked. Each parked
+  login behind it warns `not read: the keychain is locked`. Before, every one failed and
+  said to sign in to its account again, which nothing needed.
+
 ## [0.8.0] - 2026-10-08
 
 ### Added
