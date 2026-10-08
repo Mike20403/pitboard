@@ -44,14 +44,15 @@ use super::{Failure, Intent, LastSwitch, Pane, QuitQuestion, ReadFailure, Restar
 use super::{RunOutNotice, RunningSignIn, Sheet, WindowRequest};
 use crate::account_windows::records::{Entry, Loaded};
 use crate::{
-    Abandoned, Account, Adoption, Change, Check, Enrolled, EnrolledAs, FoundCommandLine,
-    OwnCommandLine, PitboardError, Renewed, Schedule, Status, Switch, Switched, Tool, Usage,
-    Warning,
+    Abandoned, Account, Adoption, AutoSwitched, Change, Check, Enrolled, EnrolledAs,
+    FoundCommandLine, OwnCommandLine, PitboardError, Renewed, Schedule, Status, Switch, Switched,
+    Tool, Usage, Warning,
 };
+use pitboard_core::autoswitch::Threshold;
 use pitboard_core::label::SEPARATOR;
 use pitboard_core::provider::{self, ProviderId};
 use pitboard_core::usage::same_reset;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 /// How often the model does what it does by itself, and how long it waits for an app.
@@ -159,6 +160,10 @@ pub(crate) enum Job {
         qualified: String,
         reopen: Option<String>,
     },
+    /// Switch Claude Code by itself where a limit of the account in use has reached `at`%
+    /// and another account has room: the core decides whether, and to which, from what it
+    /// knows, and decides again under its lock.
+    AutoSwitch { at: u8 },
     /// Open the app at `location` again.
     Open { location: String },
     /// Give up on an interrupted switch, keeping every login it names.
@@ -311,6 +316,10 @@ pub(crate) enum Answer {
         qualified: String,
         reopen: Option<String>,
         done: Result<Switched, PitboardError>,
+    },
+    /// What switching Claude Code by itself came to.
+    AutoSwitched {
+        done: Result<AutoSwitched, PitboardError>,
     },
     /// The app was opened again, or could not be, which nothing here can mend.
     Opened,
@@ -558,6 +567,18 @@ fn typed_as_core(provider: &str, name: &str) -> String {
 
 /// A label as the core types it, taken apart: `codex/work` is Codex's `work`, and a bare
 /// `work` is Claude Code's, which is what a bare label has always meant.
+/// What `switching` holds while Claude Code is switched by itself, which names no account:
+/// the core chooses which.
+const AUTOMATICALLY: &str = "claude";
+
+/// An account's name with its tool, as `Account::qualified` gives it, from the name a switch
+/// said it by, which names its tool only where it is not Claude Code or another tool shares
+/// the name.
+fn qualified_claude(said: &str) -> String {
+    let (tool, label) = split(said);
+    format!("{tool}{SEPARATOR}{label}")
+}
+
 pub(crate) fn split(typed: &str) -> (&str, &str) {
     typed
         .split_once(SEPARATOR)
@@ -752,6 +773,14 @@ pub(crate) struct State {
     /// launch or an earlier one: kept in Pitboard's directory, so a run-out notified before
     /// a relaunch is not notified again after it.
     pub(crate) told: Told,
+    /// What switching Claude Code by itself has told about in a notification since the
+    /// model started, or since the last switch it made, by what it was: each reason it did
+    /// not switch and each refusal, said once rather than at every look.
+    auto_told: BTreeSet<String>,
+    /// Whether the last switch by itself was refused, so the next waits for the app's next
+    /// read rather than for every number a session records: each refusal is a line in the
+    /// activity log.
+    auto_refused: bool,
     /// The app's own preferences, kept in Pitboard's directory.
     pub(crate) preferences: Preferences,
     /// Whether the preferences have been read. Until they are, and for good where they
@@ -812,6 +841,8 @@ impl State {
             tick: Timer::Off,
             advice: Vec::new(),
             told_this_launch: Told::new(),
+            auto_told: BTreeSet::new(),
+            auto_refused: false,
             told: Told::new(),
             preferences: Preferences::default(),
             preferences_read: false,
@@ -877,6 +908,11 @@ impl State {
             .or(self.asking().map(|question| question.qualified.as_str()))
     }
 
+    /// Whether the app's preferences have been read, so that a change to them is kept.
+    pub(crate) fn preferences_have_been_read(&self) -> bool {
+        self.preferences_read
+    }
+
     /// Whether the app's preferences are still being read, which nothing that depends on
     /// them should guess at meanwhile.
     pub(crate) fn reading_preferences(&self) -> bool {
@@ -937,6 +973,7 @@ impl State {
                     });
                 }
             }
+            Intent::SetAutoSwitch { on, at } => self.auto_switch_set(on, at, jobs),
             Intent::AbandonStuckSwitch => self.change(Job::Abandon, jobs),
             Intent::DismissAbandoned => self.abandoned = None,
             Intent::SignIn { provider, name } => self.sign_in(provider, &name, jobs),
@@ -1354,6 +1391,128 @@ impl State {
             .filter_map(|provider| standing.iter().find(|a| &a.provider == provider))
             .cloned()
             .collect();
+        self.auto(read, jobs);
+    }
+
+    /// The settings' switch for switching Claude Code by itself, with its share. Taken only
+    /// once the preferences have been read, so it is never kept over a file that could not
+    /// be, and never lost under what the file says once it is. Turned on, what was read last
+    /// is looked at at once.
+    fn auto_switch_set(&mut self, on: bool, at: u8, jobs: &mut Vec<Job>) {
+        if !self.preferences_read {
+            return;
+        }
+        let at = Some(i64::from(Threshold::clamped(i64::from(at)).percent()));
+        if self.preferences.auto_switch == on && self.preferences.auto_switch_at == at {
+            return;
+        }
+        self.preferences.auto_switch = on;
+        self.preferences.auto_switch_at = at;
+        jobs.push(Job::KeepPreferences {
+            preferences: self.preferences.clone(),
+        });
+        if let Some(status) = self.status.clone()
+            && !self.standing_in
+        {
+            self.auto(&status, jobs);
+        }
+    }
+
+    /// Asks the core to switch Claude Code by itself where somebody turned that on and a
+    /// limit of the account in use, as `read` has it, has reached their share. The core
+    /// decides whether, and to which account. Claimed as a switch is, so nothing else
+    /// switches meanwhile and the poll takes its change for this app's own; and not while
+    /// another switch, the question before one, or any other change of this app's own is
+    /// under way, behind which it would wait on the lane of changes holding every switch
+    /// somebody asks for.
+    fn auto(&mut self, read: &Status, jobs: &mut Vec<Job>) {
+        if !self.preferences_read
+            || !self.preferences.auto_switch
+            || self.switch_under_way().is_some()
+            || self.changing > 0
+            || self.auto_refused
+        {
+            return;
+        }
+        let at = self.preferences.threshold();
+        let reached = read
+            .accounts
+            .iter()
+            .filter(|account| {
+                account.provider == ProviderId::Claude.code()
+                    && account.signed_in
+                    && account.label.is_some()
+            })
+            .flat_map(|account| account.usage.iter().flat_map(|usage| &usage.windows))
+            .any(|limit| {
+                limit.percent >= f64::from(at.percent())
+                    && limit.resets_at.is_none_or(|resets| resets > read.now)
+            });
+        if reached {
+            self.switching = Some(AUTOMATICALLY.to_owned());
+            jobs.push(Job::AutoSwitch { at: at.percent() });
+        }
+    }
+
+    /// What switching Claude Code by itself came to. A switch is taken as one somebody asked
+    /// for is, and said in a notification, since nobody was there to ask for it; a reason it
+    /// did not switch, and a refusal, are said once each until it next switches. Nothing to
+    /// do, and no account with room, say nothing: a run-out is advised as it always was.
+    fn auto_switched(
+        &mut self,
+        done: Result<AutoSwitched, PitboardError>,
+        now: Now,
+        jobs: &mut Vec<Job>,
+    ) {
+        let told = match done {
+            Ok(AutoSwitched::Switched { switched, used }) => {
+                if let Switch::Switched {
+                    from, to, adoption, ..
+                } = &switched.outcome
+                {
+                    jobs.push(Job::Post {
+                        notice: crate::present::auto_switched_notice(
+                            from,
+                            to,
+                            &used,
+                            adoption,
+                            now.epoch(),
+                        ),
+                    });
+                    let qualified = qualified_claude(to);
+                    self.auto_told.clear();
+                    self.switched(&qualified, None, Ok(switched), now, jobs);
+                    return;
+                }
+                self.switching = None;
+                return;
+            }
+            Ok(AutoSwitched::Skipped {
+                from,
+                used,
+                code,
+                why,
+            }) => (
+                format!("skipped/{code}"),
+                crate::present::auto_skipped_notice(&from, &used, &code, &why),
+            ),
+            Err(PitboardError::Failed { code, message, .. }) => {
+                self.auto_refused = true;
+                (
+                    format!("refused/{code}"),
+                    crate::present::auto_refused_notice(&code, &message),
+                )
+            }
+            Ok(AutoSwitched::Idle | AutoSwitched::NoRoom) => {
+                self.switching = None;
+                return;
+            }
+        };
+        self.switching = None;
+        let (key, notice) = told;
+        if self.auto_told.insert(key) {
+            jobs.push(Job::Post { notice });
+        }
     }
 
     fn read(&mut self, asked: Asked, now: Now, jobs: &mut Vec<Job>) {
@@ -1449,6 +1608,7 @@ impl State {
                 reopen,
                 done,
             } => self.switched(&qualified, reopen, done.map_err(Some), now, jobs),
+            Answer::AutoSwitched { done } => self.auto_switched(done, now, jobs),
             Answer::Opened | Answer::Pasted | Answer::Stopped | Answer::Saved | Answer::Posted => {}
             Answer::Kept {
                 told,
@@ -1558,6 +1718,12 @@ impl State {
                 Job::Quit { question } => self.quit_over(question, QuitOutcome::StillRunning, jobs),
                 Job::Switch { qualified, reopen } => {
                     self.switched(&qualified, reopen, Err(None), now, jobs);
+                }
+                // Whether it switched is not known, and nothing is said of it: the accounts
+                // are read again to show who is in use, and the next look decides again.
+                Job::AutoSwitch { .. } => {
+                    self.switching = None;
+                    self.refresh(Asked::default(), now, jobs);
                 }
                 Job::Open { .. } => {}
                 Job::Abandon => self.abandon_over(Err(None), now, jobs),
@@ -1801,6 +1967,7 @@ impl State {
                     .any(|w| w.code == "recovery_undetermined");
                 self.forget_switches_undone(&read);
                 self.warnings = read.warnings.clone();
+                self.auto_refused = false;
                 self.advise(&read, jobs);
                 self.windows.read_enrolled(&read, jobs);
                 self.status = Some(read);
@@ -1815,6 +1982,11 @@ impl State {
                 self.changed_at = Some(changed_before);
                 self.readings_at = Some(readings_before);
                 self.landed(ticket, now);
+                // The read after a switch or another change held the index as it was
+                // advised on, and lets it go only now that it has landed.
+                if let Some(read) = self.status.clone() {
+                    self.auto(&read, jobs);
+                }
             }
             Err(PitboardError::Failed {
                 code,

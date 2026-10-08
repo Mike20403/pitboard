@@ -62,7 +62,10 @@ private func snapshot(
             activity: ActivityShown(lines: [], empty: nil),
             commandLine: CommandLineShown(
                 found: nil, inTerminal: nil, updateNote: nil, offersLink: false,
-                cannotLink: nil)),
+                cannotLink: nil),
+            autoSwitch: AutoSwitchShown(
+                on: false, at: 95, lowest: 50, highest: 99, enabled: true,
+                atLabel: "Switch when a limit reaches 95%", note: "")),
         accountWindows: windows)
 }
 

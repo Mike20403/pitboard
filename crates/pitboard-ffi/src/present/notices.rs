@@ -7,11 +7,11 @@ use super::{
     Footing, MenuEntry, MenuNotices, NoticeAction, PanelNotice, Question, Seen, Severity,
     spoken_severity,
 };
-use crate::Warning;
 use crate::model::RunOutNotice;
 use crate::model::advice::Advice;
 use crate::model::state::split;
 use crate::model::{Intent, LastSwitch, Pane};
+use crate::{Adoption, Warning};
 use pitboard_core::words as said;
 
 /// Where a person goes to install Claude Code, the tool a machine without one is told
@@ -266,8 +266,66 @@ pub(crate) fn run_out_notice(advice: &Advice) -> RunOutNotice {
         title: words::ran_out(&advice.ran, &limit),
         subtitle: advice.tool.clone(),
         body: words::room_left(&advice.instead, advice.left),
-        switch_to: advice.switch_to.clone(),
+        switch_to: Some(advice.switch_to.clone()),
     }
+}
+
+/// What Pitboard switched by itself, posted since nobody was there to ask for it: "Switched
+/// Claude Code to home", and "work had used 96% of its 5-hour limit. Sessions already running
+/// follow within 33 seconds." It has nothing to switch to: the account left has reached the
+/// share it was switched away at.
+pub(crate) fn auto_switched_notice(
+    from: &str,
+    to: &str,
+    used: &str,
+    adoption: &Adoption,
+    at: i64,
+) -> RunOutNotice {
+    let follows = match adoption {
+        Adoption::Follows { within_seconds } => {
+            format!("Sessions already running follow within {within_seconds} seconds.")
+        }
+        Adoption::Restart { program } => {
+            format!("Restart any running `{program}` for this to take effect.")
+        }
+    };
+    RunOutNotice {
+        id: format!("auto/{from}/{to}/{at}"),
+        title: format!("Switched Claude Code to {to}"),
+        subtitle: None,
+        body: format!("{from} had used {used}. {follows}"),
+        switch_to: None,
+    }
+}
+
+/// Where Pitboard would have switched Claude Code by itself and did not: how much of which
+/// limit, and why, in the core's words.
+pub(crate) fn auto_skipped_notice(from: &str, used: &str, code: &str, why: &str) -> RunOutNotice {
+    RunOutNotice {
+        id: format!("auto-skipped/{code}"),
+        title: "Claude Code was not switched".into(),
+        subtitle: None,
+        body: format!("{from} has used {used}. {}.", capitalised(why)),
+        switch_to: None,
+    }
+}
+
+/// A switch Pitboard tried by itself and could not make, in the core's words.
+pub(crate) fn auto_refused_notice(code: &str, message: &str) -> RunOutNotice {
+    RunOutNotice {
+        id: format!("auto-refused/{code}"),
+        title: "Pitboard could not switch Claude Code".into(),
+        subtitle: None,
+        body: message.into(),
+        switch_to: None,
+    }
+}
+
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 /// What the menu says of the notices: advice as items that switch; anything else to know

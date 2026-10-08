@@ -319,6 +319,7 @@ pub(crate) fn spoken_level(level: Level) -> &'static str {
 pub(crate) fn change_verb(verb: &str) -> String {
     match verb {
         "use" | "switch" => "Switch".into(),
+        "auto-switch" => "Automatic switch".into(),
         "enroll" => "Enrol".into(),
         "forget" => "Forget".into(),
         "rename" => "Rename".into(),
@@ -993,6 +994,13 @@ mod tests {
     #[test]
     fn a_switch_is_named_by_the_verb_the_core_logs_it_under() {
         assert_eq!(change_verb("use"), "Switch");
+    }
+
+    /// A switch Pitboard made by itself is told apart from one somebody asked for, whichever
+    /// front end made it: the core logs it as `auto-switch`, with the caller it always has.
+    #[test]
+    fn a_switch_made_by_itself_is_named_as_one() {
+        assert_eq!(change_verb("auto-switch"), "Automatic switch");
     }
 
     /// A change that worked says so in a word, and one that did not says what stopped it,

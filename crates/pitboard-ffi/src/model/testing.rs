@@ -10,9 +10,9 @@ use super::state::{Answer, Cadence, Job, Msg, Now, State};
 use super::{AppControl, Intent, Notifications, PlatformError, RunOutNotice, Snapshot};
 use crate::account_windows::records::{self, Entry, Records};
 use crate::{
-    Abandoned, Account, Adoption, AppCore, Change, Check, Enrolled, EnrolledAs, FoundCommandLine,
-    Holding, Level, Limit, Made, OwnCommandLine, PitboardError, Remedy, Renewed, Schedule, Source,
-    Status, Switch, Switched, Tool, Usage, Warning,
+    Abandoned, Account, Adoption, AppCore, AutoSwitched, Change, Check, Enrolled, EnrolledAs,
+    FoundCommandLine, Holding, Level, Limit, Made, OwnCommandLine, PitboardError, Remedy, Renewed,
+    Schedule, Source, Status, Switch, Switched, Tool, Usage, Warning,
 };
 use pitboard_core::context::Context;
 use pitboard_core::provider::ProviderId;
@@ -415,6 +415,10 @@ pub(super) struct Machine {
     pub switched: Result<Switched, Refusal>,
     /// Every account switched to, as the model named it.
     pub switched_to: Vec<String>,
+    /// What switching Claude Code by itself gives.
+    pub auto: Result<AutoSwitched, Refusal>,
+    /// The share each switch by itself was asked at, in order.
+    pub auto_at: Vec<u8>,
     /// What runs each tool with its login in memory, by the tool's code, as the core's
     /// holder detection finds it in the process list.
     pub held: HashMap<String, Vec<Holding>>,
@@ -513,6 +517,8 @@ impl Machine {
             found: vec![claude_code()],
             switched: already_active("work", Vec::new()),
             switched_to: Vec::new(),
+            auto: Ok(AutoSwitched::Idle),
+            auto_at: Vec::new(),
             held: HashMap::new(),
             apps: StandInApps::new(&[], true),
             abandoned: Ok(None),
@@ -642,6 +648,12 @@ impl Machine {
                     qualified,
                     reopen,
                     done: self.switched.clone().map_err(|refused| refused.error()),
+                }
+            }
+            Job::AutoSwitch { at } => {
+                self.auto_at.push(at);
+                Answer::AutoSwitched {
+                    done: self.auto.clone().map_err(|refused| refused.error()),
                 }
             }
             Job::Open { location } => {
@@ -1153,6 +1165,11 @@ impl World {
     }
 
     /// Another front end on the same machine, as the command line in a terminal is.
+    /// What this machine's core is made with.
+    pub(super) fn ctx(&self) -> &Context {
+        &self.ctx
+    }
+
     pub(super) fn elsewhere(&self) -> service::Pitboard {
         service::Pitboard::new(self.ctx.clone().with_caller("cli".into()))
     }
@@ -1427,6 +1444,21 @@ impl World {
     /// Pitboard's directory on this machine.
     pub(super) fn pitboard_dir(&self) -> PathBuf {
         self.root.join(".pitboard")
+    }
+
+    /// Every account was last put in use an hour ago. Enrolling the account signed in puts
+    /// it in use, and nothing switches away from an account by itself for five minutes after.
+    pub(super) fn in_use_an_hour_ago(&self) {
+        let path = self.pitboard_dir().join("state.json");
+        let mut state: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("the account index"))
+                .expect("JSON");
+        for account in state["accounts"].as_array_mut().expect("accounts") {
+            if let Some(at) = account["last_used_at"].as_i64() {
+                account["last_used_at"] = serde_json::json!(at - 3_600);
+            }
+        }
+        std::fs::write(&path, state.to_string()).expect("the account index written");
     }
 
     /// Says the account index was written `seconds` later than it was. The index's time is

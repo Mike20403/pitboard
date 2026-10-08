@@ -172,6 +172,7 @@ fn a_not_now_said_while_the_preferences_are_read_is_kept_with_them() {
     machine.preferences_file = Preferences {
         second_account_declined: BTreeSet::from(["codex".to_owned()]),
         has_been_seen: true,
+        ..Preferences::default()
     }
     .text();
     let mut model = Hand::new();
@@ -256,6 +257,7 @@ fn no_tool_is_nudged_while_the_preferences_are_read() {
     machine.preferences_file = Preferences {
         second_account_declined: BTreeSet::from(["claude".to_owned()]),
         has_been_seen: true,
+        ..Preferences::default()
     }
     .text();
     let mut model = Hand::new();

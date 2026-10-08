@@ -287,7 +287,7 @@ fn a_run_out_is_notified_in_the_words_the_window_says_it() {
             title: "work has no 5-hour limit left".into(),
             subtitle: None,
             body: "personal has 90% of its own left.".into(),
-            switch_to: "claude/personal".into(),
+            switch_to: Some("claude/personal".into()),
         }]
     );
     let notice = model.shown().notices.remove(0);

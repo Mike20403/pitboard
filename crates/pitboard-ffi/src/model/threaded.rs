@@ -1448,7 +1448,7 @@ fn a_run_out_is_notified_once_across_a_relaunch() {
     let notice = posted.posted().remove(0);
     assert_eq!(notice.title, "work has no 5-hour limit left");
     assert_eq!(notice.body, "spare has 90% of its own left.");
-    assert_eq!(notice.switch_to, "claude/spare");
+    assert_eq!(notice.switch_to.as_deref(), Some("claude/spare"));
     assert_eq!(notice.subtitle, None);
     let kept = world.pitboard_dir().join("told.json");
     eventually("the record of it kept", || {
@@ -1479,6 +1479,53 @@ fn a_run_out_is_notified_once_across_a_relaunch() {
     eventually("another read over", || !reopened.snapshot().reading);
     assert!(unposted.posted().is_empty(), "notified before the relaunch");
     reopened.shutdown();
+}
+
+/// On the real core, with switching by itself turned on in the app's preferences, an account
+/// in use at its share is switched from to another with room through the model's lanes: the
+/// switch is said in a notification with nothing to switch back to, the activity log records
+/// it as automatic and made by the app, and the account switched to stays in use.
+#[test]
+fn an_account_at_its_share_is_switched_from_by_itself_on_the_real_core() {
+    let world = World::new("auto-switch");
+    world.enrolled("work", "here", 97.0);
+    world.parked("spare", "there", 10.0);
+    world.in_use_an_hour_ago();
+    std::fs::write(
+        world.pitboard_dir().join("app.json"),
+        r#"{"has_been_seen":true,"auto_switch":true}"#,
+    )
+    .expect("the app's preferences");
+    let core = world.core();
+
+    let told = Arc::new(Told::default());
+    let posted = Arc::new(Posted::default());
+    let model = model_posting(&core, &told, &posted);
+    model.send(Intent::Start);
+    told.until("spare in use", in_use("claude", "spare"));
+    eventually("the switch said", || !posted.posted().is_empty());
+    let notice = posted.posted().remove(0);
+    assert_eq!(notice.title, "Switched Claude Code to spare");
+    assert_eq!(
+        notice.body,
+        "work had used 97% of its 5-hour limit. Sessions already running follow within 33 \
+         seconds."
+    );
+    assert_eq!(notice.switch_to, None);
+    let changes = pitboard_core::audit::read(world.ctx(), 20);
+    let automatic: Vec<_> = changes
+        .iter()
+        .filter(|change| change.verb == "auto-switch")
+        .map(|change| {
+            (
+                change.caller.as_str(),
+                change.subject.as_str(),
+                change.outcome.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(automatic, [("app", "spare", "ok")]);
+    model.shutdown();
 }
 
 /// An `app.json` that is there and cannot be read, here a directory where the file goes, is

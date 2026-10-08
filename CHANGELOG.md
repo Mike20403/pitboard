@@ -28,6 +28,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   once for each thing that stops one. `--once` decides once from the numbers Pitboard last
   read and exits. With `--json`, each event is an envelope on a line of its own, whose
   `data.event` is `watching`, `switched`, `no_room`, `skipped` or `idle`.
+- The app's **Settings** > **General** has a **Before an account runs out** section, with
+  **Switch Claude Code automatically**, off by default, and the share it switches at, from
+  50% to 99%. The app keeps both in `app.json`, as `auto_switch` and `auto_switch_at`, and
+  switches only while it is open. After a switch it posts a notification such as
+  **Switched Claude Code to personal**, and the window shows the switch as one made by
+  hand. When something stops a switch, or a switch it tries fails, it says why in a
+  notification, once until it next switches. The **Activity** pane names such a switch
+  **Automatic switch**.
 - `pitboard doctor` has a `network` check, which the app's **This Mac** pane shows too. It
   says whether Pitboard's requests go out directly or through a proxy, names the proxy and
   the variable it came from, such as

@@ -106,3 +106,18 @@ private final class Opened: @unchecked Sendable {
     #expect(content.categoryIdentifier == MacNotifications.category)
     #expect(content.userInfo["label"] as? String == "claude/spare")
 }
+
+/// What Pitboard switched by itself is posted with nothing to switch to: no category, so no
+/// Switch button, and no account for one.
+@Test func aSwitchMadeByItselfIsPostedWithNoButton() {
+    let content = MacNotifications.content(
+        of: RunOutNotice(
+            id: "auto/work/spare/1768399500", title: "Switched Claude Code to spare",
+            subtitle: nil,
+            body: "work had used 96% of its 5-hour limit. "
+                + "Sessions already running follow within 33 seconds.",
+            switchTo: nil))
+    #expect(content.title == "Switched Claude Code to spare")
+    #expect(content.categoryIdentifier.isEmpty)
+    #expect(content.userInfo.isEmpty)
+}

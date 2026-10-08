@@ -127,7 +127,10 @@ public sealed class ModelTests
         Activity: new ActivityShown(
             Lines: [], Empty: new EmptyList(Title: "No Activity", Detail: "Pitboard lists every change it makes here.")),
         CommandLine: new CommandLineShown(
-            Found: null, InTerminal: null, UpdateNote: null, OffersLink: false, CannotLink: null));
+            Found: null, InTerminal: null, UpdateNote: null, OffersLink: false, CannotLink: null),
+        AutoSwitch: new AutoSwitchShown(
+            On: false, At: 95, Lowest: 50, Highest: 99, Enabled: true,
+            AtLabel: "Switch when a limit reaches 95%", Note: ""));
 
     /// <summary>
     /// What an app's AppControl does: says what runs, asks an app to quit, opens one again,
@@ -799,7 +802,9 @@ public sealed class ModelTests
         var refused = Assert.ThrowsExactly<PlatformException.Failed>(() => notifications.Post(ranOut));
 
         Assert.AreEqual(ranOut, posting.Posted.Single());
-        Assert.AreEqual<Intent>(new Intent.SwitchTo("claude/spare"), new Intent.SwitchTo(posting.Posted[0].SwitchTo));
+        var switchTo = posting.Posted[0].SwitchTo;
+        Assert.IsNotNull(switchTo);
+        Assert.AreEqual<Intent>(new Intent.SwitchTo("claude/spare"), new Intent.SwitchTo(switchTo));
         Assert.IsNull(posting.Posted[0].Subtitle);
         Assert.AreEqual("notifications are not allowed", refused.reason);
     }
