@@ -35,6 +35,7 @@ macro_rules! contract {
             ".envelope.data.accounts[].parked.access_expires_at" => "[time]",
             ".envelope.data.accounts[].parked.refresh_expires_at" => "[time]",
             ".envelope.data.parked_at" => "[time]",
+            ".envelope.data.limit.resets_at" => "[time]",
             // Hashed from the config directory, so it is this machine's; `slot` has its
             // own tests.
             ".envelope.data.slot.service" => "[slot]",
@@ -435,4 +436,17 @@ fn codex_signed_in_with_an_api_key() {
         .find(|c| c["code"] == "codex_login")
         .expect("a codex_login check");
     assert_eq!(login["level"], "warn", "{login}");
+}
+
+/// What `watch` decides, once, from what Pitboard measured: a switch it made by itself, and
+/// nothing to do.
+#[test]
+fn watch() {
+    let env = two_accounts("contract-watch");
+    env.an_hour_on();
+    env.measured(&[('a', 96.0, 20.0), ('b', 10.0, 30.0)]);
+    let (value, code) = json(&env, &["watch", "--once"]);
+    contract!("watch_switched", value, code);
+    let (value, code) = json(&env, &["watch", "--once"]);
+    contract!("watch_idle", value, code);
 }
