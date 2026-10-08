@@ -375,6 +375,20 @@ pub(crate) fn renews(m: &Machine, refresh: &str, renewed: &str) {
     }
 }
 
+/// A limit of `kind`, `percent` used, resetting an hour from now: what Anthropic answers of
+/// one, for the tests of what Pitboard switches by itself.
+pub(crate) fn window(kind: &str, percent: f64) -> crate::usage::Window {
+    crate::usage::Window {
+        kind: kind.into(),
+        scope: None,
+        percent,
+        resets_at: Some(NOW + 3600),
+        is_active: true,
+        severity: None,
+        length_seconds: crate::usage::anthropic_window_length(kind),
+    }
+}
+
 pub(crate) fn account(label: &str, uuid: &str, parked: Option<Park>) -> Account {
     Account {
         last_used_at: None,

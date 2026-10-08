@@ -249,6 +249,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   has the fields `network` and `in_the_app`, `doctor::ScheduleFact` has the fields
   `network` and `network_differs`, and `doctor::NetworkFact` and `doctor::ProxyFact` are
   new. These change the crate's public API.
+- In `pitboard-core`, the `autoswitch` module, `service::Pitboard::auto_switch`,
+  `words::share_of_limit` and `words::not_switching` are new, and `error::Error` has the
+  variant `SwitchOvertaken`. These change the crate's public API.
 
 ### Fixed
 

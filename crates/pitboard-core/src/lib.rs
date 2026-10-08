@@ -50,6 +50,7 @@ pub mod api;
 pub mod app;
 pub mod assumptions;
 pub mod audit;
+pub mod autoswitch;
 pub mod budget;
 pub mod context;
 pub mod doctor;

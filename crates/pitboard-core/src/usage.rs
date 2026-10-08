@@ -74,7 +74,7 @@ impl Window {
 
     /// Whether `other` measures the same limit, whichever name its source gave it.
     pub(crate) fn same_limit(&self, other: &Window) -> bool {
-        limit(&self.kind) == limit(&other.kind) && self.scope == other.scope
+        limit_name(&self.kind) == limit_name(&other.kind) && self.scope == other.scope
     }
 
     /// Whether `other` is this very window: the same limit, resetting at the same time as
@@ -92,7 +92,7 @@ impl Window {
 /// `limits`, use the older `five_hour` and `seven_day` for the limits `limits` calls
 /// `session` and `weekly_all`. Codex's windows borrow the older names for their lengths,
 /// which is harmless: one account's readings are only ever compared with each other.
-fn limit(kind: &str) -> &str {
+pub(crate) fn limit_name(kind: &str) -> &str {
     match kind {
         "five_hour" => "session",
         "seven_day" => "weekly_all",

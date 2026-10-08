@@ -82,6 +82,37 @@ pub fn limit_name(kind: &str, length_seconds: Option<i64>) -> String {
     }
 }
 
+/// How much of a limit an account has used, in a sentence about an automatic switch:
+/// "96% of its 5-hour limit", or "97% of its weekly Opus limit" for one limit of a model.
+pub fn share_of_limit(limit: &crate::usage::Window) -> String {
+    let name = limit_name(&limit.kind, limit.length_seconds);
+    let name = match &limit.scope {
+        Some(scope) => format!("{name} {scope}"),
+        None => name,
+    };
+    format!("{:.0}% of its {name} limit", limit.percent)
+}
+
+/// Why Pitboard does not switch Claude Code by itself where it would have, as a clause that
+/// says what to do about it where anything can be done. It names no command: the app says
+/// it too.
+pub fn not_switching(why: &crate::autoswitch::Skip) -> String {
+    use crate::autoswitch::Skip;
+    match why {
+        Skip::SwitchInterrupted => {
+            "a switch was interrupted, and the next change you make finishes it".into()
+        }
+        Skip::CustomOauth => "Claude Code uses a custom OAuth endpoint, and Pitboard does not \
+                              act on Claude Code then"
+            .into(),
+        Skip::Overridden(names) => format!(
+            "Claude Code signs in another way, set by {}, so a switch would change nothing its \
+             sessions use",
+            names.join(", ")
+        ),
+    }
+}
+
 /// How much of a limit is used, in three steps. The command line's colours and the app's
 /// tints change where these do, and the words always say the number itself, because not
 /// everybody sees a colour.
@@ -212,6 +243,20 @@ pub(crate) fn listed(mut items: Vec<String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Why Pitboard did not switch by itself is said in the app as well as in a terminal,
+    /// so it names no command: the app gives up on an interrupted switch with a button.
+    #[test]
+    fn why_it_did_not_switch_names_no_command() {
+        use crate::autoswitch::Skip;
+        for why in [
+            Skip::SwitchInterrupted,
+            Skip::CustomOauth,
+            Skip::Overridden(vec!["apiKeyHelper".into()]),
+        ] {
+            assert!(!not_switching(&why).contains("pitboard "), "{why:?}");
+        }
+    }
 
     #[test]
     fn spans_read_at_a_glance() {

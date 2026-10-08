@@ -9,6 +9,7 @@
 use crate::provider;
 use crate::provider::ProviderId;
 mod adopt;
+mod auto;
 #[cfg(test)]
 mod crash;
 mod enroll;
@@ -28,6 +29,7 @@ mod uninstall;
 
 pub use crate::pending::Reclaimed;
 pub use adopt::{Adopted, adopt};
+pub(crate) use auto::automatically;
 #[cfg(feature = "test-support")]
 pub(crate) use enroll::planted;
 pub(crate) use enroll::sign_in_watched_as;
@@ -304,11 +306,24 @@ fn read_live(
 pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
     let Settled {
         _exclusive,
-        mut state,
+        state,
         ctx,
         permit,
     } = settled;
-    let ctx = &ctx;
+    switch_held(state, &ctx, permit, key, None)
+}
+
+/// [`switch`], for a caller that holds Pitboard's lock itself. Where `expected` names an
+/// account by its id, the switch is made only away from that account: one decided from what
+/// was known before the lock was held is refused, with nothing changed, once somebody else
+/// has switched since.
+fn switch_held(
+    mut state: State,
+    ctx: &Context,
+    permit: Permit,
+    key: &Key,
+    expected: Option<&str>,
+) -> Result<(Outcome, Vec<Warning>)> {
     let label = &key.label;
     let tool = provider::of(key.provider);
     let target = state
@@ -337,6 +352,9 @@ pub fn switch(settled: Settled, key: &Key) -> Result<(Outcome, Vec<Warning>)> {
             },
             Vec::new(),
         ));
+    }
+    if expected.is_some_and(|expected| expected != outgoing.account_uuid) {
+        return Err(Error::SwitchOvertaken);
     }
     let outgoing_key = state
         .by_uuid(key.provider, &outgoing.account_uuid)

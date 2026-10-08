@@ -284,7 +284,8 @@ pub const ASSUMPTIONS: &[Assumption] = &[
         read_from: "the keychain backend's cache, and measured against a running session",
         // The 33 seconds were measured against a running 2.1.278; nothing later was run.
         verified_against: "2.1.278",
-        depends: "switch::ADOPTION_CEILING_SECONDS",
+        depends: "switch::ADOPTION_CEILING_SECONDS, and autoswitch, which switches before a \
+                  limit rather than at it so a session already running follows in time",
         probe: &[],
         absent: &[],
     },
