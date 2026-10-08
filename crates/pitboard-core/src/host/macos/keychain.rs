@@ -67,6 +67,7 @@ impl Keychain {
 enum Presence {
     Present(String),
     Absent,
+    Locked,
     Failed(String),
 }
 
@@ -75,11 +76,7 @@ fn classify(owner: Owner, code: Option<i32>, stdout: String, stderr: String) -> 
         Some(0) if !stdout.trim().is_empty() => Presence::Present(stdout.trim_end().to_string()),
         Some(0) if owner == Owner::ClaudeCode => Presence::Absent,
         Some(ITEM_NOT_FOUND) => Presence::Absent,
-        Some(INTERACTION_NOT_ALLOWED) => Presence::Failed(
-            "the keychain is locked and cannot ask to be unlocked from here; unlock it with \
-             `security unlock-keychain`, or run Pitboard from a desktop session"
-                .into(),
-        ),
+        Some(INTERACTION_NOT_ALLOWED) => Presence::Locked,
         other => Presence::Failed(format!(
             "security exited {}: {}",
             other.map_or_else(|| "on a signal".into(), |c| c.to_string()),
@@ -96,6 +93,16 @@ fn security(args: &[&str], input: &str) -> std::io::Result<Output> {
     let mut command = Command::new(SECURITY);
     command.args(args);
     super::helper::output_within(command, input.as_bytes(), SECURITY_TIMEOUT)
+}
+
+/// What a read makes of an answer.
+fn answered(presence: Presence) -> Result<Option<String>, Error> {
+    match presence {
+        Presence::Present(found) => Ok(Some(found)),
+        Presence::Absent => Ok(None),
+        Presence::Locked => Err(Error::Locked),
+        Presence::Failed(why) => Err(Error::Unreadable(why)),
+    }
 }
 
 fn run(args: &[&str], owner: Owner) -> Presence {
@@ -155,19 +162,11 @@ impl RawStore for Keychain {
     }
 
     fn contains(&self, service: &str) -> Result<bool, Error> {
-        match self.find(service, false) {
-            Presence::Present(_) => Ok(true),
-            Presence::Absent => Ok(false),
-            Presence::Failed(m) => Err(Error::Unreadable(m)),
-        }
+        answered(self.find(service, false)).map(|found| found.is_some())
     }
 
     fn read(&self, service: &str) -> Result<Option<String>, Error> {
-        match self.find(service, true) {
-            Presence::Present(s) => Ok(Some(s)),
-            Presence::Absent => Ok(None),
-            Presence::Failed(m) => Err(Error::Unreadable(m)),
-        }
+        answered(self.find(service, true))
     }
 
     /// Update in place, secret on stdin.
@@ -237,6 +236,7 @@ impl RawStore for Keychain {
             self.owner,
         ) {
             Presence::Present(_) | Presence::Absent => Ok(()),
+            Presence::Locked => Err(Error::Write(crate::store::LOCKED.into())),
             Presence::Failed(m) => Err(Error::Write(m)),
         }
     }
@@ -289,7 +289,7 @@ mod tests {
                 Presence::Absent
             ));
         }
-        for code in [1, INTERACTION_NOT_ALLOWED, 37, 50, 128] {
+        for code in [1, 37, 50, 128] {
             assert!(matches!(
                 classify(Owner::ClaudeCode, Some(code), String::new(), String::new()),
                 Presence::Failed(_)
@@ -308,12 +308,30 @@ mod tests {
             ),
             Presence::Absent
         ));
-        for code in [0, INTERACTION_NOT_ALLOWED, 37, 50] {
+        for code in [0, 37, 50] {
             assert!(matches!(
                 classify(Owner::Pitboard, Some(code), String::new(), String::new()),
                 Presence::Failed(_)
             ));
         }
+    }
+
+    /// A locked keychain is neither absent nor broken: it says nothing of what it holds, and
+    /// what to do about it is to unlock it, which no other failure calls for.
+    #[test]
+    fn a_locked_keychain_is_locked_whoever_owns_the_item() {
+        for owner in [Owner::ClaudeCode, Owner::Pitboard] {
+            assert!(matches!(
+                classify(
+                    owner,
+                    Some(INTERACTION_NOT_ALLOWED),
+                    String::new(),
+                    "User interaction is not allowed.".into()
+                ),
+                Presence::Locked
+            ));
+        }
+        assert!(matches!(answered(Presence::Locked), Err(Error::Locked)));
     }
 
     #[test]

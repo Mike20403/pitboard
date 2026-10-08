@@ -104,7 +104,8 @@ For each exit status, see [Exit codes](/reference/commands#exit-codes). In the t
 
 | Code | Exit | Meaning | What to do |
 | --- | --- | --- | --- |
-| `credential_store_unreadable` | 1 | The keychain, or the file that holds a login, could not be read. | If the keychain is locked, see [macOS says the keychain is locked](/troubleshooting#macos-says-the-keychain-is-locked). Otherwise, run `pitboard doctor`. |
+| `credential_store_unreadable` | 1 | The keychain, or the file that holds a login, could not be read. | Run `pitboard doctor`. |
+| `credential_store_locked` | 1 | The keychain is locked, and macOS cannot ask for its password here, as over SSH. | See [macOS says the keychain is locked](/troubleshooting#macos-says-the-keychain-is-locked). |
 | `credential_not_json` | 3 | A stored login is not valid JSON. | Run `pitboard doctor`. |
 | `credential_write_failed` | 1 | Writing a login failed. | Fix the reason the message gives, then try again. |
 | `credential_not_durable` | 1 | A login read back different or empty after it was written. | Run `pitboard doctor`. |
@@ -168,6 +169,7 @@ A warning does not stop the command. The Pitboard window shows it in the notice 
 | `sessions_keep_old_login` | **Open sessions still use the old login** | After you signed in to a Codex account again, what runs Codex and started before it still uses its old login. The warning names which, and how to start each again. Otherwise one of them can put the old login back when it refreshes. |
 | `sessions_unknown` | **Couldn’t tell which sessions are open** | After a Codex switch, Pitboard could not read the list of running processes, so it cannot tell whether anything that runs Codex and started before the switch still uses the previous account. Do not sign out in any of them: that revokes the login Pitboard parked. To use the account you switched to, start each one again as [What happens to open sessions](/guides/switch#what-happens-to-open-sessions) says. When this follows a sign-in to a Codex account again, Pitboard cannot tell whether any of them still uses the old login. Start each one again, or one of them can put the old login back when it refreshes. |
 | `auth_overridden` | **An environment variable overrides the login** | Something such as `ANTHROPIC_API_KEY` or `apiKeyHelper` makes Claude Code sign in another way. Unset what the message names for the switch to take effect. |
+| `fallback_login` | **Another login is left in a file** | On macOS, the file the message names, `~/.claude/.credentials.json` by default, holds a Claude Code login besides the one in the keychain. A Claude Code session that cannot read the keychain, such as one over SSH, signs in with it, and no switch reaches it. See [Claude Code over SSH uses another account](/troubleshooting#claude-code-over-ssh-uses-another-account). |
 | `parked_login_refused` | **A parked login was refused** | Anthropic or OpenAI refused a parked login when Pitboard renewed it. Sign in to the account again. |
 | `lock_compromised` | **The login may have been written twice** | Claude Code took back its write lock during the change. The change stood; run `pitboard` to check which account is signed in. |
 | `parks_pending_removal` | **Old parked logins are still there** | Parked logins Pitboard no longer needs could not be deleted yet. Pitboard tries again on its next change. |

@@ -813,11 +813,21 @@ fn assemble(
             let uuid = account.account_uuid.as_str();
             let which = account.provider();
             let signed_in = live_uuid(which) == Some(uuid);
+            let live_unreadable = facts
+                .live_for(which)
+                .is_some_and(|live| live.usage() == Err(Stale::LoginUnreadable));
             let (usage, stale) = if signed_in {
                 let live = facts
                     .live_for(which)
                     .map_or(Err(Stale::NothingSignedIn), LiveLogin::usage);
                 reading(uuid, &live, cached_for(which, uuid))
+            } else if account.parked.is_none()
+                && live_unreadable
+                && state.active_for(which) == Some(account.label.as_str())
+            {
+                // Nothing parked because Pitboard put its login in use, and that login is
+                // the one that could not be read: unknown, not gone.
+                reading(uuid, &Err(Stale::LoginUnreadable), None)
             } else {
                 reading(uuid, parked, None)
             };
@@ -1653,6 +1663,47 @@ mod tests {
         let why = report.signed_in.expect_err("nobody could say whose it is");
         assert_ne!(why, "nothing is signed in");
         assert_eq!(api.calls(), 0, "a login nobody could read was sent nowhere");
+    }
+
+    /// While the login in use cannot be read, the account Pitboard last switched to has
+    /// nothing parked because its login is the one Pitboard put in use, which may be exactly
+    /// where it was. A `/login` where the keychain is locked moves Claude Code's record to
+    /// another account and leaves that login in the keychain, so the record's account reads
+    /// as signed in and this one was told to sign in again.
+    #[test]
+    fn the_account_last_switched_to_is_not_sent_to_sign_in_while_the_login_cannot_be_read() {
+        let mut s = state(&["alpha", "beta"]);
+        s.accounts[1].parked = None;
+        s.set_active(ProviderId::Claude, Some("beta".into()));
+        let facts = only_claude(
+            LiveLogin {
+                signed_in: Some(Err("the keychain is locked".into())),
+                recorded_uuid: Some("alpha-uuid".into()),
+                usage: Some(Err(Stale::LoginUnreadable)),
+                out_of_reach: true,
+            },
+            vec![Err(Stale::NotAsked), Err(Stale::NothingParked)],
+        );
+
+        let rows = assemble(&s, &facts, nothing_remembered, nothing_known, NOW);
+        let beta = rows
+            .iter()
+            .find(|r| r.label.as_deref() == Some("beta"))
+            .unwrap();
+        assert!(!beta.signed_in);
+        assert_eq!(beta.stale, Some(Stale::LoginUnreadable));
+
+        // Once the login can be read, nothing parked means what it says.
+        let readable = only_claude(
+            live("alpha-uuid", Ok(reading(5.0, Source::Live, None))),
+            vec![Err(Stale::NotAsked), Err(Stale::NothingParked)],
+        );
+        let rows = assemble(&s, &readable, nothing_remembered, nothing_known, NOW);
+        let beta = rows
+            .iter()
+            .find(|r| r.label.as_deref() == Some("beta"))
+            .unwrap();
+        assert_eq!(beta.stale, Some(Stale::NothingParked));
     }
 
     /// A tool whose login could not be read and whose own record names none of its

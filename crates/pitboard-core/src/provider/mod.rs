@@ -504,6 +504,11 @@ pub(crate) trait Provider: Send + Sync + std::fmt::Debug {
     /// shell environment at all, gets the same answer as the command line.
     fn overridden_by(&self, ctx: &Context) -> Vec<String>;
 
+    /// The file holding a login of the tool's behind the store in use: what a session that
+    /// cannot read that store signs in with instead, and what no switch reaches. `None`
+    /// where there is none, and where that cannot be told, which `doctor` says.
+    fn fallback_login(&self, ctx: &Context) -> Option<std::path::PathBuf>;
+
     /// When a running session follows a switch. A fact about the tool, not a setting.
     fn adoption(&self) -> Adoption;
 

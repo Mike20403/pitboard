@@ -47,6 +47,8 @@ Unset or remove what it names, then restart Claude Code.
 
 If the warning says Claude Code's config could not be updated, the switch worked, but the old name may show until the next switch.
 
+A session started over SSH, or one where the keychain is locked, does not follow a switch. See [Claude Code over SSH uses another account](#claude-code-over-ssh-uses-another-account).
+
 ## A running codex still uses the old account
 
 A running `codex` keeps its account until you restart it. To do that without losing a login, see [Switch accounts](/guides/switch#what-happens-to-open-sessions).
@@ -70,13 +72,36 @@ For why Pitboard waits, see [How usage is read](/concepts/usage#how-often-pitboa
 
 ## macOS says the keychain is locked
 
-Where macOS cannot show a password prompt, as over SSH, a locked keychain stops Pitboard:
+Where macOS cannot show a password prompt, as over SSH, a locked keychain stops Pitboard with the error `credential_store_locked`:
 
 ```text
 the keychain is locked and cannot ask to be unlocked from here; unlock it with `security unlock-keychain`, or run Pitboard from a desktop session
 ```
 
 Do what the message says. If a switch was stopped, run it again: Pitboard first finishes or undoes it.
+
+`pitboard doctor` fails its `credential` check once and marks each parked login `not read: the keychain is locked`. Nothing is wrong with those logins, so do not sign in to them again.
+
+As read in Claude Code 2.1.294, a session keeps the login it last read while the keychain is locked, and follows no switch. One started then signs in with `.credentials.json`, or is signed out.
+
+## Claude Code over SSH uses another account
+
+A Claude Code session started over SSH can use another account than the one Pitboard shows, and stay on it after every switch. `pitboard doctor` warns with `fallback login`, and each change to a Claude Code account warns with `fallback_login`.
+
+The cause is a `/login` run where the keychain was locked. As read in Claude Code 2.1.294, it writes the login to `~/.claude/.credentials.json` and leaves the keychain's in place. Claude Code deletes that file only when it writes the keychain while the keychain is empty, so the file outlives every switch. A session that cannot read the keychain signs in with the file.
+
+To have one login everywhere:
+
+<Steps>
+  <Step title="Delete the file">
+    Run `rm ~/.claude/.credentials.json`, or the path the warning names. A session that was using it is signed out.
+  </Step>
+  <Step title="Reach the keychain">
+    Run `security unlock-keychain ~/Library/Keychains/login.keychain-db` in the same session, or start the session from a desktop terminal. It then uses the account Pitboard switched to.
+  </Step>
+</Steps>
+
+Do not run `/login` while the keychain is locked: it leaves the file again.
 
 ## Pitboard cannot find Claude Code
 

@@ -90,6 +90,12 @@ pub enum Warning {
         tool: ProviderId,
         names: Vec<String>,
     },
+    /// The tool keeps another login in a file behind the store in use, which a session that
+    /// cannot read that store signs in with, and which no switch reaches.
+    FallbackLogin {
+        tool: ProviderId,
+        path: std::path::PathBuf,
+    },
     /// The login was too large for `security`'s stdin, so it went on the argument line.
     WrittenOnTheCommandLine {
         tool: ProviderId,
@@ -155,6 +161,7 @@ impl Warning {
             Warning::ParksPendingRemoval(_) => "parks_pending_removal",
             Warning::ParkedLoginRefused { .. } => "parked_login_refused",
             Warning::AuthOverridden { .. } => "auth_overridden",
+            Warning::FallbackLogin { .. } => "fallback_login",
             Warning::WrittenOnTheCommandLine { .. } => "written_on_the_command_line",
             Warning::SessionsStillRunning { .. } => "sessions_still_running",
             Warning::SessionsKeepTheOldLogin { .. } => "sessions_keep_old_login",
@@ -214,6 +221,14 @@ impl fmt::Display for Warning {
                 "{} is set, so {} signs in with it and not with the login Pitboard moved. \
                  Unset it for the switch to take effect.",
                 names.join(" and "),
+                tool.name()
+            ),
+            Warning::FallbackLogin { tool, path } => write!(
+                f,
+                "{} holds another {} login, which a session that cannot read the keychain, \
+                 such as one started over SSH, signs in with. No switch reaches it; `pitboard \
+                 doctor` says what to do.",
+                path.display(),
                 tool.name()
             ),
             Warning::SessionsStillRunning { from, holding } => write!(
@@ -874,6 +889,9 @@ impl Pitboard {
             if !names.is_empty() {
                 warnings.push(Warning::AuthOverridden { tool, names });
             }
+            if let Some(path) = crate::provider::of(tool).fallback_login(&self.ctx) {
+                warnings.push(Warning::FallbackLogin { tool, path });
+            }
         }
         if let Some(r) = recovered {
             audit::record(&self.ctx, permit, "recover", &r.to, r.code());
@@ -1051,6 +1069,49 @@ mod tests {
             })
             .collect();
         (files, parked, m.live())
+    }
+
+    /// A switch says when Claude Code keeps another login in its fallback file, which a
+    /// session that cannot read the keychain signs in with and no switch reaches. Codex has
+    /// no store behind the one in use, so nothing is said of it.
+    #[test]
+    fn a_switch_says_a_login_is_left_where_it_does_not_reach() {
+        let m = machine("switch-fallback-login");
+        let left = crate::provider::claude::live::credential_file(&m.ctx);
+        m.mem.file_at(left.clone()).plant(
+            &crate::provider::claude::paths::live_service(&m.ctx),
+            &crate::switch::harness::document("left-by-a-sign-in").to_string(),
+        );
+        let switched = Pitboard::new(m.ctx.clone())
+            .switch_to("there")
+            .expect("a switch");
+        let said: Vec<String> = switched
+            .warnings
+            .iter()
+            .filter(|w| w.code() == "fallback_login")
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(said.len(), 1, "{:?}", switched.warnings);
+        assert!(
+            said[0].starts_with(&left.display().to_string()),
+            "{}",
+            said[0]
+        );
+
+        for (tool, make) in MACHINES {
+            let m = make(&format!("switch-nothing-left-{tool}"));
+            let switched = Pitboard::new(m.ctx.clone())
+                .switch_to(&m.key("there").typed())
+                .expect("a switch");
+            assert!(
+                switched
+                    .warnings
+                    .iter()
+                    .all(|w| w.code() != "fallback_login"),
+                "{tool}: {:?}",
+                switched.warnings
+            );
+        }
     }
 
     /// A switch nothing can finish was said only by a change refused over it. The app looks

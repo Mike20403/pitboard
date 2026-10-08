@@ -106,6 +106,8 @@ pub struct Facts {
     /// Whether this process runs as the person themselves, as the host says, which is what
     /// the gate every change passes asks.
     pub elevation: crate::host::Elevation,
+    /// A login left in Claude Code's fallback file behind the one in the keychain.
+    pub fallback_login: Option<FallbackLogin>,
     pub now: i64,
 }
 
@@ -237,7 +239,24 @@ pub struct ParkFact {
     pub last_used_at: Option<i64>,
     pub park: Option<Park>,
     /// Why it cannot be read back, if it cannot.
-    pub unreadable: Option<String>,
+    pub unreadable: Option<Unreadable>,
+}
+
+/// Why a parked login could not be read back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unreadable {
+    /// It is behind a keychain that is locked here, which says nothing about the login.
+    Locked,
+    /// Missing, damaged, or refused by the store, in words.
+    Broken(String),
+}
+
+/// A login left in Claude Code's plaintext fallback file while the keychain holds the one
+/// in use.
+pub struct FallbackLogin {
+    pub path: PathBuf,
+    /// A handle on its refresh token, never the token. Empty where it holds none.
+    pub fingerprint: String,
 }
 
 impl ParkFact {
@@ -277,9 +296,12 @@ fn park_facts(ctx: &Context, state: &State) -> Vec<ParkFact> {
             park: a.parked.clone(),
             unreadable: a.parked.as_ref().and_then(|p| {
                 park::load(ctx, &a.key(), p).err().map(|e| match e {
-                    Error::ParkedCredentialMissing { .. } => "missing from the vault".into(),
-                    Error::ParkedCredentialCorrupt { detail, .. } => detail,
-                    other => other.to_string(),
+                    Error::Store(store::Error::Locked) => Unreadable::Locked,
+                    Error::ParkedCredentialMissing { .. } => {
+                        Unreadable::Broken("missing from the vault".into())
+                    }
+                    Error::ParkedCredentialCorrupt { detail, .. } => Unreadable::Broken(detail),
+                    other => Unreadable::Broken(other.to_string()),
                 })
             }),
         })
@@ -355,8 +377,19 @@ pub fn gather(ctx: &Context) -> Facts {
         network: network_fact(&ctx.proxy),
         in_the_app: ctx.caller == "app",
         elevation: ctx.host().elevation(ctx),
+        fallback_login: fallback_login(ctx),
         now: ctx.now(),
     }
+}
+
+/// The login left in Claude Code's fallback file, where there is one. A chain that cannot
+/// be read says nothing of what is behind it, and the `credential_store` check says why.
+fn fallback_login(ctx: &Context) -> Option<FallbackLogin> {
+    let document = claude_live::fallback_login(ctx).ok()??;
+    Some(FallbackLogin {
+        path: claude_live::credential_file(ctx),
+        fingerprint: crate::provider::claude::document::fingerprint_of(&document),
+    })
 }
 
 /// How the context's requests leave this machine, as its environment says.
@@ -847,6 +880,7 @@ pub fn evaluate(facts: &Facts) -> Vec<Check> {
     });
 
     checks.push(judge_credential(facts));
+    checks.extend(judge_fallback_login(facts));
 
     checks.push(
         match (
@@ -1045,6 +1079,7 @@ const CLAUDE_CODES_OWN: &[&str] = &[
     "credential_size",
     "credential_store",
     "credential",
+    "fallback_login",
     "usage_cache",
     "storage_v5",
     "daemon",
@@ -1150,6 +1185,26 @@ fn judge_credential(facts: &Facts) -> Check {
             "nothing stored",
             "Nothing is signed in for this slot.",
         ),
+        // Read in 2.1.294 (the register's `locked_keychain_keeps_last_login`): a session
+        // keeps serving the login it last read while the keychain is locked, and one that
+        // read none reads the keychain as empty and falls through to the file.
+        Err(store::Error::Locked) => fail(
+            "credential",
+            "credential",
+            "the keychain is locked, and cannot ask to be unlocked from here",
+            format!(
+                "Unlock it with `security unlock-keychain`, or run Pitboard from a desktop \
+                 session. Until then a Claude Code session here keeps the login it last read \
+                 and follows no switch{}",
+                match &facts.fallback_login {
+                    Some(left) => format!(
+                        ", and one started here signs in with the login in {}.",
+                        left.path.display()
+                    ),
+                    None => ", and one started here is signed out.".into(),
+                }
+            ),
+        ),
         Err(e) => fail(
             "credential",
             "credential",
@@ -1157,6 +1212,34 @@ fn judge_credential(facts: &Facts) -> Check {
             "Do not write to the store while this is failing.",
         ),
     }
+}
+
+/// A login left in the fallback file behind the keychain's.
+///
+/// Read in 2.1.294: a sign-in where the keychain is locked writes its login to the file and
+/// leaves the keychain's in place (`locked_sign_in_writes_fallback`), and a keychain write
+/// deletes the file only where the keychain held nothing before
+/// (`fallback_outlives_keychain_writes`). So the file stays through every switch, and a
+/// session that cannot read the keychain signs in with it whatever Pitboard switched to.
+fn judge_fallback_login(facts: &Facts) -> Option<Check> {
+    let left = facts.fallback_login.as_ref()?;
+    let path = left.path.display();
+    let fingerprint = if left.fingerprint.is_empty() {
+        "none"
+    } else {
+        left.fingerprint.as_str()
+    };
+    Some(warn(
+        "fallback_login",
+        "fallback login",
+        format!("{path}  ·  refresh {fingerprint}"),
+        format!(
+            "Claude Code signs in with this wherever it cannot read the keychain, such as in a \
+             session started over SSH, and no switch reaches it. A sign-in made where the \
+             keychain could not be read leaves one, as `/login` over SSH does. Deleting it \
+             leaves one login for every session: `rm {path}`."
+        ),
+    ))
 }
 
 /// A parked login this close to expiring is worth renewing now.
@@ -1183,13 +1266,24 @@ fn judge_park(fact: &ParkFact, now: i64) -> Check {
             warn(code, name, "nothing parked to switch to", renew)
         };
     };
-    if let Some(why) = &fact.unreadable {
-        return fail(
-            code,
-            name,
-            format!("its parked login is unusable: {why}"),
-            renew,
-        );
+    match &fact.unreadable {
+        Some(Unreadable::Locked) => {
+            return warn(
+                code,
+                name,
+                "not read: the keychain is locked",
+                "Unlock it, then run `pitboard doctor` again.",
+            );
+        }
+        Some(Unreadable::Broken(why)) => {
+            return fail(
+                code,
+                name,
+                format!("its parked login is unusable: {why}"),
+                renew,
+            );
+        }
+        None => {}
     }
     let Some(at) = park.refresh_expires_at else {
         return ok(code, name, "parked");
@@ -2046,6 +2140,13 @@ fn redaction_for(ctx: &Context, facts: &Facts) -> crate::redact::Sheet {
     {
         sheet = sheet.hide(fingerprint, "login");
     }
+    if let Some(left) = facts
+        .fallback_login
+        .as_ref()
+        .filter(|left| !left.fingerprint.is_empty())
+    {
+        sheet = sheet.hide(left.fingerprint.clone(), "login");
+    }
     for park in &facts.parks {
         if let Some(held) = &park.park {
             sheet = sheet
@@ -2078,6 +2179,7 @@ pub fn healthy(checks: &[Check]) -> bool {
 mod tests {
     use super::*;
     use crate::service::Permit;
+    use std::sync::Arc;
 
     /// What a mode looks like as access, the way a Unix system describes one.
     fn mode(mode: u32) -> Access {
@@ -2146,6 +2248,7 @@ mod tests {
             network: direct(),
             in_the_app: false,
             elevation: crate::host::Elevation::Normal,
+            fallback_login: None,
             now: NOW,
         }
     }
@@ -2358,6 +2461,148 @@ mod tests {
         let checks = evaluate(&f);
         assert_eq!(check(&checks, "credential").level, Level::Fail);
         assert_eq!(check(&checks, "credential_store").level, Level::Fail);
+    }
+
+    /// A keychain locked where it cannot ask to be unlocked, as over SSH, is one thing to
+    /// fix, said once with what fixes it and what Claude Code does meanwhile. Every parked
+    /// login behind it used to fail as well, each advised to sign in again for nothing.
+    #[test]
+    fn a_locked_keychain_is_one_failure_and_sends_nobody_to_sign_in_again() {
+        let mut f = facts();
+        f.credential = Err(store::Error::Locked);
+        let mut behind = parked("work", Some(NOW + 20 * 86_400));
+        behind.unreadable = Some(Unreadable::Locked);
+        f.parks = vec![behind];
+
+        let checks = evaluate(&f);
+        let credential = check(&checks, "credential");
+        assert_eq!(credential.level, Level::Fail);
+        assert_eq!(
+            credential.detail,
+            "the keychain is locked, and cannot ask to be unlocked from here"
+        );
+        assert!(
+            credential.advice.contains("`security unlock-keychain`")
+                && credential.advice.contains("keeps the login it last read"),
+            "{}",
+            credential.advice
+        );
+        let park = named(&checks, "account work");
+        assert_eq!(park.level, Level::Warn, "{}", park.detail);
+        assert_eq!(park.detail, "not read: the keychain is locked");
+        assert!(!park.advice.contains("--sign-in"), "{}", park.advice);
+        assert_eq!(
+            checks.iter().filter(|c| c.level == Level::Fail).count(),
+            1,
+            "one cause, one failure"
+        );
+
+        // Where a login is left in the fallback file, a session started here signs in
+        // with it, and the advice says so.
+        f.fallback_login = Some(FallbackLogin {
+            path: f.credential_file.clone(),
+            fingerprint: "0123456789abcdef".into(),
+        });
+        let advice = check(&evaluate(&f), "credential").advice.clone();
+        assert!(
+            advice.contains("signs in with the login in /home/x/.claude/.credentials.json"),
+            "{advice}"
+        );
+    }
+
+    /// A login left in `.credentials.json` behind the one in the keychain is what a Claude
+    /// Code that cannot read the keychain signs in with, and no switch reaches it.
+    #[test]
+    fn a_login_left_behind_the_keychain_is_said_with_what_reads_it() {
+        let mut f = facts();
+        assert!(evaluate(&f).iter().all(|c| c.code != "fallback_login"));
+
+        f.fallback_login = Some(FallbackLogin {
+            path: f.credential_file.clone(),
+            fingerprint: "0123456789abcdef".into(),
+        });
+        let checks = evaluate(&f);
+        let said = check(&checks, "fallback_login");
+        assert_eq!(said.level, Level::Warn);
+        assert_eq!(said.name, "fallback login");
+        assert_eq!(
+            said.detail,
+            "/home/x/.claude/.credentials.json  ·  refresh 0123456789abcdef"
+        );
+        assert!(
+            said.advice.contains("over SSH")
+                && said
+                    .advice
+                    .contains("`rm /home/x/.claude/.credentials.json`"),
+            "{}",
+            said.advice
+        );
+        assert!(healthy(&checks), "nothing Pitboard does is stopped by it");
+    }
+
+    /// What the two checks above are given, read off the stores: a login in the file while
+    /// the keychain holds another, and nothing where the file is the login or holds none.
+    #[test]
+    fn a_login_left_behind_the_keychain_is_found_in_its_file() {
+        use crate::host::memory::MemoryHost;
+
+        let host = MemoryHost::new();
+        let ctx = Context::for_unit_test().with_memory_stores(Arc::clone(&host));
+        let service = claude::live_service(&ctx);
+        let file = host.file_at(claude_live::credential_file(&ctx));
+        let login = |token: &str| json!({"claudeAiOauth": {"refreshToken": token}}).to_string();
+
+        host.live().plant(&service, &login("in use"));
+        assert!(fallback_login(&ctx).is_none());
+
+        file.plant(&service, &login("left"));
+        let found = fallback_login(&ctx).expect("a login behind the keychain's");
+        assert_eq!(found.path, claude_live::credential_file(&ctx));
+        assert_eq!(found.fingerprint, store::fingerprint("left"));
+
+        file.plant(&service, &json!({"mcpOAuth": {}}).to_string());
+        assert!(fallback_login(&ctx).is_none(), "what `/logout` leaves");
+
+        file.plant(&service, &login("left"));
+        host.live().delete_everything();
+        assert!(
+            fallback_login(&ctx).is_none(),
+            "the file is the login in use when the keychain holds none"
+        );
+    }
+
+    /// Read from the vault, a park behind a locked keychain is locked, not broken: nothing
+    /// is known of it but that.
+    #[test]
+    fn a_park_behind_a_locked_keychain_is_read_as_locked() {
+        use crate::host::memory::MemoryHost;
+        use crate::store::memory::Fault;
+
+        let host = MemoryHost::new();
+        let ctx = Context::for_unit_test().with_memory_stores(Arc::clone(&host));
+        let state = State {
+            accounts: vec![crate::state::Account {
+                label: "work".into(),
+                account_uuid: "work-uuid".into(),
+                email: "work@example.com".into(),
+                parked: parked("work", Some(NOW + 20 * 86_400)).park,
+                last_used_at: None,
+                detail: crate::state::Detail::Claude {
+                    organization_uuid: "org".into(),
+                    oauth_account: json!({}),
+                },
+            }],
+            ..State::default()
+        };
+        assert_eq!(
+            park_facts(&ctx, &state)[0].unreadable,
+            Some(Unreadable::Broken("missing from the vault".into()))
+        );
+        host.vault().fault_all(Fault::Locked);
+        assert_eq!(
+            park_facts(&ctx, &state)[0].unreadable,
+            Some(Unreadable::Locked)
+        );
     }
 
     #[test]
@@ -3292,7 +3537,7 @@ mod tests {
     fn every_parked_login_is_judged_and_a_way_back_is_offered() {
         let mut f = facts();
         let mut unusable = parked("broken", Some(NOW + 30 * 86_400));
-        unusable.unreadable = Some("missing from the vault".into());
+        unusable.unreadable = Some(Unreadable::Broken("missing from the vault".into()));
         f.parks = vec![
             parked("fine", Some(NOW + 20 * 86_400)),
             parked("soon", Some(NOW + 86_400)),

@@ -10,7 +10,8 @@ use super::{paths as claude, slot};
 use crate::context::Context;
 use crate::host::{OS, Os};
 use crate::service::Permit;
-use crate::store::{Backend, Error, Live, RawStore, Unbuilt};
+use crate::store::{self, Backend, Error, Live, RawStore, Unbuilt};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 /// The plaintext file Claude Code demotes to, and reads on a machine with no keychain.
@@ -58,6 +59,20 @@ pub(crate) fn chain(ctx: &Context) -> Live {
         }
         Os::Windows => Live::of(vec![Box::new(not_on_windows_yet())]),
     }
+}
+
+/// The login in `.credentials.json` while the keychain holds the one in use: what a Claude
+/// Code that cannot read the keychain signs in with instead, as one started over SSH does.
+/// Claude Code deletes the file after a keychain write only where the keychain held nothing
+/// before (the register's `fallback_outlives_keychain_writes`), so a login a sign-in left
+/// there while the keychain was locked stays through every switch. A file that is not JSON,
+/// or holds no account's login, signs nobody in.
+pub(crate) fn fallback_login(ctx: &Context) -> Result<Option<Value>, Error> {
+    let behind = store::behind(&chain(ctx), &claude::live_service(ctx))?;
+    Ok(behind
+        .iter()
+        .filter_map(|raw| serde_json::from_str::<Value>(raw).ok())
+        .find(|document| document.get("claudeAiOauth").is_some()))
 }
 
 /// The credential Claude Code left for a config directory during a private sign-in: the
