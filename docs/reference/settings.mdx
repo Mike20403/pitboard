@@ -3,45 +3,78 @@ title: "Settings"
 description: "Look up each control in the General, Command Line and Updates tabs of the app's Settings."
 ---
 
-To open Settings, click Pitboard's item in the menu bar, then choose **Settings** (Command-Comma). It opens on the tab you used last.
+Settings holds the menu bar app's controls in three tabs: **General**, **Command Line** and **Updates**. To open it, click Pitboard's item in the menu bar, then choose **Settings** (Command-Comma). It opens on the tab you used last.
 
 ## General
 
+The **General** tab has three sections, in this order:
+
+| Section | Controls |
+| --- | --- |
+| No heading | **Open Pitboard at login**, **Menu bar shows** |
+| **Before an account runs out** | **Switch Claude Code automatically**, **Switch when a limit reaches** |
+| **While you're away** | **Renew parked logins daily**, **Renew Now** |
+
 ### Open Pitboard at login
 
-When this is on, macOS opens Pitboard each time you log in.
+When this is on, macOS opens Pitboard each time you log in. macOS keeps the setting as a login item.
 
-If macOS needs your approval, the tab says **macOS is waiting for you to allow Pitboard in Login Items.** Until you allow Pitboard in System Settings, the switch stays on but Pitboard does not open at login. **Open Login Items Settings** opens that part of System Settings.
+macOS may ask for your approval first. The tab then says **macOS is waiting for you to allow Pitboard in Login Items.** beside **Open Login Items Settings**. That button opens the part of System Settings where you allow it. Until you do, the switch stays on, but Pitboard does not open at login.
 
 ### Menu bar shows
 
-Sets what the menu bar item shows beside its icon. For which account and limit it shows, see [Menu bar app](/reference/app#menu-bar-item).
+Sets what Pitboard's item in the menu bar shows beside its icon:
 
-| Choice | The menu bar item shows |
+| Choice | The item shows |
 | --- | --- |
 | **Account and usage** (the default) | The account's label and its usage, such as **work 42%** |
 | **Usage only** | The usage alone, such as **42%** |
 | **Icon only** | The icon alone |
 
+For which account and which limit the item shows, see [Menu bar item](/reference/app#menu-bar-item).
+
+### Switch Claude Code automatically
+
+Off by default. While it is on, the app switches Claude Code to another of your accounts before the account in use runs out. It switches once a limit of that account reaches the share **Switch when a limit reaches** sets. It acts before the limit because running Claude Code sessions take up to about 33 seconds to follow a switch.
+
+The app switches only while it is open. It switches only to an account that has used less than that share of every limit it reports. It never switches back by itself, and never switches Codex, since a running `codex` keeps its account until it is started again.
+
+Turning the setting on, or changing the share, takes effect at once, from the usage the app already has. After that, the app decides again each time it reads usage or sees numbers that other runs of Pitboard recorded. To keep those numbers fresh, see [Keep the numbers fresh](/guides/automatic-switching#keep-the-numbers-fresh).
+
+After each switch, the app posts a notification and shows the switch in the Pitboard window as one you made. When something stops a switch, or a switch fails, the app posts why once until it next switches. When no other account has room, it switches nothing and posts nothing.
+
+For the text of each notification, see [Notifications](/reference/app#notifications). For which account the app chooses, and when it holds back, see [Switch before an account runs out](/guides/automatic-switching).
+
+This setting belongs to the app alone. [`pitboard watch`](/reference/account-commands#watch) switches Claude Code from a terminal whether the setting is on or off. Both can run at once without making two switches from one reading, as [Who starts a switch](/concepts/switching#who-starts-a-switch) explains.
+
+### Switch when a limit reaches
+
+Sets the share of a limit at which the app switches, from 50% to 99% in steps of 1%. 95% by default. The label shows the share, as in **Switch when a limit reaches 95%**, and so does the text under the section.
+
+The control is dimmed while **Switch Claude Code automatically** is off. Both controls are dimmed until the app has read its preferences, and stay dimmed if it cannot read them.
+
+The app keeps both settings in `app.json` in [Pitboard's directory](/reference/files#the-pitboard-directory), as `auto_switch` and `auto_switch_at`, so they follow `PITBOARD_HOME`. The file leaves out `auto_switch` while the setting is off. A share in the file outside 50 to 99 is read as the nearer end of that range.
+
 ### Renew parked logins daily
 
-This setting is in the **While you're away** section.
+When this is on, launchd, your Mac's scheduler, runs `pitboard renew` once a day with the command line inside the app. Otherwise a parked login is renewed only while Pitboard runs, so one left alone for weeks expires and needs a sign-in in your browser. For why, see [Keep parked logins alive](/guides/renewal).
 
-When you turn it on, launchd, your Mac's scheduler, runs `pitboard renew` once a day with the command line inside the app. That run renews due parked logins and nothing else: it never switches account or asks for usage.
+The daily run renews the parked logins that are due and does nothing else. It never switches an account, even with **Switch Claude Code automatically** on, and never asks for usage.
 
-The setting is also on after `pitboard schedule install`, whose schedule runs the `pitboard` that installed it. While it is on, **Runs** shows **Every day** and **Scheduled in** shows the file of the [renewal schedule](/reference/files#renewal-schedule).
+The setting is also on after `pitboard schedule install`, whose schedule runs the `pitboard` that installed it. While it is on, **Runs** shows **Every day**, and **Scheduled in** shows the file of the [renewal schedule](/reference/files#renewal-schedule).
 
-You cannot turn it on while macOS runs the app from a temporary copy. macOS does that until you move the app to your Applications folder.
+You cannot turn it on in two cases. Pitboard schedules nothing, and the text under the switch says why:
 
-You cannot turn it on either while the app runs with `PITBOARD_HOME` set to a directory other than `~/.pitboard`. Daily renewal renews only the parked logins in `~/.pitboard`, so Pitboard schedules nothing and says why under the switch. To turn it on, quit the app, then open it without `PITBOARD_HOME` set. You can turn the switch off whatever `PITBOARD_HOME` names.
+- While macOS runs the app from a temporary copy. macOS does that until you move the app to your Applications folder.
+- While the app runs with `PITBOARD_HOME` set to a directory other than `~/.pitboard`. Daily renewal renews only the parked logins in `~/.pitboard`. To turn it on, quit the app, then open it without `PITBOARD_HOME` set.
 
-For why parked logins need renewing, see [Keep parked logins alive](/guides/renewal).
+You can turn it off in either case, whatever `PITBOARD_HOME` names.
 
 ### Renew Now
 
-Renews every due parked login, as `pitboard renew` does, then reads usage again, as **Refresh** in Pitboard's menu does. For when a parked login is due, see [Maintenance commands](/reference/maintenance-commands#renew).
+Renews every parked login that is due, as `pitboard renew` does, then reads usage again, as **Refresh** in Pitboard's menu does. The button is dimmed while a renewal runs. For when a parked login is due, see [Maintenance commands](/reference/maintenance-commands#renew).
 
-The text beside the button then gives the result, in the same line `pitboard renew` prints:
+Until you use it, the text beside the button reads **Renew every parked login that is due.** Afterwards it gives the result, in the line `pitboard renew` prints:
 
 - **No parked login was due.**
 - **2 due; none could be renewed this time.**
@@ -49,13 +82,15 @@ The text beside the button then gives the result, in the same line `pitboard ren
 - **Renewed all 2.**
 - **Renewed 1 of 2; the rest are tried again next time.**
 
-**No parked login was due.** also appears while another Pitboard run is changing something, while a switch is interrupted, or when the account list cannot be read.
+**No parked login was due.** also appears while another Pitboard run is changing something or a switch is interrupted. It appears too when the account list cannot be read.
 
 ## Command Line
 
+The **Command Line** tab shows which `pitboard` a terminal runs, and offers the one inside the app when it finds none. Under its controls, it names `pitboard status` for scripts, and `pitboard repair` for a parked login Pitboard's records have lost track of.
+
 ### In your terminal
 
-Shows the `pitboard` a terminal would run, or **Not installed**. Pitboard looks on your login shell's `PATH` first, then in `~/.cargo/bin`, `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.
+Shows the path of the `pitboard` a terminal would run, or **Not installed**. Pitboard looks on your login shell's `PATH` first, then in `~/.cargo/bin`, `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`.
 
 A note under the row says how that `pitboard` is updated:
 
@@ -64,35 +99,31 @@ A note under the row says how that `pitboard` is updated:
 | The one inside the app, directly or through a link | **The one inside this app, so it updates with the app.** |
 | Any other install | **Installed apart from this app, so update it the way you installed it.** |
 
-The tab also names `pitboard status` for scripts and `pitboard repair` for a parked login Pitboard's records have lost track of.
-
 ### Install Command Line Tool
 
 Appears only when no `pitboard` is found, so it never replaces one you installed. It links `/usr/local/bin/pitboard` to `Pitboard.app/Contents/Helpers/pitboard`, the command line inside the app. macOS asks for an administrator's password first.
 
-Pitboard keeps a file at `/usr/local/bin/pitboard` that is not a link, and says `/usr/local/bin/pitboard` **is already there and is not a link, so it was kept.** Any other failure shows the reason macOS gives, or **The link could not be made.**
+A file at `/usr/local/bin/pitboard` that is not a link stays where it is. Pitboard says `/usr/local/bin/pitboard` **is already there and is not a link, so it was kept.** Any other failure shows the reason macOS gives, or **The link could not be made.**
 
-While the app runs from a temporary copy, the tab shows no button: a link into that copy would break.
+While macOS runs the app from a temporary copy, the tab shows no button, because a link into that copy would break. It says **Move Pitboard to your Applications folder first.** instead.
 
 ## Updates
 
-In a copy from a release download or the `pitboard-app` cask, the tab has three controls.
+In a copy from a release download or the `pitboard-app` cask, the **Updates** tab has three controls.
 
 ### Check for updates automatically
 
-On by default. While it is on, Pitboard checks GitHub for a newer version once a day. For what the check sends, see [Security and privacy](/security#what-leaves-your-machine).
+On by default. While it is on, Pitboard checks GitHub for a newer version once a day. For what the check sends, see [What leaves your machine](/security#what-leaves-your-machine).
 
 ### Download and install updates automatically
 
-Off by default. When it is on, an update the daily check finds downloads in the background and installs when Pitboard quits. It is dimmed while **Check for updates automatically** is off.
+Off by default. While it is on, an update the daily check finds downloads in the background and installs when Pitboard quits. The switch is dimmed while **Check for updates automatically** is off.
 
 ### Check Now
 
 Checks for a newer version at once, in the update window.
 
-Beside the button is the version you are running, as **Pitboard** `<version>`. After the daily check finds a newer version, the text reads **Pitboard** `<version>` **is ready to install.**
-
-For the **Install Pitboard** `<version>` item in Pitboard's menu, see [Menu bar app](/reference/app#menu).
+The text beside the button names the version you are running, as **Pitboard** `<version>`. Once the daily check finds a newer version, it reads **Pitboard** `<version>` **is ready to install.** For the **Install Pitboard** `<version>` item that appears in Pitboard's menu then, see [Menu](/reference/app#menu).
 
 ### A copy built from source
 

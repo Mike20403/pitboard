@@ -1,9 +1,9 @@
 ---
 title: "Account commands"
-description: "`status`, `enroll`, `use`, `forget` and `rename` each get their usage, options, output and an example."
+description: "`status`, `enroll`, `use`, `forget`, `rename` and `watch` each get their usage, options, output and an example."
 ---
 
-The account commands show, add, switch, forget and rename the accounts Pitboard knows. Each also takes `--json` and `--help`, described in [Global options](/reference/commands#global-options). Exit statuses are as in [Exit codes](/reference/commands#exit-codes) unless a section says otherwise.
+The account commands show, add, switch, forget and rename the accounts Pitboard knows. `watch` switches Claude Code by itself, before an account runs out, for as long as it runs. Each command also takes `--json` and `--help`, described in [Global options](/reference/commands#global-options). Exit statuses are as in [Exit codes](/reference/commands#exit-codes) unless a section says otherwise.
 
 A label such as `codex/work` names an account of OpenAI's Codex CLI. `pitboard enroll` reads a bare label such as `work` as a Claude Code account. `pitboard use`, `pitboard forget` and the first label of `pitboard rename` look for a bare label in both tools.
 
@@ -230,3 +230,74 @@ Renamed wrong to right (me@company.com).
 ```
 
 For the same task in the app, see [Add and manage accounts](/guides/accounts#rename-an-account).
+
+## `watch`
+
+```text
+Switch Claude Code to another of your accounts before the one in use runs out, for as long as this runs
+
+Usage: pitboard watch [OPTIONS]
+```
+
+`pitboard watch` switches Claude Code to another enrolled account once a limit of the account in use reaches a share, 95% unless `--at` gives another. It never switches Codex, because a running `codex` keeps its account until it is started again. [Switch before an account runs out](/guides/automatic-switching) says which account Pitboard picks, what it never does and how the app does the same.
+
+| Option | Description |
+| --- | --- |
+| `--at <PERCENT>` | Switch once a limit of the account in use reaches this share, from 50 to 99 [default: 95] |
+| `--once` | Decide once from the numbers Pitboard last measured, without asking anyone, and stop |
+
+A share outside 50 to 99, or one that is not a whole number, fails with exit status 2.
+
+`watch` runs in the foreground until you press Control-C. Running it is what turns automatic switching on, whatever the app's **Switch Claude Code automatically** setting says. Nothing installs it, and it starts nothing that outlives it.
+
+While it runs, `watch`:
+
+- Reads every account when it starts and every 5 minutes, as the app does. Each account is asked about only as often as [How often Pitboard asks](/concepts/usage#how-often-pitboard-asks) allows.
+- Looks every 2 seconds at when the account list and usage readings were last written, such as by a [status line](/guides/status-line) after a response. It decides again when either has changed.
+- Decides again at least every 30 seconds, even when nothing was written.
+
+A decision reads Pitboard's files and sends no request. Unless it comes to a switch, it takes no lock and records nothing.
+
+A switch is the one `pitboard use` makes, with the same checks and journal. [`pitboard log`](/reference/maintenance-commands#log) records it with the verb `auto-switch`.
+
+`watch`, the app and your own `pitboard use` can run at once without making two switches from one reading. See [Who starts a switch](/concepts/switching#who-starts-a-switch).
+
+`watch` prints a line when it starts, then a line for each switch. It prints each thing that stops a switch once, until the next switch. Each of these lines but the first starts with the local time, such as `14:02:11`.
+
+| Output | When |
+| --- | --- |
+| `Watching Claude Code. Pitboard switches to another of your accounts once a limit of the one in use reaches 95%. Stop with Ctrl-C.` | `watch` starts. |
+| `Switched Claude Code from work to personal: work has used 96% of its 5-hour limit. Claude Code sessions already running follow within 33 seconds.` | It switched. |
+| `work has used 97% of its 5-hour limit, and no other Claude Code account has room below 95% in every limit.` | A limit reached the share, and no other account has room. Nothing moves. |
+| `work has used 96% of its 5-hour limit. Pitboard is not switching: <reason>.` | A limit reached the share and another account has room, but something stops the switch. |
+
+A limit for one model is named with its model, as in `97% of its weekly Opus limit`.
+
+`<reason>` is one of these:
+
+| `<reason>` | When |
+| --- | --- |
+| `` a switch was interrupted, and the next change you make finishes it, or give up on it with `pitboard abandon` `` | A switch did not finish. |
+| `Claude Code uses a custom OAuth endpoint, and Pitboard does not act on Claude Code then` | `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set. |
+| `Claude Code signs in another way, set by ANTHROPIC_API_KEY in the environment, so a switch would change nothing its sessions use` | Something other than the login Pitboard switches signs Claude Code in, as `pitboard doctor` warns. The line names each setting and where it is set. |
+
+A switch that fails prints its error on standard error, as `pitboard use` would, and `watch` goes on. Each error code is printed once until the next switch. When it tries again depends on the error, as [Switch before an account runs out](/guides/automatic-switching) describes.
+
+`watch` ends, with the error and its exit status, when it may change nothing or cannot use Pitboard's own files. That is when it runs as root or with `sudo` (`elevated`), or on a Windows build (`windows_not_released`). It also ends with any error from [The Pitboard directory](/reference/errors#the-pitboard-directory).
+
+If you press Control-C while a switch runs, the next change Pitboard makes finishes or undoes it, as [Interrupted switches](/concepts/switching#interrupted-switches) describes.
+
+With `--once`, `watch` decides once from the numbers Pitboard last measured, without asking any service for usage. It prints what it came to, without a start line or the time, and `Nothing to switch now.` when there is nothing to do. A switch it makes still checks the parked login with Anthropic, as `pitboard use` does. It exits 0, or with the error's status if it ends with one.
+
+With `--json`, `watch` prints one line of JSON for each event, and `--once` prints one. For the fields, see [Watch events](/reference/json-output#watch-events).
+
+To switch once a limit reaches 90%, and keep watching:
+
+```sh
+pitboard watch --at 90
+```
+
+```text
+Watching Claude Code. Pitboard switches to another of your accounts once a limit of the one in use reaches 90%. Stop with Ctrl-C.
+14:02:11 Switched Claude Code from work to personal: work has used 91% of its 5-hour limit. Claude Code sessions already running follow within 33 seconds.
+```

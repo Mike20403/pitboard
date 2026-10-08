@@ -9,7 +9,9 @@ changes or a tool build moves a fact, not with each commit.
 
 Pitboard switches Claude Code or Codex between a person's own accounts on one machine. It
 also shows how much of each account's limits is left. A switch parks the login in use and
-puts another account's parked login in its place.
+puts another account's parked login in its place. A person asks for each switch, unless
+they asked Pitboard to switch Claude Code by itself before the account in use runs out:
+the app with its setting on, or `pitboard watch` running in a terminal.
 
 One crate, `pitboard-core`, does this for both tools. It reads and writes each tool's login,
 keeps Pitboard's index of accounts, and asks each tool's service for usage.
@@ -83,12 +85,27 @@ pages load, as a browser would.
   - `store/`: reading and writing logins, whichever store holds them: the chain rules, a
     file, the vault of files and the stores in memory the tests use. On macOS, parked
     logins are keychain items. On Linux, they are files in the vault.
-  - `switch/`: every change to Pitboard's index (switching, enrolling, adopting, renaming,
-    forgetting, renewing, repairing, abandoning and uninstalling), and the journal that
+  - `switch/`: every change to Pitboard's index (switching, by hand or by itself in
+    `auto.rs`, enrolling, adopting, renaming, forgetting, renewing, repairing, abandoning
+    and uninstalling), and the journal that
     finishes an interrupted switch. With `test-support`, a context may hold a
     `SignInScript`, which plays a tool's own sign-in in place of its program, for a test or
     a fixture that may start none; everything around it is the core's own.
   - `state.rs`: `state.json`, the index of accounts and where each one's login is parked.
+  - `autoswitch.rs`: switching Claude Code by itself, for a front end somebody asked to: the
+    app with its setting on, or `pitboard watch`. `Threshold` is the share a limit switches
+    at, 50 to 99, 95 unless chosen. `decide` is the rule, from the readings Pitboard already
+    holds: which limit of the account in use reached the share, and which switchable account
+    has room under it in every limit it reports. `Ledger` is `autoswitch.json`, what was
+    tried for each limit of each account until that limit resets: the attempts, how many in
+    a row failed for a reason waiting may mend, when the last began, whether one switched
+    and the accounts passed over, written only under `state.lock`. `look` decides from files
+    alone, and says why where Pitboard will not switch. `switch/auto.rs` decides again under
+    the lock and switches only for the same plan, through `switch_held` given the account it
+    expects to leave, which refuses with `switch_overtaken`, changing nothing, once that
+    account is no longer the one signed in; the switch takes that as nothing to do.
+    `service::Pitboard::auto_switch` joins the two, and the audit log records a switch, or
+    the error that stopped one, as `auto-switch`.
   - `lock.rs`: the lock Claude Code takes around credential writes, taken the same way.
   - `context.rs`: what the core takes from its environment, read from a map of variables
     by the same code for every front end, apart from the `PATH` that `host/linux` reads to
@@ -123,7 +140,13 @@ pages load, as a browser would.
   `json.rs` is the one writer of that JSON, for every command and every error. Its example
   `stand-in` is the program every test starts in place of a tool. Its code is
   `pitboard-core`'s `stand_in.rs`, compiled with test-support, and it plays the script
-  written beside each copy of it. Nothing installs or ships it.
+  written beside each copy of it. Nothing installs or ships it. `watch.rs` is
+  `pitboard watch`, a loop in the foreground until Ctrl-C: it reads every account every
+  300 seconds, as the app does, looks every 2 seconds at when the index and the readings
+  were last written, and decides again whenever either changed and at least every 30
+  seconds. It says every switch, and each thing that stopped one once until the next
+  switch, and ends on a refusal watching cannot mend: running elevated, a Windows build or
+  Pitboard's own files unusable.
 - `crates/pitboard-ffi`: the core as UniFFI bindings, for the apps: a static library for
   the macOS app, a dynamic one for the Windows app. An app reaches the core through the
   model alone.
@@ -544,8 +567,9 @@ pages load, as a browser would.
   is notified once more. The window's advice is worked out as the Swift model worked it
   out, from what this launch has told, so it still says a run-out notified before a
   relaunch.
-- The app's own preferences, the tools somebody said "Not Now" to a second account for and
-  whether the app has ever shown anybody anything, are the model's, kept in `app.json` in
+- The app's own preferences, the tools somebody said "Not Now" to a second account for,
+  whether the app has ever shown anybody anything, and whether it switches Claude Code by
+  itself and at what share, are the model's, kept in `app.json` in
   Pitboard's directory, so they follow `PITBOARD_HOME`. Where that file is there it wins;
   where it is not, the model takes what the app's earlier store held, handed over in
   `AppLaunch::earlier_preferences`, and keeps it at once, so that store is read once. The
@@ -579,6 +603,17 @@ pages load, as a browser would.
   app may close the question with `Intent::KeepAppOpen` before or after it sends the answer:
   a question closed unanswered is kept until another switch is asked for, and an answer is
   taken once.
+- A switch of Claude Code the app makes by itself, with its setting on, is claimed the same
+  way, with `switching` naming the tool rather than an account, since the core chooses
+  which: the model asks for one after it advises, where a limit of the Claude Code account
+  in use has reached the share, and not while another switch, the question before one or
+  another change of the app's own is under way, nor after a refusal until the app's next
+  read lands. It runs on the lane of changes, behind any switch asked for, and asks nobody
+  about quitting an app, since Claude Code follows a switch by itself. A switch it made is
+  taken as one asked for is, with the read after it, and said in a notification with no
+  button; a reason it did not switch, and a refusal, are said once each until it next
+  switches, and never in an alert, since nobody asked. The setting is kept in `app.json`
+  with the other preferences, and taken only once they are read.
 - Every other change this app makes to the account index holds it as a switch does, and the
   poll leaves the index alone meanwhile: naming the login signed in now, a sign-in's
   enrolment, a rename, forgetting, giving up on an interrupted switch and renewing parked
@@ -748,6 +783,21 @@ pages load, as a browser would.
 - Nothing outside `pitboard-core` writes Pitboard's index. Every change goes through
   `switch`, which records what it is about to do first and finishes an interrupted change
   before starting another.
+- Pitboard switches by itself only for a front end somebody asked to: the app with its
+  setting on, or `pitboard watch` running. It never switches Codex by itself, since a
+  running `codex` never follows a switch. The status line and the daily renewal schedule
+  never switch, and an automatic switch never quits an app.
+- An automatic switch is decided twice. `autoswitch::look` decides from files alone: it
+  takes no lock, sends no request, reads no keychain and records nothing, so a look that
+  finds nothing to do costs nobody anything. `switch/auto.rs` decides again under
+  `state.lock`, from the files as they are then, and switches only for the same plan and
+  only away from the account still signed in. So the app, `pitboard watch` and a person's
+  own `pitboard use` never make two switches from one reading. The attempt is written to
+  `autoswitch.json` before anything moves, so a switch killed midway still counts against
+  that limit's attempts. One that failed for a reason trying again may mend, Anthropic out
+  of reach or Claude Code writing its login, is taken back out of them, so an outage never
+  uses them up. The next try waits a minute, then twice as long after each such failure in
+  a row, up to 15 minutes.
 - Additive writes become durable before destructive ones. A run that dies midway leaves a
   spare copy of a login, never a missing one.
 - The `--json` contract changes only on purpose. A change to a snapshot is a change to the
@@ -1354,6 +1404,23 @@ treated, and only the macOS build shows it. The run reads both builds since.
   reads the file and the slot as Claude Code does. The win32-x64 build's JavaScript refuses
   a relative config dir itself in one of its features: "the configuration home
   (CLAUDE_CONFIG_DIR) is not an absolute path".
+
+Not measured. Switching by itself rests on the session cache's 33 seconds. These were not
+measured, and the register cannot hold them, since every fact in it is read from a build:
+
+- Whether a request a session has under way at the moment of a switch finishes, on either
+  account.
+- What Claude Code does when an account reaches a limit: whether a session stops, waits or
+  tries again, and whether it would take a switch made after that. Pitboard switches at a
+  share under 100% so that a session following within the 33 seconds need not meet it,
+  and the docs say neither is known.
+- A busy session renewing its login while an automatic switch is under way, against a
+  running build. The write lock and the read again under it (`write_lock`) keep the two
+  apart, as for any switch. `a_login_claude_code_renews_partway_through_is_not_written_over`
+  in `switch/auto.rs` plays it on the stores in memory: the switch stops with
+  `signed_in_account_changed`, nothing is written over the renewed login, the account it
+  would have switched to keeps its parked login, and the next attempt, a minute on,
+  switches.
 
 ### Codex
 

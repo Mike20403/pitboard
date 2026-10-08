@@ -23,9 +23,9 @@ The command line and the app share one record of when each account was asked. Ru
 
 When a service asks for less traffic, Pitboard waits the time it names, or else 1 minute, doubling up to 1 hour. If it is unreachable or returns an error, the wait is 30 seconds, doubling up to 15 minutes.
 
-The app reads usage when it starts, every 5 minutes and when your Mac wakes. Clicking Pitboard's item in the menu bar reads again if the last read is at least a minute old.
+The app and [`pitboard watch`](/reference/account-commands#watch) read usage when they start and every 5 minutes while they run. The app also reads when your Mac wakes. Clicking Pitboard's item in the menu bar reads again if the last read is at least a minute old.
 
-Within seconds, and without asking any service, the app shows a switch made in a terminal and numbers that other runs of Pitboard record.
+Every 2 seconds, both also look for a switch made elsewhere or numbers that other runs of Pitboard recorded, without asking any service. The app shows what it finds. With [automatic switching](/guides/automatic-switching) on, the app also decides from it whether to switch, as `pitboard watch` does.
 
 `pitboard status --fresh` and **Refresh** in Pitboard's menu or the **Accounts** pane ask about every account anyway, and try again a service that could not be reached. They do not ask through a wait a service asked for.
 

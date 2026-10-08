@@ -3,7 +3,7 @@ title: "JSON output"
 description: "Every command prints the same versioned envelope with `--json`, whether it succeeds or fails."
 ---
 
-With `--json`, every command prints one line of JSON on standard output: an envelope with the same six fields, whether it succeeds or fails.
+With `--json`, every command prints an envelope with the same six fields on standard output, as one line of JSON, whether it succeeds or fails. `pitboard watch`, which runs until you stop it, prints one for each event.
 
 ## The envelope
 
@@ -111,6 +111,7 @@ The `data` of each command, in the order of `pitboard --help`:
 | `rename` | `from`, `to` and `email`. |
 | `doctor` | `environment`: the paths and login stores Pitboard found, and the version of OpenAI's Codex CLI. `checks`, each with `code`, `name`, `level` (`ok`, `warn` or `fail`), `detail` and `advice`, as [Maintenance commands](/reference/maintenance-commands#doctor) lists. |
 | `statusline` | `line`, the status line without colour. |
+| `watch` | One envelope for each event: `event`, `threshold` and the fields of that event, as [Watch events](/reference/json-output#watch-events) lists. |
 | `generate` (`completions` and `manpage`) | `{}` |
 
 `adoption` says how sessions already running pick up a switch. For Claude Code it is `{"follows":"polling","within_seconds":33}`, and `adoption_ceiling_seconds` is `33`. For Codex it is `{"follows":"restart","program":"codex"}`, and `adoption_ceiling_seconds` is `null`.
@@ -157,6 +158,66 @@ Each object in `windows` is one limit:
 | `is_active` | boolean | `true` when the service says the account is working against this limit. Always `true` for Codex. |
 | `severity` | string or null | Anthropic's own grade of the limit, or `null` when it gives none, as for every Codex limit. |
 | `length_seconds` | integer | How long the limit's window runs, such as `18000`. Left out when unknown. |
+
+## Watch events
+
+`pitboard watch --json` prints one envelope for each event, each on a line of its own, with `command` set to `watch`. With `--once`, it prints one. The `data` of each event has `event` and `threshold`, the share it switches at, such as `95`.
+
+| `event` | When | Other fields |
+| --- | --- | --- |
+| `watching` | `watch` starts. Not printed with `--once`. | None |
+| `switched` | Pitboard switched Claude Code. | `from`, `to`, `limit` and `adoption` |
+| `no_room` | A limit of the account in use reached the share, and no other account has room. | `from` and `limit` |
+| `skipped` | A limit reached the share and another account has room, but something stops the switch. | `from`, `limit` and `reason` |
+| `idle` | `--once` found nothing to do. Printed only with `--once`. | None |
+
+The other fields are these:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `from` | string | The Claude Code account in use, by its label as `pitboard use` takes it. |
+| `to` | string | The account switched to, by its label. |
+| `limit` | object | The limit of `from` that reached the share, as Pitboard last read it: `kind`, `scope`, `percent` and `resets_at`, as in [Status data](/reference/json-output#status-data). |
+| `adoption` | object | How sessions already running pick up the switch: `{"follows":"polling","within_seconds":33}`, as for `use`. |
+| `reason` | string | Why Pitboard does not switch. |
+
+`reason` is one of these:
+
+| `reason` | Meaning |
+| --- | --- |
+| `switch_interrupted` | A switch did not finish. The next change you make finishes it, or `pitboard abandon` gives up on it. |
+| `custom_oauth_endpoint` | `CLAUDE_CODE_CUSTOM_OAUTH_URL` is set, so Pitboard does not act on Claude Code. |
+| `auth_overridden` | Claude Code signs in another way, such as with `ANTHROPIC_API_KEY` or `apiKeyHelper`, so a switch would change nothing its sessions use. |
+
+A switch that fails prints an envelope with `ok` set to `false`, `data` set to `null` and the `error`, as every command does. `watch` then goes on. An error that ends `watch` is printed the same way, and `watch` exits with its status.
+
+A switch prints this on one line:
+
+```json
+{
+  "v": 1,
+  "command": "watch",
+  "ok": true,
+  "data": {
+    "event": "switched",
+    "threshold": 95,
+    "from": "work",
+    "to": "personal",
+    "limit": {
+      "kind": "session",
+      "scope": null,
+      "percent": 96.0,
+      "resets_at": 1790474400
+    },
+    "adoption": {
+      "follows": "polling",
+      "within_seconds": 33
+    }
+  },
+  "warnings": [],
+  "error": null
+}
+```
 
 ## Stale codes
 

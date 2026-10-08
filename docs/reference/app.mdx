@@ -28,7 +28,7 @@ What needs attention appears as these items:
 
 | Item | Appears when | Choosing it |
 | --- | --- | --- |
-| **Switch to personal** | The account in use has used all of a limit, and `personal` has room in the same limit. The line under the item names the limit. | Switches to `personal`. |
+| **Switch to personal** | The account in use has used all of a limit, and `personal` has room in every limit it reports. The line under the item names the limit that ran out. | Switches to `personal`. |
 | The title of a notice, such as **Couldn't read usage**, or **2 things to look at** when there are several | Pitboard has a warning or a problem to show. | Opens the Pitboard window on the **Accounts** pane, which shows each notice in full. |
 | **Install Pitboard** `<version>` | A copy from a release has found an update. | Opens the update window. |
 | **Claude Code isn't installed** | The app found neither `claude` nor `codex`, and no tool has a login or an account. | Opens Claude Code's setup page in your browser. |
@@ -119,8 +119,8 @@ Notices say what needs attention, most pressing first:
 | --- | --- | --- |
 | **An interrupted switch is waiting** | A switch stopped partway, and Pitboard cannot yet tell whether it finished. | **Give Up** |
 | **Couldn't read usage** | The last read failed. The reason is under the title. | None |
-| **work has no 5-hour limit left** | The account in use has used all of a limit, and another account has room. | **Switch to personal** |
-| **Switched to work** | A switch you made in the app finished. The lines under it say what happens to open sessions. | **Dismiss** (an x) |
+| **work has no 5-hour limit left** | The account in use has used all of a limit, and another account has room in every limit it reports. | **Switch to personal** |
+| **Switched to work** | A switch the app made finished: one you asked for, or one it made by itself. The lines under it say what happens to open sessions. | **Dismiss** (an x) |
 | **work has a new login** | A sign-in in the app gave the account in use a new login. | **Dismiss** (an x) |
 | The title of another warning, such as **A parked login was refused** | A read or a change gave a warning. For each title, see [Warning codes](/reference/errors#warning-codes). | None |
 | **Gave up on the interrupted switch** | You clicked **Give Up** and confirmed. | **Dismiss** (an x) |
@@ -132,10 +132,12 @@ The **Activity** pane lists the last 500 changes Pitboard made, newest first, fr
 | Column | Shows |
 | --- | --- |
 | **Date** | When the change was made. |
-| **Change** | What was done, such as **Switch**, **Enrol**, **Rename**, **Forget** or **Renew**. |
+| **Change** | What was done, such as **Switch**, **Automatic switch**, **Enrol**, **Rename**, **Forget** or **Renew**. |
 | **Account** | What the change was about, as [`pitboard log`](/reference/maintenance-commands#log) records it. For most changes it is a label, such as `work` or `codex/work`. |
 | **Result** | **Done**, or the outcome's code written out in words, such as **Renewed** or **Parked login refused**. |
 | **Asked By** | **Pitboard app**, **Command line**, or **Unknown** for a change logged before Pitboard recorded who asked. |
+
+**Automatic switch** is a switch Pitboard made or tried by itself before a Claude Code account ran out. Its **Account** is the account it switched to, or tried to. Its **Asked By** is **Pitboard app** for the app's own, and **Command line** for `pitboard watch`. A look that finds nothing to switch adds no line.
 
 ### This Mac pane
 
@@ -380,16 +382,40 @@ Clicking the Dock icon brings back a minimised window. Opening Pitboard again fr
 
 ## Notifications
 
-For when the app sends a notification, see [When an account runs out](/guides/switch#when-an-account-runs-out).
+The app posts a notification when the account in use runs out of a limit. With [**Switch Claude Code automatically**](/reference/settings#switch-claude-code-automatically) on, it also posts one after each switch it makes by itself. It posts one too when something stops such a switch, or such a switch fails.
 
-| Part | Text |
+In these examples, `work` is the account in use:
+
+| Title | Posted when | Body | Button |
+| --- | --- | --- | --- |
+| **work has no 5-hour limit left** | `work` has used all of a limit, and another account of the same tool has room in every limit it reports. | **personal has 58% of its own left.** | **Switch**, which switches to `personal` |
+| **Switched Claude Code to personal** | The app switched Claude Code from `work` to `personal` by itself. | **work had used 96% of its 5-hour limit. Sessions already running follow within 33 seconds.** | None |
+| **Claude Code was not switched** | A limit of `work` reached the share in **Switch when a limit reaches**, and one of the [reasons](#when-the-app-switches-by-itself) stops the switch. | **work has used 96% of its 5-hour limit.**, then the reason | None |
+| **Pitboard could not switch Claude Code** | An automatic switch failed. | Why it failed, in the words of the error | None |
+
+Only **work has no 5-hour limit left** has a subtitle: **Claude Code** or **Codex**, once both tools have accounts. Clicking a notification itself does nothing. Notifications play no sound and set no badge. The first time the app posts one, macOS asks whether to allow notifications.
+
+### When an account runs out
+
+The notification offers the same tool's account with the most of that limit left, among those with room in every limit they report. A limit whose reset time has passed counts as reset. If no account has room, the app posts nothing.
+
+The app posts it once each time a limit runs out, however often you quit and reopen it before the limit resets. If the switch from **Switch** fails, the Pitboard window opens with an alert. For how to act on it, see [When an account runs out](/guides/switch#when-an-account-runs-out).
+
+### When the app switches by itself
+
+After an automatic switch, the Pitboard window shows the notice **Switched to personal**, as after a switch you make. While the switch runs, the app counts it as a switch under way, so no other switch starts until it ends.
+
+**Claude Code was not switched** gives one of these reasons:
+
+| Reason | Given while |
 | --- | --- |
-| Title | **work has no 5-hour limit left** |
-| Subtitle | **Claude Code** or **Codex**, once both tools have accounts |
-| Body | **personal has 58% of its own left.** |
-| Button | **Switch**, which switches to `personal`. If the switch fails, the Pitboard window opens with an alert. |
+| **A switch was interrupted, and the next change you make finishes it.** | A switch stopped partway. While Pitboard cannot yet tell whether it finished, the notice **An interrupted switch is waiting** also offers **Give Up**. |
+| **Claude Code uses a custom OAuth endpoint, and Pitboard does not act on Claude Code then.** | Claude Code uses `CLAUDE_CODE_CUSTOM_OAUTH_URL`. |
+| **Claude Code signs in another way, set by** `apiKeyHelper in /Users/me/.claude/settings.json`**, so a switch would change nothing its sessions use.** | Claude Code signs in with an API key, `apiKeyHelper`, `CLAUDE_CODE_OAUTH_TOKEN` or a cloud provider, as [`pitboard doctor`](/reference/maintenance-commands#doctor) warns. The reason names each setting and the file that sets it. |
 
-Clicking the notification itself does nothing. Notifications play no sound and set no badge.
+The app posts each reason, and each kind of failure, once until it next switches. A failure never opens an alert. After one, the app tries again only after its next read of usage.
+
+When no account qualifies, the app switches nothing and posts nothing. The run-out notification still comes if `work` runs out and another account has room. For which accounts qualify, see [Switch before an account runs out](/guides/automatic-switching).
 
 ## Keyboard shortcuts
 
