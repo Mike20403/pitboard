@@ -171,8 +171,11 @@ pub(crate) fn item(seen: &Seen, account: &Account) -> AccountItem {
     let switching_for = state.switch_under_way();
     let busy = state.sign_in_under_way();
     let in_use = account.signed_in;
-    let needs_sign_in =
-        !account.unplaced && account.label.is_some() && !account.signed_in && !account.switchable;
+    let needs_sign_in = !account.unplaced
+        && account.label.is_some()
+        && !account.signed_in
+        && !account.switchable
+        && !login_unread(account);
     let switching = account.qualified.is_some() && account.qualified.as_deref() == switching_for;
     let title = if account.unplaced {
         "Login Pitboard can’t use".to_owned()
@@ -387,13 +390,19 @@ fn scoped_name(limit: &Limit) -> String {
     }
 }
 
+/// An account not in use whose login may be the one in use that could not be read, which no
+/// sign-in would fix.
+fn login_unread(account: &Account) -> bool {
+    !account.signed_in && account.stale.as_deref() == Some("login_unreadable")
+}
+
 /// Under the name in the menu, one line: what the account's limits stand at, and when one
 /// that has run out comes back. What stands in the way instead, when something does.
 fn summary(seen: &Seen, account: &Account, switching: bool, needs_sign_in: bool) -> String {
     if switching {
         return "Switching…".into();
     }
-    if account.unplaced {
+    if account.unplaced || login_unread(account) {
         return account
             .stale_explanation
             .clone()

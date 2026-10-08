@@ -60,6 +60,8 @@ fn standing(row: &Row, now: i64) -> String {
     }
     let sign_in_again = format!("pitboard enroll {} --sign-in", typed(row));
     match &row.parked {
+        // Its login may be the one in use that could not be read; the line under it says so.
+        None if row.stale == Some(Stale::LoginUnreadable) => paint(WARN, "login could not be read"),
         None => paint(WARN, format!("nothing parked · {sign_in_again}")),
         Some(p) if !p.restorable_at(now) => paint(BAD, format!("login expired · {sign_in_again}")),
         Some(p) => match p.refresh_expires_at {
@@ -619,6 +621,22 @@ mod tests {
             text.contains("Codex's login could not be read; run `pitboard doctor`"),
             "{text}"
         );
+    }
+
+    /// An account with nothing parked whose login may be the one that could not be read
+    /// says so, and is not sent to sign in again.
+    #[test]
+    fn an_account_whose_login_could_not_be_read_is_not_sent_to_sign_in() {
+        let mut maybe_in_use = row(Some("beta"), false);
+        maybe_in_use.parked = None;
+        maybe_in_use.stale = Some(Stale::LoginUnreadable);
+        let text = plain(&human(&report(vec![
+            row(Some("alpha"), true),
+            maybe_in_use,
+        ])));
+        let line = text.lines().find(|l| l.contains(" beta ")).expect(&text);
+        assert!(line.contains("login could not be read"), "{line}");
+        assert!(!line.contains("--sign-in"), "{line}");
     }
 
     /// A login that was read and is not one account's, such as an API key, says it cannot

@@ -29,6 +29,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `credential` check, with what Claude Code sessions do until it is unlocked. Each parked
   login behind it warns `not read: the keychain is locked`. Before, every one failed and
   said to sign in to its account again, which nothing needed.
+- While the login in use cannot be read, the account Pitboard last switched to, which has
+  nothing parked because its login was put in use, says `login could not be read` in
+  `pitboard status` and the stale code `login_unreadable`, and the app no longer marks it
+  **Needs signing in again**. After a `/login` where the keychain was locked, Claude Code's
+  config named another account, and this one was told to sign in again although its login
+  was still in the keychain.
 
 ## [0.8.0] - 2026-10-08
 

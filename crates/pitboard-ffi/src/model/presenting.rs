@@ -555,6 +555,25 @@ fn an_account_that_needs_signing_in_again_says_so_while_something_else_runs() {
     assert_eq!(switch_elsewhere.spoken, "stale, needs signing in again");
 }
 
+/// An account whose login may be the one in use that could not be read is not said to need
+/// signing in again: the core says its login could not be read, and that is the line.
+#[test]
+fn an_account_whose_login_could_not_be_read_is_not_said_to_need_signing_in() {
+    let why = "Claude Code's login could not be read; run `pitboard doctor`";
+    let unread = Account {
+        stale: Some("login_unreadable".into()),
+        ..account(Some("beta"))
+            .switchable(false)
+            .unmeasured()
+            .explained(why)
+            .build()
+    };
+    let said = described(unread);
+    assert!(!said.needs_sign_in);
+    assert_eq!(said.summary, why);
+    assert_eq!(said.spoken, "beta");
+}
+
 /// The line under an account's name in the menu says what stands in its way before
 /// anything about its limits, since that is what decides whether it can be chosen.
 ///
