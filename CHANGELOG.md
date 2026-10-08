@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-08
+
 ### Added
 
 - Pitboard can switch Claude Code by itself before the account in use runs out, so an agent
@@ -1512,7 +1514,8 @@ First release.
 - Schema 3: one parked login per account, with when it expires. Earlier files are refused
   rather than migrated; nothing was ever released that wrote them.
 
-[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/datlechin/pitboard/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/datlechin/pitboard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/datlechin/pitboard/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/datlechin/pitboard/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/datlechin/pitboard/compare/v0.5.1...v0.5.2
