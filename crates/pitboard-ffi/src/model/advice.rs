@@ -33,34 +33,55 @@ pub(crate) struct Advice {
     pub(crate) switch_to: String,
 }
 
+/// What is used of `limit` at `now`: nothing, once its reset has passed, though no reading
+/// has said so yet, as the core counts it.
+fn share(limit: &Limit, now: i64) -> f64 {
+    if limit.resets_at.is_some_and(|at| at <= now) {
+        0.0
+    } else {
+        limit.percent
+    }
+}
+
 /// What an account has used of the limit `window` is of, counting one it does not report as
 /// spent: an account whose limits are unknown is not one to recommend.
-fn used(account: &Account, window: &Limit) -> f64 {
+fn used(account: &Account, window: &Limit, now: i64) -> f64 {
     account
         .usage
         .iter()
         .flat_map(|usage| &usage.windows)
         .find(|limit| limit.kind == window.kind && limit.scope == window.scope)
-        .map_or(100.0, |limit| limit.percent)
+        .map_or(100.0, |limit| share(limit, now))
+}
+
+/// Whether an account has room in every limit it reports. One that has run out of any is no
+/// place to go, whichever limit sent somebody looking: switched to, it stops at once.
+fn has_room(account: &Account, now: i64) -> bool {
+    account
+        .usage
+        .iter()
+        .flat_map(|usage| &usage.windows)
+        .all(|limit| share(limit, now) < 100.0)
 }
 
 /// The account of the same tool with the most left of `window`'s kind that can be switched
-/// to now, and what it has left: none when none has any. The first of those as empty, as
-/// Swift's `min(by:)` keeps the first.
-fn spare(window: &Limit, mine: &[&Account]) -> Option<(String, i64, String)> {
+/// to at `now` and has room in every other limit, and what it has left: none when none has
+/// any. The first of those as empty, as Swift's `min(by:)` keeps the first.
+fn spare(window: &Limit, mine: &[&Account], now: i64) -> Option<(String, i64, String)> {
     let spare = mine
         .iter()
         .filter(|account| account.switchable && account.qualified.is_some())
+        .filter(|account| has_room(account, now))
         .fold(None::<&&Account>, |best, account| match best {
             Some(best)
-                if used(account, window).partial_cmp(&used(best, window))
+                if used(account, window, now).partial_cmp(&used(best, window, now))
                     != Some(Ordering::Less) =>
             {
                 Some(best)
             }
             _ => Some(account),
         })?;
-    let room = used(spare, window);
+    let room = used(spare, window, now);
     match (&spare.label, &spare.qualified) {
         (Some(label), Some(qualified)) if room < 100.0 => {
             Some((label.clone(), 100 - room.round() as i64, qualified.clone()))
@@ -120,7 +141,7 @@ impl Advice {
                     {
                         continue;
                     }
-                    let Some((instead, left, switch_to)) = spare(window, &mine) else {
+                    let Some((instead, left, switch_to)) = spare(window, &mine, status.now) else {
                         continue;
                     };
                     return Some(Advice {
@@ -156,7 +177,7 @@ impl Advice {
             .iter()
             .filter(|account| account.provider == self.provider)
             .collect();
-        let (instead, left, switch_to) = spare(&self.window, &mine)?;
+        let (instead, left, switch_to) = spare(&self.window, &mine, status.now)?;
         Some(Advice {
             instead,
             left,
@@ -377,12 +398,62 @@ mod tests {
                 .limits(vec![window("session", 10.0), window("weekly_all", 100.0)])
                 .build(),
             account(Some("spare"))
-                .limits(vec![window("session", 100.0), window("weekly_all", 20.0)])
+                .limits(vec![window("session", 90.0), window("weekly_all", 20.0)])
+                .build(),
+            account(Some("other"))
+                .limits(vec![window("session", 5.0), window("weekly_all", 60.0)])
                 .build(),
         ]);
         let advice = about(&read, &Told::new()).remove(0);
         assert_eq!(advice.window.kind, "weekly_all");
         assert_eq!(advice.instead, "spare");
+    }
+
+    /// A limit whose reset has passed counts as reset, though the last reading of it, taken
+    /// before, said it was spent: an account parked since is a place to go.
+    #[test]
+    fn a_limit_whose_reset_has_passed_is_not_counted_as_spent() {
+        let mut read = status(vec![
+            account(Some("work"))
+                .signed_in()
+                .limits(vec![window("weekly_all", 100.0).resets(Some(90_000))])
+                .build(),
+            account(Some("spare"))
+                .limits(vec![
+                    window("session", 100.0).resets(Some(500)),
+                    window("weekly_all", 30.0).resets(Some(90_000)),
+                ])
+                .build(),
+        ]);
+        read.now = 1_000;
+        let advice = about(&read, &Told::new()).remove(0);
+        assert_eq!((advice.instead.as_str(), advice.left), ("spare", 70));
+    }
+
+    /// An account that has run out of another limit is no place to go, whichever limit sent
+    /// somebody looking: switched to, it stops at once. One with room in every limit is
+    /// offered instead, though it has less of the limit that ran out.
+    #[test]
+    fn an_account_with_another_limit_spent_is_not_offered() {
+        let spent_weekly = account(Some("spare"))
+            .limits(vec![window("session", 0.0), window("weekly_all", 100.0)])
+            .build();
+        let work = account(Some("work"))
+            .signed_in()
+            .limits(vec![window("session", 100.0), window("weekly_all", 30.0)])
+            .build();
+        let read = status(vec![work.clone(), spent_weekly.clone()]);
+        assert!(about(&read, &Told::new()).is_empty());
+
+        let read = status(vec![
+            work,
+            spent_weekly,
+            account(Some("other"))
+                .limits(vec![window("session", 40.0), window("weekly_all", 10.0)])
+                .build(),
+        ]);
+        let advice = about(&read, &Told::new()).remove(0);
+        assert_eq!((advice.instead.as_str(), advice.left), ("other", 60));
     }
 
     /// A Codex account with room is no help to somebody whose Claude Code account has run

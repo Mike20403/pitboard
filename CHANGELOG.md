@@ -252,6 +252,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- When the account in use runs out of a limit, the app's notification and window offer to
+  switch only to an account with room in every limit it reports, counting a limit whose
+  reset time has passed as reset. They offered the account with the most room in the limit
+  that ran out, even one that had run out of another limit. An account with five-hour room
+  and its weekly limit spent stopped at once when switched to.
 - Where Pitboard cannot read the list of running processes, a Codex switch warns, with the
   code `sessions_unknown`, that Pitboard could not tell whether Codex sessions started
   before it are still running, and says not to sign out in one: that revokes the login
