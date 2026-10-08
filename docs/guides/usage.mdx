@@ -29,14 +29,13 @@ Pitboard shows how much each account has used of its five-hour and weekly limits
 
     ```text
     ● personal  me@example.com  signed in
-        5h    ██████░░░░   59%  resets in 1h 10m
-        week  ███████░░░   73%  resets in 5d 18h
-              about 48m left at this rate
+        5h    ██████░│░░   59%  resets in 1h 10m  18% under pace
+        week  █│█████░░░   73%  resets in 5d 18h  55% over pace
+              weekly limit runs out in 11h 05m at this pace
 
     ○ work      me@company.com  ready · good for 26d 4h
-        5h    █░░░░░░░░░   12%  resets in 3h 02m
-        week  ████░░░░░░   40%  resets in 2d 4h
-              resets in 3h 02m
+        5h    █░░│░░░░░░   12%  resets in 3h 02m  27% under pace
+        week  ████░░│░░░   40%  resets in 2d 4h   29% under pace
     ```
   </Tab>
 </Tabs>
@@ -53,9 +52,9 @@ Once both tools have accounts, the app and the command line list each tool's acc
     | **5-hour 42%, weekly 12%** | The account has used 42% of its five-hour limit and 12% of its weekly limit. |
     | **5-hour used up until 22:12** | The account has used all of its five-hour limit. The limit resets at 22:12. |
     | A green, orange or red bar | How much of the limit is used: green under 70%, orange from 70%, red from 90%. |
-    | **About 3h 03m left at this rate** | At the rate the account has been used, one of its limits reaches 100% in about 3 hours 3 minutes. |
-    | **Resets in 3h 02m** | At the rate the account has been used, no limit reaches 100% before one of them resets, in 3 hours 2 minutes. |
-    | **About to run out** or **Resets any moment** | The same, with less than a minute left. |
+    | A red or green mark across a bar, and **27% over pace** or **13% under pace** beside it | Where an even [pace](/concepts/usage#pace) would be by now. Red: the limit is used faster than that. Green: slower. No mark and **on pace** within 5 points. Hold the pointer over the bar for what an even pace would have used. |
+    | **Weekly limit runs out in 11h 05m at this pace** | For the account in use, the limit that runs out first at its pace, before it resets. The menu shows it beside that limit, as **weekly 73% (runs out in 11h 05m)**. |
+    | **About to run out** | The same, with less than a minute left. |
     | **Parked login good for 10 more days** | You can switch to the account, and its [parked login](/concepts/switching#parked-logins) lasts 10 more days. Codex accounts show no such line, because Codex states no expiry. |
     | **Needs signing in again** in the menu, **Sign In Again** in the window | Pitboard holds no parked login it can use for the account. See [Sign in to an account again](/guides/sign-in-again). |
     | **Not named yet** in the menu, the tip **Give this account a name** in the window | The tool is signed in to an account Pitboard has not enrolled. See [Add and manage accounts](/guides/accounts#add-the-account-you-are-signed-in-to). |
@@ -72,13 +71,13 @@ Once both tools have accounts, the app and the command line list each tool's acc
     | `signed in · not enrolled: pitboard enroll <label>` | The tool is signed in to an account Pitboard has not enrolled. Run the command with a label you choose in place of `<label>`. |
     | `5h`, `week` | The five-hour limit and the weekly limit. A limit for one model adds the model's name. |
     | `██████░░░░   59%` | How much of the limit is used: green under 70%, yellow from 70%, red from 90%. |
-    | `about 48m left at this rate` | At the rate the account has been used, one of its limits reaches 100% in about 48 minutes. |
-    | `resets in 3h 02m` on a line of its own, under the limits | At the rate the account has been used, no limit reaches 100% before one of them resets, in 3 hours 2 minutes. |
-    | `about to run out` or `resets any moment` | The same, with less than a minute left. |
+    | `│` in a bar, and `55% over pace` or `18% under pace` after the reset | Where an even [pace](/concepts/usage#pace) would be by now. Red: the limit is used faster than that. Green: slower. No mark and `on pace` within 5 points. |
+    | `weekly limit runs out in 11h 05m at this pace` | For the account in use, the limit that runs out first at its pace, before it resets. |
+    | `weekly limit is about to run out` | The same, with less than a minute left. |
   </Tab>
 </Tabs>
 
-The line on how long an account lasts appears once Pitboard has at least three readings of the account, taken over 15 minutes or more. For how it is worked out, see [How usage is read](/concepts/usage#how-long-an-account-lasts).
+Pace appears from 3% into a window. For how it is worked out, see [How usage is read](/concepts/usage#pace).
 
 ## Read without asking, or ask again
 

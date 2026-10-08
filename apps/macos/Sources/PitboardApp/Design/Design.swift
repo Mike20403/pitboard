@@ -37,6 +37,24 @@ extension UsageLevel {
     }
 }
 
+/// Which side of an even pace a limit is on, as the mark on its bar is tinted: red over,
+/// green under. The words beside the bar say it too, in the core's own words, so the colour
+/// only repeats them. Over is the one worth reading at a glance, so it is the one whose
+/// words are tinted; under and even are said in the secondary style every other figure is.
+extension PaceStanding {
+    var tint: Color {
+        switch self {
+        case .over: .red
+        case .under: .green
+        case .even: .secondary
+        }
+    }
+
+    var wordsStyle: AnyShapeStyle {
+        self == .over ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary)
+    }
+}
+
 /// How pressing a notice is, as a shape and a colour. VoiceOver is told it in the model's
 /// word for it, `PanelNotice.spokenSeverity`.
 extension Severity {

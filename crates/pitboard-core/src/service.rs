@@ -1047,8 +1047,8 @@ mod tests {
     }
 
     /// Everything a read must leave as it found it: Pitboard's files but the records a
-    /// live read keeps by design (what it measured, the history its runways are worked out
-    /// from, and when to ask again), every parked login and the live one.
+    /// live read keeps by design (what it measured and when to ask again), every parked
+    /// login and the live one.
     type Untouched = (
         BTreeMap<String, Vec<u8>>,
         Vec<(String, Option<String>)>,
@@ -1056,7 +1056,7 @@ mod tests {
     );
 
     fn untouched(m: &Machine) -> Untouched {
-        let kept_by_a_read = ["usage.json", "usage.lock", "readings", "asking.json"];
+        let kept_by_a_read = ["usage.json", "usage.lock", "asking.json"];
         let mut files = files(m);
         files.retain(|path, _| !kept_by_a_read.iter().any(|kept| path.ends_with(kept)));
         let vault = m.mem.vault();

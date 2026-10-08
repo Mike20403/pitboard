@@ -39,7 +39,8 @@ expression: "serde_json :: json! ({ \"exit\" : code, \"envelope\" : value })"
                 "resets_at": 1789986600,
                 "is_active": false,
                 "severity": null,
-                "length_seconds": 18000
+                "length_seconds": 18000,
+                "pace": null
               },
               {
                 "kind": "seven_day",
@@ -48,7 +49,8 @@ expression: "serde_json :: json! ({ \"exit\" : code, \"envelope\" : value })"
                 "resets_at": 1790474400,
                 "is_active": false,
                 "severity": null,
-                "length_seconds": 604800
+                "length_seconds": 604800,
+                "pace": null
               }
             ]
           },
@@ -79,7 +81,8 @@ expression: "serde_json :: json! ({ \"exit\" : code, \"envelope\" : value })"
                 "resets_at": 1789986600,
                 "is_active": false,
                 "severity": null,
-                "length_seconds": 18000
+                "length_seconds": 18000,
+                "pace": null
               },
               {
                 "kind": "seven_day",
@@ -88,7 +91,8 @@ expression: "serde_json :: json! ({ \"exit\" : code, \"envelope\" : value })"
                 "resets_at": 1790474400,
                 "is_active": false,
                 "severity": null,
-                "length_seconds": 604800
+                "length_seconds": 604800,
+                "pace": null
               }
             ]
           },
@@ -115,7 +119,8 @@ expression: "serde_json :: json! ({ \"exit\" : code, \"envelope\" : value })"
                 "resets_at": 1789990000,
                 "is_active": true,
                 "severity": null,
-                "length_seconds": 18000
+                "length_seconds": 18000,
+                "pace": null
               },
               {
                 "kind": "seven_day",
@@ -124,7 +129,8 @@ expression: "serde_json :: json! ({ \"exit\" : code, \"envelope\" : value })"
                 "resets_at": 1790500000,
                 "is_active": true,
                 "severity": null,
-                "length_seconds": 604800
+                "length_seconds": 604800,
+                "pace": null
               }
             ]
           },

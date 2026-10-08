@@ -17,6 +17,7 @@
 //! to. A Codex account is neither, whatever its label or its identity happens to be.
 
 use crate::context::Context;
+use crate::pace::Standing;
 use crate::provider::ProviderId;
 use crate::sessions::{Limit, Run};
 use crate::state::State;
@@ -32,6 +33,14 @@ const FRESH_FOR: i64 = 15 * 60;
 pub struct Shares {
     pub five_hour: Option<f64>,
     pub weekly: Option<f64>,
+}
+
+/// How fast the account in use is going on its five-hour and weekly limits, where that
+/// means something. Only the account in use: the others are parked, and not being used.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Paces {
+    pub five_hour: Option<Standing>,
+    pub weekly: Option<Standing>,
 }
 
 /// An enrolled account other than the one in use.
@@ -50,21 +59,40 @@ pub struct StatusLine {
     /// The session's own account: Pitboard's reading of it, with whatever of the session's
     /// numbers can be this account's folded in where they are newer.
     pub session: Shares,
+    /// The session's own account's pace on each of those limits.
+    pub pace: Paces,
     pub others: Vec<Entry>,
+}
+
+/// What the line calls its two limits, by the names a reading can give each.
+const FIVE_HOUR: &[&str] = &["session", "five_hour"];
+const WEEKLY: &[&str] = &["weekly_all", "seven_day"];
+
+/// The limit of a reading called one of `kinds`, for every model.
+fn limit<'a>(reading: &'a Snapshot, kinds: &[&str]) -> Option<&'a Window> {
+    reading
+        .windows
+        .iter()
+        .find(|w| w.scope.is_none() && kinds.contains(&w.kind.as_str()))
 }
 
 /// The five-hour and weekly shares of a reading.
 fn shares_of(reading: &Snapshot, now: i64) -> Shares {
-    let share = |kinds: &[&str]| {
-        reading
-            .windows
-            .iter()
-            .find(|w| w.scope.is_none() && kinds.contains(&w.kind.as_str()))
-            .map(|w| w.used(now))
-    };
+    let share = |kinds| limit(reading, kinds).map(|w| w.used(now));
     Shares {
-        five_hour: share(&["session", "five_hour"]),
-        weekly: share(&["weekly_all", "seven_day"]),
+        five_hour: share(FIVE_HOUR),
+        weekly: share(WEEKLY),
+    }
+}
+
+/// The five-hour and weekly paces of a reading, as of when it was taken. What a session
+/// passed carries no time, and is the session's latest.
+fn paces_of(reading: &Snapshot, now: i64) -> Paces {
+    let at = reading.observed_at.unwrap_or(now);
+    let pace = |kinds| Some(limit(reading, kinds)?.pace(at, now)?.standing);
+    Paces {
+        five_hour: pace(FIVE_HOUR),
+        weekly: pace(WEEKLY),
     }
 }
 
@@ -102,7 +130,12 @@ fn line(
     let in_use = crate::usage::merge(known, offered, now);
     StatusLine {
         current: current.map(|a| a.label.clone()),
-        session: in_use.map_or_else(Shares::default, |r| shares_of(&r, now)),
+        session: in_use
+            .as_ref()
+            .map_or_else(Shares::default, |r| shares_of(r, now)),
+        pace: in_use
+            .as_ref()
+            .map_or_else(Paces::default, |r| paces_of(r, now)),
         others,
     }
 }
@@ -473,6 +506,35 @@ mod tests {
                 },
             ],
             "a window past its reset counts as reset, and an old reading says how old"
+        );
+    }
+
+    /// The account in use says how fast it is going on each limit, from its numbers and the
+    /// clock: a five-hour limit at 46% ten minutes from its reset is under pace, and a week at
+    /// 70% two days in is over. Nothing is said with nothing to go on.
+    #[test]
+    fn the_account_in_use_says_its_pace_on_each_limit() {
+        let input = json!({"rate_limits": {
+            "five_hour": {"used_percentage": 46.4, "resets_at": NOW + 600},
+            "seven_day": {"used_percentage": 70.0, "resets_at": NOW + 5 * DAY}
+        }});
+        let offered = answered(&input, &HashMap::new());
+        let shown = line(
+            &state(),
+            Some("work-uuid"),
+            &HashMap::new(),
+            offered.as_ref(),
+            NOW,
+        );
+        assert_eq!(shown.pace.five_hour, Some(Standing::Under));
+        assert!(
+            matches!(shown.pace.weekly, Some(Standing::Over { .. })),
+            "{:?}",
+            shown.pace
+        );
+        assert_eq!(
+            line(&state(), None, &HashMap::new(), None, NOW).pace,
+            Paces::default()
         );
     }
 

@@ -123,13 +123,24 @@ pages load, as a browser would.
     would have carried (`proxy::Refusal`), what `doctor`'s `network` check says of it, and
     the variables a renewal schedule installed from that context is given. See
     [ureq's proxies](#ureqs-proxies).
+  - `pace.rs`: how a limit's use compared with an even use across its window when it was
+    read: the part of the window gone by then, how far the share used was from it, which
+    side of a 5-point margin it was on, and for a limit over pace when it runs out at the
+    window's own rate since it began, counted down to the moment it is told. A pace is its
+    reading's: set against a later moment, the same share drifted towards under pace while
+    nobody read the limit again. `first_to_run_out`, `lasts` and `until_reset` say it of an
+    account, and an account not in use lasts until its first reset. Every surface asks it,
+    so `status`, `--json`, the status line and the app say the same thing. It replaced a
+    rate taken across fourteen days of readings in `readings/`, through every reset in
+    them; `home::remove_retired` deletes the files that kept, and the folder where nothing
+    else is in it.
   - `status.rs`, `doctor.rs`, `statusline.rs` and `schedule.rs` serve the commands of the
     same names. `schedule.rs` decides what daily renewal runs and whose it is, and refuses a
     program in the temporary copy macOS runs an app from, by `in_a_temporary_copy`, which an
     app asks of the command line inside it too; the host's scheduler writes it.
   - `words.rs`: the sentences and column words Pitboard says in more than one place, each
-    a function of typed values: spans of time, a limit's names, when it resets, how long an
-    account lasts, a parked login's life, a renewal run and doctor's summary. It also holds
+    a function of typed values: spans of time, a limit's names, when it resets, its pace and
+    when it runs out, a parked login's life, a renewal run and doctor's summary. It also holds
     `usage_level`, the steps at which a limit's colour changes. A thing said both in a
     column and in a sentence has a function for each form. The command line calls these
     functions directly, and so does `pitboard-ffi`'s `present/` as it makes the snapshot,
@@ -157,10 +168,10 @@ pages load, as a browser would.
     as it links that one; `can_run`, whether that one runs, as it links it; and
     `pitboard_directory`, for where `app.json` is and the key the account windows' records
     are kept under, as it starts. The snapshot carries what an app shows of the tools, a
-    sign-in, the command line a terminal runs, a limit, an account's runway, a parked login,
-    a renewal run and doctor's checks, made by `present/` and the model's lanes, so no free
+    sign-in, the command line a terminal runs, a limit and its pace, a parked login, a
+    renewal run and doctor's checks, made by `present/` and the model's lanes, so no free
     function says it again. The helpers `present/` makes it with here, `tools`,
-    `usage_level`, `runway`, `renewal_note` and `doctor_summary`, are the crate's own.
+    `usage_level`, `renewal_note` and `doctor_summary`, are the crate's own.
   - `launch.rs` is the core the model's lanes call, `AppCore`, which nothing exports. It is
     made from the `AppLaunch` the app was started with, read as `AppContext::discover`
     reads it, the first time a lane needs it, and made once more a while after a login

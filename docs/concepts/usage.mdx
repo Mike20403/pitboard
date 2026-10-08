@@ -37,15 +37,23 @@ A reading only moves forward. A later reset is a newer window. A session's numbe
 
 Pitboard's own answer from a service does say when it was taken. One taken after everything recorded for the account replaces it, even with a lower percentage. So when a limit falls in the middle of its window, after a banked reset on claude.ai or a plan upgrade, Pitboard shows the lower percentage the next time it asks. The app asks every 5 minutes.
 
-## How long an account lasts
+## Pace
 
-A line under each account says how long it lasts at its recent rate.
+Beside each limit, Pitboard compares its use with an even pace: the same rate from the start of its window to its reset.
 
-At 73% of its weekly limit, an account can last days if it was at 70% this morning, or hours if it was at 40%.
+At 40% of its weekly limit, an account is fine two days before the reset, and runs out early two days after the week began.
 
-From the past 14 days of readings, Pitboard works out when each limit fills. The line shows that or a reset, whichever comes first: `about 48m left at this rate` or `resets in 3h 02m`.
+An even pace by now is the part of the window gone by. Halfway through a week it is 50%. Pitboard says the difference in percentage points of the limit:
 
-Pitboard shows no estimate until it has three readings over at least 15 minutes. A wrong one would tell you to switch needlessly.
+- `27% over pace`: 27 points more is used than an even pace would have used. At the rate since the window began, the limit runs out before it resets.
+- `13% under pace`: 13 points less is used, and the limit lasts until it resets.
+- `on pace`: within 5 points either way.
+
+Pitboard says no pace in the first 3% of a window, for a limit used up, or where it does not know when the window resets or how long it runs.
+
+For the account in use, a line names the limit that runs out first at its pace, and when: `weekly limit runs out in 11h 05m at this pace`. An account not in use is not being used, so nothing of it runs out, and in `--json` its `lasts` is its first reset.
+
+Pace is the reading's own: what was used when it was taken, against an even pace at that moment. Between readings, only the time until a limit over pace runs out counts down. An old reading says how old, as in `measured 14:02, 2h 00m ago`.
 
 ## What the status line adds
 

@@ -251,8 +251,6 @@ fn account(row: status::Row, now: i64) -> Account {
         qualified: key.map(|k| k.qualified()),
         unplaced,
         switchable: row.switchable(now),
-        lasts_seconds: row.runway.seconds(),
-        lasts_burning: matches!(row.runway, pitboard_core::history::Runway::Burning(_)),
         stale: row.stale.map(|s| s.code().to_string()),
         // In the row's own tool's words: a Codex row is not about Anthropic.
         stale_explanation: row.explanation().map(str::to_owned),

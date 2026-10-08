@@ -16,12 +16,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   cannot read the keychain signs in with it, so it stayed on another account than the one
   Pitboard showed, whatever Pitboard switched to. See [Claude Code over SSH uses another
   account](https://docs.usepitboard.com/troubleshooting#claude-code-over-ssh-uses-another-account).
+- Each limit says how its use compares with an even pace: what using it evenly from the
+  start of its window to its reset would have used by now. `pitboard status` marks that
+  place in the limit's bar, red where the limit is used faster and green where slower, and
+  says `27% over pace`, `13% under pace` or `on pace` after its reset. The app's window
+  marks it on the bar the same way, with the same words beside it, and the bar's help says
+  what an even pace would have used. The status line puts a red `▲` or a green `▼` after the
+  account in use's shares. In `--json`, each limit has a `pace` object. Within 5 points of
+  even counts as on pace, and nothing is said in the first 3% of a window. See
+  [Pace](https://docs.usepitboard.com/concepts/usage#pace).
 
 ### Changed
 
 - A keychain that is locked where it cannot ask for its password stops a command with the
   error `credential_store_locked`, in place of `credential_store_unreadable`. The message is
   the same.
+- How long the account in use lasts comes from its limits' paces. `weekly limit runs out in
+  11h 05m at this pace` names the limit that runs out first at the rate since its window
+  began, and nothing is said while every limit lasts until it resets. It was a rate taken
+  across 14 days of readings, through every reset in them: on one machine it gave a weekly
+  limit at 99% a day and nine hours when it had about one, and said nothing of a week used
+  five times faster than even. The app says it in its window and beside the limit in its
+  menu, as **weekly 73% (runs out in 11h 05m)**. An account not in use no longer says how
+  long it lasts. In `--json`, `lasts` keeps its fields and is worked out this way, and for
+  an account not in use it is the first reset.
+
+### Removed
+
+- Pitboard no longer keeps `readings/` in its directory, the readings the old estimate came
+  from. The next time it reads usage it deletes the files it wrote there, and the folder
+  where nothing else is in it.
 
 ### Fixed
 

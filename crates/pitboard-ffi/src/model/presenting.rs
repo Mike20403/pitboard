@@ -14,10 +14,10 @@ use super::{Intent, Pane, Sheet, Snapshot, WindowRequest};
 use crate::account_windows::forget_message_on;
 use crate::present::testing::{LimitExt, Unreadable, Utc, account, unplaced, window};
 use crate::present::{
-    AccountItem, AccountsShown, Choice, Footing, ItemOffer, MenuEntry, NoticeAction, PanelNotice,
-    Question, SetupStep, Severity, WindowOffer, present, present_on,
+    AccountItem, AccountsShown, Choice, Footing, ItemOffer, MenuEntry, NoticeAction, PaceStanding,
+    PanelNotice, Question, SetupStep, Severity, WindowOffer, present, present_on,
 };
-use crate::{Abandoned, Account, EnrolledAs, Warning};
+use crate::{Abandoned, Account, EnrolledAs, Limit, Warning};
 use pitboard_core::host::{OS, Os};
 use std::time::Duration;
 
@@ -836,35 +836,93 @@ fn a_parked_logins_life_is_said_only_of_an_account_not_in_use() {
     assert_eq!(described(account(Some("spare")).build()).parked_note, None);
 }
 
-/// How long an account lasts is a sentence of its own in the window, so it starts with a
-/// capital whichever way the account is going, its span read as the reset beside each bar
-/// is and as `pitboard status` says it.
-///
-/// PresentationTests.swift's howLongAnAccountLastsIsSaidAsASentence.
+const HOUR: i64 = 3_600;
+const WEEK: i64 = 7 * 86_400;
+
+/// A five-hour limit four hours in at 30%, and a week ten hours in at 33%, as of `NOON`.
+fn busy_limits() -> Vec<Limit> {
+    vec![
+        window("session", 30.0)
+            .length(5 * HOUR)
+            .resets(Some(NOON + HOUR)),
+        window("weekly_all", 33.0)
+            .length(WEEK)
+            .resets(Some(NOON + WEEK - 10 * HOUR)),
+    ]
+}
+
+/// Each bar marks where an even use of its limit would be by now, in the words beside it
+/// and the help over it, as `pitboard status` says it; a limit whose pace means nothing
+/// marks nothing.
 #[test]
-fn how_long_an_account_lasts_is_said_as_a_sentence() {
-    let pace = |left: Option<i64>, burning: bool| {
-        described(
-            account(Some("work"))
-                .signed_in()
-                .lasts(left, burning)
-                .build(),
-        )
-        .pace
-    };
-    assert_eq!(
-        pace(Some(5400), true).as_deref(),
-        Some("About 1h 30m left at this rate")
+fn a_bar_marks_where_an_even_pace_would_be() {
+    let rows = described(
+        account(Some("work"))
+            .signed_in()
+            .limits(busy_limits())
+            .read_at(NOON)
+            .build(),
+    )
+    .limits;
+    let session = rows[0].pace.as_ref().expect("a pace");
+    assert_eq!(session.standing, PaceStanding::Under);
+    assert!((session.expected - 80.0).abs() < 1e-9);
+    assert_eq!(session.said, "50% under pace");
+    let week = rows[1].pace.as_ref().expect("a pace");
+    assert_eq!(week.standing, PaceStanding::Over);
+    assert_eq!(week.said, "27% over pace");
+    assert!(week.help.contains("runs out in 20h 18m"), "{}", week.help);
+    assert!(
+        rows[1].spoken.contains("27 percent over an even pace"),
+        "{}",
+        rows[1].spoken
     );
-    assert_eq!(pace(Some(5400), false).as_deref(), Some("Resets in 1h 30m"));
-    assert_eq!(pace(Some(3900), false).as_deref(), Some("Resets in 1h 05m"));
-    assert_eq!(
-        pace(Some(3 * 86_400 + 7200 + 300), true).as_deref(),
-        Some("About 3d 2h left at this rate")
+    let unknown = described(
+        account(Some("work"))
+            .signed_in()
+            .limits(vec![window("session", 30.0)])
+            .read_at(NOON)
+            .build(),
     );
-    assert_eq!(pace(Some(30), true).as_deref(), Some("About to run out"));
-    assert_eq!(pace(Some(0), false).as_deref(), Some("Resets any moment"));
-    assert_eq!(pace(None, true), None, "nothing to go on yet");
+    assert_eq!(unknown.limits[0].pace, None, "no length, no pace");
+}
+
+/// The account in use says which of its limits runs out first at its pace, as a sentence
+/// in the window and beside that limit in the menu. A parked account is not being used, so
+/// nothing of it runs out, and an account with no limit over pace says nothing.
+#[test]
+fn the_account_in_use_says_which_limit_runs_out_first() {
+    let in_use = described(
+        account(Some("work"))
+            .signed_in()
+            .limits(busy_limits())
+            .read_at(NOON)
+            .build(),
+    );
+    assert_eq!(
+        in_use.pace.as_deref(),
+        Some("Weekly limit runs out in 20h 18m at this pace")
+    );
+    assert_eq!(
+        in_use.summary,
+        "5-hour 30%, weekly 33% (runs out in 20h 18m)"
+    );
+    let parked = described(
+        account(Some("spare"))
+            .limits(busy_limits())
+            .read_at(NOON)
+            .build(),
+    );
+    assert_eq!(parked.pace, None);
+    assert_eq!(parked.summary, "5-hour 30%, weekly 33%");
+    let calm = described(
+        account(Some("work"))
+            .signed_in()
+            .limits(vec![busy_limits().remove(0)])
+            .read_at(NOON)
+            .build(),
+    );
+    assert_eq!(calm.pace, None);
 }
 
 /// Only an enrolled account that is not the one in use may be forgotten: forgetting that one

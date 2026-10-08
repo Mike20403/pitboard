@@ -10,7 +10,7 @@
 //! `time::moment`, and the app in the format its Mac is set to.
 
 use crate::doctor::{Level, renewal_due};
-use crate::history::Runway;
+use crate::pace::{Pace, Standing};
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 60 * MINUTE;
@@ -85,11 +85,7 @@ pub fn limit_name(kind: &str, length_seconds: Option<i64>) -> String {
 /// How much of a limit an account has used, in a sentence about an automatic switch:
 /// "96% of its 5-hour limit", or "97% of its weekly Opus limit" for one limit of a model.
 pub fn share_of_limit(limit: &crate::usage::Window) -> String {
-    let name = limit_name(&limit.kind, limit.length_seconds);
-    let name = match &limit.scope {
-        Some(scope) => format!("{name} {scope}"),
-        None => name,
-    };
+    let name = scoped_limit_name(&limit.kind, limit.length_seconds, limit.scope.as_deref());
     format!("{:.0}% of its {name} limit", limit.percent)
 }
 
@@ -149,19 +145,40 @@ pub fn resets(at: i64, now: i64) -> String {
     }
 }
 
-/// How long an account lasts, which is the question the whole tool exists for: "about 1h
-/// 30m left at this rate" while a limit fills, or "resets in 1h 30m" when its reset comes
-/// first. The difference is between "switch soon" and "whole again soon". Under a minute it
-/// is said in words, "about to run out" or "resets any moment", which read more plainly in
-/// a sentence than "<1m". Nothing until there is enough to go on.
-pub fn runway(runway: Runway) -> Option<String> {
-    Some(match runway {
-        Runway::Burning(seconds) if seconds < MINUTE => "about to run out".into(),
-        Runway::Burning(seconds) => format!("about {} left at this rate", span(seconds)),
-        Runway::Resting(seconds) if seconds < MINUTE => "resets any moment".into(),
-        Runway::Resting(seconds) => format!("resets in {}", span(seconds)),
-        Runway::Unknown => return None,
-    })
+/// How far a limit is from an even pace, beside its bar: "27% over pace", "13% under
+/// pace", "on pace". Over and under rather than ahead and behind, since ahead reads as good
+/// news and is the warning.
+pub fn pace_column(pace: &Pace) -> String {
+    let points = pace.delta.abs().round();
+    match pace.standing {
+        Standing::Over { .. } => format!("{points:.0}% over pace"),
+        Standing::Under => format!("{points:.0}% under pace"),
+        Standing::Even => "on pace".into(),
+    }
+}
+
+/// A limit's name in a sentence with its model, where it is scoped to one: "weekly",
+/// "weekly Fable", "5-hour".
+pub fn scoped_limit_name(kind: &str, length_seconds: Option<i64>, scope: Option<&str>) -> String {
+    let name = limit_name(kind, length_seconds);
+    match scope {
+        Some(scope) => format!("{name} {scope}"),
+        None => name,
+    }
+}
+
+/// The limit of an account that runs out first at its pace, named as a sentence names it:
+/// "weekly limit runs out in 19h 05m at this pace". Under a minute it is "about to run
+/// out", which reads more plainly than "<1m".
+pub fn runs_out(limit: &str, in_seconds: i64) -> String {
+    if in_seconds < MINUTE {
+        format!("{limit} limit is about to run out")
+    } else {
+        format!(
+            "{limit} limit runs out in {} at this pace",
+            span(in_seconds)
+        )
+    }
 }
 
 /// How long a parked login stays usable, in the sentence form: a note under an account not
@@ -341,54 +358,42 @@ mod tests {
         assert_eq!(resets(2 * 86_400 + 4 * 3600 + 59 * 60), "resets in 2d 4h");
     }
 
-    /// The difference between a limit filling and a limit resetting is the difference
-    /// between "switch now" and "stay where you are", and both are a number of seconds.
+    /// A pace beside its bar is how far from even it is, said so that over reads as the
+    /// warning it is: "ahead" reads as good news.
     #[test]
-    fn a_runway_reads_as_burning_or_as_resting() {
+    fn a_pace_is_said_as_over_under_or_on() {
+        let pace = |delta: f64, standing| crate::pace::Pace {
+            expected: 40.0,
+            delta,
+            standing,
+        };
+        use crate::pace::Standing;
         assert_eq!(
-            runway(Runway::Burning(5400)).as_deref(),
-            Some("about 1h 30m left at this rate")
+            pace_column(&pace(27.4, Standing::Over { runs_out_in: 9_000 })),
+            "27% over pace"
         );
-        assert_eq!(
-            runway(Runway::Resting(5400)).as_deref(),
-            Some("resets in 1h 30m")
-        );
-        assert_eq!(
-            runway(Runway::Resting(3 * 86_400 + 7200)).as_deref(),
-            Some("resets in 3d 2h")
-        );
-        assert_eq!(runway(Runway::Unknown), None, "nothing to go on yet");
+        assert_eq!(pace_column(&pace(-12.6, Standing::Under)), "13% under pace");
+        assert_eq!(pace_column(&pace(3.0, Standing::Even)), "on pace");
+        assert_eq!(pace_column(&pace(-4.0, Standing::Even)), "on pace");
     }
 
-    /// Under a minute a span would say "<1m", and a sentence says it more plainly: the limit
-    /// is about to run out, or its reset is any moment now. From a minute it is a span again.
+    /// The limit that runs out first is named in the sentence, with its model where it has
+    /// one, and under a minute the sentence says it is about to.
     #[test]
-    fn under_a_minute_a_runway_is_said_in_words() {
+    fn a_limit_running_out_is_named_with_when() {
         assert_eq!(
-            runway(Runway::Burning(30)).as_deref(),
-            Some("about to run out")
+            runs_out("weekly", 19 * 3600 + 5 * 60),
+            "weekly limit runs out in 19h 05m at this pace"
         );
         assert_eq!(
-            runway(Runway::Burning(0)).as_deref(),
-            Some("about to run out")
+            runs_out(
+                &scoped_limit_name("weekly_scoped", Some(WEEK), Some("Fable")),
+                2 * DAY
+            ),
+            "weekly Fable limit runs out in 2d 0h at this pace"
         );
-        assert_eq!(
-            runway(Runway::Burning(-10)).as_deref(),
-            Some("about to run out")
-        );
-        assert_eq!(
-            runway(Runway::Resting(1)).as_deref(),
-            Some("resets any moment")
-        );
-        assert_eq!(
-            runway(Runway::Resting(59)).as_deref(),
-            Some("resets any moment")
-        );
-        assert_eq!(
-            runway(Runway::Burning(60)).as_deref(),
-            Some("about 1m left at this rate")
-        );
-        assert_eq!(runway(Runway::Resting(60)).as_deref(), Some("resets in 1m"));
+        assert_eq!(runs_out("5-hour", 30), "5-hour limit is about to run out");
+        assert_eq!(runs_out("5-hour", 0), "5-hour limit is about to run out");
     }
 
     /// When a parked login stops working decides whether a switch to it will. The sentence

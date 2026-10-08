@@ -29,7 +29,7 @@ func account(
         email: email ?? "\(label ?? uuid)@example.com", accountUuid: uuid, signedIn: signedIn,
         switchable: switchable ?? (!signedIn && label != nil), parked: nil,
         usage: Usage(source: .live, observedAt: 0, windows: []), stale: nil,
-        staleExplanation: nil, lastsSeconds: nil, lastsBurning: false)
+        staleExplanation: nil)
 }
 
 func status(_ accounts: [Account], warnings: [Warning] = []) -> Status {

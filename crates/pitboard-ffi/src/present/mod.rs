@@ -11,7 +11,7 @@
 //! minute tick, and a countdown is the app's native one, from [`PanelNotice::until`].
 //!
 //! The words both apps say and the command line does not are in `words.rs`, each a function
-//! of typed values. What the command line says too, a limit's names, a reset, a runway, a
+//! of typed values. What the command line says too, a limit's names, a reset, a pace, a
 //! parked login's life, a renewal's note and doctor's summary, is `pitboard_core::words`',
 //! called from here.
 //!
@@ -125,8 +125,8 @@ pub struct AccountItem {
     pub problem: Option<String>,
     /// Why its numbers are not new, where it can be used all the same.
     pub stale_note: Option<String>,
-    /// How long the account in use lasts at the rate it is going: "About 1h 30m left at
-    /// this rate".
+    /// Which limit of the account in use runs out first at its pace, where one runs out
+    /// before it resets: "Weekly limit runs out in 20h 18m at this pace".
     pub pace: Option<String>,
     /// How long its parked login stays usable, for an account not in use.
     pub parked_note: Option<String>,
@@ -197,9 +197,36 @@ pub struct LimitRow {
     pub level: UsageLevel,
     /// When it resets: "resets in 2h 05m", "resetting now", or empty where nothing says.
     pub resets: String,
-    /// The whole row as VoiceOver says it: "5-hour limit, 42 percent used, resets in 3
-    /// hours".
+    /// How it compares with an even use of it, where that means something.
+    pub pace: Option<LimitPace>,
+    /// The whole row as VoiceOver says it: "5-hour limit, 42 percent used, 38 percent under
+    /// an even pace, resets in 3 hours".
     pub spoken: String,
+}
+
+/// How a limit compares with using it evenly across its window, as of the moment it is
+/// shown: what its bar marks, and the words beside it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct LimitPace {
+    /// Where on its bar an even use would be by now, in percent of the limit: where the mark
+    /// goes.
+    pub expected: f64,
+    /// Which side of an even pace it is on, which the mark's tint follows.
+    pub standing: PaceStanding,
+    /// Beside its bar: "27% over pace", "13% under pace", "on pace".
+    pub said: String,
+    /// What its bar's help says: what an even pace would have used, and for a limit over
+    /// pace, when it runs out.
+    pub help: String,
+}
+
+/// Which side of an even pace a limit is on. Over and under are a mark on its bar, red and
+/// green; at an even pace there is no mark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PaceStanding {
+    Under,
+    Even,
+    Over,
 }
 
 /// A question asked before something is done that cannot be undone. Not called

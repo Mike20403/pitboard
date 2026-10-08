@@ -81,10 +81,9 @@ pub(crate) fn account(label: Option<&str>) -> AccountMade {
         uuid: None,
         windows: Vec::new(),
         measured: true,
+        read_at: 0,
         parked: None,
         explanation: None,
-        lasts: None,
-        burning: false,
     }
 }
 
@@ -97,10 +96,10 @@ pub(crate) struct AccountMade {
     uuid: Option<String>,
     windows: Vec<Limit>,
     measured: bool,
+    /// When its numbers were read.
+    read_at: i64,
     parked: Option<Parked>,
     explanation: Option<String>,
-    lasts: Option<i64>,
-    burning: bool,
 }
 
 impl AccountMade {
@@ -136,6 +135,14 @@ impl AccountMade {
         AccountMade { windows, ..self }
     }
 
+    /// With its numbers read at `at`, which is what a limit's pace is as of.
+    pub(crate) fn read_at(self, at: i64) -> AccountMade {
+        AccountMade {
+            read_at: at,
+            ..self
+        }
+    }
+
     /// With no numbers at all.
     pub(crate) fn unmeasured(self) -> AccountMade {
         AccountMade {
@@ -164,15 +171,6 @@ impl AccountMade {
         }
     }
 
-    /// Lasting `seconds`, while a limit fills or until one resets.
-    pub(crate) fn lasts(self, seconds: Option<i64>, burning: bool) -> AccountMade {
-        AccountMade {
-            lasts: seconds,
-            burning,
-            ..self
-        }
-    }
-
     pub(crate) fn build(self) -> Account {
         let uuid = self
             .uuid
@@ -194,13 +192,11 @@ impl AccountMade {
             parked: self.parked,
             usage: self.measured.then_some(Usage {
                 source: Source::Live,
-                observed_at: Some(0),
+                observed_at: Some(self.read_at),
                 windows: self.windows,
             }),
             stale: None,
             stale_explanation: self.explanation,
-            lasts_seconds: self.lasts,
-            lasts_burning: self.burning,
             label: self.label,
             provider: self.provider,
         }
@@ -224,8 +220,6 @@ pub(crate) fn unplaced(provider: &str, signed_in: bool) -> Account {
         usage: None,
         stale: Some("login_unreadable".into()),
         stale_explanation: Some("Codex's login could not be read; run `pitboard doctor`".into()),
-        lasts_seconds: None,
-        lasts_burning: false,
     }
 }
 

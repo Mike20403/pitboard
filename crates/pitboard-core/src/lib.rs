@@ -56,6 +56,7 @@ pub mod context;
 pub mod doctor;
 pub mod error;
 pub mod label;
+pub mod pace;
 pub mod provider;
 pub mod redact;
 pub mod release;
@@ -72,7 +73,6 @@ pub mod words;
 
 pub(crate) mod atomic;
 pub(crate) mod fault;
-pub mod history;
 pub mod holder;
 pub(crate) mod home;
 pub mod host;

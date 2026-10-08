@@ -88,7 +88,7 @@ public sealed class ModelTests
             Usage: new Usage(
                 Source.Live, At,
                 [new Limit("session", 18_000, null, 42.0, At + 3_600, null, true)]),
-            Stale: null, StaleExplanation: null, LastsSeconds: null, LastsBurning: false);
+            Stale: null, StaleExplanation: null);
         return new Snapshot(
             Revision: revision, Now: At, Reading: false, UpdatedAt: At,
             Status: new Status(At, [work], []), Warnings: [], ReadFailure: null, Stuck: false,
@@ -349,8 +349,7 @@ public sealed class ModelTests
                     Id: "claude:work", Provider: "claude", Label: "work", Qualified: "claude/work",
                     Unplaced: false, Email: "work@example.com",
                     AccountUuid: "4f3c2a10-8b7e-4d2a-9c1e-5a6b7c8d9e0f", SignedIn: true, Switchable: false,
-                    Parked: null, Usage: null, Stale: null, StaleExplanation: null, LastsSeconds: null,
-                    LastsBurning: false),
+                    Parked: null, Usage: null, Stale: null, StaleExplanation: null),
             ])[0];
         var link = PitboardFfiMethods.SiteLink("https://claude.ai/chat/x");
         var windows = NoWindows() with
@@ -594,15 +593,15 @@ public sealed class ModelTests
     {
         var limit = new LimitRow(
             Name: "5-hour", Short: "5h", Percent: 72.4, Figure: "72%", Level: UsageLevel.Low,
-            Resets: "resets in 1h 05m", Spoken: "5-hour limit, 72 percent used, resets in 1 hour, 5 minutes");
+            Resets: "resets in 1h 05m", Pace: null,
+            Spoken: "5-hour limit, 72 percent used, resets in 1 hour, 5 minutes");
         var use = new ItemAction(Title: "Use", Spoken: "Use spare (Codex)", Intent: new Intent.SwitchTo("codex/spare"));
         var window = PitboardFfiMethods.WindowAccounts(
             [
                 new Account(
                     Id: "codex:spare", Provider: "codex", Label: "spare", Qualified: "codex/spare",
                     Unplaced: false, Email: "spare@example.com", AccountUuid: "spare", SignedIn: false,
-                    Switchable: true, Parked: null, Usage: null, Stale: null, StaleExplanation: null,
-                    LastsSeconds: null, LastsBurning: false),
+                    Switchable: true, Parked: null, Usage: null, Stale: null, StaleExplanation: null),
             ])[0];
         var spare = new AccountItem(
             Id: "codex:spare", Provider: "codex", Qualified: "codex/spare", Title: "spare",
