@@ -75,8 +75,9 @@ final class MacAppControl: AppControl, @unchecked Sendable {
 // MARK: - Notifications
 
 /// Notification Center, for the model's notice that an account in use has run out, with a
-/// Switch button that asks the model to switch. Switching is the button's, never the
-/// notification's: Pitboard does not switch accounts on its own.
+/// Switch button that asks the model to switch, and for what came of switching Claude Code by
+/// itself, where somebody turned that on, which has no button. Switching from a run-out is the
+/// button's, never the notification's.
 final class MacNotifications: NSObject, Notifications, UNUserNotificationCenterDelegate,
     @unchecked Sendable
 {
@@ -111,14 +112,16 @@ final class MacNotifications: NSObject, Notifications, UNUserNotificationCenterD
     }
 
     /// What the notification says, in the model's words, and the account its button
-    /// switches to.
+    /// switches to, where it has one.
     static func content(of notice: RunOutNotice) -> UNNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = notice.title
         if let subtitle = notice.subtitle { content.subtitle = subtitle }
         content.body = notice.body
-        content.categoryIdentifier = category
-        content.userInfo = ["label": notice.switchTo]
+        if let switchTo = notice.switchTo {
+            content.categoryIdentifier = category
+            content.userInfo = ["label": switchTo]
+        }
         return content
     }
 

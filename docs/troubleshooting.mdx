@@ -161,7 +161,7 @@ rm ~/Library/LaunchAgents/com.datlechin.pitboard.renew.plist
 rm -r ~/.pitboard
 ```
 
-Where no schedule runs, `systemctl` or `launchctl` says so; go on to the next command. If `PITBOARD_HOME` named another directory, delete that one. Deleting the directory deletes the parked logins kept in it, except on macOS, where they are in the keychain, as [Remove Pitboard](/install/remove#delete-parked-logins-and-pitboards-files) says.
+Where no schedule runs, `systemctl` or `launchctl` says so; go on to the next command. If `PITBOARD_HOME` named another directory, delete that one. Deleting the directory deletes the parked logins kept in it, except on macOS, where they are in the keychain, as [Remove Pitboard](/install/remove#delete-parked-logins-and-pitboard%E2%80%99s-files) says.
 
 In a root shell, `~` is root's home. Under `sudo`, Pitboard used the home `sudo` passed on, which can be yours. Pitboard has not measured which home that is, or which keychain `security` wrote to as root. Look in your own as well, writing your home by its path, such as `/Users/me`.
 

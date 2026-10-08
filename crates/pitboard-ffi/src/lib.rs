@@ -53,11 +53,11 @@ pub use fixture::{FixtureError, fixture_names, fixture_page};
 mod present;
 pub use present::{
     AccountItem, AccountSection, AccountWindowsShown, AccountsShown, ActivityLine, ActivityShown,
-    CheckLine, ChecksShown, Choice, CommandLineShown, DownloadShown, DownloadState, EmptyList,
-    Footing, ItemAction, ItemOffer, LimitRow, LinkPicker, MachineShown, MenuBarText, MenuEntry,
-    MenuNotices, NoticeAction, OpenWindow, PageLoad, PanelNotice, PickerAccount, PickerShown,
-    Question, RenewalShown, ScheduleShown, SetupStep, Severity, SheetText, SheetTool,
-    SigningInText, StoreDeletion, WaitingShown, WindowOffer, WindowWaiting,
+    AutoSwitchShown, CheckLine, ChecksShown, Choice, CommandLineShown, DownloadShown,
+    DownloadState, EmptyList, Footing, ItemAction, ItemOffer, LimitRow, LinkPicker, MachineShown,
+    MenuBarText, MenuEntry, MenuNotices, NoticeAction, OpenWindow, PageLoad, PanelNotice,
+    PickerAccount, PickerShown, Question, RenewalShown, ScheduleShown, SetupStep, Severity,
+    SheetText, SheetTool, SigningInText, StoreDeletion, WaitingShown, WindowOffer, WindowWaiting,
     downloads_quit_question, name_to_save,
 };
 
@@ -76,8 +76,8 @@ pub use account_windows::{
 // answers that only the model reads. None of it is exported.
 mod launch;
 pub(crate) use launch::{
-    Adoption, AppCore, Change, Check, Enrolled, EnrolledAs, Holding, OwnCommandLine, PitboardError,
-    Remedy, Renewed, SignInSession, Switch, Switched,
+    Adoption, AppCore, AutoSwitched, Change, Check, Enrolled, EnrolledAs, Holding, OwnCommandLine,
+    PitboardError, Remedy, Renewed, SignInSession, Switch, Switched,
 };
 // What a test or a fixture makes the app's core of, in place of the environment.
 #[cfg(any(test, feature = "fixture"))]

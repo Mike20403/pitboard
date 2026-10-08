@@ -443,6 +443,41 @@ impl Pitboard {
         })
     }
 
+    /// Switches Claude Code by itself where a limit of the account in use has reached
+    /// `threshold` and another account has room, as [`crate::autoswitch`] says. For a front
+    /// end somebody asked to do that: the app with its setting on, or `pitboard watch`.
+    ///
+    /// Looks first from files alone, so a look that finds nothing to do takes no lock, asks
+    /// nobody and records nothing. A switch is decided again under the lock, and is recorded
+    /// in the audit log as `auto-switch`, with what it came to; nothing else here is.
+    pub fn auto_switch(
+        &self,
+        threshold: crate::autoswitch::Threshold,
+    ) -> Changing<crate::autoswitch::Auto> {
+        let permit = self.permitted()?;
+        let state = state::load(&self.ctx).map_err(|error| Failed {
+            error,
+            warnings: Vec::new(),
+        })?;
+        let plan = match crate::autoswitch::look(&self.ctx, &state, threshold) {
+            crate::autoswitch::Next::Say(auto) => {
+                return Ok(Done {
+                    value: auto,
+                    warnings: Vec::new(),
+                });
+            }
+            crate::autoswitch::Next::Switch(plan) => plan,
+        };
+        let subject = state.typed(&plan.to);
+        self.changing(
+            permit,
+            "auto-switch",
+            &subject,
+            Some(ProviderId::Claude),
+            |settled| switch::automatically(settled, &plan, threshold),
+        )
+    }
+
     /// Which account somebody meant, as the key the engine looks accounts up by.
     ///
     /// Resolving here rather than deeper down means every command takes `codex/work` and
@@ -846,7 +881,9 @@ impl Pitboard {
         }
         match run(settled) {
             Ok((value, more)) => {
-                audit::record(&self.ctx, permit, verb, subject, value.audit_code());
+                if value.recorded() {
+                    audit::record(&self.ctx, permit, verb, subject, value.audit_code());
+                }
                 warnings.extend(more);
                 Ok(Done { value, warnings })
             }
@@ -863,6 +900,18 @@ impl Pitboard {
 trait Audited {
     fn audit_code(&self) -> &'static str {
         "ok"
+    }
+
+    /// Whether it changed anything worth a line. A change that found, once it held the lock,
+    /// that there was nothing to do, did nothing.
+    fn recorded(&self) -> bool {
+        true
+    }
+}
+
+impl Audited for crate::autoswitch::Auto {
+    fn recorded(&self) -> bool {
+        matches!(self, crate::autoswitch::Auto::Switched { .. })
     }
 }
 

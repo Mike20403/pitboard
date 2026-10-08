@@ -8,6 +8,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Pitboard can switch Claude Code by itself before the account in use runs out, so an agent
+  working in a running `claude` session can go on under another of your accounts. Once any
+  limit of the account in use reaches a share you choose, 95% by default, Pitboard
+  switches to the enrolled account with the most room in that limit, among those that have
+  used less than the share of every limit. With no such account, nothing moves. It
+  switches before the limit, not at it, because sessions already running follow a switch
+  within about 33 seconds. It is off until you turn it on. It never switches Codex, whose
+  running sessions keep their account until restarted, and never switches back by itself.
+  Each switch is the one `pitboard use` makes, and `pitboard log` records it as
+  `auto-switch`. What was tried for each limit is kept in `autoswitch.json` in Pitboard's
+  directory. See [Switch before an account runs
+  out](https://docs.usepitboard.com/guides/automatic-switching).
+- `pitboard watch` switches Claude Code that way for as long as it runs in a terminal,
+  whatever the app's setting says. Control-C stops it. Nothing installs it, and it starts
+  nothing that outlives it. `--at` sets the share, from 50 to 99. It reads every account
+  every 5 minutes, as the app does, and decides again within 2 seconds of a status line
+  recording usage. It prints a line, starting with the local time, for each switch, and
+  once for each thing that stops one. `--once` decides once from the numbers Pitboard last
+  read and exits. With `--json`, each event is an envelope on a line of its own, whose
+  `data.event` is `watching`, `switched`, `no_room`, `skipped` or `idle`.
+- The app's **Settings** > **General** has a **Before an account runs out** section, with
+  **Switch Claude Code automatically**, off by default, and the share it switches at, from
+  50% to 99%. The app keeps both in `app.json`, as `auto_switch` and `auto_switch_at`, and
+  switches only while it is open. After a switch it posts a notification such as
+  **Switched Claude Code to personal**, and the window shows the switch as one made by
+  hand. When something stops a switch, or a switch it tries fails, it says why in a
+  notification, once until it next switches. The **Activity** pane names such a switch
+  **Automatic switch**.
 - `pitboard doctor` has a `network` check, which the app's **This Mac** pane shows too. It
   says whether Pitboard's requests go out directly or through a proxy, names the proxy and
   the variable it came from, such as
@@ -249,9 +277,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   has the fields `network` and `in_the_app`, `doctor::ScheduleFact` has the fields
   `network` and `network_differs`, and `doctor::NetworkFact` and `doctor::ProxyFact` are
   new. These change the crate's public API.
+- In `pitboard-core`, the `autoswitch` module, `service::Pitboard::auto_switch`,
+  `words::share_of_limit` and `words::not_switching` are new, and `error::Error` has the
+  variant `SwitchOvertaken`. These change the crate's public API.
 
 ### Fixed
 
+- When the account in use runs out of a limit, the app's notification and window offer to
+  switch only to an account with room in every limit it reports, counting a limit whose
+  reset time has passed as reset. They offered the account with the most room in the limit
+  that ran out, even one that had run out of another limit. An account with five-hour room
+  and its weekly limit spent stopped at once when switched to.
 - Where Pitboard cannot read the list of running processes, a Codex switch warns, with the
   code `sessions_unknown`, that Pitboard could not tell whether Codex sessions started
   before it are still running, and says not to sign out in one: that revokes the login

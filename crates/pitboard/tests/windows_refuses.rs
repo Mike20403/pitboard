@@ -29,7 +29,7 @@ const FOLDERS: [&str; 7] = [
 ];
 
 /// Every change the command line makes, as a person types it. `--json` is added to each.
-const CHANGES: [&[&str]; 13] = [
+const CHANGES: [&[&str]; 15] = [
     &["enroll", "work"],
     &["enroll", "codex/work", "--sign-in"],
     &["use", "work"],
@@ -43,6 +43,8 @@ const CHANGES: [&[&str]; 13] = [
     &["schedule", "uninstall"],
     &["uninstall", "-y"],
     &["rename", "work", "job"],
+    &["watch"],
+    &["watch", "--once"],
 ];
 
 /// What reads and changes nothing, as a person types it. `--json` is added to each.

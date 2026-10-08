@@ -23,6 +23,7 @@ Run a command as `pitboard <command>`. The following table lists each `<command>
 | `rename` | Change the label an account is enrolled under | [Account commands](/reference/account-commands#rename) |
 | `doctor` | Check that what Pitboard relies on still holds on this machine | [Maintenance commands](/reference/maintenance-commands#doctor) |
 | `statusline` | One line for Claude Code's status bar; reads its session JSON on stdin | [Integration commands](/reference/integration-commands#statusline) |
+| `watch` | Switch Claude Code to another of your accounts before the one in use runs out, for as long as this runs | [Account commands](/reference/account-commands#watch) |
 | `completions` | Print a shell completion script | [Integration commands](/reference/integration-commands#completions) |
 | `help` | Print this message or the help of the given subcommand(s) | [Global options](/reference/commands#global-options) |
 | `manpage` | Print the man page | [Integration commands](/reference/integration-commands#manpage) |
@@ -81,7 +82,7 @@ Pitboard refuses a label that breaks a rule, with one of these messages:
 
 A command prints its result on standard output. Errors go to standard error as `error: <message>`, and warnings as `warning: <message>`.
 
-With `--json`, Pitboard prints one line of JSON on standard output, with any error or warning inside it. `--help` and `--version` print plain text even with `--json`. `pitboard enroll --sign-in` also writes to standard error: the line that starts `Opening`, and the tool's own sign-in text.
+With `--json`, Pitboard prints one line of JSON on standard output, with any error or warning inside it. `pitboard watch` prints one such line for each event while it runs. `--help` and `--version` print plain text even with `--json`. `pitboard enroll --sign-in` also writes to standard error: the line that starts `Opening`, and the tool's own sign-in text.
 
 Pitboard colours output that goes to a terminal, unless `NO_COLOR` is set and not empty. Output to a file or a pipe has no colour, and JSON output never has any.
 

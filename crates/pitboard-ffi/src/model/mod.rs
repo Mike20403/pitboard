@@ -43,6 +43,8 @@ pub(crate) mod windows;
 #[cfg(test)]
 mod advising;
 #[cfg(test)]
+mod automatic;
+#[cfg(test)]
 mod cadence;
 #[cfg(test)]
 mod changing;
@@ -295,6 +297,12 @@ pub enum Intent {
     /// command line that a schedule would keep reaching, and nothing is asked of the
     /// scheduler; turning it off never is, since that is how such a schedule is taken away.
     SetSchedule { on: bool },
+    /// Switch Claude Code by itself, or stop: the settings' switch, with the share of a limit
+    /// it switches at, a whole percentage, taken as the nearest there can be. Kept in the
+    /// app's preferences in Pitboard's directory, and taken only once they have been read,
+    /// as `MachineShown::auto_switch` says by `enabled`. Turned on, it looks at once at what
+    /// was read last.
+    SetAutoSwitch { on: bool, at: u8 },
     /// Renew every parked login that is due, now, then read the accounts again once, asking
     /// every service, to show what it renewed. Never switches, and asks for no usage beyond
     /// that read. Asked for while a renewal is under way, it does nothing.
@@ -600,9 +608,10 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for PlatformError {
     }
 }
 
-/// A notification that an account in use has run out, and which account of the same tool has
-/// room: posted once for each reset of a limit, whether the app was quit and opened again
-/// meanwhile or not.
+/// A notification: that an account in use has run out, and which account of the same tool has
+/// room, posted once for each reset of a limit, whether the app was quit and opened again
+/// meanwhile or not; or what came of switching Claude Code by itself, where somebody turned
+/// that on.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RunOutNotice {
     /// The same for the same run-out, so the system shows it once: the account, the limit
@@ -615,8 +624,9 @@ pub struct RunOutNotice {
     /// "spare has 80% of its own left."
     pub body: String,
     /// The account its Switch button switches to, its label with its tool, for
-    /// `Intent::SwitchTo`. Pitboard never switches by itself.
-    pub switch_to: String,
+    /// `Intent::SwitchTo`. `None` for a notification with nothing to switch to, which has no
+    /// button: one saying what Pitboard switched by itself.
+    pub switch_to: Option<String>,
 }
 
 /// The app's system's notifications. Called on a thread of the model's own, never the app's
@@ -625,7 +635,7 @@ pub struct RunOutNotice {
 /// says the same either way.
 #[uniffi::export(with_foreign)]
 pub trait Notifications: Send + Sync {
-    /// Posts `notice`, with a button that switches to its `switch_to`.
+    /// Posts `notice`, with a button that switches to its `switch_to` where it names one.
     fn post(&self, notice: RunOutNotice) -> Result<(), PlatformError>;
 }
 

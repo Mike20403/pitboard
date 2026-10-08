@@ -11,6 +11,7 @@
 use super::{Seen, words};
 use crate::model::machine::ScheduleFailure;
 use crate::{FoundCommandLine, Level, Schedule};
+use pitboard_core::autoswitch::Threshold;
 
 /// What the app shows of this machine rather than its accounts. Not called `Machine`, the
 /// name the model's tests give the core they script.
@@ -26,6 +27,30 @@ pub struct MachineShown {
     pub activity: ActivityShown,
     /// The `pitboard` a terminal runs, as the settings show it.
     pub command_line: CommandLineShown,
+    /// Switching Claude Code by itself, as the settings show it.
+    pub auto_switch: AutoSwitchShown,
+}
+
+/// Switching Claude Code by itself before the account in use runs out, as the settings show
+/// it: their switch, the share it switches at, and what is said under them.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AutoSwitchShown {
+    /// Whether the switch shows it as on. Off unless somebody turned it on.
+    pub on: bool,
+    /// The share of a limit it switches at, a whole percentage, which `Intent::SetAutoSwitch`
+    /// takes back.
+    pub at: u8,
+    /// The lowest and highest shares there can be, for the control that picks one.
+    pub lowest: u8,
+    pub highest: u8,
+    /// Whether the switch and the share can be changed: not until the app's preferences
+    /// have been read, where a change would be lost under what they say, nor for good where
+    /// they could not be.
+    pub enabled: bool,
+    /// The share as the control names it: "Switch when a limit reaches 95%".
+    pub at_label: String,
+    /// What is said under them: what it does and what it never does.
+    pub note: String,
 }
 
 /// Daily renewal, as the settings show it.
@@ -172,6 +197,29 @@ pub(crate) fn machine(seen: &Seen) -> MachineShown {
         checks: checks(seen),
         activity: activity(seen),
         command_line: command_line(seen),
+        auto_switch: auto_switch(seen),
+    }
+}
+
+/// Switching Claude Code by itself, from the app's preferences.
+fn auto_switch(seen: &Seen) -> AutoSwitchShown {
+    let state = seen.state;
+    let at = state.preferences.threshold().percent();
+    AutoSwitchShown {
+        on: state.preferences.auto_switch,
+        at,
+        lowest: Threshold::LOWEST,
+        highest: Threshold::HIGHEST,
+        enabled: state.preferences_have_been_read(),
+        at_label: format!("Switch when a limit reaches {at}%"),
+        note: format!(
+            "Pitboard switches Claude Code to another of your accounts with room below \
+             {at}% in every limit, once a limit of the one in use reaches {at}%, while the app \
+             is open. Sessions already running follow within about {} seconds. It never \
+             switches back by itself, and never switches Codex: a running codex keeps its \
+             account until restarted.",
+            pitboard_core::switch::ADOPTION_CEILING_SECONDS
+        ),
     }
 }
 

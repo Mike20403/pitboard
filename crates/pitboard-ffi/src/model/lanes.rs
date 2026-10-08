@@ -76,6 +76,7 @@ impl Job {
             | Job::Check
             | Job::ReadLog { .. } => Lane::Reads,
             Job::Switch { .. }
+            | Job::AutoSwitch { .. }
             | Job::Abandon
             | Job::Enrol { .. }
             | Job::Rename { .. }
@@ -552,6 +553,9 @@ impl Worker {
                 done: core.switch_to(qualified.clone()),
                 qualified,
                 reopen,
+            },
+            Job::AutoSwitch { at } => Answer::AutoSwitched {
+                done: core.auto_switch(at),
             },
             Job::Open { location } => {
                 // An app that cannot be opened again is the person's to open: nothing here

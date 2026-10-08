@@ -160,6 +160,26 @@ pub(crate) struct Switched {
     pub(crate) warnings: Vec<Warning>,
 }
 
+/// What switching Claude Code by itself came to, as the model takes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AutoSwitched {
+    /// Nothing to do.
+    Idle,
+    /// A limit of the account in use reached the share, and no other account has room.
+    NoRoom,
+    /// What the switch said, as a switch somebody asked for says it, and how much the account
+    /// it left had used: "96% of its 5-hour limit".
+    Switched { switched: Switched, used: String },
+    /// A limit of `from` reached the share, `used` of it, and Pitboard did not switch, for
+    /// the reason `code` names and `why` says.
+    Skipped {
+        from: String,
+        used: String,
+        code: String,
+        why: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EnrolledAs {
     /// The account signed in now.
@@ -280,6 +300,18 @@ fn status_of(done: service::Done<status::Report>) -> Status {
             .map(|row| account(row, now))
             .collect(),
         warnings: warnings(&done.warnings),
+    }
+}
+
+/// When sessions already running follow a switch, as the core says it for the tool.
+fn adoption_of(adoption: pitboard_core::provider::Adoption) -> Adoption {
+    match adoption {
+        pitboard_core::provider::Adoption::PollingWithin(seconds) => Adoption::Follows {
+            within_seconds: seconds,
+        },
+        pitboard_core::provider::Adoption::RestartRequired { program, .. } => Adoption::Restart {
+            program: program.into(),
+        },
     }
 }
 
@@ -669,24 +701,52 @@ impl AppCore {
                         provider: provider.code().into(),
                         from,
                         to,
-                        adoption: match adoption {
-                            pitboard_core::provider::Adoption::PollingWithin(seconds) => {
-                                Adoption::Follows {
-                                    within_seconds: seconds,
-                                }
-                            }
-                            pitboard_core::provider::Adoption::RestartRequired {
-                                program, ..
-                            } => Adoption::Restart {
-                                program: program.into(),
-                            },
-                        },
+                        adoption: adoption_of(adoption),
                     },
                     switch::Outcome::AlreadyActive { label } => Switch::AlreadyActive { label },
                 },
                 warnings,
             }
         })
+    }
+
+    /// Switches Claude Code by itself where a limit of the account in use has reached `at`%
+    /// and another account has room, as the core decides. `at` is taken as the nearest share
+    /// there can be.
+    pub(crate) fn auto_switch(&self, at: u8) -> Result<AutoSwitched, PitboardError> {
+        use pitboard_core::autoswitch::{Auto, Threshold};
+        use pitboard_core::words;
+        let threshold = Threshold::clamped(i64::from(at));
+        changed(
+            self.core().core.auto_switch(threshold),
+            |auto, warnings| match auto {
+                Auto::Idle => AutoSwitched::Idle,
+                Auto::NoRoom { .. } => AutoSwitched::NoRoom,
+                Auto::Switched {
+                    from,
+                    to,
+                    limit,
+                    adoption,
+                } => AutoSwitched::Switched {
+                    switched: Switched {
+                        outcome: Switch::Switched {
+                            provider: pitboard_core::provider::ProviderId::Claude.code().into(),
+                            from,
+                            to,
+                            adoption: adoption_of(adoption),
+                        },
+                        warnings,
+                    },
+                    used: words::share_of_limit(&limit),
+                },
+                Auto::Skipped { from, limit, why } => AutoSwitched::Skipped {
+                    from,
+                    used: words::share_of_limit(&limit),
+                    code: why.code().into(),
+                    why: words::not_switching(&why),
+                },
+            },
+        )
     }
 
     /// Enroll the account signed in now under `label`.

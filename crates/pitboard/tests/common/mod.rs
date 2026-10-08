@@ -757,6 +757,58 @@ impl Env {
         std::fs::write(self.root.join("pitboard/state.json"), state.to_string()).unwrap();
     }
 
+    /// What Pitboard has measured of each account's five-hour and weekly limits, by the
+    /// letter its id was made from, written where every front end records what it measured.
+    /// Each limit resets an hour and a day from now.
+    pub fn measured(&self, shares: &[(char, f64, f64)]) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after 1970")
+            .as_secs() as i64;
+        let window = |kind: &str, percent: f64, resets_in: i64| {
+            serde_json::json!({
+                "kind": kind,
+                "scope": null,
+                "percent": percent,
+                "resets_at": now + resets_in,
+                "is_active": true,
+            })
+        };
+        let readings: serde_json::Map<String, serde_json::Value> = shares
+            .iter()
+            .map(|&(who, session, weekly)| {
+                let uuid = self.uuid(who);
+                let reading = serde_json::json!({
+                    "windows": [
+                        window("session", session, 3600),
+                        window("weekly_all", weekly, 86_400),
+                    ],
+                    "observed_at": now,
+                    "account_uuid": uuid,
+                    "source": "live",
+                });
+                (uuid, reading)
+            })
+            .collect();
+        std::fs::write(
+            self.root.join("pitboard/usage.json"),
+            serde_json::Value::Object(readings).to_string(),
+        )
+        .unwrap();
+    }
+
+    /// Every account was last put in use an hour ago. Enrolling the account signed in puts
+    /// it in use, and Pitboard switches nothing away from an account for five minutes after.
+    pub fn an_hour_on(&self) {
+        self.edit_state(|state| {
+            for account in state["accounts"].as_array_mut().expect("accounts") {
+                if let Some(at) = account["last_used_at"].as_i64() {
+                    account["last_used_at"] = serde_json::json!(at - 3600);
+                }
+            }
+        });
+    }
+
     /// The item holding an account's parked login, if it has one.
     pub fn parked_service(&self, label: &str) -> Option<String> {
         self.state()["accounts"]

@@ -1,6 +1,7 @@
 use anstream::{ColorChoice, eprintln, print, println};
 use anstyle::{AnsiColor, Style};
 use clap::{CommandFactory, Parser, Subcommand};
+use pitboard_core::autoswitch::Threshold;
 use pitboard_core::context::Context;
 use pitboard_core::doctor;
 use pitboard_core::error::Error;
@@ -16,6 +17,7 @@ mod json;
 mod manpage;
 mod render;
 mod ui;
+mod watch;
 
 /// Bumped only when a field changes shape. Adding a field or an error code is not a
 /// breaking change for a consumer; renaming or removing one is.
@@ -120,6 +122,23 @@ enum Command {
     Doctor,
     /// One line for Claude Code's status bar; reads its session JSON on stdin
     Statusline,
+    /// Switch Claude Code to another of your accounts before the one in use runs out, for as
+    /// long as this runs
+    Watch {
+        /// Switch once a limit of the account in use reaches this share, from 50 to 99
+        #[arg(
+            long,
+            value_name = "PERCENT",
+            default_value_t = Threshold::DEFAULT.percent(),
+            value_parser = clap::value_parser!(u8)
+                .range(i64::from(Threshold::LOWEST)..=i64::from(Threshold::HIGHEST)),
+        )]
+        at: u8,
+        /// Decide once from the numbers Pitboard last measured, without asking anyone, and
+        /// stop
+        #[arg(long)]
+        once: bool,
+    },
     /// Print a shell completion script
     Completions { shell: clap_complete::Shell },
     /// Print the man page
@@ -145,6 +164,7 @@ impl Command {
             Command::Rename { .. } => "rename",
             Command::Doctor => "doctor",
             Command::Statusline => "statusline",
+            Command::Watch { .. } => "watch",
             Command::Completions { .. } | Command::Manpage => "generate",
         }
     }
@@ -491,28 +511,7 @@ fn use_account(pitboard: &Pitboard, label: &str) -> Report {
             parked,
             adoption,
         } => {
-            // The tool's own answer, not a constant. A number of seconds is only ever shown
-            // for a tool that really does follow on its own within them, and a tool that
-            // needs restarting has no number at all rather than a zero that reads as "at
-            // once".
-            let (seconds, follows, adoption_json) = match adoption {
-                Adoption::PollingWithin(seconds) => (
-                    Some(seconds),
-                    format!(
-                        "{} sessions already running follow within {seconds} seconds.\n",
-                        provider.name()
-                    ),
-                    json!({ "follows": "polling", "within_seconds": seconds }),
-                ),
-                Adoption::RestartRequired { program, .. } => (
-                    None,
-                    format!(
-                        "Restart any running `{program}` for this to take effect. \
-                         It will not pick the switch up on its own.\n"
-                    ),
-                    json!({ "follows": "restart", "program": program }),
-                ),
-            };
+            let (seconds, follows, adoption_json) = followed(provider, &adoption);
             (
                 json!({
                     "from": from,
@@ -531,6 +530,36 @@ fn use_account(pitboard: &Pitboard, label: &str) -> Report {
             )
         }
     })
+}
+
+/// What becomes of sessions already running after a switch: within how many seconds they
+/// follow, where they do, said as a sentence and for `--json`.
+///
+/// The tool's own answer, not a constant. A number of seconds is only ever shown for a tool
+/// that really does follow on its own within them, and a tool that needs restarting has no
+/// number at all rather than a zero that reads as "at once".
+fn followed(
+    provider: pitboard_core::provider::ProviderId,
+    adoption: &Adoption,
+) -> (Option<u32>, String, Value) {
+    match *adoption {
+        Adoption::PollingWithin(seconds) => (
+            Some(seconds),
+            format!(
+                "{} sessions already running follow within {seconds} seconds.\n",
+                provider.name()
+            ),
+            json!({ "follows": "polling", "within_seconds": seconds }),
+        ),
+        Adoption::RestartRequired { program, .. } => (
+            None,
+            format!(
+                "Restart any running `{program}` for this to take effect. \
+                 It will not pick the switch up on its own.\n"
+            ),
+            json!({ "follows": "restart", "program": program }),
+        ),
+    }
 }
 
 fn forget(pitboard: &Pitboard, label: &str) -> Report {
@@ -921,6 +950,14 @@ fn main() -> ExitCode {
         Command::Status { offline, fresh } => status(&pitboard, offline, fresh),
         Command::Doctor => doctor(&pitboard),
         Command::Statusline => statusline(&pitboard),
+        Command::Watch { at, once } => {
+            // The parser takes only a share there can be.
+            let threshold = Threshold::new(at).unwrap_or_default();
+            if !once {
+                return watch::run(&pitboard, threshold, cli.json);
+            }
+            watch::once(&pitboard, threshold)
+        }
         Command::Enroll {
             label,
             sign_in: true,

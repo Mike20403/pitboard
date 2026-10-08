@@ -116,7 +116,8 @@ The log holds labels, codes and times, and no email addresses. It holds an accou
 
 | Verb | Written when | Subject and outcome |
 | --- | --- | --- |
-| `use` | A switch | The label switched to. `already_active` when that account was already in use. |
+| `use` | A switch you make, in the app or with `pitboard use` | The label switched to. `already_active` when that account was already in use. |
+| `auto-switch` | Pitboard switches Claude Code by itself, from the app or `pitboard watch`, or a switch it tries fails. Deciding not to switch writes no line. | The label switched to, or tried. `ok`, or the code of the error that stopped the switch. |
 | `enroll` | An enrolment, with or without `--sign-in` | The label. `label_unusable` when the label was refused. |
 | `forget` | An account is forgotten | The label |
 | `rename` | A label changes | The label before and after, as in `wrong -> right` |

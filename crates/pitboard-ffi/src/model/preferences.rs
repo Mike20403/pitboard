@@ -1,9 +1,10 @@
 //! The app's own preferences, which the model keeps in `app.json` in Pitboard's directory:
-//! the tools somebody said "Not Now" to a second account for, and whether the app has ever
-//! shown anybody anything. The macOS app kept them in UserDefaults, and hands them over once,
+//! the tools somebody said "Not Now" to a second account for, whether the app has ever shown
+//! anybody anything, and whether it switches Claude Code by itself, and at what share. The macOS app kept them in UserDefaults, and hands them over once,
 //! as `AppLaunch::earlier_preferences`: where the file is there, it wins.
 
 use super::EarlierPreferences;
+use pitboard_core::autoswitch::Threshold;
 use pitboard_core::provider::ProviderId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -20,6 +21,16 @@ pub(crate) struct Preferences {
     /// nothing at all, so the first launch opens the window, once.
     #[serde(default)]
     pub(crate) has_been_seen: bool,
+    /// Whether the app switches Claude Code by itself before the account in use runs out,
+    /// which somebody turns on in the settings: off unless they did. Left out of the file
+    /// while off, so a file nobody turned it on in reads as it always did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) auto_switch: bool,
+    /// The share of a limit it switches at, a whole percentage, where somebody chose one;
+    /// read through [`Preferences::threshold`]. Any whole number reads, so one no version
+    /// would write leaves the rest of the file readable, and is taken as the nearest share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) auto_switch_at: Option<i64>,
 }
 
 impl Preferences {
@@ -46,9 +57,17 @@ impl Preferences {
             Preferences {
                 second_account_declined: declined,
                 has_been_seen: earlier.has_been_seen,
+                ..Preferences::default()
             },
             false,
         )
+    }
+
+    /// The share of a limit the app switches Claude Code at: the one chosen, as near as there
+    /// can be one to what another version kept, or the default.
+    pub(crate) fn threshold(&self) -> Threshold {
+        self.auto_switch_at
+            .map_or_else(Threshold::default, Threshold::clamped)
     }
 
     /// `app.json`'s text for these preferences.
@@ -127,6 +146,7 @@ mod tests {
         let preferences = Preferences {
             second_account_declined: BTreeSet::from(["codex".to_owned()]),
             has_been_seen: true,
+            ..Preferences::default()
         };
         let text = preferences.text().expect("text");
         assert_eq!(
@@ -134,5 +154,50 @@ mod tests {
             r#"{"second_account_declined":["codex"],"has_been_seen":true}"#
         );
         assert_eq!(Preferences::kept(Some(&text), None), (preferences, true));
+    }
+
+    /// Switching by itself is off unless somebody turned it on, at 95% unless they chose
+    /// another share; what they chose reads back, and a share no version could keep reads as
+    /// the nearest there can be.
+    #[test]
+    fn switching_by_itself_is_off_until_turned_on_and_keeps_its_share() {
+        let none = Preferences::default();
+        assert!(!none.auto_switch);
+        assert_eq!(none.threshold().percent(), 95);
+
+        let on = Preferences {
+            auto_switch: true,
+            auto_switch_at: Some(90),
+            ..Preferences::default()
+        };
+        let text = on.text().expect("text");
+        assert_eq!(
+            text,
+            r#"{"second_account_declined":[],"has_been_seen":false,"auto_switch":true,"auto_switch_at":90}"#
+        );
+        assert_eq!(Preferences::kept(Some(&text), None), (on, true));
+
+        let (odd, _) =
+            Preferences::kept(Some(r#"{"auto_switch":true,"auto_switch_at":120}"#), None);
+        assert_eq!(odd.threshold().percent(), 99);
+    }
+
+    /// A share no version would keep, written by hand or by a later version, is read as the
+    /// nearest there can be, and the rest of the file with it: one field out of range does
+    /// not make the preferences unreadable.
+    #[test]
+    fn a_share_out_of_range_is_read_as_the_nearest_with_the_rest() {
+        for (written, read) in [(300, 99), (-1, 50)] {
+            let (kept, from_file) = Preferences::kept(
+                Some(&format!(
+                    r#"{{"second_account_declined":["codex"],"auto_switch":true,"auto_switch_at":{written}}}"#
+                )),
+                None,
+            );
+            assert!(from_file, "{written}");
+            assert_eq!(declined(&kept), ["codex"]);
+            assert!(kept.auto_switch);
+            assert_eq!(kept.threshold().percent(), read);
+        }
     }
 }
